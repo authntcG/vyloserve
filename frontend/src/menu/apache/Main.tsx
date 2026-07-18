@@ -2,7 +2,6 @@
 import { useState } from 'react';
 import ProjectCard from '../../components/ProjectCard';
 import type { ProjectProps } from '../../components/ProjectCard';
-import LogsPanel from '../../components/LogsPanel';
 import Modal from '../../components/Modal';
 
 import ApacheSettings from './Settings';
@@ -15,11 +14,7 @@ const DUMMY_PROJECTS: ProjectProps[] = [
     { id: '3', name: 'Internal CRM', version: '3.2.0', size: '210 MB', domain: 'crm.local' },
 ];
 
-interface ApacheMainProps {
-    isDesktopCollapsed: boolean;
-}
-
-export default function ApacheMain({ isDesktopCollapsed }: ApacheMainProps) {
+export default function ApacheMain() {
     // States untuk kontrol modal
     const [isOptionsOpen, setIsOptionsOpen] = useState(false);
     const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
@@ -31,8 +26,6 @@ export default function ApacheMain({ isDesktopCollapsed }: ApacheMainProps) {
 
     // Ambil data project yang sedang dipilih
     const selectedProject = DUMMY_PROJECTS.find(p => p.id === selectedProjectId);
-
-    const mainContentMargin = isDesktopCollapsed ? 'md:ml-20' : 'md:ml-sidebar-width';
 
     const handleOpenProjectSettings = (id: string) => {
         setSelectedProjectId(id);
@@ -46,7 +39,7 @@ export default function ApacheMain({ isDesktopCollapsed }: ApacheMainProps) {
 
     return (
         <>
-            <main className={`flex-1 px-4 py-6 md:px-8 md:py-8 w-full transition-all duration-300 ${mainContentMargin}`}>
+            <div className="flex flex-col w-full">
                 {/* Header Server */}
                 <div className="flex flex-col gap-3 mb-8">
                     <div className="flex items-center gap-3">
@@ -94,8 +87,7 @@ export default function ApacheMain({ isDesktopCollapsed }: ApacheMainProps) {
                     </div>
                 </div>
 
-                <LogsPanel />
-            </main>
+            </div>
 
             {/* --- KUMPULAN MODALS --- */}
             <Modal isOpen={isOptionsOpen} onClose={() => setIsOptionsOpen(false)} title="Apache Settings" icon="tune" onApply={() => setIsOptionsOpen(false)}>
