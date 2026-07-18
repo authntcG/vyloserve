@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { ReactNode, useEffect } from 'react';
 
 export interface ModalProps {
     isOpen: boolean;
@@ -8,7 +8,9 @@ export interface ModalProps {
     children: ReactNode;
     onApply?: () => void;
     applyText?: string;
-    isDanger?: boolean; // Tambahan baru
+    isDanger?: boolean;
+    isApplyDisabled?: boolean;
+    isDestructive?: boolean;
 }
 
 export default function Modal({
@@ -19,13 +21,40 @@ export default function Modal({
     children,
     onApply,
     applyText = 'Apply Changes',
-    isDanger = false // Default false
+    isDanger = false,
+    isApplyDisabled = false,
+    isDestructive = false
 }: ModalProps) {
     if (!isOpen) return null;
 
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Abaikan tombol Escape JIKA modal bersifat destructive (hapus)
+            if (e.key === 'Escape' && !isDestructive) {
+                onClose();
+            }
+        };
+
+        if (isOpen) {
+            window.addEventListener('keydown', handleKeyDown);
+        }
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isOpen, onClose, isDestructive]);
+
+    const applyButtonClass = isDestructive
+        ? "bg-red-600 hover:bg-red-700 disabled:bg-slate-400 disabled:cursor-not-allowed text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors"
+        : "bg-primary hover:bg-blue-600 disabled:bg-slate-400 disabled:cursor-not-allowed text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors";
+
+    const handleBackdropClick = () => {
+        // Abaikan klik di luar modal JIKA modal bersifat destructive
+        if (!isDestructive) {
+            onClose();
+        }
+    };
+
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={onClose} />
+            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={(e) => e.stopPropagation()} />
 
             <div className="relative w-full sm:w-[500px] max-w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl flex flex-col">
                 <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 rounded-t-xl">
@@ -49,8 +78,8 @@ export default function Modal({
                     {onApply && (
                         <button
                             onClick={onApply}
-                            className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors shadow-sm ${isDanger ? 'bg-red-500 hover:bg-red-600' : 'bg-primary hover:bg-blue-600'
-                                }`}
+                            disabled={isApplyDisabled}
+                            className={applyButtonClass}
                         >
                             {applyText}
                         </button>

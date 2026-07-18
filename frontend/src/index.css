@@ -1,4 +1,7 @@
 @import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 @theme {
   /* Colors */
@@ -32,7 +35,16 @@
 }
 
 @layer base {
-  body {
-    @apply min-h-screen relative font-body-md bg-background dark:bg-slate-900 text-slate-900 dark:text-slate-50 overflow-x-hidden transition-colors duration-200;
+  html {
+    /* Gunakan Inter sebagai font utama aplikasi */
+    font-family: 'Inter', system-ui, sans-serif;
   }
+}
+
+.material-symbols-outlined {
+  font-variation-settings:
+    'FILL'0,
+    'wght'400,
+    'GRAD'0,
+    'opsz'24;
 }

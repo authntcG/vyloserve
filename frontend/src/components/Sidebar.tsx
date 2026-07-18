@@ -26,8 +26,7 @@ interface SidebarProps {
 const SERVICES: ServiceItem[] = [
     { id: 'apache', name: 'Apache', icon: 'dns', isActive: true },
     { id: 'php', name: 'PHP', icon: 'code', isActive: false },
-    { id: 'mysql', name: 'MySQL', icon: 'database', isActive: false },
-    { id: 'postgres', name: 'PostgreSQL', icon: 'storage', isActive: false },
+    { id: 'database', name: 'Database', icon: 'database', isActive: false },
 ];
 
 const TOOLS: ToolItem[] = [
@@ -46,18 +45,6 @@ export default function Sidebar({
 }: SidebarProps) {
     const [searchQuery, setSearchQuery] = useState('');
     const [isToolsOpen, setIsToolsOpen] = useState(false);
-
-    const [serviceStates, setServiceStates] = useState<Record<string, boolean>>({
-        apache: true,
-        php: false,
-        mysql: false,
-        postgres: false
-    });
-
-    const handleToggle = (e: React.MouseEvent, id: string) => {
-        e.stopPropagation();
-        setServiceStates(prev => ({ ...prev, [id]: !prev[id] }));
-    };
 
     // 1. STATE BARU: Menyimpan status on/off layanan berdasarkan ID
     const [serviceToggleStates, setServiceToggleStates] = useState<Record<string, boolean>>(

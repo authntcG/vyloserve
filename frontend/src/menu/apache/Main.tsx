@@ -1,30 +1,26 @@
-// src/menu/apache/Main.tsx
 import { useState } from 'react';
-import ProjectCard from '../../components/ProjectCard';
-import type { ProjectProps } from '../../components/ProjectCard';
+import Card from '../../components/Card';
 import Modal from '../../components/Modal';
 
 import ApacheSettings from './Settings';
 import NewApacheProject from './NewProject';
 import ProjectSettings from './ProjectSettings';
 
-const DUMMY_PROJECTS: ProjectProps[] = [
-    { id: '1', name: 'E-Commerce App', version: '2.4.54', size: '124 MB', domain: 'shop.local' },
-    { id: '2', name: 'Portfolio Website', version: '1.0.2', size: '45 MB', domain: 'portfolio.local' },
-    { id: '3', name: 'Internal CRM', version: '3.2.0', size: '210 MB', domain: 'crm.local' },
+// Dummy data diperbarui dengan field framework
+const DUMMY_PROJECTS = [
+    { id: '1', name: 'E-Commerce App', version: '2.4.54', size: '124 MB', domain: 'shop.local', framework: 'Laravel', frameworkVer: '10.x' },
+    { id: '2', name: 'Portfolio Website', version: '1.0.2', size: '45 MB', domain: 'portfolio.local', framework: 'Wordpress', frameworkVer: '6.4' },
+    { id: '3', name: 'Internal CRM', version: '3.2.0', size: '210 MB', domain: 'crm.local', framework: 'CodeIgniter', frameworkVer: '4.x' },
 ];
 
 export default function ApacheMain() {
-    // States untuk kontrol modal
     const [isOptionsOpen, setIsOptionsOpen] = useState(false);
     const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
 
-    // States untuk spesifik project
     const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
     const [isProjectSettingsOpen, setIsProjectSettingsOpen] = useState(false);
     const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
 
-    // Ambil data project yang sedang dipilih
     const selectedProject = DUMMY_PROJECTS.find(p => p.id === selectedProjectId);
 
     const handleOpenProjectSettings = (id: string) => {
@@ -40,7 +36,7 @@ export default function ApacheMain() {
     return (
         <>
             <div className="flex flex-col w-full">
-                {/* Header Server */}
+                {/* --- Header Server dengan Status --- */}
                 <div className="flex flex-col gap-3 mb-8">
                     <div className="flex items-center gap-3">
                         <span className="material-symbols-outlined text-slate-700 dark:text-slate-300 text-[32px]" style={{ fontVariationSettings: "'FILL' 0" }}>dns</span>
@@ -73,20 +69,53 @@ export default function ApacheMain() {
                     </div>
                 </div>
 
-                {/* Project List */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div className="flex flex-col gap-4 col-span-full">
-                        {DUMMY_PROJECTS.map(project => (
-                            <ProjectCard
-                                key={project.id}
-                                {...project}
-                                onSettingsClick={handleOpenProjectSettings}
-                                onDeleteClick={handleOpenDeleteConfirm}
-                            />
-                        ))}
-                    </div>
-                </div>
+                {/* --- Render Card Menggunakan Komponen Generik --- */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
+                    {DUMMY_PROJECTS.map(project => (
+                        <Card
+                            key={project.id}
+                            title={project.name}
 
+                            dropdownActions={
+                                <>
+                                    <button className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">Open Config File</button>
+                                    <button onClick={() => handleOpenProjectSettings(project.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">Settings</button>
+                                    <div className="border-t border-slate-200 dark:border-slate-700 my-1"></div>
+                                    <button onClick={() => handleOpenDeleteConfirm(project.id)} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">Delete</button>
+                                </>
+                            }
+
+                            footerActions={
+                                <>
+                                    <button className="flex-1 bg-primary hover:bg-blue-600 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
+                                        <span className="material-symbols-outlined text-[18px]">restart_alt</span> Restart
+                                    </button>
+                                    <button onClick={() => handleOpenProjectSettings(project.id)} className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
+                                        <span className="material-symbols-outlined text-[18px]">settings</span> Settings
+                                    </button>
+                                </>
+                            }
+                        >
+                            {/* Children Data Grid Khusus Apache Project */}
+                            <div className="flex flex-col gap-1">
+                                <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Framework</span>
+                                <span className="text-sm font-medium text-slate-900 dark:text-slate-200">
+                                    {project.framework} <span className="text-xs text-slate-500 ml-1">({project.frameworkVer})</span>
+                                </span>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Size</span>
+                                <span className="text-sm font-medium text-slate-900 dark:text-slate-200">{project.size}</span>
+                            </div>
+                            <div className="flex flex-col gap-1 col-span-2">
+                                <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Local Domain</span>
+                                <a href={`http://${project.domain}`} target="_blank" rel="noreferrer" className="font-mono text-sm text-primary dark:text-blue-400 flex items-center gap-1.5 hover:underline w-fit">
+                                    {project.domain} <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+                                </a>
+                            </div>
+                        </Card>
+                    ))}
+                </div>
             </div>
 
             {/* --- KUMPULAN MODALS --- */}
@@ -99,7 +128,7 @@ export default function ApacheMain() {
             </Modal>
 
             <Modal isOpen={isProjectSettingsOpen} onClose={() => setIsProjectSettingsOpen(false)} title={`Settings: ${selectedProject?.name}`} icon="settings" onApply={() => setIsProjectSettingsOpen(false)}>
-                {selectedProject && <ProjectSettings project={selectedProject} />}
+                {selectedProject && <ProjectSettings project={selectedProject as any} />}
             </Modal>
 
             <Modal isOpen={isDeleteConfirmOpen} onClose={() => setIsDeleteConfirmOpen(false)} title="Delete Project" icon="warning" onApply={() => setIsDeleteConfirmOpen(false)} applyText="Yes, Delete" isDanger={true}>
