@@ -1,17 +1,18 @@
 import webview
 import json
 from core.services.php import PhpManager
+from core.services.apache import ApacheManager
 
 class Api:
     def __init__(self):
         self._window = None
-        # Oper referensi diri (self) ke PhpManager agar bisa menembak log
         self.php = PhpManager(self) 
+        self.apache = ApacheManager(self)
 
     def set_window(self, window):
         self._window = window
 
-    # --- FUNGSI EMITER EVENT KE REACT ---
+    # Logs Sections
     def emit_log(self, message: str, level: str = "info"):
         """ Menembakkan log real-time ke LogsPanel React """
         if self._window:
@@ -26,12 +27,12 @@ class Api:
             detail = json.dumps({"percent": percent, "text": text})
             script = f"window.dispatchEvent(new CustomEvent('vylo_progress', {{detail: {detail} }}));"
             self._window.evaluate_js(script)
-    # ------------------------------------
 
     def test_connection(self, data):
         self.emit_log(f"Menerima ping dari UI: {data}", "info")
         return {"status": "success", "message": "Koneksi Python dan React berhasil!"}
 
+    # PHP Sections
     def get_php_versions(self):
         self.emit_log("Mengambil daftar versi PHP terbaru dari server...", "info")
         return self.php.get_versions()
@@ -63,3 +64,39 @@ class Api:
 
     def stop_php(self, version: str):
         return self.php.stop_php(version)
+    
+    # Apache sections
+    def get_available_apache(self):
+        """ Mengirim perintah ke Python untuk scrape ApacheLounge """
+        return self.apache.get_available_versions()
+
+    def install_apache(self, version: str, url: str, http_port: int, https_port: int):
+        """ Memulai instalasi dan memberikan rollback protection """
+        return self.apache.install_version(version, url, http_port, https_port)
+    
+    def get_apache_status(self):
+        return self.apache.get_status()
+
+    def uninstall_apache(self):
+        return self.apache.uninstall()
+
+    def open_apache_directory(self):
+        return self.apache.open_directory()
+        
+    def open_apache_config(self):
+        return self.apache.open_config()
+    
+    def get_apache_installed_versions(self):
+        return self.apache.get_installed_versions()
+        
+    def set_apache_active_version(self, version: str):
+        return self.apache.set_active_version(version)
+        
+    def open_apache_file(self, file_type: str):
+        return self.apache.open_apache_file(file_type)
+    
+    def start_apache_server(self):
+        return self.apache.start_server()
+
+    def stop_apache_server(self):
+        return self.apache.stop_server()

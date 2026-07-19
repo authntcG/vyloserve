@@ -75,7 +75,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                             <span className={`material-symbols-outlined shrink-0 ${iconColor}`} style={{ fontVariationSettings: "'FILL' 1" }}>
                                 {icon}
                             </span>
-                            <p className="text-sm font-medium leading-relaxed flex-1">{toast.message}</p>
+                            <div className="flex-1 w-full min-w-0">
+                                <p className="text-sm font-medium break-words whitespace-pre-wrap">
+                                    {toast.message}
+                                </p>
+                            </div>
                             <button
                                 onClick={() => removeToast(toast.id)}
                                 className="shrink-0 p-0.5 opacity-50 hover:opacity-100 transition-opacity"

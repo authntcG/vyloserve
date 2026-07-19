@@ -430,20 +430,38 @@ class PhpManager:
         # Perintah eksekusi: php-cgi -b 127.0.0.1:PORT -c php.ini
         cmd = [exe_path, "-b", f"127.0.0.1:{port}", "-c", php_ini_path]
         
+        # ---> PERBAIKAN: SIAPKAN ENVIRONMENT KHUSUS UNTUK PHP <---
+        php_env = os.environ.copy()
+        php_env['REDIRECT_STATUS'] = '200'         # FIX ERROR 500: Bypass keamanan cgi.force_redirect
+        php_env['PHP_FCGI_MAX_REQUESTS'] = '0'     # Mencegah PHP mati otomatis setelah 500 request
+        
         try:
             if sys.platform == 'win32':
                 # Sembunyikan jendela Console hitam bawaan Windows
                 CREATE_NO_WINDOW = 0x08000000
-                process = subprocess.Popen(cmd, cwd=target_dir, creationflags=CREATE_NO_WINDOW)
+                # Masukkan argumen env=php_env ke dalam Popen
+                process = subprocess.Popen(cmd, cwd=target_dir, env=php_env, creationflags=CREATE_NO_WINDOW)
             else:
-                process = subprocess.Popen(cmd, cwd=target_dir)
+                process = subprocess.Popen(cmd, cwd=target_dir, env=php_env)
                 
-            # Tunggu setengah detik untuk memastikan proses tidak langsung crash (misal karena port bentrok)
+            # Tunggu setengah detik untuk memastikan proses tidak langsung crash
+            import time
             time.sleep(0.5)
             if process.poll() is not None:
                  return {"status": "error", "message": f"Gagal menjalankan CGI. Port {port} mungkin sudah digunakan aplikasi lain."}
 
             self.processes[version] = process
+            
+            # Update Proxy Apache dengan Try-Except agar tidak gagal diam-diam
+            try:
+                if hasattr(self, 'api') and hasattr(self.api, 'apache'):
+                    self.api.apache.update_global_php_proxy(port)
+                    self.api.emit_log(f"Routing Apache berhasil diarahkan ke port {port}.", "info")
+                else:
+                    self.api.emit_log("PERINGATAN: Referensi API Apache tidak ditemukan. Routing gagal.", "warning")
+            except Exception as proxy_err:
+                self.api.emit_log(f"Gagal mengupdate proxy Apache: {str(proxy_err)}", "error")
+            
             self.api.emit_log(f"Berhasil menyalakan FastCGI PHP {version} pada Port {port}.", "success")
             return {"status": "success", "message": "PHP FastCGI berhasil dinyalakan."}
             

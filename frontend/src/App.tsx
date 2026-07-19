@@ -6,6 +6,7 @@ import ApacheMain from './menu/apache/Main';
 import PhpMain from './menu/php/Main';
 import LogsPanel from './components/LogsPanel';
 import { ToastProvider, useToast } from './components/ToastContext';
+import DatabaseMain from './menu/database/Main';
 
 declare global {
   interface Window {
@@ -20,8 +21,6 @@ function AppContent() {
 
   // ---> STATE BARU: Global Gatekeeper <---
   const [isApiReady, setIsApiReady] = useState(false);
-
-  const { showToast } = useToast();
 
   // Pengecekan API Terpusat (Hanya berjalan sekali saat aplikasi dibuka)
   useEffect(() => {
@@ -67,15 +66,6 @@ function AppContent() {
   // --- KODE RENDER APLIKASI UTAMA (Hanya dieksekusi setelah API Ready) ---
   const mainContentMargin = isDesktopCollapsed ? 'md:ml-20' : 'md:ml-sidebar-width';
 
-  const handleTestBridge = async () => {
-    try {
-      const response = await window.pywebview.api.test_connection("Halo dari React!");
-      showToast(`Sukses: ${response.message}`, 'success');
-    } catch (error) {
-      showToast("Terjadi error saat memanggil API Python.", 'error');
-    }
-  };
-
   return (
     <div className="flex flex-col h-screen relative overflow-hidden bg-background dark:bg-slate-900">
       <HeaderMobile onMenuClick={() => setIsMobileOpen(true)} />
@@ -91,15 +81,11 @@ function AppContent() {
         />
 
         <div className={`flex flex-col flex-1 w-full transition-all duration-300 ${mainContentMargin}`}>
-          <div className="px-4 md:px-8 py-3 bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex justify-end">
-            <button onClick={handleTestBridge} className="bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium py-1.5 px-4 rounded-lg shadow-sm transition-colors">
-              Test Bridge
-            </button>
-          </div>
 
           <div className="flex-1 overflow-y-auto px-4 py-6 md:px-8 md:py-8">
             {activeMenu === 'apache' && <ApacheMain />}
             {activeMenu === 'php' && <PhpMain />}
+            {activeMenu === 'database' && <DatabaseMain />}
           </div>
 
           <div className="flex-none z-10 relative">
