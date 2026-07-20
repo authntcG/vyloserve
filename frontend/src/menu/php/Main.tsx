@@ -56,6 +56,28 @@ export default function PhpMain() {
         setIsLoading(false);
     };
 
+    // KODE YANG SANGAT BERSIH SEKARANG (DENGAN EVENT LISTENER)
+    useEffect(() => {
+        // Fetch data pertama kali saat halaman dimuat
+        fetchInstalledInstances();
+
+        // ---> MENDENGARKAN SINYAL DARI SIDEBAR <---
+        const handleStatusChange = (e: Event) => {
+            const customEvent = e as CustomEvent;
+            // Jika sinyal yang datang adalah untuk 'php', fetch ulang datanya!
+            if (customEvent.detail.service === 'php') {
+                fetchInstalledInstances();
+            }
+        };
+
+        window.addEventListener('service_status_changed', handleStatusChange);
+        
+        // Membersihkan listener saat pindah halaman agar memori tidak bocor
+        return () => window.removeEventListener('service_status_changed', handleStatusChange);
+        
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     // KODE YANG SANGAT BERSIH SEKARANG
     useEffect(() => {
         fetchInstalledInstances();
@@ -168,25 +190,30 @@ export default function PhpMain() {
 
     const handleToggleStatus = async (php: PhpInstance) => {
         try {
+            let response;
+            const newStatus = php.status === 'running' ? 'stopped' : 'running';
+
             if (php.status === 'running') {
-                // Jika sedang jalan, Hentikan
-                const response = await window.pywebview.api.stop_php(php.version);
-                if (response.status === 'success') {
-                    showToast(response.message, 'info');
-                } else {
-                    showToast(response.message, 'error');
-                }
+                response = await window.pywebview.api.stop_php(php.version);
             } else {
-                // Jika sedang mati, Jalankan
-                const response = await window.pywebview.api.start_php(php.version);
-                if (response.status === 'success') {
-                    showToast(response.message, 'success');
-                } else {
-                    showToast(response.message, 'error');
-                }
+                response = await window.pywebview.api.start_php(php.version);
             }
-            // Refresh status semua instance agar UI berkedip ke status terbaru
-            fetchInstalledInstances();
+
+            if (response.status === 'success') {
+                showToast(response.message, 'success');
+                
+                // 1. UPDATE STATE LOKAL AGAR UI LANGSUNG BERUBAH
+                setInstances(prev => prev.map(inst => 
+                    inst.id === php.id ? { ...inst, status: newStatus } : inst
+                ));
+
+                // 2. TEMBAKKAN EVENT GLOBAL agar Sidebar tahu ada perubahan
+                window.dispatchEvent(new CustomEvent('service_status_changed', { 
+                    detail: { service: 'php', running: newStatus === 'running' } 
+                }));
+            } else {
+                showToast(response.message, 'error');
+            }
         } catch (error) {
             showToast("Gagal menghubungi server VyloServe.", "error");
         }

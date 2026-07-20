@@ -1,5 +1,5 @@
 // src/components/Card.tsx
-import { ReactNode } from 'react';
+import { type ReactNode } from 'react';
 
 export interface CardProps {
     title: string;

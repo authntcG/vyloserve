@@ -243,6 +243,8 @@ $has_curl = extension_loaded('curl');
     def update_global_php_proxy(self, port):
         """Memperbarui routing localhost agar mengarah ke Port FastCGI PHP yang baru saja dijalankan"""
         try:
+            self.api.emit_log(f"Memperbarui routing proxy localhost ke Port FastCGI {port}...", "warn")
+            self.api.emit_log("Menulis ulang httpd.conf dengan Trik DOS Device Path...", "info")
             status = self.get_status()
             if not status.get("installed"):
                 return {"status": "error", "message": "Apache belum terinstal"}
@@ -266,6 +268,7 @@ $has_curl = extension_loaded('curl');
                 
             return {"status": "success", "message": f"Proxy global diupdate ke port {port}"}
         except Exception as e:
+            self.api.emit_log(f"Terjadi kesalahan fatal: {str(e)}", "error")
             return {"status": "error", "message": str(e)}
 
     def get_available_versions(self):
@@ -348,11 +351,12 @@ $has_curl = extension_loaded('curl');
             return {"status": "success", "data": versions}
             
         except Exception as e:
-            print(f"[VyloServe - FATAL ERROR] {str(e)}")
+            self.api.emit_log(f"Terjadi kesalahan fatal: {str(e)}", "error")
             return {"status": "error", "message": f"Terjadi kesalahan: {str(e)}"}
 
     def install_version(self, version: str, download_url: str, http_port: int, https_port: int):
         """ Mengunduh, mengekstrak, dan mengatur Config Dasar Apache """
+        self.api.emit_log(f"Memulai pengunduhan Apache versi {version}...", "info")
         target_dir = os.path.join(self.base_dir, version)
         zip_path = os.path.join(self.base_dir, f"apache-{version}.zip")
         
@@ -402,6 +406,7 @@ $has_curl = extension_loaded('curl');
                         self.api.emit_progress(ui_percent, f"Mengunduh... {percent}%")
             
             # 2. EKSTRAK ZIP
+            self.api.emit_log(f"Mengekstrak file ke {target_dir}...", "info")
             self.api.emit_progress(65, "Mengekstrak file binary...")
             temp_extract_dir = os.path.join(self.base_dir, f"temp_{version}")
             
@@ -447,7 +452,7 @@ $has_curl = extension_loaded('curl');
             self._configure_httpd(target_dir, http_port)
 
             self.api.emit_progress(100, "Selesai!")
-            self.api.emit_log(f"Apache {version} berhasil diinstal pada port {http_port}.", "success")
+            self.api.emit_log(f"Apache {version} berhasil diinstal dan dikonfigurasi.", "success")
             
             return {"status": "success", "message": f"Apache {version} berhasil diinstal dan dikonfigurasi."}
 
@@ -492,6 +497,7 @@ $has_curl = extension_loaded('curl');
             return {"status": "success", "installed": False, "version": None, "path": None}
                 
         except Exception as e:
+            self.api.emit_log(f"Terjadi kesalahan fatal: {str(e)}", "error")
             return {"status": "error", "message": f"Gagal mengecek status Apache: {str(e)}"}
 
     def uninstall(self):
@@ -508,6 +514,7 @@ $has_curl = extension_loaded('curl');
             self.api.emit_log("Apache berhasil di-uninstall.", "success")
             return {"status": "success", "message": "Apache berhasil dihapus dari sistem."}
         except Exception as e:
+            self.api.emit_log(f"Terjadi kesalahan fatal: {str(e)}", "error")
             return {"status": "error", "message": f"Gagal menghapus Apache: {str(e)}"}
 
     def open_directory(self):
@@ -528,6 +535,7 @@ $has_curl = extension_loaded('curl');
                 
             return {"status": "success"}
         except Exception as e:
+            self.api.emit_log(f"Terjadi kesalahan fatal: {str(e)}", "error")
             return {"status": "error", "message": f"Gagal membuka folder: {str(e)}"}
             
     def open_config(self):
@@ -546,6 +554,7 @@ $has_curl = extension_loaded('curl');
                     return {"status": "success"}
             return {"status": "error", "message": "File httpd.conf tidak ditemukan."}
         except Exception as e:
+            self.api.emit_log(f"Terjadi kesalahan fatal: {str(e)}", "error")
             return {"status": "error", "message": f"Gagal membuka konfigurasi: {str(e)}"}
         
     def get_installed_versions(self):
@@ -572,6 +581,7 @@ $has_curl = extension_loaded('curl');
 
             return {"status": "success", "data": versions, "active": active}
         except Exception as e:
+            self.api.emit_log(f"Terjadi kesalahan fatal: {str(e)}", "error")
             return {"status": "error", "message": f"Gagal membaca direktori: {str(e)}"}
 
     def set_active_version(self, version):
@@ -586,6 +596,7 @@ $has_curl = extension_loaded('curl');
             
             return {"status": "success", "message": f"Versi aktif berhasil diubah ke Apache {version}"}
         except Exception as e:
+            self.api.emit_log(f"Terjadi kesalahan fatal: {str(e)}", "error")
             return {"status": "error", "message": f"Gagal menyimpan pengaturan: {str(e)}"}
 
     def open_apache_file(self, file_type):
@@ -627,6 +638,7 @@ $has_curl = extension_loaded('curl');
                 
             return {"status": "success"}
         except Exception as e:
+            self.api.emit_log(f"Terjadi kesalahan fatal: {str(e)}", "error")
             return {"status": "error", "message": str(e)}
             
     def check_is_running(self):
@@ -673,10 +685,12 @@ $has_curl = extension_loaded('curl');
             return {"status": "success", "installed": False, "version": None, "path": None, "running": is_running}
                 
         except Exception as e:
+            self.api.emit_log(f"Terjadi kesalahan fatal: {str(e)}", "error")
             return {"status": "error", "message": f"Gagal mengecek status Apache: {str(e)}"}
 
     def start_server(self):
         """Menjalankan Apache (httpd.exe)"""
+        self.api.emit_log("Menghidupkan Apache server...", "info")
         if self.check_is_running():
             return {"status": "error", "message": "Apache server sudah berjalan."}
             
@@ -702,14 +716,17 @@ $has_curl = extension_loaded('curl');
                     error_output = "Port 80 atau 443 kemungkinan sedang digunakan oleh aplikasi lain (Skype, IIS, dll)."
                 return {"status": "error", "message": f"Server gagal dimulai: {error_output}"}
                 
+            self.api.emit_log(f"Server Apache berhasil berjalan dengan PID {proc.pid}.", "success")
             return {"status": "success", "message": "Apache Web Server berhasil dijalankan."}
             
         except Exception as e:
+            self.api.emit_log(f"Terjadi kesalahan fatal: {str(e)}", "error")
             return {"status": "error", "message": f"Gagal eksekusi: {str(e)}"}
             
     def stop_server(self):
         """Mematikan seluruh proses Apache dengan aman"""
         try:
+            self.api.emit_log("Mengirim sinyal terminasi ke Apache...", "warn")
             flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
             if sys.platform == 'win32':
                 # Membunuh httpd.exe beserta proses anaknya (/T) secara paksa (/F)
@@ -717,8 +734,10 @@ $has_curl = extension_loaded('curl');
             else:
                 subprocess.run(['pkill', '-f', 'httpd'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
+            self.api.emit_log("Server Apache berhasil dihentikan.", "success")
             return {"status": "success", "message": "Apache Web Server berhasil dihentikan."}
         except Exception as e:
+            self.api.emit_log(f"Terjadi kesalahan fatal: {str(e)}", "error")
             return {"status": "error", "message": f"Gagal menghentikan server: {str(e)}"}
         
     def restart_server(self):
@@ -735,4 +754,5 @@ $has_curl = extension_loaded('curl');
             # Hidupkan kembali (Ini akan memicu _sync_php_binding secara otomatis!)
             return self.start_server()
         except Exception as e:
+            self.api.emit_log(f"Terjadi kesalahan fatal: {str(e)}", "error")
             return {"status": "error", "message": f"Gagal melakukan restart: {str(e)}"}

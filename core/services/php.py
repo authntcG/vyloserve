@@ -385,6 +385,7 @@ class PhpManager:
                 
             return {"status": "success", "message": "Berhasil dibuka."}
         except Exception as e:
+            self.api.emit_log(f"Terjadi kesalahan fatal: {str(e)}", "error")
             return {"status": "error", "message": str(e)}
 
     def uninstall_version(self, version: str):
@@ -470,19 +471,34 @@ class PhpManager:
             return {"status": "error", "message": str(e)}
 
     def stop_php(self, version: str):
-        if version in self.processes:
-            process = self.processes[version]
-            if process.poll() is None:
-                process.terminate() # Minta aplikasi berhenti secara aman
+        try:
+            # 1. Matikan proses (Taskkill / Terminate) jika ada
+            if version in self.processes:
+                process = self.processes[version]
+                if process.poll() is None:
+                    # Logika spesifik OS untuk mematikan proses (contoh Windows taskkill)
+                    import subprocess
+                    subprocess.call(['taskkill', '/F', '/T', '/PID', str(process.pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
-                # Tunggu maksimal 3 detik, jika membandel, bunuh paksa (kill)
-                try:
-                    process.wait(timeout=3)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    
-            del self.processes[version]
-            self.api.emit_log(f"Layanan FastCGI PHP {version} telah dihentikan.", "info")
-            return {"status": "success", "message": "PHP FastCGI berhasil dihentikan."}
+                # ---> SOLUSI BUG KEYERROR: Gunakan .pop() sebagai pengganti del <---
+                self.processes.pop(version, None)
+                
+            if hasattr(self, 'api'):
+                self.api.emit_log(f"FastCGI PHP {version} berhasil dihentikan.", "success")
+                
+            return {"status": "success", "message": f"PHP {version} dihentikan."}
             
-        return {"status": "error", "message": "PHP tidak sedang berjalan."}
+        except Exception as e:
+            if hasattr(self, 'api'):
+                self.api.emit_log(f"Gagal menghentikan PHP {version}: {str(e)}", "error")
+            return {"status": "error", "message": str(e)}
+
+    def get_installed_versions(self):
+        """Mendapatkan daftar versi PHP yang terinstal berdasarkan direktori"""
+        php_path = os.path.join(self.base_dir) # Asumsi base_dir adalah path folder 'php'
+        if not os.path.exists(php_path):
+            return []
+        
+        # Mengambil daftar folder, filter hanya direktori
+        versions = [d for d in os.listdir(php_path) if os.path.isdir(os.path.join(php_path, d))]
+        return versions

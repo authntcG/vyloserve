@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import LogsPanel from './LogsPanel';
+import { useEffect, useState } from 'react';
 
 interface ServiceItem {
     id: string;
@@ -45,20 +44,81 @@ export default function Sidebar({
 }: SidebarProps) {
     const [searchQuery, setSearchQuery] = useState('');
     const [isToolsOpen, setIsToolsOpen] = useState(false);
+    const [systemLoad, setSystemLoad] = useState<number>(0);
+    const [serviceStatus, setServiceStatus] = useState<Record<string, boolean>>({
+        apache: false,
+        php: false,
+        database: false
+    });
 
-    // 1. STATE BARU: Menyimpan status on/off layanan berdasarkan ID
-    const [serviceToggleStates, setServiceToggleStates] = useState<Record<string, boolean>>(
-        // Mapping nilai isActive awal dari constant SERVICES
-        SERVICES.reduce((acc, service) => ({ ...acc, [service.id]: service.isActive }), {})
-    );
+    // 1. SAFE API ACCESSOR: Fungsi pembantu untuk mengakses backend dengan aman
+    const getBackendApi = () => {
+        // Prioritaskan window.pywebview.api jika menggunakan PyWebView standar
+        // Atau window.api jika Anda menamai global object-nya 'api'
+        return window.pywebview?.api || window.api;
+    };
 
-    // 2. FUNGSI BARU: Menangani klik khusus pada toggle
-    const handleToggleClick = (e: React.MouseEvent, id: string) => {
-        e.stopPropagation(); // Mencegah trigger onSelectMenu (pindah halaman) saat toggle diklik
-        setServiceToggleStates(prev => ({
-            ...prev,
-            [id]: !prev[id] // Membalikkan status on/off sebelumnya
-        }));
+    // 2. Fungsi untuk Sinkronisasi Status dari Backend
+    const fetchServiceStatuses = async () => {
+        const api = getBackendApi();
+
+        // Mencegah crash jika aplikasi dibuka di browser biasa tanpa Python
+        if (!api || typeof api.get_all_services_status !== 'function') {
+            console.warn("Backend API tidak ditemukan. Menjalankan mode demo/mock.");
+            // Mock data untuk mode development
+            setServiceStatus({ apache: true, php: false, database: false });
+            return;
+        }
+
+        try {
+            const status = await api.get_all_services_status();
+            setServiceStatus(status);
+
+            if (status.cpu_load !== undefined) {
+                setSystemLoad(status.cpu_load);
+            }
+        } catch (error) {
+            console.error("Gagal sinkronisasi status:", error);
+        }
+    };
+
+    // 2. Polling status setiap 2 detik
+    useEffect(() => {
+        fetchServiceStatuses();
+        const interval = setInterval(fetchServiceStatuses, 2000);
+        return () => clearInterval(interval);
+    }, []);
+
+    // 3. Handle Toggle dengan Aksi Backend
+    // 3. Handle Toggle dengan Aksi Backend
+    const handleToggleClick = async (id: string) => {
+        const api = getBackendApi();
+
+        if (!api) {
+            console.error("Backend API tidak tersedia!");
+            return;
+        }
+
+        const isCurrentlyRunning = serviceStatus[id];
+
+        try {
+            if (isCurrentlyRunning) {
+                await api.stop_service(id);
+            } else {
+                await api.start_service(id);
+            }
+
+            // 1. Update state di Sidebar sendiri
+            fetchServiceStatuses();
+
+            // ---> 2. FIX: Tembakkan sinyal global ke halaman Utama <---
+            window.dispatchEvent(new CustomEvent('service_status_changed', {
+                detail: { service: id, running: !isCurrentlyRunning }
+            }));
+
+        } catch (error) {
+            console.error(`Gagal mengubah status ${id}:`, error);
+        }
     };
 
     const sidebarWidthClass = isDesktopCollapsed ? 'w-20' : 'w-sidebar-width';
@@ -129,7 +189,6 @@ export default function Sidebar({
 
                     {filteredServices.map((service) => {
                         const isMenuSelected = activeMenu === service.id; // Untuk highlight menu
-                        const isServiceRunning = serviceToggleStates[service.id]; // Untuk nilai toggle switch
 
                         return (
                             <div
@@ -146,8 +205,20 @@ export default function Sidebar({
 
                                 {!isDesktopCollapsed && (
                                     // 3. Ubah trigger onClick ke handleToggleClick
-                                    <label className="relative inline-flex items-center cursor-pointer" onClick={(e) => handleToggleClick(e, service.id)}>
-                                        <input type="checkbox" checked={isServiceRunning} readOnly className="sr-only peer" />
+                                    <label
+                                        className="relative inline-flex items-center cursor-pointer"
+                                        onClick={(e) => {
+                                            e.preventDefault();  // <--- FIX: Mencegah browser mengirim klik ganda ke <input>
+                                            e.stopPropagation(); // <--- Mencegah parent div berpindah menu
+                                            handleToggleClick(service.id);
+                                        }}
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            checked={serviceStatus[service.id]}
+                                            readOnly
+                                            className="sr-only peer"
+                                        />
                                         <div className="w-8 h-4 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
                                     </label>
                                 )}
@@ -212,8 +283,20 @@ export default function Sidebar({
                 {!isDesktopCollapsed && (
                     <div className="p-md border-t border-slate-200 dark:border-slate-800 mt-auto transition-opacity duration-200">
                         <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
-                            <span className="material-symbols-outlined text-[18px]">memory</span>
-                            <span className="text-xs font-medium uppercase tracking-wider">System Load: 24%</span>
+                            {/* Ikon dinamis berganti warna berdasarkan beban */}
+                            <span className={`material-symbols-outlined text-[18px] transition-colors ${systemLoad > 80 ? 'text-red-500' : systemLoad > 50 ? 'text-amber-500' : 'text-emerald-500'
+                                }`}>
+                                memory
+                            </span>
+
+                            {/* Teks dinamis menampilkan persentase CPU */}
+                            <span className="text-xs font-medium uppercase tracking-wider flex gap-1">
+                                System Load:
+                                <span className={`transition-colors ${systemLoad > 80 ? 'text-red-500 font-bold' : systemLoad > 50 ? 'text-amber-500 font-bold' : 'text-slate-700 dark:text-slate-300'
+                                    }`}>
+                                    {systemLoad}%
+                                </span>
+                            </span>
                         </div>
                     </div>
                 )}

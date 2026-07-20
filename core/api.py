@@ -1,4 +1,5 @@
 import webview
+import psutil
 import json
 from core.services.php import PhpManager
 from core.services.apache import ApacheManager
@@ -100,3 +101,54 @@ class Api:
 
     def stop_apache_server(self):
         return self.apache.stop_server()
+    
+    # Sidebar sections
+    def start_service(self, service_id):
+        if service_id == 'apache':
+            # BENAR: Gunakan self.emit_log (tanpa .api)
+            self.emit_log("Memulai Apache...", "info")
+            return self.apache.start_server()
+            
+        elif service_id == 'php':
+            versions = self.php.get_installed_versions() 
+            if not versions:
+                self.emit_log("Tidak ada versi PHP terinstal", "error")
+                return {"status": "error"}
+            
+            latest_version = sorted(versions)[-1] 
+            self.emit_log(f"Memulai PHP versi terbaru: {latest_version}...", "info")
+            return self.php.start_php(latest_version)
+
+    def stop_service(self, service_id):
+        if service_id == 'apache':
+            # BENAR: Gunakan self.emit_log
+            self.emit_log("Menghentikan Apache...", "warn")
+            return self.apache.stop_server()
+            
+        elif service_id == 'php':
+            self.emit_log("Menghentikan semua proses PHP...", "warn")
+            
+            # Gunakan list() untuk menghindari KeyError secara permanen
+            for version in list(self.php.processes.keys()):
+                try:
+                    self.php.stop_php(version)
+                except Exception as e:
+                    self.emit_log(f"Melewati error saat stop PHP {version}: {str(e)}", "warn")
+                    
+            return {"status": "success"}
+    
+    def get_all_services_status(self):
+        try:
+            # FIX: Gunakan interval=0.1 (100 milidetik) 
+            # psutil akan "menahan" kode selama 100ms untuk menghitung beban CPU yang akurat,
+            # sehingga kebal terhadap pemanggilan ganda/beruntun dari Frontend.
+            cpu_usage = psutil.cpu_percent(interval=0.1)
+        except:
+            cpu_usage = 0
+
+        return {
+            "apache": self.apache.check_is_running(),
+            "php": len(self.php.processes) > 0,
+            "database": False, # Sesuaikan jika modul database sudah jadi
+            "cpu_load": round(cpu_usage)
+        }

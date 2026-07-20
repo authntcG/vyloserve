@@ -48,6 +48,18 @@ export default function ApacheMain() {
 
     const selectedProject = DUMMY_PROJECTS.find(p => p.id === selectedProjectId);
 
+    useEffect(() => {
+        // Fungsi untuk menangkap event dari Sidebar
+        const handleStatusChange = (e: any) => {
+            if (e.detail.service === 'apache') { // Sesuaikan dengan id layanan
+                setIsApacheRunning(e.detail.running);
+            }
+        };
+
+        window.addEventListener('service_status_changed', handleStatusChange);
+        return () => window.removeEventListener('service_status_changed', handleStatusChange);
+    }, []);
+
     // --- EVENT LISTENER: Progress Bar dari Python ---
     useEffect(() => {
         const handleProgress = (e: any) => {
