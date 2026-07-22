@@ -1,14 +1,17 @@
 import webview
 import psutil
 import json
+import os
 from core.services.php import PhpManager
 from core.services.apache import ApacheManager
+from core.services.project import ProjectManager
 
 class Api:
     def __init__(self):
         self._window = None
         self.php = PhpManager(self) 
         self.apache = ApacheManager(self)
+        self.project = ProjectManager(self)
 
     def set_window(self, window):
         self._window = window
@@ -152,3 +155,25 @@ class Api:
             "database": False, # Sesuaikan jika modul database sudah jadi
             "cpu_load": round(cpu_usage)
         }
+    
+    # Project sections
+    def browse_directory(self):
+        """Membuka dialog Windows Explorer agar user bisa memilih folder"""
+        if self._window:
+            result = self._window.create_file_dialog(webview.FOLDER_DIALOG)
+            if result and len(result) > 0:
+                # Normalisasi path untuk Windows/React
+                return result[0].replace('\\', '/')
+        return None
+
+    def detect_framework(self, directory):
+        """Mendeteksi framework dari suatu folder secara real-time"""
+        return self.project.detect_framework(directory)
+
+    def create_project(self, payload):
+        """
+        Menerima payload dari frontend dan meneruskannya ke ProjectManager.
+        Payload berisi: name, domain, php_version, is_existing, document_root, dll.
+        """
+        self.emit_log(f"Memulai setup project untuk {payload.get('domain')}...", "info")
+        return self.project.create_project(payload)

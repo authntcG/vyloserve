@@ -1,14 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Card from '../../components/Card';
 import Modal from '../../components/Modal';
 import { useToast } from '../../components/ToastContext';
 
 import ApacheSettings from './Settings';
-import NewApacheProject from './NewProject';
+import NewApacheProject, { type NewProjectRef } from './NewProject';
 import ProjectSettings from './ProjectSettings';
 import ApacheInstallWizard, { type ApacheVersionData } from './InstallWizard';
 
-// Dummy data Projects
+// Dummy data Projects (Nantinya ganti dengan state dari backend)
 const DUMMY_PROJECTS = [
     { id: '1', name: 'E-Commerce App', domain: 'shop.local', framework: 'Laravel', frameworkVer: '10.x', phpVersion: 'PHP 8.2.20' },
     { id: '2', name: 'Portfolio Website', domain: 'portfolio.local', framework: 'Wordpress', frameworkVer: '6.4', phpVersion: 'PHP 7.4.33' },
@@ -41,26 +41,44 @@ export default function ApacheMain() {
     // State Project lainnya
     const [isOptionsOpen, setIsOptionsOpen] = useState(false);
     const [isUninstallServerOpen, setIsUninstallServerOpen] = useState(false);
-    const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
     const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
     const [isProjectSettingsOpen, setIsProjectSettingsOpen] = useState(false);
     const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
 
+    // FIX: Konsolidasi state modal pembuatan project
+    const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
+    const [isCreating, setIsCreating] = useState(false);
+
     const selectedProject = DUMMY_PROJECTS.find(p => p.id === selectedProjectId);
+    const projectFormRef = useRef<NewProjectRef>(null);
+
+    const handleCreateSubmit = async () => {
+        if (!projectFormRef.current) return;
+        setIsCreating(true);
+        const isSuccess = await projectFormRef.current.submit();
+        setIsCreating(false);
+        if (isSuccess) {
+            setIsNewProjectModalOpen(false);
+            // TODO: fetchProjects() di sini
+        }
+    };
+
+    const handleDeleteProjectSubmit = async () => {
+        // TODO: Implementasi logika hapus ke backend
+        showToast("Fitur hapus project akan segera hadir", "info");
+        setIsDeleteConfirmOpen(false);
+    };
 
     useEffect(() => {
-        // Fungsi untuk menangkap event dari Sidebar
         const handleStatusChange = (e: any) => {
-            if (e.detail.service === 'apache') { // Sesuaikan dengan id layanan
+            if (e.detail.service === 'apache') {
                 setIsApacheRunning(e.detail.running);
             }
         };
-
         window.addEventListener('service_status_changed', handleStatusChange);
         return () => window.removeEventListener('service_status_changed', handleStatusChange);
     }, []);
 
-    // --- EVENT LISTENER: Progress Bar dari Python ---
     useEffect(() => {
         const handleProgress = (e: any) => {
             if (e.detail && e.detail.percent !== undefined) {
@@ -80,8 +98,6 @@ export default function ApacheMain() {
                     setIsApacheInstalled(res.installed);
                     setInstalledApacheVersion(res.version);
                     setApachePath(res.path || 'Not Installed');
-                    
-                    // Update state running berdasarkan data real dari Python
                     setIsApacheRunning(res.running || false);
                 }
             } catch (error) {
@@ -90,7 +106,6 @@ export default function ApacheMain() {
         }
     };
 
-    // --- HANDLER BARU: START / STOP SERVER ---
     const handleToggleServer = async () => {
         setIsTogglingServer(true);
         try {
@@ -99,17 +114,13 @@ export default function ApacheMain() {
                 if (res.status === 'success') {
                     showToast(res.message, 'success');
                     setIsApacheRunning(false);
-                } else {
-                    showToast(res.message, 'error');
-                }
+                } else showToast(res.message, 'error');
             } else {
                 const res = await window.pywebview.api.start_apache_server();
                 if (res.status === 'success') {
                     showToast(res.message, 'success');
                     setIsApacheRunning(true);
-                } else {
-                    showToast(res.message, 'error');
-                }
+                } else showToast(res.message, 'error');
             }
         } catch (error) {
             showToast("Gagal menghubungi server lokal", "error");
@@ -122,70 +133,49 @@ export default function ApacheMain() {
         fetchApacheStatus();
     }, []);
 
-    // --- LOGIKA FETCH VERSI APACHE ---
     const fetchAvailableVersions = async () => {
-        // Set loading seketika
         setIsFetchingVersions(true);
         try {
             if (window.pywebview && window.pywebview.api) {
                 const response = await window.pywebview.api.get_available_apache();
-
                 if (response.status === 'success') {
-                    // LOGIKA FILTER: Singkirkan versi yang sama dengan yang sudah terinstal
                     const filteredVersions = response.data.filter(
                         (v: ApacheVersionData) => v.version !== installedApacheVersion
                     );
-
                     setAvailableVersions(filteredVersions);
-
                     if (filteredVersions.length > 0) {
                         setInstallVersion(filteredVersions[0].version);
                         setInstallUrl(filteredVersions[0].url);
                     } else {
-                        // Kosongkan state jika semua versi (atau versi terbaru) sudah terinstal
                         setInstallVersion('');
                         setInstallUrl('');
                     }
-                } else {
-                    showToast(response.message, 'error');
-                }
+                } else showToast(response.message, 'error');
             }
         } catch (error) {
-            console.error("Gagal menghubungi backend Python:", error);
             showToast("Gagal mengambil data versi dari server lokal.", "error");
         } finally {
             setIsFetchingVersions(false);
         }
     };
 
-    // --- HANDLER BARU: Mencegah efek FOUC / Berkedip ---
     const handleOpenInstallModal = () => {
         setIsInstallServerOpen(true);
-        // Jika data masih kosong, panggil fungsi fetch.
-        // React akan mem-batch setIsInstallServerOpen dan setIsFetchingVersions(true) secara bersamaan.
-        if (availableVersions.length === 0) {
-            fetchAvailableVersions();
-        }
+        if (availableVersions.length === 0) fetchAvailableVersions();
     };
 
-    // --- LOGIKA EKSEKUSI INSTALASI ---
     const handleInstallApache = async () => {
         if (!installVersion || !installUrl) return;
-
         setIsInstalling(true);
         setProgress(0);
         setProgressText("Memulai instalasi...");
-
         try {
             const response = await window.pywebview.api.install_apache(installVersion, installUrl, httpPort, httpsPort);
             if (response.status === 'success') {
                 showToast(response.message, 'success');
                 setIsInstallServerOpen(false);
-                // Muat ulang status setelah instalasi sukses
                 fetchApacheStatus();
-            } else {
-                showToast(response.message, 'error');
-            }
+            } else showToast(response.message, 'error');
         } catch (error) {
             showToast("Terjadi kesalahan tak terduga saat instalasi.", "error");
         } finally {
@@ -193,7 +183,6 @@ export default function ApacheMain() {
         }
     };
 
-    // --- HANDLER BARU: UNINSTALL ---
     const handleUninstall = async () => {
         setIsUninstalling(true);
         try {
@@ -201,10 +190,8 @@ export default function ApacheMain() {
             if (res.status === 'success') {
                 showToast(res.message, 'success');
                 setIsUninstallServerOpen(false);
-                fetchApacheStatus(); // Update UI ke state kosong
-            } else {
-                showToast(res.message, 'error');
-            }
+                fetchApacheStatus();
+            } else showToast(res.message, 'error');
         } catch (error) {
             showToast("Gagal melakukan proses uninstall", 'error');
         } finally {
@@ -212,7 +199,6 @@ export default function ApacheMain() {
         }
     };
 
-    // --- HANDLER BARU: BUKA FOLDER & CONFIG ---
     const handleOpenDirectory = async () => {
         const res = await window.pywebview.api.open_apache_directory();
         if (res.status === 'error') showToast(res.message, 'error');
@@ -236,7 +222,6 @@ export default function ApacheMain() {
     return (
         <>
             <div className="flex flex-col w-full">
-
                 {/* --- HEADER --- */}
                 <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
                     <div className="flex flex-col gap-3">
@@ -252,7 +237,6 @@ export default function ApacheMain() {
                         </div>
                     </div>
 
-                    {/* Tombol Header kini menggunakan Handler baru */}
                     <button
                         onClick={handleOpenInstallModal}
                         className="bg-primary hover:bg-blue-600 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm"
@@ -269,7 +253,6 @@ export default function ApacheMain() {
                             title={`Apache ${installedApacheVersion || 'Unknown'} (Win64)`}
                             status={isApacheRunning ? 'running' : 'stopped'}
                             gridCols="grid-cols-2 md:grid-cols-3"
-
                             dropdownActions={
                                 <>
                                     <button onClick={handleOpenConfig} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">Open httpd.conf</button>
@@ -283,10 +266,9 @@ export default function ApacheMain() {
                                     </button>
                                 </>
                             }
-
                             footerActions={
                                 <>
-                                    <button 
+                                    <button
                                         onClick={handleToggleServer}
                                         disabled={isTogglingServer}
                                         className={`flex-1 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm disabled:opacity-70 disabled:scale-100 ${isApacheRunning ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600'}`}
@@ -300,12 +282,11 @@ export default function ApacheMain() {
                                             <>
                                                 <span className="material-symbols-outlined text-[18px]">
                                                     {isApacheRunning ? 'stop' : 'play_arrow'}
-                                                </span> 
+                                                </span>
                                                 {isApacheRunning ? 'Stop Server' : 'Start Server'}
                                             </>
                                         )}
                                     </button>
-
                                     <button
                                         onClick={() => setIsOptionsOpen(true)}
                                         className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm"
@@ -336,8 +317,6 @@ export default function ApacheMain() {
                         <span className="material-symbols-outlined text-[48px] text-slate-300 dark:text-slate-600 mb-4">dns</span>
                         <h3 className="text-lg font-medium text-slate-900 dark:text-slate-100">Apache is not installed</h3>
                         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Install Apache Web Server to start serving your projects.</p>
-
-                        {/* Tombol Empty State kini menggunakan Handler baru */}
                         <button onClick={handleOpenInstallModal} className="mt-4 text-sm font-medium text-primary hover:underline">
                             Install now
                         </button>
@@ -350,7 +329,7 @@ export default function ApacheMain() {
                 <div className="flex justify-between items-center mb-6">
                     <h3 className="text-xl font-semibold text-slate-900 dark:text-white">Virtual Hosts (Projects)</h3>
                     <button
-                        onClick={() => setIsNewProjectOpen(true)}
+                        onClick={() => setIsNewProjectModalOpen(true)} // FIX: State yang tepat
                         disabled={!isApacheInstalled}
                         className="bg-slate-900 dark:bg-white hover:bg-slate-800 dark:hover:bg-slate-200 text-white dark:text-slate-900 disabled:opacity-50 disabled:cursor-not-allowed border border-transparent text-sm font-medium py-2 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-sm"
                     >
@@ -437,26 +416,6 @@ export default function ApacheMain() {
                 <ApacheSettings />
             </Modal>
 
-            <Modal isOpen={isUninstallServerOpen} onClose={() => setIsUninstallServerOpen(false)} title="Uninstall Apache" icon="warning" onApply={() => setIsUninstallServerOpen(false)} applyText="Yes, Uninstall" isDestructive={true}>
-                <div className="flex flex-col gap-2">
-                    <p className="text-slate-700 dark:text-slate-300">
-                        Are you sure you want to uninstall <strong className="text-slate-900 dark:text-white">Apache Web Server</strong>?
-                    </p>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">
-                        All global configurations and virtual host mappings will be deleted. Your project files in the document root will remain safe.
-                    </p>
-                </div>
-            </Modal>
-
-            {/* --- KUMPULAN MODALS PROJECT --- */}
-            <Modal isOpen={isNewProjectOpen} onClose={() => setIsNewProjectOpen(false)} title="New Virtual Host" icon="create_new_folder" onApply={() => setIsNewProjectOpen(false)} applyText="Create Project">
-                <NewApacheProject />
-            </Modal>
-
-            <Modal isOpen={isProjectSettingsOpen} onClose={() => setIsProjectSettingsOpen(false)} title={`Vhost Settings: ${selectedProject?.name}`} icon="settings" onApply={() => setIsProjectSettingsOpen(false)}>
-                {selectedProject && <ProjectSettings project={selectedProject as any} />}
-            </Modal>
-
             <Modal
                 isOpen={isUninstallServerOpen}
                 onClose={() => !isUninstalling && setIsUninstallServerOpen(false)}
@@ -473,6 +432,43 @@ export default function ApacheMain() {
                     </p>
                     <p className="text-sm text-slate-500 dark:text-slate-400">
                         All global configurations and virtual host mappings will be deleted. Your project files in the document root will remain safe.
+                    </p>
+                </div>
+            </Modal>
+
+            {/* --- KUMPULAN MODALS PROJECT --- */}
+            <Modal
+                isOpen={isNewProjectModalOpen}
+                onClose={() => !isCreating && setIsNewProjectModalOpen(false)}
+                title="Create New Project"
+                icon="add_box"
+                onApply={handleCreateSubmit}
+                applyText={isCreating ? "Configuring..." : "Create Project"}
+                isApplyDisabled={isCreating}
+            >
+                <NewApacheProject ref={projectFormRef} />
+            </Modal>
+
+            <Modal isOpen={isProjectSettingsOpen} onClose={() => setIsProjectSettingsOpen(false)} title={`Vhost Settings: ${selectedProject?.name}`} icon="settings" onApply={() => setIsProjectSettingsOpen(false)}>
+                {selectedProject && <ProjectSettings project={selectedProject as any} />}
+            </Modal>
+
+            {/* FIX: Menambahkan Modal Konfirmasi Hapus yang hilang */}
+            <Modal
+                isOpen={isDeleteConfirmOpen}
+                onClose={() => setIsDeleteConfirmOpen(false)}
+                title="Delete Virtual Host"
+                icon="delete"
+                onApply={handleDeleteProjectSubmit}
+                applyText="Delete Project"
+                isDestructive={true}
+            >
+                <div className="flex flex-col gap-2">
+                    <p className="text-slate-700 dark:text-slate-300">
+                        Are you sure you want to delete <strong className="text-slate-900 dark:text-white">{selectedProject?.domain}</strong>?
+                    </p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                        This will remove the virtual host routing. Your actual project files on the disk will <strong>not</strong> be deleted.
                     </p>
                 </div>
             </Modal>

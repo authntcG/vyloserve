@@ -17,6 +17,36 @@ class PhpManager:
             os.makedirs(self.base_dir)
             
         self.processes = {}
+
+    def configure_php_ini(self, version):
+        php_dir = os.path.join(self.base_dir, version)
+        ini_path = os.path.join(php_dir, "php.ini")
+        
+        # Jika php.ini belum ada, ambil dari template
+        if not os.path.exists(ini_path):
+            template = os.path.join(php_dir, "php.ini-development")
+            if os.path.exists(template):
+                import shutil
+                shutil.copy(template, ini_path)
+                
+        # Aktifkan ekstensi penting (openssl, mbstring, curl)
+        with open(ini_path, 'r') as f:
+            content = f.read()
+        
+        # Pastikan extension_dir diset ke folder 'ext'
+        content = re.sub(r';\s*extension_dir\s*=\s*".+"', 'extension_dir = "ext"', content)
+        
+        # Aktifkan ekstensi yang diperlukan Composer
+        extensions = ["openssl", "mbstring", "curl", "fileinfo"]
+        for ext in extensions:
+            # Regex untuk uncomment jika ada komentar (;)
+            content = re.sub(f';\s*extension={ext}', f'extension={ext}', content)
+            # Jika belum ada sama sekali, tambahkan
+            if f'extension={ext}' not in content:
+                content += f"\nextension={ext}"
+                
+        with open(ini_path, 'w') as f:
+            f.write(content)
             
     def get_installed_instances(self):
         instances = []
