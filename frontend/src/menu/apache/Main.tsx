@@ -8,7 +8,6 @@ import NewApacheProject, { type NewProjectRef } from './NewProject';
 import ProjectSettings from './ProjectSettings';
 import ApacheInstallWizard, { type ApacheVersionData } from './InstallWizard';
 
-// --- INTERFACE PROJECT ---
 export interface ProjectData {
     id: string;
     name: string;
@@ -18,7 +17,6 @@ export interface ProjectData {
     php_port: number;
     framework?: string;
     host_synced?: boolean;
-    pretty_url_synced?: boolean;
 }
 
 export default function ApacheMain() {
@@ -41,10 +39,12 @@ export default function ApacheMain() {
     const [httpPort, setHttpPort] = useState(80);
     const [httpsPort, setHttpsPort] = useState(443);
     const [isInstalling, setIsInstalling] = useState(false);
+
+    // Progress Lintas Komponen
     const [progress, setProgress] = useState(0);
     const [progressText, setProgressText] = useState('');
 
-    // State Project Management (DINAMIS DARI BACKEND)
+    // State Project Management
     const [projects, setProjects] = useState<ProjectData[]>([]);
     const [isFetchingProjects, setIsFetchingProjects] = useState(true);
 
@@ -55,14 +55,14 @@ export default function ApacheMain() {
     const [isProjectSettingsOpen, setIsProjectSettingsOpen] = useState(false);
     const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
     const [isDeletingProject, setIsDeletingProject] = useState(false);
-
+    const [isDeleteFiles, setIsDeleteFiles] = useState(false); // Checkbox Hapus File
     const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
-    const [isCreating, setIsCreating] = useState(false);
+    const [isUpdatingProject, setIsUpdatingProject] = useState(false);
 
     const selectedProject = projects.find(p => p.id === selectedProjectId);
     const projectFormRef = useRef<NewProjectRef>(null);
+    const projectSettingsRef = useRef<any>(null);
 
-    // --- FETCH DATA PROJECTS DARI PYTHON ---
     const fetchProjects = async () => {
         setIsFetchingProjects(true);
         try {
@@ -76,7 +76,6 @@ export default function ApacheMain() {
                 }
             }
         } catch (error) {
-            console.error("Gagal memuat daftar proyek:", error);
             showToast("Gagal memuat daftar proyek dari backend.", "error");
         } finally {
             setIsFetchingProjects(false);
@@ -91,14 +90,19 @@ export default function ApacheMain() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // --- FUNGSI SUBMIT PROJECT CREATE & DELETE ---
     const handleCreateSubmit = async () => {
         if (!projectFormRef.current) return;
-        setIsCreating(true);
-        const isSuccess = await projectFormRef.current.submit();
-        setIsCreating(false);
+        setIsNewProjectModalOpen(false); // Modal ditutup, proses berjalan di background
+        await projectFormRef.current.submit();
+    };
+
+    const handleUpdateProjectSubmit = async () => {
+        if (!projectSettingsRef.current) return;
+        setIsUpdatingProject(true);
+        const isSuccess = await projectSettingsRef.current.submit();
+        setIsUpdatingProject(false);
         if (isSuccess) {
-            setIsNewProjectModalOpen(false);
+            setIsProjectSettingsOpen(false); // Tutup modal jika sukses
         }
     };
 
@@ -108,7 +112,7 @@ export default function ApacheMain() {
         try {
             const api = window.pywebview?.api || window.api;
             if (api && typeof api.delete_project === 'function') {
-                const res = await api.delete_project(selectedProjectId);
+                const res = await api.delete_project(selectedProjectId, isDeleteFiles);
                 if (res.status === 'success') {
                     showToast(res.message || "Proyek berhasil dihapus", "success");
                     fetchProjects();
@@ -118,35 +122,13 @@ export default function ApacheMain() {
                 }
             }
         } catch (error) {
-            console.error(error);
             showToast("Terjadi kesalahan saat menghapus proyek.", "error");
         } finally {
             setIsDeletingProject(false);
+            setIsDeleteFiles(false); // Reset checkbox
         }
     };
 
-    // --- FUNGSI GENERATE PRETTY URL (.htaccess) ---
-    const handleGeneratePrettyUrl = async (projectId: string) => {
-        try {
-            const api = window.pywebview?.api || window.api;
-            if (api && typeof api.sync_pretty_url === 'function') {
-                const res = await api.sync_pretty_url(projectId);
-                if (res.status === 'success') {
-                    showToast("Pretty URL berhasil disinkronisasi!", "success");
-                    fetchProjects();
-                } else {
-                    showToast(res.message, "error");
-                }
-            } else {
-                showToast("Fungsi sinkronisasi URL belum tersedia", "info");
-            }
-        } catch (error) {
-            console.error(error);
-            showToast("Gagal menghubungi backend.", "error");
-        }
-    };
-
-    // --- FUNGSI SYNC WINDOWS HOSTS (RETRY) ---
     const handleSyncHost = async (projectId: string) => {
         try {
             const api = window.pywebview?.api || window.api;
@@ -158,11 +140,8 @@ export default function ApacheMain() {
                 } else {
                     showToast(res.message, "error");
                 }
-            } else {
-                showToast("Fungsi sinkronisasi host belum tersedia", "info");
             }
         } catch (error) {
-            console.error(error);
             showToast("Gagal menghubungi backend.", "error");
         }
     };
@@ -178,12 +157,9 @@ export default function ApacheMain() {
         }
     }
 
-    // --- EVENT LISTENERS & STATUS CHECKER APACHE ---
     useEffect(() => {
         const handleStatusChange = (e: any) => {
-            if (e.detail.service === 'apache') {
-                setIsApacheRunning(e.detail.running);
-            }
+            if (e.detail.service === 'apache') setIsApacheRunning(e.detail.running);
         };
         window.addEventListener('service_status_changed', handleStatusChange);
         return () => window.removeEventListener('service_status_changed', handleStatusChange);
@@ -194,6 +170,7 @@ export default function ApacheMain() {
             if (e.detail && e.detail.percent !== undefined) {
                 setProgress(e.detail.percent);
                 setProgressText(e.detail.text || '');
+                if (e.detail.percent >= 100) setTimeout(() => setProgress(0), 3000);
             }
         };
         window.addEventListener('vylo_progress', handleProgress);
@@ -206,9 +183,14 @@ export default function ApacheMain() {
                 const res = await window.pywebview.api.get_apache_status();
                 if (res.status === 'success') {
                     setIsApacheInstalled(res.installed);
-                    setInstalledApacheVersion(res.version);
                     setApachePath(res.path || 'Not Installed');
                     setIsApacheRunning(res.running || false);
+                }
+
+                // Fetch active version yang benar (Mengatasi bug list versi lama)
+                const versionRes = await window.pywebview.api.get_apache_installed_versions();
+                if (versionRes.status === 'success') {
+                    setInstalledApacheVersion(versionRes.active || versionRes.data[0]);
                 }
             } catch (error) {
                 console.error("Gagal mengambil status Apache", error);
@@ -218,6 +200,8 @@ export default function ApacheMain() {
 
     useEffect(() => {
         fetchApacheStatus();
+        window.addEventListener('apache_version_changed', fetchApacheStatus);
+        return () => window.removeEventListener('apache_version_changed', fetchApacheStatus);
     }, []);
 
     const handleToggleServer = async () => {
@@ -263,7 +247,7 @@ export default function ApacheMain() {
                 } else showToast(response.message, 'error');
             }
         } catch (error) {
-            showToast("Gagal mengambil data versi dari server lokal.", "error");
+            showToast("Gagal mengambil data versi dari server.", "error");
         } finally {
             setIsFetchingVersions(false);
         }
@@ -326,6 +310,7 @@ export default function ApacheMain() {
 
     const handleOpenDeleteConfirm = (id: string) => {
         setSelectedProjectId(id);
+        setIsDeleteFiles(false); // Pastikan defaultnya unchecked
         setIsDeleteConfirmOpen(true);
     };
 
@@ -448,7 +433,7 @@ export default function ApacheMain() {
                     </button>
                 </div>
 
-                {/* --- Render Card Virtual Hosts Dinamis --- */}
+                {/* --- Render Card Virtual Hosts --- */}
                 {isFetchingProjects ? (
                     <div className="flex justify-center py-10">
                         <span className="material-symbols-outlined animate-spin text-primary text-3xl">sync</span>
@@ -463,23 +448,12 @@ export default function ApacheMain() {
                             <Card
                                 key={project.id}
                                 title={project.name || 'Untitled Project'}
-                                gridCols="grid-cols-1" /* PERBAIKAN: Memaksa Card agar tidak membagi 2 kolom secara default */
+                                gridCols="grid-cols-1"
                                 dropdownActions={
                                     <>
                                         <button onClick={() => handleOpenDocumentRoot(project.path)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">Open Document Root</button>
                                         <button onClick={() => handleOpenProjectSettings(project.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">Vhost Settings</button>
 
-                                        {/* CONTEXT MENU: Sync Pretty URL (.htaccess) */}
-                                        {project.pretty_url_synced === false && (
-                                            <button
-                                                onClick={() => handleGeneratePrettyUrl(project.id)}
-                                                className="w-full text-left px-4 py-2 text-sm text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 flex items-center gap-2"
-                                            >
-                                                Sync Pretty URL
-                                            </button>
-                                        )}
-
-                                        {/* CONTEXT MENU: Sync Windows Host */}
                                         {project.host_synced === false && (
                                             <button
                                                 onClick={() => handleSyncHost(project.id)}
@@ -504,10 +478,7 @@ export default function ApacheMain() {
                                     </>
                                 }
                             >
-                                {/* PERBAIKAN UTAMA: Membungkus semua anak Card ke dalam div satu kolom penuh */}
                                 <div className="flex flex-col w-full gap-4">
-
-                                    {/* Grid untuk Informasi Detail (Sama persis seperti layout awal) */}
                                     <div className="grid grid-cols-2 gap-y-4 gap-x-3 w-full">
                                         <div className="flex flex-col gap-1">
                                             <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Framework</span>
@@ -529,52 +500,45 @@ export default function ApacheMain() {
                                         </div>
                                     </div>
 
-                                    {/* Pembungkus Notifikasi agar berada rapi di bawah (Bukan di samping) */}
-                                    {(project.pretty_url_synced === false || project.host_synced === false) && (
+                                    {project.host_synced === false && (
                                         <div className="flex flex-col gap-3 border-t border-slate-100 dark:border-slate-800/50 pt-3 mt-1">
-
-                                            {/* Notifikasi Pretty URL */}
-                                            {project.pretty_url_synced === false && (
-                                                <div className="p-3 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/30 rounded-lg flex gap-3 items-start animate-in fade-in">
-                                                    <span className="material-symbols-outlined text-amber-500 dark:text-amber-400 text-[20px] shrink-0">warning</span>
-                                                    <div className="flex flex-col gap-1">
-                                                        <span className="text-sm font-semibold text-amber-800 dark:text-amber-500">Routing Warning</span>
-                                                        <span className="text-xs text-amber-700 dark:text-amber-400/80 leading-relaxed">
-                                                            Pretty URL (.htaccess) has not been synced. Certain application routes may result in a 404 error. Fix this in the context menu.
-                                                        </span>
-                                                    </div>
+                                            <div className="p-3 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800/30 rounded-lg flex gap-3 items-start animate-in fade-in">
+                                                <span className="material-symbols-outlined text-red-500 dark:text-red-400 text-[20px] shrink-0">admin_panel_settings</span>
+                                                <div className="flex flex-col gap-1.5 w-full">
+                                                    <span className="text-sm font-semibold text-red-800 dark:text-red-500">Local Domain Not Routed</span>
+                                                    <span className="text-xs text-red-700 dark:text-red-400/80 leading-relaxed">
+                                                        VyloServe needs Administrator privileges to write this domain to the Windows Hosts file. The site might not be accessible yet.
+                                                    </span>
+                                                    <button
+                                                        onClick={() => handleSyncHost(project.id)}
+                                                        className="mt-1 self-start text-xs font-medium text-red-800 dark:text-red-300 bg-red-200 dark:bg-red-800/50 hover:bg-red-300 dark:hover:bg-red-700/60 px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5"
+                                                    >
+                                                        <span className="material-symbols-outlined text-[14px]">sync</span>
+                                                        Retry Sync
+                                                    </button>
                                                 </div>
-                                            )}
-
-                                            {/* Notifikasi Windows Hosts */}
-                                            {project.host_synced === false && (
-                                                <div className="p-3 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800/30 rounded-lg flex gap-3 items-start animate-in fade-in">
-                                                    <span className="material-symbols-outlined text-red-500 dark:text-red-400 text-[20px] shrink-0">admin_panel_settings</span>
-                                                    <div className="flex flex-col gap-1.5 w-full">
-                                                        <span className="text-sm font-semibold text-red-800 dark:text-red-500">Local Domain Not Routed</span>
-                                                        <span className="text-xs text-red-700 dark:text-red-400/80 leading-relaxed">
-                                                            VyloServe needs Administrator privileges to write this domain to the Windows Hosts file. The site might not be accessible yet.
-                                                        </span>
-                                                        <button
-                                                            onClick={() => handleSyncHost(project.id)}
-                                                            className="mt-1 self-start text-xs font-medium text-red-800 dark:text-red-300 bg-red-200 dark:bg-red-800/50 hover:bg-red-300 dark:hover:bg-red-700/60 px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5"
-                                                        >
-                                                            <span className="material-symbols-outlined text-[14px]">sync</span>
-                                                            Retry Sync
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            )}
-
+                                            </div>
                                         </div>
                                     )}
                                 </div>
-
                             </Card>
                         ))}
                     </div>
                 )}
             </div>
+
+            {/* --- WIDGET PROGRESS BACKGROUND (Muncul jika Modal Instalasi ditutup) --- */}
+            {(progress > 0 && progress < 100 && !isInstallServerOpen && !isNewProjectModalOpen) && (
+                <div className="fixed bottom-6 right-6 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl rounded-xl p-4 z-50 flex flex-col gap-2 animate-in slide-in-from-bottom-5 fade-in duration-300">
+                    <div className="flex justify-between items-center">
+                        <span className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate w-3/4">{progressText || 'Memproses...'}</span>
+                        <span className="text-xs font-bold text-primary dark:text-blue-400">{progress}%</span>
+                    </div>
+                    <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
+                        <div className="bg-primary h-2 rounded-full transition-all duration-300 ease-out" style={{ width: `${progress}%` }}></div>
+                    </div>
+                </div>
+            )}
 
             {/* --- KUMPULAN MODALS SERVER --- */}
             <Modal
@@ -629,18 +593,25 @@ export default function ApacheMain() {
             {/* --- KUMPULAN MODALS PROJECT --- */}
             <Modal
                 isOpen={isNewProjectModalOpen}
-                onClose={() => !isCreating && setIsNewProjectModalOpen(false)}
+                onClose={() => setIsNewProjectModalOpen(false)} // DIBUKA: Boleh ditutup kapan saja (Background Install)
                 title="Create New Project"
                 icon="add_box"
                 onApply={handleCreateSubmit}
-                applyText={isCreating ? "Configuring..." : "Create Project"}
-                isApplyDisabled={isCreating}
+                applyText="Create Project"
             >
                 <NewApacheProject ref={projectFormRef} />
             </Modal>
 
-            <Modal isOpen={isProjectSettingsOpen} onClose={() => setIsProjectSettingsOpen(false)} title={`Vhost Settings: ${selectedProject?.name}`} icon="settings" onApply={() => setIsProjectSettingsOpen(false)}>
-                {selectedProject && <ProjectSettings project={selectedProject as any} />}
+            <Modal 
+                isOpen={isProjectSettingsOpen} 
+                onClose={() => !isUpdatingProject && setIsProjectSettingsOpen(false)} 
+                title={`Vhost Settings: ${selectedProject?.name}`} 
+                icon="settings" 
+                onApply={handleUpdateProjectSubmit}
+                applyText={isUpdatingProject ? "Saving..." : "Save Changes"}
+                isApplyDisabled={isUpdatingProject}
+            >
+                {selectedProject && <ProjectSettings project={selectedProject as any} ref={projectSettingsRef} />}
             </Modal>
 
             <Modal
@@ -653,13 +624,22 @@ export default function ApacheMain() {
                 isApplyDisabled={isDeletingProject}
                 isDestructive={true}
             >
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-3">
                     <p className="text-slate-700 dark:text-slate-300">
                         Are you sure you want to delete <strong className="text-slate-900 dark:text-white">{selectedProject?.domain}</strong>?
                     </p>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">
-                        This will remove the virtual host routing. Your actual project files on the disk will <strong>not</strong> be deleted.
-                    </p>
+                    <label className="flex items-start gap-2 mt-2 cursor-pointer bg-red-50 dark:bg-red-900/10 p-3 rounded-lg border border-red-200 dark:border-red-800/30">
+                        <input
+                            type="checkbox"
+                            checked={isDeleteFiles}
+                            onChange={(e) => setIsDeleteFiles(e.target.checked)}
+                            className="mt-0.5 rounded border-slate-300 text-red-600 focus:ring-red-500 bg-white dark:bg-slate-900"
+                        />
+                        <div className="flex flex-col">
+                            <span className="text-sm font-semibold text-red-800 dark:text-red-400">Delete all project files from disk</span>
+                            <span className="text-xs text-red-600/80 dark:text-red-400/80">This action is permanent and cannot be undone.</span>
+                        </div>
+                    </label>
                 </div>
             </Modal>
         </>

@@ -787,8 +787,8 @@ class ProjectManager:
             self.api.emit_log(f"Gagal memuat daftar proyek: {str(e)}", "error")
             return {"status": "error", "message": str(e)}
 
-    def delete_project(self, project_id):
-        """Menghapus proyek dari Virtual Host (File fisik tidak dihapus)"""
+    def delete_project(self, project_id, delete_files=False):
+        """Menghapus proyek dari Virtual Host beserta opsi hapus file fisik"""
         try:
             projects = self._read_projects()
             project_to_delete = next((p for p in projects if p['id'] == project_id), None)
@@ -796,22 +796,41 @@ class ProjectManager:
             if not project_to_delete:
                 return {"status": "error", "message": "Data proyek tidak ditemukan di database."}
             
-            # Buang proyek dari list
-            projects = [p for p in projects if p['id'] != project_id]
-            self._save_projects(projects)
+            # 1. Simpan salinan sementara daftar proyek tanpa proyek yang dihapus
+            new_projects = [p for p in projects if p['id'] != project_id]
+            self._save_projects(new_projects)
             
-            # Sinkronisasi ulang Apache VHost dan Windows Hosts tanpa proyek tersebut
-            self.sync_apache_vhosts()
-            self.sync_windows_hosts()
+            # 2. Sinkronisasi Hosts (Memicu pop-up UAC Windows)
+            if hasattr(self, 'sync_windows_hosts'):
+                hosts_result = self.sync_windows_hosts()
+                # Jika UAC Dibatalkan atau Akses Ditolak
+                if isinstance(hosts_result, dict) and hosts_result.get('status') == 'error':
+                    self._save_projects(projects) # ROLLBACK! Kembalikan proyek ke file JSON
+                    return {"status": "error", "message": "Proses dibatalkan: Akses Administrator (UAC) ditolak."}
             
-            # Restart Apache untuk melepas cache domain
+            # 3. Sinkronisasi ulang Apache VHost (Aman dilakukan setelah UAC sukses)
+            if hasattr(self, 'sync_apache_vhosts'):
+                self.sync_apache_vhosts()
+            
+            # Restart Apache
             if hasattr(self.api, 'apache') and hasattr(self.api.apache, 'restart_server'):
                 self.api.apache.restart_server()
                 
-            self.api.emit_log(f"Proyek {project_to_delete['domain']} berhasil dihapus dari Virtual Host.", "info")
-            return {"status": "success", "message": f"Virtual Host untuk {project_to_delete['domain']} telah dihapus."}
+            # 4. FITUR BARU: Hapus File Fisik jika opsi dicentang
+            if delete_files:
+                doc_root = project_to_delete.get('path', '')
+                if doc_root:
+                    import shutil
+                    # Mundur ke root folder jika doc_root mengarah ke /public (Laravel/CI)
+                    base_path = doc_root.replace('/public', '').replace('\\public', '')
+                    if os.path.exists(base_path):
+                        shutil.rmtree(base_path, ignore_errors=True)
+                
+            self.api.emit_log(f"Proyek {project_to_delete['domain']} berhasil dihapus.", "info")
+            return {"status": "success", "message": f"Virtual Host {project_to_delete['domain']} telah dihapus."}
             
         except Exception as e:
+            self._save_projects(projects) # Rollback darurat jika ada error kode
             self.api.emit_log(f"Gagal menghapus proyek: {str(e)}", "error")
             return {"status": "error", "message": f"Terjadi kesalahan saat menghapus: {str(e)}"}
 
@@ -925,3 +944,47 @@ RewriteRule . /index.php [L]
             return {"status": "success", "message": "Berhasil menyinkronkan domain ke file Windows Hosts!"}
         except Exception as e:
             return {"status": "error", "message": f"Gagal menyinkronkan: {str(e)}"}
+    
+    def update_project(self, payload):
+        """Memperbarui pengaturan proyek (Nama & Versi PHP) dan meregenerasi setup server"""
+        try:
+            project_id = payload.get('id')
+            new_name = payload.get('name')
+            new_php_version = payload.get('php_version')
+
+            projects = self._read_projects()
+            project = next((p for p in projects if p['id'] == project_id), None)
+
+            if not project:
+                return {"status": "error", "message": "Data proyek tidak ditemukan di database."}
+
+            # 1. Update Nama Proyek
+            if new_name:
+                project['name'] = new_name
+            
+            # 2. Update Versi PHP & Port FastCGI
+            if new_php_version and project.get('php_version') != new_php_version:
+                project['php_version'] = new_php_version
+                
+                # Mengambil port FastCGI yang baru sesuai versi PHP yang dipilih
+                new_port = self._get_php_port_from_system(new_php_version)
+                project['php_port'] = new_port
+                self.api.emit_log(f"Versi PHP untuk {project['domain']} diubah ke {new_php_version} (Port: {new_port})", "info")
+
+            # 3. Simpan perubahan ke JSON
+            self._save_projects(projects)
+
+            # 4. Sinkronisasi ulang file VHost Apache dengan port baru
+            if hasattr(self, 'sync_apache_vhosts'):
+                self.sync_apache_vhosts()
+
+            # 5. Restart Apache untuk menerapkan rute VHost baru
+            if hasattr(self.api, 'apache') and hasattr(self.api.apache, 'restart_server'):
+                self.api.emit_log("Merestart Apache untuk menerapkan konfigurasi proyek...", "info")
+                self.api.apache.restart_server()
+
+            return {"status": "success", "message": "Pengaturan proyek berhasil disimpan!"}
+            
+        except Exception as e:
+            self.api.emit_log(f"Gagal memperbarui proyek: {str(e)}", "error")
+            return {"status": "error", "message": f"Terjadi kesalahan saat menyimpan: {str(e)}"}

@@ -9,7 +9,6 @@ export default function ApacheSettings() {
     const [activeVersion, setActiveVersion] = useState<string>('');
     const [isLoading, setIsLoading] = useState(true);
 
-    // Fetch versi yang terinstal dari direktori saat modal dibuka
     useEffect(() => {
         const fetchInstalledVersions = async () => {
             setIsLoading(true);
@@ -19,6 +18,8 @@ export default function ApacheSettings() {
                     if (response.status === 'success') {
                         setInstalledVersions(response.data);
                         setActiveVersion(response.active || '');
+                        // Memicu trigger untuk main.tsx agar judul ikut terganti
+                        window.dispatchEvent(new Event('apache_version_changed'));
                     } else {
                         showToast(response.message, 'error');
                     }
@@ -33,7 +34,6 @@ export default function ApacheSettings() {
         fetchInstalledVersions();
     }, []);
 
-    // Handler ketika pengguna mengubah versi via Dropdown
     const handleVersionChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
         const newVersion = e.target.value;
         setActiveVersion(newVersion);
@@ -43,6 +43,7 @@ export default function ApacheSettings() {
                 const response = await window.pywebview.api.set_apache_active_version(newVersion);
                 if (response.status === 'success') {
                     showToast(response.message, 'success');
+                    window.dispatchEvent(new Event('apache_version_changed'));
                 } else {
                     showToast(response.message, 'error');
                 }
@@ -52,7 +53,6 @@ export default function ApacheSettings() {
         }
     };
 
-    // Handler untuk keempat tombol shortcut
     const handleOpenFile = async (fileType: string) => {
         try {
             if (window.pywebview && window.pywebview.api) {
@@ -131,14 +131,6 @@ export default function ApacheSettings() {
                             <div className="flex flex-col">
                                 <span className="text-sm font-medium text-slate-900 dark:text-slate-100">error.log</span>
                                 <span className="text-xs text-slate-500">View crash reports</span>
-                            </div>
-                        </button>
-
-                        <button onClick={() => handleOpenFile('fcgi')} className="flex items-center gap-3 p-3 border border-slate-200 dark:border-slate-700 rounded-lg hover:border-primary dark:hover:border-primary hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors text-left group">
-                            <span className="material-symbols-outlined text-slate-400 group-hover:text-primary transition-colors">sync_alt</span>
-                            <div className="flex flex-col">
-                                <span className="text-sm font-medium text-slate-900 dark:text-slate-100">PHP Binding</span>
-                                <span className="text-xs text-slate-500">FastCGI setup</span>
                             </div>
                         </button>
                     </div>

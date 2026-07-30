@@ -186,10 +186,10 @@ class Api:
             return self.project.get_projects()
         return {"status": "error", "message": "Modul Project tidak dimuat."}
 
-    def delete_project(self, project_id):
+    def delete_project(self, project_id, delete_files=False):
         """Memanggil fungsi delete_project dari ProjectManager"""
         if hasattr(self, 'project') and self.project:
-            return self.project.delete_project(project_id)
+            return self.project.delete_project(project_id, delete_files)
         return {"status": "error", "message": "Modul Project tidak dimuat."}
 
     def retry_sync_host(self, project_id):
@@ -202,4 +202,10 @@ class Api:
         """Memanggil fungsi open_in_explorer dari ProjectManager"""
         if hasattr(self, 'project') and self.project:
             return self.project.open_in_explorer(path)
+        return {"status": "error", "message": "Modul Project tidak dimuat."}
+    
+    def update_project(self, payload):
+        """Memanggil fungsi update_project dari ProjectManager"""
+        if hasattr(self, 'project') and self.project:
+            return self.project.update_project(payload)
         return {"status": "error", "message": "Modul Project tidak dimuat."}
