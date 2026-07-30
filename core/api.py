@@ -5,6 +5,7 @@ import os
 from core.services.php import PhpManager
 from core.services.apache import ApacheManager
 from core.services.project import ProjectManager
+from core.services.ssl_manager import SslManager
 
 class Api:
     def __init__(self):
@@ -12,6 +13,7 @@ class Api:
         self.php = PhpManager(self) 
         self.apache = ApacheManager(self)
         self.project = ProjectManager(self)
+        self.ssl = SslManager(self)
 
     def set_window(self, window):
         self._window = window
@@ -177,3 +179,27 @@ class Api:
         """
         self.emit_log(f"Memulai setup project untuk {payload.get('domain')}...", "info")
         return self.project.create_project(payload)
+    
+    def get_projects(self):
+        """Memanggil fungsi get_projects dari ProjectManager"""
+        if hasattr(self, 'project') and self.project:
+            return self.project.get_projects()
+        return {"status": "error", "message": "Modul Project tidak dimuat."}
+
+    def delete_project(self, project_id):
+        """Memanggil fungsi delete_project dari ProjectManager"""
+        if hasattr(self, 'project') and self.project:
+            return self.project.delete_project(project_id)
+        return {"status": "error", "message": "Modul Project tidak dimuat."}
+
+    def retry_sync_host(self, project_id):
+        """Memanggil fungsi retry_sync_host dari ProjectManager"""
+        if hasattr(self, 'project') and self.project:
+            return self.project.retry_sync_host(project_id)
+        return {"status": "error", "message": "Modul Project tidak dimuat."}
+
+    def open_in_explorer(self, path):
+        """Memanggil fungsi open_in_explorer dari ProjectManager"""
+        if hasattr(self, 'project') and self.project:
+            return self.project.open_in_explorer(path)
+        return {"status": "error", "message": "Modul Project tidak dimuat."}

@@ -8,12 +8,18 @@ import NewApacheProject, { type NewProjectRef } from './NewProject';
 import ProjectSettings from './ProjectSettings';
 import ApacheInstallWizard, { type ApacheVersionData } from './InstallWizard';
 
-// Dummy data Projects (Nantinya ganti dengan state dari backend)
-const DUMMY_PROJECTS = [
-    { id: '1', name: 'E-Commerce App', domain: 'shop.local', framework: 'Laravel', frameworkVer: '10.x', phpVersion: 'PHP 8.2.20' },
-    { id: '2', name: 'Portfolio Website', domain: 'portfolio.local', framework: 'Wordpress', frameworkVer: '6.4', phpVersion: 'PHP 7.4.33' },
-    { id: '3', name: 'Internal CRM', domain: 'crm.local', framework: 'CodeIgniter', frameworkVer: '4.x', phpVersion: 'PHP 8.1.29' },
-];
+// --- INTERFACE PROJECT ---
+export interface ProjectData {
+    id: string;
+    name: string;
+    domain: string;
+    path: string;
+    php_version: string;
+    php_port: number;
+    framework?: string;
+    host_synced?: boolean;
+    pretty_url_synced?: boolean;
+}
 
 export default function ApacheMain() {
     const { showToast } = useToast();
@@ -38,20 +44,54 @@ export default function ApacheMain() {
     const [progress, setProgress] = useState(0);
     const [progressText, setProgressText] = useState('');
 
-    // State Project lainnya
+    // State Project Management (DINAMIS DARI BACKEND)
+    const [projects, setProjects] = useState<ProjectData[]>([]);
+    const [isFetchingProjects, setIsFetchingProjects] = useState(true);
+
+    // State Project Modal lainnya
     const [isOptionsOpen, setIsOptionsOpen] = useState(false);
     const [isUninstallServerOpen, setIsUninstallServerOpen] = useState(false);
     const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
     const [isProjectSettingsOpen, setIsProjectSettingsOpen] = useState(false);
     const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+    const [isDeletingProject, setIsDeletingProject] = useState(false);
 
-    // FIX: Konsolidasi state modal pembuatan project
     const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
     const [isCreating, setIsCreating] = useState(false);
 
-    const selectedProject = DUMMY_PROJECTS.find(p => p.id === selectedProjectId);
+    const selectedProject = projects.find(p => p.id === selectedProjectId);
     const projectFormRef = useRef<NewProjectRef>(null);
 
+    // --- FETCH DATA PROJECTS DARI PYTHON ---
+    const fetchProjects = async () => {
+        setIsFetchingProjects(true);
+        try {
+            const api = window.pywebview?.api || window.api;
+            if (api && typeof api.get_projects === 'function') {
+                const res = await api.get_projects();
+                if (res.status === 'success') {
+                    setProjects(res.data || []);
+                } else {
+                    showToast(res.message, 'error');
+                }
+            }
+        } catch (error) {
+            console.error("Gagal memuat daftar proyek:", error);
+            showToast("Gagal memuat daftar proyek dari backend.", "error");
+        } finally {
+            setIsFetchingProjects(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchProjects();
+        const handleProjectUpdate = () => fetchProjects();
+        window.addEventListener('project_list_updated', handleProjectUpdate);
+        return () => window.removeEventListener('project_list_updated', handleProjectUpdate);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // --- FUNGSI SUBMIT PROJECT CREATE & DELETE ---
     const handleCreateSubmit = async () => {
         if (!projectFormRef.current) return;
         setIsCreating(true);
@@ -59,16 +99,86 @@ export default function ApacheMain() {
         setIsCreating(false);
         if (isSuccess) {
             setIsNewProjectModalOpen(false);
-            // TODO: fetchProjects() di sini
         }
     };
 
     const handleDeleteProjectSubmit = async () => {
-        // TODO: Implementasi logika hapus ke backend
-        showToast("Fitur hapus project akan segera hadir", "info");
-        setIsDeleteConfirmOpen(false);
+        if (!selectedProjectId) return;
+        setIsDeletingProject(true);
+        try {
+            const api = window.pywebview?.api || window.api;
+            if (api && typeof api.delete_project === 'function') {
+                const res = await api.delete_project(selectedProjectId);
+                if (res.status === 'success') {
+                    showToast(res.message || "Proyek berhasil dihapus", "success");
+                    fetchProjects();
+                    setIsDeleteConfirmOpen(false);
+                } else {
+                    showToast(res.message, "error");
+                }
+            }
+        } catch (error) {
+            console.error(error);
+            showToast("Terjadi kesalahan saat menghapus proyek.", "error");
+        } finally {
+            setIsDeletingProject(false);
+        }
     };
 
+    // --- FUNGSI GENERATE PRETTY URL (.htaccess) ---
+    const handleGeneratePrettyUrl = async (projectId: string) => {
+        try {
+            const api = window.pywebview?.api || window.api;
+            if (api && typeof api.sync_pretty_url === 'function') {
+                const res = await api.sync_pretty_url(projectId);
+                if (res.status === 'success') {
+                    showToast("Pretty URL berhasil disinkronisasi!", "success");
+                    fetchProjects();
+                } else {
+                    showToast(res.message, "error");
+                }
+            } else {
+                showToast("Fungsi sinkronisasi URL belum tersedia", "info");
+            }
+        } catch (error) {
+            console.error(error);
+            showToast("Gagal menghubungi backend.", "error");
+        }
+    };
+
+    // --- FUNGSI SYNC WINDOWS HOSTS (RETRY) ---
+    const handleSyncHost = async (projectId: string) => {
+        try {
+            const api = window.pywebview?.api || window.api;
+            if (api && typeof api.retry_sync_host === 'function') {
+                const res = await api.retry_sync_host(projectId);
+                if (res.status === 'success') {
+                    showToast(res.message, "success");
+                    fetchProjects();
+                } else {
+                    showToast(res.message, "error");
+                }
+            } else {
+                showToast("Fungsi sinkronisasi host belum tersedia", "info");
+            }
+        } catch (error) {
+            console.error(error);
+            showToast("Gagal menghubungi backend.", "error");
+        }
+    };
+
+    const handleOpenDocumentRoot = async (path: string) => {
+        try {
+            const api = window.pywebview?.api || window.api;
+            if (api && typeof api.open_in_explorer === 'function') {
+                api.open_in_explorer(path);
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    // --- EVENT LISTENERS & STATUS CHECKER APACHE ---
     useEffect(() => {
         const handleStatusChange = (e: any) => {
             if (e.detail.service === 'apache') {
@@ -106,6 +216,10 @@ export default function ApacheMain() {
         }
     };
 
+    useEffect(() => {
+        fetchApacheStatus();
+    }, []);
+
     const handleToggleServer = async () => {
         setIsTogglingServer(true);
         try {
@@ -128,10 +242,6 @@ export default function ApacheMain() {
             setIsTogglingServer(false);
         }
     };
-
-    useEffect(() => {
-        fetchApacheStatus();
-    }, []);
 
     const fetchAvailableVersions = async () => {
         setIsFetchingVersions(true);
@@ -232,7 +342,7 @@ export default function ApacheMain() {
                         <div className="flex items-center gap-4">
                             <span className="font-mono text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
                                 <span className="material-symbols-outlined text-[14px]">info</span>
-                                {isApacheInstalled ? '1 Server Instance Installed' : 'Not Installed'} • {DUMMY_PROJECTS.length} Virtual Hosts
+                                {isApacheInstalled ? '1 Server Instance Installed' : 'Not Installed'} • {projects.length} Virtual Hosts
                             </span>
                         </div>
                     </div>
@@ -329,7 +439,7 @@ export default function ApacheMain() {
                 <div className="flex justify-between items-center mb-6">
                     <h3 className="text-xl font-semibold text-slate-900 dark:text-white">Virtual Hosts (Projects)</h3>
                     <button
-                        onClick={() => setIsNewProjectModalOpen(true)} // FIX: State yang tepat
+                        onClick={() => setIsNewProjectModalOpen(true)}
                         disabled={!isApacheInstalled}
                         className="bg-slate-900 dark:bg-white hover:bg-slate-800 dark:hover:bg-slate-200 text-white dark:text-slate-900 disabled:opacity-50 disabled:cursor-not-allowed border border-transparent text-sm font-medium py-2 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-sm"
                     >
@@ -338,52 +448,132 @@ export default function ApacheMain() {
                     </button>
                 </div>
 
-                {/* --- Render Card Virtual Hosts --- */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
-                    {DUMMY_PROJECTS.map(project => (
-                        <Card
-                            key={project.id}
-                            title={project.name}
-                            dropdownActions={
-                                <>
-                                    <button className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">Open Document Root</button>
-                                    <button onClick={() => handleOpenProjectSettings(project.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">Vhost Settings</button>
-                                    <div className="border-t border-slate-200 dark:border-slate-700 my-1"></div>
-                                    <button onClick={() => handleOpenDeleteConfirm(project.id)} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">Delete Project</button>
-                                </>
-                            }
-                            footerActions={
-                                <>
-                                    <button className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
-                                        <span className="material-symbols-outlined text-[18px]">open_in_browser</span> Open in Browser
-                                    </button>
-                                    <button onClick={() => handleOpenProjectSettings(project.id)} className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
-                                        <span className="material-symbols-outlined text-[18px]">settings</span> Setup
-                                    </button>
-                                </>
-                            }
-                        >
-                            <div className="flex flex-col gap-1">
-                                <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Framework</span>
-                                <span className="text-sm font-medium text-slate-900 dark:text-slate-200">
-                                    {project.framework} <span className="text-xs text-slate-500 ml-1">({project.frameworkVer})</span>
-                                </span>
-                            </div>
-                            <div className="flex flex-col gap-1">
-                                <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">PHP Engine</span>
-                                <span className="text-sm font-medium text-primary dark:text-blue-400 font-mono">
-                                    {project.phpVersion}
-                                </span>
-                            </div>
-                            <div className="flex flex-col gap-1 col-span-2">
-                                <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Local Domain</span>
-                                <a href={`http://${project.domain}`} target="_blank" rel="noreferrer" className="font-mono text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1.5 hover:text-primary transition-colors w-fit">
-                                    {project.domain} <span className="material-symbols-outlined text-[14px]">open_in_new</span>
-                                </a>
-                            </div>
-                        </Card>
-                    ))}
-                </div>
+                {/* --- Render Card Virtual Hosts Dinamis --- */}
+                {isFetchingProjects ? (
+                    <div className="flex justify-center py-10">
+                        <span className="material-symbols-outlined animate-spin text-primary text-3xl">sync</span>
+                    </div>
+                ) : projects.length === 0 ? (
+                    <div className="text-center py-10 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-slate-500">
+                        <p>No projects found. Click "Add Project" to create one.</p>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
+                        {projects.map(project => (
+                            <Card
+                                key={project.id}
+                                title={project.name || 'Untitled Project'}
+                                gridCols="grid-cols-1" /* PERBAIKAN: Memaksa Card agar tidak membagi 2 kolom secara default */
+                                dropdownActions={
+                                    <>
+                                        <button onClick={() => handleOpenDocumentRoot(project.path)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">Open Document Root</button>
+                                        <button onClick={() => handleOpenProjectSettings(project.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">Vhost Settings</button>
+
+                                        {/* CONTEXT MENU: Sync Pretty URL (.htaccess) */}
+                                        {project.pretty_url_synced === false && (
+                                            <button
+                                                onClick={() => handleGeneratePrettyUrl(project.id)}
+                                                className="w-full text-left px-4 py-2 text-sm text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 flex items-center gap-2"
+                                            >
+                                                Sync Pretty URL
+                                            </button>
+                                        )}
+
+                                        {/* CONTEXT MENU: Sync Windows Host */}
+                                        {project.host_synced === false && (
+                                            <button
+                                                onClick={() => handleSyncHost(project.id)}
+                                                className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2"
+                                            >
+                                                Retry Host Sync
+                                            </button>
+                                        )}
+
+                                        <div className="border-t border-slate-200 dark:border-slate-700 my-1"></div>
+                                        <button onClick={() => handleOpenDeleteConfirm(project.id)} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">Delete Project</button>
+                                    </>
+                                }
+                                footerActions={
+                                    <>
+                                        <a href={`http://${project.domain}`} target="_blank" rel="noreferrer" className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
+                                            <span className="material-symbols-outlined text-[18px]">open_in_browser</span> Open in Browser
+                                        </a>
+                                        <button onClick={() => handleOpenProjectSettings(project.id)} className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
+                                            <span className="material-symbols-outlined text-[18px]">settings</span> Setup
+                                        </button>
+                                    </>
+                                }
+                            >
+                                {/* PERBAIKAN UTAMA: Membungkus semua anak Card ke dalam div satu kolom penuh */}
+                                <div className="flex flex-col w-full gap-4">
+
+                                    {/* Grid untuk Informasi Detail (Sama persis seperti layout awal) */}
+                                    <div className="grid grid-cols-2 gap-y-4 gap-x-3 w-full">
+                                        <div className="flex flex-col gap-1">
+                                            <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Framework</span>
+                                            <span className="text-sm font-medium text-slate-900 dark:text-slate-200 capitalize">
+                                                {project.framework || 'Unknown'}
+                                            </span>
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">PHP Engine</span>
+                                            <span className="text-sm font-medium text-primary dark:text-blue-400 font-mono">
+                                                {project.php_version || 'Unknown'} <span className="text-slate-400 text-xs">(Port {project.php_port || 'N/A'})</span>
+                                            </span>
+                                        </div>
+                                        <div className="flex flex-col gap-1 col-span-2">
+                                            <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Local Domain</span>
+                                            <a href={`http://${project.domain}`} target="_blank" rel="noreferrer" className="font-mono text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1.5 hover:text-primary transition-colors w-fit truncate">
+                                                {project.domain} <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+                                            </a>
+                                        </div>
+                                    </div>
+
+                                    {/* Pembungkus Notifikasi agar berada rapi di bawah (Bukan di samping) */}
+                                    {(project.pretty_url_synced === false || project.host_synced === false) && (
+                                        <div className="flex flex-col gap-3 border-t border-slate-100 dark:border-slate-800/50 pt-3 mt-1">
+
+                                            {/* Notifikasi Pretty URL */}
+                                            {project.pretty_url_synced === false && (
+                                                <div className="p-3 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/30 rounded-lg flex gap-3 items-start animate-in fade-in">
+                                                    <span className="material-symbols-outlined text-amber-500 dark:text-amber-400 text-[20px] shrink-0">warning</span>
+                                                    <div className="flex flex-col gap-1">
+                                                        <span className="text-sm font-semibold text-amber-800 dark:text-amber-500">Routing Warning</span>
+                                                        <span className="text-xs text-amber-700 dark:text-amber-400/80 leading-relaxed">
+                                                            Pretty URL (.htaccess) has not been synced. Certain application routes may result in a 404 error. Fix this in the context menu.
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Notifikasi Windows Hosts */}
+                                            {project.host_synced === false && (
+                                                <div className="p-3 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800/30 rounded-lg flex gap-3 items-start animate-in fade-in">
+                                                    <span className="material-symbols-outlined text-red-500 dark:text-red-400 text-[20px] shrink-0">admin_panel_settings</span>
+                                                    <div className="flex flex-col gap-1.5 w-full">
+                                                        <span className="text-sm font-semibold text-red-800 dark:text-red-500">Local Domain Not Routed</span>
+                                                        <span className="text-xs text-red-700 dark:text-red-400/80 leading-relaxed">
+                                                            VyloServe needs Administrator privileges to write this domain to the Windows Hosts file. The site might not be accessible yet.
+                                                        </span>
+                                                        <button
+                                                            onClick={() => handleSyncHost(project.id)}
+                                                            className="mt-1 self-start text-xs font-medium text-red-800 dark:text-red-300 bg-red-200 dark:bg-red-800/50 hover:bg-red-300 dark:hover:bg-red-700/60 px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5"
+                                                        >
+                                                            <span className="material-symbols-outlined text-[14px]">sync</span>
+                                                            Retry Sync
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                        </div>
+                                    )}
+                                </div>
+
+                            </Card>
+                        ))}
+                    </div>
+                )}
             </div>
 
             {/* --- KUMPULAN MODALS SERVER --- */}
@@ -453,14 +643,14 @@ export default function ApacheMain() {
                 {selectedProject && <ProjectSettings project={selectedProject as any} />}
             </Modal>
 
-            {/* FIX: Menambahkan Modal Konfirmasi Hapus yang hilang */}
             <Modal
                 isOpen={isDeleteConfirmOpen}
-                onClose={() => setIsDeleteConfirmOpen(false)}
+                onClose={() => !isDeletingProject && setIsDeleteConfirmOpen(false)}
                 title="Delete Virtual Host"
                 icon="delete"
                 onApply={handleDeleteProjectSubmit}
-                applyText="Delete Project"
+                applyText={isDeletingProject ? "Deleting..." : "Delete Project"}
+                isApplyDisabled={isDeletingProject}
                 isDestructive={true}
             >
                 <div className="flex flex-col gap-2">

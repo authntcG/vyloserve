@@ -45,13 +45,6 @@ export default function Modal({
         ? "bg-red-600 hover:bg-red-700 disabled:bg-slate-400 disabled:cursor-not-allowed text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors"
         : "bg-primary hover:bg-blue-600 disabled:bg-slate-400 disabled:cursor-not-allowed text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors";
 
-    const handleBackdropClick = () => {
-        // Abaikan klik di luar modal JIKA modal bersifat destructive
-        if (!isDestructive) {
-            onClose();
-        }
-    };
-
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={(e) => e.stopPropagation()} />

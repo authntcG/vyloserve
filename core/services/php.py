@@ -251,6 +251,14 @@ class PhpManager:
                 
                 f.write("memory_limit = 512M\n")
                 f.write(f"fastcgi.logging = 0\n")
+                # WAJIB untuk setup Apache mod_proxy_fcgi + php-cgi:
+                # cgi.force_redirect adalah proteksi keamanan bawaan PHP-CGI yang
+                # menolak eksekusi kecuali menerima REDIRECT_STATUS dari web server.
+                # mod_proxy_fcgi (beda dari mod_cgi klasik) tidak mengirim variabel
+                # ini secara default, sehingga tanpa baris berikut PHP akan selalu
+                # membalas "No input file specified" walau path file valid.
+                f.write("cgi.force_redirect = 0\n")
+                f.write("cgi.fix_pathinfo = 1\n")
                 if sys.platform == 'win32':
                     f.write("extension_dir = \"ext\"\n")
                     f.write("extension=curl\n")
@@ -395,6 +403,22 @@ class PhpManager:
             f.writelines(new_lines)
             
         self.api.emit_log(f"Konfigurasi PHP {version} berhasil diperbarui.", "success")
+        
+        # ========================================================
+        # HOOK SINKRONISASI OTOMATIS: UBAH CONFIG PHP
+        # ========================================================
+        try:
+            if hasattr(self.api, 'project'):
+                self.api.emit_log("Menulis ulang VHost Apache menyesuaikan konfigurasi PHP baru...", "info")
+                self.api.project.sync_apache_vhosts()
+                
+            # Restart Apache jika sedang berjalan agar port baru langsung aktif
+            if hasattr(self.api, 'apache') and self.api.apache.check_is_running():
+                self.api.emit_log("Merestart Apache untuk menerapkan Port PHP yang baru...", "info")
+                self.api.apache.restart_server()
+        except Exception as e:
+            self.api.emit_log(f"Gagal melakukan Auto-Sync setelah mengubah PHP: {str(e)}", "warn")
+            
         return {"status": "success", "message": "Konfigurasi dan Extensions berhasil disimpan!"}
     
     def open_path(self, version: str, is_file: bool = False):
@@ -424,10 +448,18 @@ class PhpManager:
         
         try:
             if os.path.exists(target_dir):
-                # Hapus folder beserta seluruh isinya
                 shutil.rmtree(target_dir, ignore_errors=True)
                 
                 self.api.emit_log(f"PHP {version} beserta konfigurasinya berhasil dihapus.", "success")
+                
+                # ========================================================
+                # HOOK SINKRONISASI OTOMATIS: HAPUS PHP
+                # ========================================================
+                if hasattr(self.api, 'project'):
+                    self.api.project.sync_apache_vhosts()
+                if hasattr(self.api, 'apache') and self.api.apache.check_is_running():
+                    self.api.apache.restart_server()
+                    
                 return {"status": "success", "message": f"PHP {version} berhasil di-uninstall."}
             else:
                 return {"status": "error", "message": "Instalasi PHP tidak ditemukan."}
@@ -435,6 +467,63 @@ class PhpManager:
             self.api.emit_log(f"Gagal menghapus PHP {version}: {str(e)}", "error")
             return {"status": "error", "message": str(e)}
         
+    def _verify_and_patch_ini(self, php_ini_path: str):
+        """
+        Pre-flight Check untuk php.ini: memastikan cgi.force_redirect dinonaktifkan.
+
+        PENTING: Ini WAJIB ada di php.ini, bukan di environment variable proses.
+        php-cgi yang berjalan dalam mode FastCGI (-b host:port) melayani banyak
+        request lewat satu proses; nilai seperti REDIRECT_STATUS harus dikirim
+        Apache PER REQUEST lewat protokol FastCGI (FCGI_PARAMS), bukan dibaca
+        dari OS environment proses yang cuma di-set sekali saat proses dimulai.
+        Karena itu, mengandalkan `subprocess.Popen(env=...)` untuk REDIRECT_STATUS
+        tidak akan pernah berhasil. Menonaktifkan cgi.force_redirect di php.ini
+        adalah satu-satunya cara yang independen dari perilaku Apache/FastCGI,
+        dan dijamin efektif karena dibaca langsung oleh php-cgi saat start.
+        Dipanggil setiap kali start_php() supaya instalasi PHP lama yang belum
+        punya baris ini pun otomatis diperbaiki (self-healing).
+        """
+        try:
+            if not os.path.exists(php_ini_path):
+                return
+
+            with open(php_ini_path, 'r') as f:
+                lines = f.readlines()
+
+            has_force_redirect = any(
+                l.strip().lower().startswith('cgi.force_redirect') and not l.strip().startswith(';')
+                for l in lines
+            )
+            has_fix_pathinfo = any(
+                l.strip().lower().startswith('cgi.fix_pathinfo') and not l.strip().startswith(';')
+                for l in lines
+            )
+
+            modified = False
+            new_lines = []
+            for l in lines:
+                stripped = l.strip().lower()
+                # Perbaiki baris cgi.force_redirect yang mungkin tertulis "= 1"
+                if stripped.startswith('cgi.force_redirect') and not stripped.startswith(';'):
+                    new_lines.append("cgi.force_redirect = 0\n")
+                    modified = True
+                    continue
+                new_lines.append(l)
+
+            if not has_force_redirect:
+                new_lines.append("cgi.force_redirect = 0\n")
+                modified = True
+            if not has_fix_pathinfo:
+                new_lines.append("cgi.fix_pathinfo = 1\n")
+                modified = True
+
+            if modified:
+                with open(php_ini_path, 'w') as f:
+                    f.writelines(new_lines)
+                self.api.emit_log("php.ini dipatch: cgi.force_redirect dinonaktifkan (mencegah 'No input file specified').", "info")
+        except Exception as e:
+            self.api.emit_log(f"Gagal melakukan pre-flight patch php.ini: {str(e)}", "warn")
+
     def start_php(self, version: str):
         if version in self.processes and self.processes[version].poll() is None:
             return {"status": "error", "message": f"PHP {version} sudah berjalan!"}
@@ -461,11 +550,21 @@ class PhpManager:
         # Perintah eksekusi: php-cgi -b 127.0.0.1:PORT -c php.ini
         cmd = [exe_path, "-b", f"127.0.0.1:{port}", "-c", php_ini_path]
         
-        # ---> PERBAIKAN: SIAPKAN ENVIRONMENT KHUSUS UNTUK PHP <---
+        # ---> PRE-FLIGHT CHECK: pastikan cgi.force_redirect nonaktif di php.ini <---
+        # (self-healing, berlaku juga untuk instalasi PHP lama yang belum punya baris ini)
+        self._verify_and_patch_ini(php_ini_path)
+
+        # ---> SIAPKAN ENVIRONMENT UNTUK PHP <---
         php_env = os.environ.copy()
-        php_env['REDIRECT_STATUS'] = '200'         # FIX ERROR 500: Bypass keamanan cgi.force_redirect
         php_env['PHP_FCGI_MAX_REQUESTS'] = '0'     # Mencegah PHP mati otomatis setelah 500 request
+        # CATATAN: REDIRECT_STATUS sengaja TIDAK di-set di sini. Variabel ini harus
+        # dikirim Apache per-request lewat FastCGI (lihat ProxyFCGISetEnvIf di
+        # httpd-vyloserve-php.conf / vyloserve-vhosts.conf), bukan lewat OS env
+        # proses yang di-set sekali di awal -- itu tidak akan pernah terbaca oleh
+        # request individual. Pencegahan "No input file specified" yang sesungguhnya
+        # dilakukan lewat cgi.force_redirect = 0 di php.ini (lihat _verify_and_patch_ini).
         
+
         try:
             if sys.platform == 'win32':
                 # Sembunyikan jendela Console hitam bawaan Windows

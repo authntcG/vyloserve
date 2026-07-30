@@ -142,11 +142,15 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
                 return false;
             }
 
+            const selectedPhpData = phpVersions.find(p => p.version === selectedVersion);
+            const actualPhpPort = selectedPhpData?.port || selectedPhpData?.fastcgi_port || 9000;
+
             const payload = {
                 name: projectName,
                 domain: domainName,
                 domain_extension: domainExtension,
                 php_version: selectedVersion,
+                php_port: actualPhpPort,
                 is_existing: isExistingLocal,
                 document_root: documentRoot,
                 framework: frameworkToInstall,

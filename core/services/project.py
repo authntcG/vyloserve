@@ -131,6 +131,29 @@ class ProjectManager:
             
         return "raw"
 
+    def _get_php_port_from_system(self, php_version):
+        """
+        Membaca port FastCGI langsung dari sistem manajemen PHP.
+        Sebagai fallback jika payload dari frontend tidak memiliki informasi port.
+        """
+        try:
+            # Coba panggil fungsi get_installed_php milik class Api utama
+            if hasattr(self.api, 'get_installed_php'):
+                php_response = self.api.get_installed_php()
+                
+                # Ekstrak data list (karena response bisa berupa dictionary {"data": [...]} atau list langsung)
+                php_list = php_response.get('data', []) if isinstance(php_response, dict) else php_response
+                
+                for php in php_list:
+                    if php.get('version') == php_version:
+                        # Sesuaikan dengan key yang Anda gunakan ('port' atau 'fastcgi_port')
+                        return int(php.get('port', php.get('fastcgi_port', 9000)))
+                        
+        except Exception as e:
+            self.api.emit_log(f"Gagal membaca port asli untuk PHP {php_version}: {str(e)}", "warn")
+            
+        return 9000 # Fallback absolut
+
     # ---> 2. FITUR AUTO-INSTALL COMPOSER <---
     def _ensure_composer_exists(self):
         """Mengunduh composer.phar secara otomatis jika belum ada"""
@@ -439,47 +462,68 @@ class ProjectManager:
                     return install_result
                 final_doc_root = install_result['document_root']
                 
-            # ---> PERBAIKAN: Ambil port dengan cara yang SANGAT AMAN <---
-            php_port = 9000 # Default aman (fallback)
-            try:
-                if hasattr(self.api, 'php') and hasattr(self.api.php, 'get_php_config'):
-                    php_config = self.api.php.get_php_config(payload.get('php_version'))
-                    if isinstance(php_config, dict) and php_config.get('status') == 'success':
-                        php_port = php_config.get('port', 9000)
-            except Exception as e:
-                self.api.emit_log(f"Peringatan: Gagal mendapatkan spesifik port PHP. Menggunakan port default 9000. ({str(e)})", "warn")
+            # ---> PERBAIKAN: Ambil port dari Payload atau Deteksi Sistem <---
+            php_port = payload.get('php_port')
+            
+            # Jika React gagal mengirim port, lakukan deteksi langsung ke sistem PHP
+            if not php_port:
+                php_port = self._get_php_port_from_system(payload.get('php_version'))
                 
+            # Mulai proses penyimpanan ke database
+            import time
+            project_id = f"proj_{int(time.time())}_{payload.get('domain').replace('.', '_')}"
+            
             # Simpan ke Database
-            projects.append({
-                "id": f"proj_{len(projects) + 1}_{payload.get('domain')}",
+            new_project = {
+                "id": project_id,
                 "name": payload.get('name'),
                 "domain": domain_full,
                 "path": final_doc_root,
                 "php_version": payload.get('php_version'),
-                "php_port": php_port
-            })
+                "php_port": php_port,
+                "framework": payload.get('framework', 'raw'),
+                "host_synced": True # Asumsikan berhasil secara default
+            }
+            projects.append(new_project)
             self._save_projects(projects)
             
-            # ---> PERBAIKAN: Tangani sinkronisasi dengan aman <---
+            # Sinkronisasi Apache Vhosts
             if hasattr(self, 'sync_apache_vhosts'):
                 vhost_result = self.sync_apache_vhosts()
                 if isinstance(vhost_result, dict) and vhost_result.get('status') == 'error':
                     self.api.emit_log(f"Peringatan Vhost: {vhost_result.get('message')}", "warn")
                     
+            # ---> PERBAIKAN LOGIKA: BYPASS ERROR WINDOWS HOSTS <---
+            warning_msg = None
             if hasattr(self, 'sync_windows_hosts'):
                 hosts_result = self.sync_windows_hosts()
+                
+                # JIKA ERROR (Akses Ditolak karena tidak Run as Administrator)
                 if isinstance(hosts_result, dict) and hosts_result.get('status') == 'error':
-                    return hosts_result # Biasanya error butuh hak Administrator
+                    self.api.emit_log(f"Peringatan Hosts: {hosts_result.get('message')}", "warn")
+                    
+                    # Ubah status host_synced menjadi False pada file JSON
+                    for p in projects:
+                        if p['id'] == project_id:
+                            p['host_synced'] = False
+                            break
+                    self._save_projects(projects)
+                    
+                    # Siapkan pesan peringatan (Instalasi tetap dianggap sukses)
+                    warning_msg = "Proyek berhasil diinstal, tetapi gagal menambahkan domain ke file Hosts Windows (Akses Ditolak). Harap restart aplikasi sebagai Administrator lalu klik 'Sync Windows Host'."
             
-            # Restart Apache jika ada
+            # Restart Apache
             if hasattr(self.api, 'apache') and hasattr(self.api.apache, 'restart_server'):
                 self.api.emit_log("Merestart Apache untuk menerapkan konfigurasi baru...", "info")
                 self.api.apache.restart_server() 
                 
-            return {"status": "success", "message": f"Proyek {domain_full} berhasil disiapkan!"}
+            if warning_msg:
+                # Return success dengan membawa warning message
+                return {"status": "success", "message": warning_msg}
+            else:
+                return {"status": "success", "message": f"Proyek {domain_full} berhasil disiapkan!"}
 
         except Exception as e:
-            # JIKA TERJADI ERROR, TANGKAP DAN KIRIM KE REACT DENGAN AMAN!
             import traceback
             error_trace = traceback.format_exc()
             self.api.emit_log(f"CRITICAL ERROR di create_project: {error_trace}", "error")
@@ -487,76 +531,299 @@ class ProjectManager:
 
     # ---> SISTEM ELEGAN UNTUK FILE HOSTS WINDOWS <---
     def sync_windows_hosts(self):
-        projects = self._read_projects()
-        marker_start = "# --- VYLOSERVE START ---"
-        marker_end = "# --- VYLOSERVE END ---"
-        
-        new_entries = [f"127.0.0.1\t{p['domain']}" for p in projects]
+        """
+        Menyinkronkan domain lokal ke file C:\Windows\System32\drivers\etc\hosts.
+        Jika gagal karena butuh hak akses, akan memunculkan Pop-Up UAC Administrator secara otomatis.
+        """
+        import os
+        import ctypes
+        import tempfile
+
+        hosts_path = r"C:\Windows\System32\drivers\etc\hosts"
         
         try:
-            with open(self.hosts_file, 'r') as f:
+            # 1. Baca isi file hosts asli Windows
+            with open(hosts_path, 'r', encoding='utf-8') as f:
                 lines = f.readlines()
-                
-            start_idx = -1
-            end_idx = -1
             
-            for i, line in enumerate(lines):
-                if marker_start in line: start_idx = i
-                if marker_end in line: end_idx = i
+            # 2. Bersihkan konfigurasi VyloServe yang lama (jika ada)
+            clean_lines = []
+            skip = False
+            for line in lines:
+                if "# --- BEGIN VYLOSERVE HOSTS ---" in line:
+                    skip = True
+                if not skip:
+                    clean_lines.append(line)
+                if "# --- END VYLOSERVE HOSTS ---" in line:
+                    skip = False
+                    continue
+
+            # 3. Susun konfigurasi routing domain yang baru dari database
+            projects = self._read_projects()
+            new_hosts_block = "\n# --- BEGIN VYLOSERVE HOSTS ---\n"
+            has_domains = False
+            for p in projects:
+                if p.get('domain'):
+                    new_hosts_block += f"127.0.0.1 {p['domain']}\n"
+                    has_domains = True
+            new_hosts_block += "# --- END VYLOSERVE HOSTS ---\n"
+
+            final_content = "".join(clean_lines)
+            if has_domains:
+                final_content += new_hosts_block
+
+            # 4. Tulis konten final ke file Temp (di C:\Users\User\AppData\Local\Temp)
+            # Folder ini selalu memiliki izin read/write tanpa perlu Administrator
+            temp_dir = tempfile.gettempdir()
+            temp_file = os.path.join(temp_dir, 'vyloserve_hosts_temp.txt')
+            with open(temp_file, 'w', encoding='utf-8') as f:
+                f.write(final_content)
+
+            # 5. Coba menimpa file Hosts secara langsung 
+            # (Berhasil jika kebetulan user sudah membuka VyloServe via Run as Administrator)
+            try:
+                with open(hosts_path, 'w', encoding='utf-8') as f:
+                    f.write(final_content)
+                return {"status": "success", "message": "Berhasil mengupdate Windows Hosts."}
                 
-            # Jika marker sudah ada, hapus blok lama
-            if start_idx != -1 and end_idx != -1:
-                del lines[start_idx:end_idx+1]
-            
-            # Buat blok baru
-            if projects:
-                vyloserve_block = [f"{marker_start}\n"] + [f"{entry}\n" for entry in new_entries] + [f"{marker_end}\n"]
-                lines.extend(vyloserve_block)
+            except PermissionError:
+                # =========================================================
+                # 6. TRIGGER UAC PROMPT ADMINISTRATOR!
+                # =========================================================
+                self.api.emit_log("Meminta akses Administrator via UAC untuk menimpa file Hosts...", "info")
                 
-            # Tulis kembali dengan aman
-            with open(self.hosts_file, 'w') as f:
-                f.writelines(lines)
+                # Perintah Windows CMD untuk menyalin (menimpa) file Temp ke lokasi Hosts asli
+                command = f'/c copy /Y "{temp_file}" "{hosts_path}"'
                 
-            return {"status": "success"}
-            
-        except PermissionError:
-            # PENTING: Menangkap error jika user tidak run as Administrator
-            return {"status": "error", "message": "Akses Ditolak. Harap jalankan VyloServe sebagai Administrator untuk mengubah file hosts."}
+                # Menjalankan perintah dengan verb "runas" untuk mentrigger UAC
+                # Parameter 0 di akhir berarti SW_HIDE (Jendela CMD berwarna hitam tidak akan terlihat oleh user)
+                result = ctypes.windll.shell32.ShellExecuteW(None, "runas", "cmd.exe", command, None, 0)
+                
+                # Berdasarkan dokumentasi Windows API, jika result > 32, eksekusi berhasil dijalankan
+                if result > 32:
+                    return {"status": "success", "message": "Akses diberikan! File Hosts berhasil diperbarui."}
+                else:
+                    return {"status": "error", "message": "Sistem membatalkan karena Anda menolak izin Administrator (UAC)."}
+                    
         except Exception as e:
-            return {"status": "error", "message": str(e)}
+            return {"status": "error", "message": f"Error saat membaca/menulis Hosts: {str(e)}"}
 
     # ---> GENERATOR APACHE VIRTUAL HOST <---
     def sync_apache_vhosts(self):
-        if not self.api or not hasattr(self.api, 'apache'):
-            return {"status": "error", "message": "Modul Apache tidak ditemukan"}
-            
-        apache_status = self.api.apache.get_status()
-        vhost_conf_path = os.path.join(apache_status["path"], "conf", "extra", "httpd-vhosts-vyloserve.conf")
-        
-        projects = self._read_projects()
-        content = "# --- Auto-Generated by VyloServe ---\n\n"
-        
-        for p in projects:
-            # Menggunakan Trik DOS Device Path (//./) yang sudah kita pelajari!
-            safe_path = p['path'].replace(chr(92), "/") # Ubah backslash jadi slash
-            no_drive_path = re.sub(r'^[a-zA-Z]:', '', safe_path)
-            
-            content += f"<VirtualHost *:80>\n"
-            content += f"    ServerName {p['domain']}\n"
-            content += f"    DocumentRoot \"{safe_path}\"\n"
-            content += f"    <Directory \"{safe_path}\">\n"
-            content += f"        Options Indexes FollowSymLinks ExecCGI\n"
-            content += f"        AllowOverride All\n"
-            content += f"        Require all granted\n"
-            content += f"    </Directory>\n"
-            content += f"    <FilesMatch \"\\.php$\">\n"
-            content += f"        SetHandler \"proxy:fcgi://127.0.0.1:{p['php_port']}//./\"\n"
-            content += f"    </FilesMatch>\n"
-            content += f"</VirtualHost>\n\n"
-            
+        """Menghasilkan file konfigurasi Virtual Host Apache dengan Deteksi Dinamis"""
+        import os
         try:
-            with open(vhost_conf_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-            return {"status": "success"}
+            projects = self._read_projects()
+            
+            # 1. AUTO-HEALING: Deteksi path Apache secara langsung, lupakan file .txt
+            if not hasattr(self.api, 'apache'):
+                return {"status": "error", "message": "Modul API Apache tidak termuat."}
+                
+            status = self.api.apache.get_status()
+            if not status.get("installed") or not status.get("path"):
+                return {"status": "error", "message": "Apache belum terinstal."}
+                
+            apache_dir = status["path"]
+            extra_dir = os.path.join(apache_dir, 'conf', 'extra')
+            os.makedirs(extra_dir, exist_ok=True)
+            
+            vhosts_file = os.path.join(extra_dir, 'vyloserve-vhosts.conf')
+            
+            # 2. RANGKAI VHOST MURNI
+            vhost_content = "# --- VYLOSERVE AUTO-GENERATED VHOSTS ---\n\n"
+            
+            for p in projects:
+                domain = p.get('domain')
+                doc_root = str(p.get('path', '')).replace('\\', '/') 
+                
+                saved_port = p.get('php_port')
+                php_version = p.get('php_version')
+                
+                # Sinkronisasi port
+                actual_port = self._get_php_port_from_system(php_version)
+                php_port = actual_port if actual_port else (saved_port or 9000)
+                
+                if php_port != saved_port:
+                    p['php_port'] = php_port
+                    self._save_projects(projects)
+                
+                # 3. ARSITEKTUR BERSIH (Tanpa GENERIC, Tanpa //./)
+                # ---> ARSITEKTUR VHOST THE HOLY GRAIL <---
+                vhost_content += f"""<VirtualHost *:80>
+    ServerName {domain}
+    DocumentRoot "{doc_root}"
+    
+    DirectoryIndex index.php index.html
+    
+    <Directory "{doc_root}">
+        Options Indexes FollowSymLinks ExecCGI
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    # Hapus slash pertama (/) yang dikirim Apache agar Windows PHP tidak crash
+    ProxyFCGIBackendType GENERIC
+    ProxyFCGISetEnvIf "reqenv('SCRIPT_FILENAME') =~ m#^/?(.*)$#" SCRIPT_FILENAME "$1"
+    
+    <FilesMatch "\\.php$">
+        # Menggunakan Slash (/) di akhir untuk membunuh DNS Error
+        SetHandler "proxy:fcgi://127.0.0.1:{php_port}/"
+    </FilesMatch>
+</VirtualHost>\n\n"""
+
+            with open(vhosts_file, 'w', encoding='utf-8') as f:
+                f.write(vhost_content)
+
+            return {"status": "success", "message": "Konfigurasi VHosts berhasil ditulis ulang."}
+            
         except Exception as e:
+            self.api.emit_log(f"Gagal mensinkronkan Vhosts: {str(e)}", "error")
             return {"status": "error", "message": str(e)}
+    
+    def get_projects(self):
+        """Mengambil seluruh data proyek untuk ditampilkan di UI Frontend"""
+        try:
+            projects = self._read_projects()
+            # Pembersihan fallback untuk proyek lama yang mungkin belum punya atribut pretty_url_synced
+            for p in projects:
+                if 'pretty_url_synced' not in p:
+                    p['pretty_url_synced'] = True if p.get('framework', 'raw') == 'raw' else False
+                    
+            return {"status": "success", "data": projects}
+        except Exception as e:
+            self.api.emit_log(f"Gagal memuat daftar proyek: {str(e)}", "error")
+            return {"status": "error", "message": str(e)}
+
+    def delete_project(self, project_id):
+        """Menghapus proyek dari Virtual Host (File fisik tidak dihapus)"""
+        try:
+            projects = self._read_projects()
+            project_to_delete = next((p for p in projects if p['id'] == project_id), None)
+            
+            if not project_to_delete:
+                return {"status": "error", "message": "Data proyek tidak ditemukan di database."}
+            
+            # Buang proyek dari list
+            projects = [p for p in projects if p['id'] != project_id]
+            self._save_projects(projects)
+            
+            # Sinkronisasi ulang Apache VHost dan Windows Hosts tanpa proyek tersebut
+            self.sync_apache_vhosts()
+            self.sync_windows_hosts()
+            
+            # Restart Apache untuk melepas cache domain
+            if hasattr(self.api, 'apache') and hasattr(self.api.apache, 'restart_server'):
+                self.api.apache.restart_server()
+                
+            self.api.emit_log(f"Proyek {project_to_delete['domain']} berhasil dihapus dari Virtual Host.", "info")
+            return {"status": "success", "message": f"Virtual Host untuk {project_to_delete['domain']} telah dihapus."}
+            
+        except Exception as e:
+            self.api.emit_log(f"Gagal menghapus proyek: {str(e)}", "error")
+            return {"status": "error", "message": f"Terjadi kesalahan saat menghapus: {str(e)}"}
+
+    def sync_pretty_url(self, project_id):
+        """Membuat/menimpa file .htaccess agar routing framework (Pretty URL) berjalan sempurna"""
+        try:
+            projects = self._read_projects()
+            project = next((p for p in projects if p['id'] == project_id), None)
+            
+            if not project:
+                return {"status": "error", "message": "Proyek tidak ditemukan."}
+            
+            doc_root = project.get('path')
+            framework = project.get('framework', 'raw')
+            
+            if not os.path.exists(doc_root):
+                return {"status": "error", "message": "Direktori proyek (Document Root) sudah terhapus atau tidak ditemukan."}
+                
+            htaccess_path = os.path.join(doc_root, '.htaccess')
+            
+            # Kumpulan Template Standar Industri (Bulletproof .htaccess)
+            content = ""
+            if framework == 'laravel':
+                content = """<IfModule mod_rewrite.c>
+    <IfModule mod_negotiation.c>
+        Options -MultiViews -Indexes
+    </IfModule>
+    RewriteEngine On
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_URI} (.+)/$
+    RewriteRule ^ %1 [L,R=301]
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^ index.php [L]
+</IfModule>"""
+            elif framework == 'codeigniter':
+                # CodeIgniter 3 & 4 Standard Routing
+                content = """<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^(.*)$ index.php/$1 [L]
+</IfModule>"""
+            elif framework == 'wordpress':
+                content = """# BEGIN WordPress
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+RewriteBase /
+RewriteRule ^index\.php$ - [L]
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule . /index.php [L]
+</IfModule>
+# END WordPress"""
+            else:
+                content = "<IfModule mod_rewrite.c>\n    RewriteEngine On\n</IfModule>"
+
+            # Tulis ke file .htaccess
+            with open(htaccess_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+                
+            # Update status flag di JSON
+            project['pretty_url_synced'] = True
+            self._save_projects(projects)
+            
+            self.api.emit_log(f"File .htaccess berhasil digenerate untuk proyek {project['domain']}", "success")
+            return {"status": "success", "message": "Pretty URL (.htaccess) berhasil dikonfigurasi!"}
+            
+        except Exception as e:
+            self.api.emit_log(f"Gagal sinkronisasi Pretty URL: {str(e)}", "error")
+            return {"status": "error", "message": str(e)}
+
+    def open_in_explorer(self, path):
+        """Membuka folder Document Root secara langsung di Windows File Explorer"""
+        try:
+            # Gunakan os.path.normpath untuk memastikan format slash benar (C:\...)
+            normalized_path = os.path.normpath(path)
+            if os.path.exists(normalized_path):
+                os.startfile(normalized_path)
+                return {"status": "success"}
+            else:
+                return {"status": "error", "message": "Direktori sudah tidak ada atau telah dipindahkan."}
+        except Exception as e:
+            return {"status": "error", "message": f"Gagal membuka explorer: {str(e)}"}
+    
+    def retry_sync_host(self, project_id):
+        """Mencoba ulang sinkronisasi file Windows Hosts yang tertunda"""
+        try:
+            if hasattr(self, 'sync_windows_hosts'):
+                hosts_result = self.sync_windows_hosts()
+                # Jika masih error (user belum run as administrator)
+                if isinstance(hosts_result, dict) and hosts_result.get('status') == 'error':
+                    return hosts_result 
+            
+            # Jika kali ini berhasil, update JSON
+            projects = self._read_projects()
+            for p in projects:
+                if p['id'] == project_id:
+                    p['host_synced'] = True
+                    break
+            self._save_projects(projects)
+            
+            return {"status": "success", "message": "Berhasil menyinkronkan domain ke file Windows Hosts!"}
+        except Exception as e:
+            return {"status": "error", "message": f"Gagal menyinkronkan: {str(e)}"}

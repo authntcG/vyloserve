@@ -16,16 +16,106 @@ class ApacheManager:
         if not os.path.exists(self.base_dir):
             os.makedirs(self.base_dir)
             
+    def _verify_and_patch_httpd(self):
+        """Pre-flight Check: Memaksa konfigurasi httpd.conf menjadi sempurna sebelum Apache menyala"""
+        import os
+        import re
+        try:
+            status = self.get_status()
+            if not status.get("installed"): return
+            
+            apache_dir = status["path"]
+            conf_path = os.path.join(apache_dir, "conf", "httpd.conf")
+            if not os.path.exists(conf_path): return
+            
+            with open(conf_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                
+            modified = False
+            
+            # 1. PAKSA MODUL KRUSIAL AKTIF (dir_module wajib untuk mengatasi "Index of /")
+            modules = [
+                "proxy_module", "proxy_fcgi_module", "rewrite_module", 
+                "vhost_alias_module", "dir_module", "setenvif_module"
+            ]
+            for mod in modules:
+                pattern = re.compile(r"^[ \t]*#[ \t]*(LoadModule\s+" + mod + r"\b.*)$", re.MULTILINE)
+                if pattern.search(content):
+                    content = pattern.sub(r"\1", content)
+                    modified = True
+                    
+            # 2. UBAH INCLUDE LAMA MENJADI INCLUDE-OPTIONAL
+            if "Include conf/extra/httpd-vyloserve-php.conf" in content:
+                content = content.replace("Include conf/extra/httpd-vyloserve-php.conf", "IncludeOptional conf/extra/httpd-vyloserve-php.conf")
+                modified = True
+            if "Include conf/extra/vyloserve-vhosts.conf" in content:
+                content = content.replace("Include conf/extra/vyloserve-vhosts.conf", "IncludeOptional conf/extra/vyloserve-vhosts.conf")
+                modified = True
+                
+            # 3. SUNTIKKAN INCLUDE JIKA BELUM ADA
+            if "IncludeOptional conf/extra/httpd-vyloserve-php.conf" not in content:
+                content += "\n\n# --- VyloServe Global PHP Proxy ---\nIncludeOptional conf/extra/httpd-vyloserve-php.conf\n"
+                modified = True
+            if "IncludeOptional conf/extra/vyloserve-vhosts.conf" not in content:
+                content += "\n# --- VyloServe Virtual Hosts ---\nIncludeOptional conf/extra/vyloserve-vhosts.conf\n"
+                modified = True
+
+            # 4. PERBAIKAN "INDEX OF /": Paksa index.php terbaca pertama secara global
+            if "DirectoryIndex index.php" not in content:
+                content = re.sub(r'DirectoryIndex\s+index\.html', 'DirectoryIndex index.php index.html', content, flags=re.IGNORECASE)
+                modified = True
+                
+            # 5. PERBAIKAN AH00558: Tetapkan ServerName localhost untuk membungkam warning log
+            if "\nServerName localhost" not in content and "\nServerName 127.0.0.1" not in content:
+                content += "\n\n# VyloServe: Suppress AH00558 Warning\nServerName localhost\n"
+                modified = True
+                
+            # 6. MEMBERIKAN IZIN AKAR DRIVE (Membunuh 403 Forbidden)
+            content = re.sub(r'# VyloServe: Relax permissions.*?</Directory>', '', content, flags=re.DOTALL)
+            relax_sec = "\n# VyloServe: Relax permissions for local dev\n<Directory />\n    AllowOverride All\n    Require all granted\n</Directory>\n"
+            if relax_sec not in content:
+                content += relax_sec
+                modified = True
+                
+            if modified:
+                with open(conf_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+
+            # 7. AUTO-CREATE MISSING FILES! 
+            extra_dir = os.path.join(apache_dir, "conf", "extra")
+            os.makedirs(extra_dir, exist_ok=True)
+            
+            php_conf_path = os.path.join(extra_dir, "httpd-vyloserve-php.conf")
+            if not os.path.exists(php_conf_path):
+                self.update_global_php_proxy(9000, restart=False) 
+                    
+            vhosts_conf_path = os.path.join(extra_dir, "vyloserve-vhosts.conf")
+            if not os.path.exists(vhosts_conf_path):
+                with open(vhosts_conf_path, 'w', encoding='utf-8') as f:
+                    f.write("# VyloServe Virtual Hosts Fallback\n")
+
+            self.api.emit_log("Pre-flight Check: httpd.conf tervalidasi sempurna.", "success")
+            
+        except Exception as e:
+            self.api.emit_log(f"Pre-flight Check gagal: {str(e)}", "error")
+            
     def _configure_httpd(self, target_dir, port):
         conf_path = os.path.join(target_dir, "conf", "httpd.conf")
         with open(conf_path, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        # Update SRVROOT
+        # Update SRVROOT & Port
         content = re.sub(r'Define\s+SRVROOT\s+"[^"]+"', f'Define SRVROOT "{target_dir.replace(chr(92), "/")}"', content, flags=re.IGNORECASE)
         content = re.sub(r'Listen\s+80', f'Listen {port}', content, flags=re.IGNORECASE)
         
-        # Document Root Normal (Tetap menyimpan huruf Drive D:)
+        # PERBAIKAN AH00558: Hilangkan warning DNS server name dari log
+        if "ServerName localhost" not in content:
+            content = re.sub(r'#\s*ServerName\s+www\.example\.com:[0-9]+', f'ServerName localhost:{port}', content, flags=re.IGNORECASE)
+            # Jika regex di atas gagal, suntikkan di bawah Listen
+            if "ServerName localhost" not in content:
+                content = re.sub(r'(Listen\s+[0-9]+)', f'\\1\nServerName localhost:{port}', content, flags=re.IGNORECASE)
+        
+        # Document Root Normal
         www_dir = self._ensure_default_htdocs()
         content = re.sub(r'DocumentRoot\s+"[^"]+htdocs"', f'DocumentRoot "{www_dir}"', content, flags=re.IGNORECASE)
         content = re.sub(r'<Directory\s+"[^"]+htdocs">', f'<Directory "{www_dir}">', content, flags=re.IGNORECASE)
@@ -36,27 +126,18 @@ class ApacheManager:
         content = re.sub(r'#\s*LoadModule\s+proxy_module\s+modules/mod_proxy\.so', r'LoadModule proxy_module modules/mod_proxy.so', content, flags=re.IGNORECASE)
         content = re.sub(r'#\s*LoadModule\s+proxy_fcgi_module\s+modules/mod_proxy_fcgi\.so', r'LoadModule proxy_fcgi_module modules/mod_proxy_fcgi.so', content, flags=re.IGNORECASE)
 
-        # ---> INJECT PROXY & VIRTUAL HOSTS <---
-        if "Include conf/extra/httpd-vyloserve-php.conf" not in content:
+        if "Include conf/extra/httpd-vyloserve-php.conf" not in content and "IncludeOptional conf/extra/httpd-vyloserve-php.conf" not in content:
             content += "\n\n# --- VyloServe Global PHP Proxy ---\n"
-            content += "Include conf/extra/httpd-vyloserve-php.conf\n"
+            content += "IncludeOptional conf/extra/httpd-vyloserve-php.conf\n"
             
-        if "Include conf/extra/httpd-vhosts-vyloserve.conf" not in content:
+        if "Include conf/extra/httpd-vhosts-vyloserve.conf" not in content and "IncludeOptional conf/extra/vyloserve-vhosts.conf" not in content:
             content += "\n# --- VyloServe Virtual Hosts ---\n"
-            content += "Include conf/extra/httpd-vhosts-vyloserve.conf\n"
+            content += "IncludeOptional conf/extra/vyloserve-vhosts.conf\n"
 
         with open(conf_path, 'w', encoding='utf-8') as f:
             f.write(content)
             
-        # Panggil pembuatan file proxy default
-        self.update_global_php_proxy(9000)
-        
-        # ---> BUAT FILE VHOSTS KOSONG AGAR APACHE TIDAK CRASH <---
-        vhosts_conf_path = os.path.join(target_dir, "conf", "extra", "httpd-vhosts-vyloserve.conf")
-        if not os.path.exists(vhosts_conf_path):
-            with open(vhosts_conf_path, 'w', encoding='utf-8') as f:
-                f.write("# --- Auto-Generated by VyloServe ---\n")
-                f.write("# File ini akan diisi secara otomatis saat Anda membuat Project baru.\n")
+        self.update_global_php_proxy(9000, restart=False)
             
     def _ensure_default_htdocs(self):
         """Memastikan folder www global dan file default selalu ada (Persisten)"""
@@ -251,30 +332,38 @@ $has_curl = extension_loaded('curl');
         # Kembalikan path dengan format yang dimengerti Apache (forward slash)
         return www_dir.replace('\\', '/')
     
-    def update_global_php_proxy(self, port):
-        """Memperbarui routing localhost agar mengarah ke Port FastCGI PHP yang baru saja dijalankan"""
+    def update_global_php_proxy(self, port, restart=True):
+        """Memperbarui routing localhost agar mengarah ke Port FastCGI PHP"""
         try:
-            self.api.emit_log(f"Memperbarui routing proxy localhost ke Port FastCGI {port}...", "warn")
-            self.api.emit_log("Menulis ulang httpd.conf dengan Trik DOS Device Path...", "info")
             status = self.get_status()
-            if not status.get("installed"):
-                return {"status": "error", "message": "Apache belum terinstal"}
+            if not status.get("installed"): return {"status": "error", "message": "Apache belum terinstal"}
                 
             php_conf_path = os.path.join(status["path"], "conf", "extra", "httpd-vyloserve-php.conf")
             os.makedirs(os.path.dirname(php_conf_path), exist_ok=True)
+            
+            www_dir = self._ensure_default_htdocs()
             
             with open(php_conf_path, 'w', encoding='utf-8') as f:
                 f.write("# --- Konfigurasi Default Global PHP VyloServe ---\n")
                 f.write(f"# Auto-Generated: Mengarahkan localhost ke PHP Port {port}\n\n")
                 
-                # ---> TRIK EMAS DOS DEVICE PATH & BACKEND GENERIC <---
-                f.write("# Mengatasi Apache Bug 55345 pada Windows\n")
+                f.write(f"DocumentRoot \"{www_dir}\"\n")
+                f.write(f"<Directory \"{www_dir}\">\n")
+                f.write("    DirectoryIndex index.php index.html\n")
+                f.write("    Options Indexes FollowSymLinks ExecCGI\n")
+                f.write("    AllowOverride All\n")
+                f.write("    Require all granted\n")
+                f.write("</Directory>\n\n")
+                
+                # ---> THE ULTIMATE WINDOWS FIX <---
+                f.write("# Menggunakan Regex untuk membuang slash '/' di depan huruf Drive Windows\n")
                 f.write("ProxyFCGIBackendType GENERIC\n")
+                f.write("ProxyFCGISetEnvIf \"reqenv('SCRIPT_FILENAME') =~ m#^/?(.*)$#\" SCRIPT_FILENAME \"$1\"\n")
                 f.write("<FilesMatch \"\\.php$\">\n")
-                f.write(f"    SetHandler \"proxy:fcgi://127.0.0.1:{port}//./\"\n") 
+                f.write(f"    SetHandler \"proxy:fcgi://127.0.0.1:{port}/\"\n") 
                 f.write("</FilesMatch>\n")
                 
-            if self.check_is_running():
+            if restart and self.check_is_running():
                 self.restart_server()
                 
             return {"status": "success", "message": f"Proxy global diupdate ke port {port}"}
@@ -579,33 +668,53 @@ $has_curl = extension_loaded('curl');
                 if os.path.isdir(os.path.join(self.base_dir, item)) and not item.startswith("temp_"):
                     versions.append(item)
             
-            # Baca versi yang sedang aktif dari file .active_version (jika ada)
-            active_file = os.path.join(self.base_dir, ".active_version")
+            root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            data_dir = os.path.join(root_dir, 'data')
+            
+            # Pastikan folder data ada
+            os.makedirs(data_dir, exist_ok=True)
+            
+            active_file = os.path.join(data_dir, "apache_active_version.txt")
             active = None
+            
             if os.path.exists(active_file):
                 with open(active_file, 'r') as f:
                     active = f.read().strip()
                     
-            # Jika belum ada file .active_version, jadikan folder pertama sebagai default
+            if active not in versions:
+                active = None
+                    
             if not active and versions:
                 active = versions[0]
 
             return {"status": "success", "data": versions, "active": active}
+            
         except Exception as e:
             self.api.emit_log(f"Terjadi kesalahan fatal: {str(e)}", "error")
             return {"status": "error", "message": f"Gagal membaca direktori: {str(e)}"}
 
     def set_active_version(self, version):
-        """Menyimpan preferensi versi Apache yang aktif"""
+        """Menyimpan preferensi versi Apache yang aktif ke dalam folder data"""
         try:
-            active_file = os.path.join(self.base_dir, ".active_version")
+            root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            data_dir = os.path.join(root_dir, 'data')
+            
+            # Pastikan folder data ada sebelum menulis
+            os.makedirs(data_dir, exist_ok=True)
+            
+            active_file = os.path.join(data_dir, "apache_active_version.txt")
+            
             with open(active_file, 'w') as f:
                 f.write(version)
+                
+            if hasattr(self.api, 'project'):
+                self.api.project.sync_apache_vhosts()
                 
             if self.check_is_running():
                 self.restart_server()
             
             return {"status": "success", "message": f"Versi aktif berhasil diubah ke Apache {version}"}
+            
         except Exception as e:
             self.api.emit_log(f"Terjadi kesalahan fatal: {str(e)}", "error")
             return {"status": "error", "message": f"Gagal menyimpan pengaturan: {str(e)}"}
@@ -709,22 +818,29 @@ $has_curl = extension_loaded('curl');
         if not status.get("installed"):
             return {"status": "error", "message": "Apache tidak terinstal."}
             
+        # =======================================================
+        # EKSEKUSI PRE-FLIGHT CHECK SEBELUM SERVER MENYALA
+        # =======================================================
+        self._verify_and_patch_httpd()
+        
+        # Panggil ulang Vhost sync agar file vhosts.conf dijamin ada
+        if hasattr(self.api, 'project'):
+            self.api.project.sync_apache_vhosts()
+            
         httpd_exe = os.path.join(status["path"], "bin", "httpd.exe")
         
         try:
+            import subprocess
             flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
-            
-            # Jalankan proses tanpa memblokir terminal utama (Asynchronous)
             proc = subprocess.Popen([httpd_exe], creationflags=flags, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             
-            # JEDA PINTAR: Tunggu 1 detik untuk melihat apakah server langsung crash (Misal Port 80 bentrok)
             import time
             time.sleep(1)
             
-            if proc.poll() is not None: # Jika proses langsung mati (Terminated)
+            if proc.poll() is not None:
                 error_output = proc.stderr.read().decode('utf-8', errors='ignore').strip()
                 if not error_output:
-                    error_output = "Port 80 atau 443 kemungkinan sedang digunakan oleh aplikasi lain (Skype, IIS, dll)."
+                    error_output = "Port 80 kemungkinan sedang digunakan oleh aplikasi lain (Skype, IIS, dll)."
                 return {"status": "error", "message": f"Server gagal dimulai: {error_output}"}
                 
             self.api.emit_log(f"Server Apache berhasil berjalan dengan PID {proc.pid}.", "success")
