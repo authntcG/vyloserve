@@ -299,38 +299,103 @@ class ProjectManager:
                 except Exception as e:
                     self.api.emit_log(f"Peringatan konfigurasi: {str(e)}", "warn")
 
-                # ---> LANGKAH 2: HAPUS LOCK FILE DAN JALANKAN UPDATE <---
+                # =======================================================================
+                # ---> LANGKAH 2: HAPUS LOCK FILE DAN JALANKAN UPDATE (DENGAN AUTO-RETRY)
+                # =======================================================================
                 self.api.emit_log("Menyesuaikan dependensi framework dengan versi PHP lokal...", "info")
                 
-                lock_file = os.path.join(target_dir, "composer.lock")
-                if os.path.exists(lock_file):
-                    os.remove(lock_file)
-                    
-                cmd_update = [
-                    php_exe, "-c", php_ini_path, composer_phar, 
-                    "update", "--no-interaction", "--prefer-dist",
-                    "--no-scripts" # <--- TAMBAHKAN INI JUGA
-                ]
+                max_retries = 3
+                update_success = False
                 
-                process_update = subprocess.Popen(
-                    cmd_update, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
-                    text=True, startupinfo=startupinfo, env=custom_env, cwd=target_dir
-                )
-                
-                for line in process_update.stdout:
-                    clean_line = ansi_escape.sub('', line.strip())
-                    if clean_line:
-                        self.api.emit_log(f"[Composer] {clean_line}", "info")
-                        if current_percent < 95.0: current_percent += 0.5
+                for attempt in range(max_retries):
+                    lock_file = os.path.join(target_dir, "composer.lock")
+                    if os.path.exists(lock_file):
+                        os.remove(lock_file)
                         
-                        safe_text = clean_line.replace("'", "\\'").replace('"', '\\"').replace('\n', '')[:62]
-                        if hasattr(self.api, "_window") and self.api._window:
-                            self.api._window.evaluate_js(f"window.dispatchEvent(new CustomEvent('vylo_progress', {{ detail: {{ percent: {int(current_percent)}, text: 'Instalasi Vendor: {safe_text}' }} }}))")
+                    cmd_update = [
+                        php_exe, "-c", php_ini_path, composer_phar, 
+                        "update", "--no-interaction", "--prefer-dist",
+                        "--no-scripts" # Mencegah eksekusi script sebelum env siap
+                    ]
+                    
+                    # Berikan jeda waktu jika ini adalah percobaan ulang (Menunggu Antivirus melepas file)
+                    if attempt > 0:
+                        self.api.emit_log(f"Percobaan ke-{attempt+1} meracik vendor (Menunggu Antivirus/OS melepas file)...", "warn")
+                        import time
+                        time.sleep(3) 
+                        
+                    process_update = subprocess.Popen(
+                        cmd_update, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
+                        text=True, startupinfo=startupinfo, env=custom_env, cwd=target_dir
+                    )
+                    
+                    for line in process_update.stdout:
+                        clean_line = ansi_escape.sub('', line.strip())
+                        if clean_line:
+                            self.api.emit_log(f"[Composer] {clean_line}", "info")
+                            if current_percent < 95.0: current_percent += 0.5
+                            
+                            safe_text = clean_line.replace("'", "\\'").replace('"', '\\"').replace('\n', '')[:62]
+                            if hasattr(self.api, "_window") and self.api._window:
+                                self.api._window.evaluate_js(f"window.dispatchEvent(new CustomEvent('vylo_progress', {{ detail: {{ percent: {int(current_percent)}, text: 'Instalasi Vendor: {safe_text}' }} }}))")
 
-                process_update.wait()
-                if process_update.returncode != 0:
+                    process_update.wait()
+                    
+                    # Jika berhasil (Return Code 0), langsung keluar dari Loop
+                    if process_update.returncode == 0:
+                        update_success = True
+                        break 
+                        
+                # Jika setelah 3 kali percobaan tetap gagal
+                if not update_success:
                     self._rollback_dir(target_dir)
-                    return {"status": "error", "message": "Gagal meracik dependensi (Vendor). Rollback selesai."}
+                    return {"status": "error", "message": "Gagal meracik dependensi (Vendor) karena OS/Antivirus terus-menerus mengunci file. Rollback selesai."}
+
+                if hasattr(self.api, "_window") and self.api._window:
+                    self.api._window.evaluate_js(f"window.dispatchEvent(new CustomEvent('vylo_progress', {{ detail: {{ percent: 100, text: 'Instalasi selesai sempurna!' }} }}))")
+                
+                self.api.emit_log("Menjalankan post-installation script framework...", "info")
+                
+                if framework == 'laravel':
+                    env_example = os.path.join(target_dir, '.env.example')
+                    env_file = os.path.join(target_dir, '.env')
+                    
+                    # 1. Salin .env.example ke .env
+                    if os.path.exists(env_example) and not os.path.exists(env_file):
+                        import shutil
+                        shutil.copy(env_example, env_file)
+                        self.api.emit_log("File .env Laravel berhasil dibuat.", "success")
+                        
+                    # 2. Generate Application Key (Wajib untuk Laravel)
+                    self.api.emit_log("Men-generate Laravel APP_KEY...", "info")
+                    try:
+                        subprocess.run(
+                            [php_exe, "-c", php_ini_path, "artisan", "key:generate"], 
+                            cwd=target_dir, env=custom_env, startupinfo=startupinfo
+                        )
+                        self.api.emit_log("Laravel APP_KEY berhasil di-generate.", "success")
+                    except Exception as e:
+                        self.api.emit_log(f"Peringatan: Gagal generate key Laravel: {str(e)}", "warn")
+                        
+                elif framework == 'codeigniter' and not is_ci3:
+                    # Otomatisasi untuk CodeIgniter 4
+                    env_example = os.path.join(target_dir, 'env')
+                    env_file = os.path.join(target_dir, '.env')
+                    
+                    if os.path.exists(env_example) and not os.path.exists(env_file):
+                        import shutil
+                        shutil.copy(env_example, env_file)
+                        
+                        # Ubah environment dari production ke development agar error terlihat
+                        try:
+                            with open(env_file, 'r', encoding='utf-8') as f:
+                                env_content = f.read()
+                            env_content = env_content.replace('# CI_ENVIRONMENT = production', 'CI_ENVIRONMENT = development')
+                            with open(env_file, 'w', encoding='utf-8') as f:
+                                f.write(env_content)
+                            self.api.emit_log("File .env CodeIgniter berhasil dibuat dan di-set ke mode Development.", "success")
+                        except Exception as e:
+                            self.api.emit_log(f"Peringatan saat modifikasi .env CI4: {str(e)}", "warn")
 
                 if hasattr(self.api, "_window") and self.api._window:
                     self.api._window.evaluate_js(f"window.dispatchEvent(new CustomEvent('vylo_progress', {{ detail: {{ percent: 100, text: 'Instalasi selesai sempurna!' }} }}))")
@@ -649,6 +714,15 @@ class ProjectManager:
                 
                 # 3. ARSITEKTUR BERSIH (Tanpa GENERIC, Tanpa //./)
                 # ---> ARSITEKTUR VHOST THE HOLY GRAIL <---
+                fcgi_block = f"""
+    ProxyFCGIBackendType GENERIC
+    ProxyFCGISetEnvIf "reqenv('SCRIPT_FILENAME') =~ m#^/?(.*)$#" SCRIPT_FILENAME "$1"
+    
+    <FilesMatch "\\.php$">
+        SetHandler "proxy:fcgi://127.0.0.1:{php_port}/"
+    </FilesMatch>"""
+
+                # 1. BLOK HTTP BIASA (PORT 80)
                 vhost_content += f"""<VirtualHost *:80>
     ServerName {domain}
     DocumentRoot "{doc_root}"
@@ -660,16 +734,35 @@ class ProjectManager:
         AllowOverride All
         Require all granted
     </Directory>
-
-    # Hapus slash pertama (/) yang dikirim Apache agar Windows PHP tidak crash
-    ProxyFCGIBackendType GENERIC
-    ProxyFCGISetEnvIf "reqenv('SCRIPT_FILENAME') =~ m#^/?(.*)$#" SCRIPT_FILENAME "$1"
-    
-    <FilesMatch "\\.php$">
-        # Menggunakan Slash (/) di akhir untuk membunuh DNS Error
-        SetHandler "proxy:fcgi://127.0.0.1:{php_port}/"
-    </FilesMatch>
+{fcgi_block}
 </VirtualHost>\n\n"""
+
+                # 2. BLOK HTTPS AMAN (PORT 443)
+                if hasattr(self.api, 'ssl'):
+                    try:
+                        domain_crt, domain_key = self.api.ssl.generate_domain_cert(domain)
+                        crt_safe = domain_crt.replace('\\', '/')
+                        key_safe = domain_key.replace('\\', '/')
+                        
+                        vhost_content += f"""<VirtualHost *:443>
+    ServerName {domain}
+    DocumentRoot "{doc_root}"
+    
+    SSLEngine on
+    SSLCertificateFile "{crt_safe}"
+    SSLCertificateKeyFile "{key_safe}"
+    
+    DirectoryIndex index.php index.html
+    
+    <Directory "{doc_root}">
+        Options Indexes FollowSymLinks ExecCGI
+        AllowOverride All
+        Require all granted
+    </Directory>
+{fcgi_block}
+</VirtualHost>\n\n"""
+                    except Exception as ssl_err:
+                        self.api.emit_log(f"Gagal memuat SSL untuk {domain}: {ssl_err}", "warn")
 
             with open(vhosts_file, 'w', encoding='utf-8') as f:
                 f.write(vhost_content)
@@ -723,7 +816,7 @@ class ProjectManager:
             return {"status": "error", "message": f"Terjadi kesalahan saat menghapus: {str(e)}"}
 
     def sync_pretty_url(self, project_id):
-        """Membuat/menimpa file .htaccess agar routing framework (Pretty URL) berjalan sempurna"""
+        """Membuat/menimpa file .htaccess agar routing framework berjalan sempurna & Force HTTPS"""
         try:
             projects = self._read_projects()
             project = next((p for p in projects if p['id'] == project_id), None)
@@ -735,60 +828,65 @@ class ProjectManager:
             framework = project.get('framework', 'raw')
             
             if not os.path.exists(doc_root):
-                return {"status": "error", "message": "Direktori proyek (Document Root) sudah terhapus atau tidak ditemukan."}
+                return {"status": "error", "message": "Direktori proyek tidak ditemukan."}
                 
             htaccess_path = os.path.join(doc_root, '.htaccess')
             
-            # Kumpulan Template Standar Industri (Bulletproof .htaccess)
+            # Template Standar Industri dengan tambahan Force HTTPS
+            force_https_rule = """
+    # Force HTTPS (VyloServe)
+    RewriteCond %{HTTPS} off
+    RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+"""
             content = ""
             if framework == 'laravel':
-                content = """<IfModule mod_rewrite.c>
+                content = f"""<IfModule mod_rewrite.c>
     <IfModule mod_negotiation.c>
         Options -MultiViews -Indexes
     </IfModule>
-    RewriteEngine On
-    RewriteCond %{HTTP:Authorization} .
-    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
-    RewriteCond %{REQUEST_FILENAME} !-d
-    RewriteCond %{REQUEST_URI} (.+)/$
+    RewriteEngine On{force_https_rule}
+    RewriteCond %{'{HTTP:Authorization}'} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{'{HTTP:Authorization}'}]
+    RewriteCond %{'{REQUEST_FILENAME}'} !-d
+    RewriteCond %{'{REQUEST_URI}'} (.+)/$
     RewriteRule ^ %1 [L,R=301]
-    RewriteCond %{REQUEST_FILENAME} !-d
-    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{'{REQUEST_FILENAME}'} !-d
+    RewriteCond %{'{REQUEST_FILENAME}'} !-f
     RewriteRule ^ index.php [L]
 </IfModule>"""
             elif framework == 'codeigniter':
-                # CodeIgniter 3 & 4 Standard Routing
-                content = """<IfModule mod_rewrite.c>
-    RewriteEngine On
-    RewriteCond %{REQUEST_FILENAME} !-f
-    RewriteCond %{REQUEST_FILENAME} !-d
+                content = f"""<IfModule mod_rewrite.c>
+    RewriteEngine On{force_https_rule}
+    RewriteCond %{'{REQUEST_FILENAME}'} !-f
+    RewriteCond %{'{REQUEST_FILENAME}'} !-d
     RewriteRule ^(.*)$ index.php/$1 [L]
 </IfModule>"""
             elif framework == 'wordpress':
-                content = """# BEGIN WordPress
+                content = f"""<IfModule mod_rewrite.c>
+    RewriteEngine On{force_https_rule}
+</IfModule>
+# BEGIN WordPress
 <IfModule mod_rewrite.c>
 RewriteEngine On
-RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{'{HTTP:Authorization}'}]
 RewriteBase /
 RewriteRule ^index\.php$ - [L]
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{'{REQUEST_FILENAME}'} !-f
+RewriteCond %{'{REQUEST_FILENAME}'} !-d
 RewriteRule . /index.php [L]
 </IfModule>
 # END WordPress"""
             else:
-                content = "<IfModule mod_rewrite.c>\n    RewriteEngine On\n</IfModule>"
+                content = f"<IfModule mod_rewrite.c>\n    RewriteEngine On{force_https_rule}\n</IfModule>"
 
-            # Tulis ke file .htaccess
             with open(htaccess_path, 'w', encoding='utf-8') as f:
                 f.write(content)
                 
-            # Update status flag di JSON
             project['pretty_url_synced'] = True
             self._save_projects(projects)
             
-            self.api.emit_log(f"File .htaccess berhasil digenerate untuk proyek {project['domain']}", "success")
-            return {"status": "success", "message": "Pretty URL (.htaccess) berhasil dikonfigurasi!"}
+            self.api.emit_log(f"File .htaccess berhasil digenerate dengan HTTPS untuk {project['domain']}", "success")
+            return {"status": "success", "message": "Pretty URL & HTTPS berhasil dikonfigurasi!"}
             
         except Exception as e:
             self.api.emit_log(f"Gagal sinkronisasi Pretty URL: {str(e)}", "error")

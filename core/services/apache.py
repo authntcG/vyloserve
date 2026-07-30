@@ -33,18 +33,29 @@ class ApacheManager:
                 
             modified = False
             
-            # 1. PAKSA MODUL KRUSIAL AKTIF (dir_module wajib untuk mengatasi "Index of /")
+            # 1. Paksa Modul Krusial & SSL Aktif
             modules = [
                 "proxy_module", "proxy_fcgi_module", "rewrite_module", 
-                "vhost_alias_module", "dir_module", "setenvif_module"
+                "vhost_alias_module", "dir_module", "setenvif_module",
+                "ssl_module", "socache_shmcb_module"
             ]
             for mod in modules:
                 pattern = re.compile(r"^[ \t]*#[ \t]*(LoadModule\s+" + mod + r"\b.*)$", re.MULTILINE)
                 if pattern.search(content):
                     content = pattern.sub(r"\1", content)
                     modified = True
+
+            # 2. Injeksi Port HTTPS (443) dengan Regex Super Aman (Mencegah Bug IP)
+            if "\nListen 443" not in content:
+                pattern = re.compile(r"^([ \t]*Listen[ \t]+\d+)$", re.MULTILINE)
+                if pattern.search(content):
+                    content = pattern.sub(r"\1\nListen 443", content, count=1)
+                    modified = True
+                else:
+                    content += "\nListen 443\n"
+                    modified = True
                     
-            # 2. UBAH INCLUDE LAMA MENJADI INCLUDE-OPTIONAL
+            # 3. UBAH INCLUDE LAMA MENJADI INCLUDE-OPTIONAL
             if "Include conf/extra/httpd-vyloserve-php.conf" in content:
                 content = content.replace("Include conf/extra/httpd-vyloserve-php.conf", "IncludeOptional conf/extra/httpd-vyloserve-php.conf")
                 modified = True
@@ -52,7 +63,7 @@ class ApacheManager:
                 content = content.replace("Include conf/extra/vyloserve-vhosts.conf", "IncludeOptional conf/extra/vyloserve-vhosts.conf")
                 modified = True
                 
-            # 3. SUNTIKKAN INCLUDE JIKA BELUM ADA
+            # 4. SUNTIKKAN INCLUDE JIKA BELUM ADA
             if "IncludeOptional conf/extra/httpd-vyloserve-php.conf" not in content:
                 content += "\n\n# --- VyloServe Global PHP Proxy ---\nIncludeOptional conf/extra/httpd-vyloserve-php.conf\n"
                 modified = True
@@ -60,17 +71,17 @@ class ApacheManager:
                 content += "\n# --- VyloServe Virtual Hosts ---\nIncludeOptional conf/extra/vyloserve-vhosts.conf\n"
                 modified = True
 
-            # 4. PERBAIKAN "INDEX OF /": Paksa index.php terbaca pertama secara global
+            # 5. PERBAIKAN "INDEX OF /": Paksa index.php terbaca pertama secara global
             if "DirectoryIndex index.php" not in content:
                 content = re.sub(r'DirectoryIndex\s+index\.html', 'DirectoryIndex index.php index.html', content, flags=re.IGNORECASE)
                 modified = True
                 
-            # 5. PERBAIKAN AH00558: Tetapkan ServerName localhost untuk membungkam warning log
+            # 6. PERBAIKAN AH00558: Tetapkan ServerName localhost untuk membungkam warning log
             if "\nServerName localhost" not in content and "\nServerName 127.0.0.1" not in content:
                 content += "\n\n# VyloServe: Suppress AH00558 Warning\nServerName localhost\n"
                 modified = True
                 
-            # 6. MEMBERIKAN IZIN AKAR DRIVE (Membunuh 403 Forbidden)
+            # 7. MEMBERIKAN IZIN AKAR DRIVE (Membunuh 403 Forbidden)
             content = re.sub(r'# VyloServe: Relax permissions.*?</Directory>', '', content, flags=re.DOTALL)
             relax_sec = "\n# VyloServe: Relax permissions for local dev\n<Directory />\n    AllowOverride All\n    Require all granted\n</Directory>\n"
             if relax_sec not in content:
@@ -81,7 +92,7 @@ class ApacheManager:
                 with open(conf_path, 'w', encoding='utf-8') as f:
                     f.write(content)
 
-            # 7. AUTO-CREATE MISSING FILES! 
+            # 8. AUTO-CREATE MISSING FILES! 
             extra_dir = os.path.join(apache_dir, "conf", "extra")
             os.makedirs(extra_dir, exist_ok=True)
             
@@ -94,7 +105,7 @@ class ApacheManager:
                 with open(vhosts_conf_path, 'w', encoding='utf-8') as f:
                     f.write("# VyloServe Virtual Hosts Fallback\n")
 
-            self.api.emit_log("Pre-flight Check: httpd.conf tervalidasi sempurna.", "success")
+            self.api.emit_log("Pre-flight Check: httpd.conf tervalidasi dengan SSL.", "success")
             
         except Exception as e:
             self.api.emit_log(f"Pre-flight Check gagal: {str(e)}", "error")
@@ -343,25 +354,45 @@ $has_curl = extension_loaded('curl');
             
             www_dir = self._ensure_default_htdocs()
             
+            # Eksekusi logika murni FastCGI yang stabil
+            fcgi_block = f"""
+    ProxyFCGIBackendType GENERIC
+    ProxyFCGISetEnvIf "reqenv('SCRIPT_FILENAME') =~ m#^/?(.*)$#" SCRIPT_FILENAME "$1"
+    <FilesMatch "\\.php$">
+        SetHandler "proxy:fcgi://127.0.0.1:{port}/"
+    </FilesMatch>"""
+
             with open(php_conf_path, 'w', encoding='utf-8') as f:
                 f.write("# --- Konfigurasi Default Global PHP VyloServe ---\n")
                 f.write(f"# Auto-Generated: Mengarahkan localhost ke PHP Port {port}\n\n")
                 
+                # Blok HTTP
                 f.write(f"DocumentRoot \"{www_dir}\"\n")
                 f.write(f"<Directory \"{www_dir}\">\n")
                 f.write("    DirectoryIndex index.php index.html\n")
                 f.write("    Options Indexes FollowSymLinks ExecCGI\n")
                 f.write("    AllowOverride All\n")
                 f.write("    Require all granted\n")
-                f.write("</Directory>\n\n")
-                
-                # ---> THE ULTIMATE WINDOWS FIX <---
-                f.write("# Menggunakan Regex untuk membuang slash '/' di depan huruf Drive Windows\n")
-                f.write("ProxyFCGIBackendType GENERIC\n")
-                f.write("ProxyFCGISetEnvIf \"reqenv('SCRIPT_FILENAME') =~ m#^/?(.*)$#\" SCRIPT_FILENAME \"$1\"\n")
-                f.write("<FilesMatch \"\\.php$\">\n")
-                f.write(f"    SetHandler \"proxy:fcgi://127.0.0.1:{port}/\"\n") 
-                f.write("</FilesMatch>\n")
+                f.write("</Directory>\n")
+                f.write(fcgi_block + "\n\n")
+
+                # Blok HTTPS untuk Localhost
+                if hasattr(self.api, 'ssl'):
+                    try:
+                        local_crt, local_key = self.api.ssl.generate_domain_cert("localhost")
+                        crt_safe = local_crt.replace('\\', '/')
+                        key_safe = local_key.replace('\\', '/')
+                        
+                        f.write(f"<VirtualHost *:443>\n")
+                        f.write(f"    ServerName localhost\n")
+                        f.write(f"    DocumentRoot \"{www_dir}\"\n")
+                        f.write(f"    SSLEngine on\n")
+                        f.write(f"    SSLCertificateFile \"{crt_safe}\"\n")
+                        f.write(f"    SSLCertificateKeyFile \"{key_safe}\"\n")
+                        f.write(fcgi_block + "\n")
+                        f.write(f"</VirtualHost>\n")
+                    except Exception as e:
+                        self.api.emit_log(f"Melewati SSL Localhost: {e}", "warn")
                 
             if restart and self.check_is_running():
                 self.restart_server()
