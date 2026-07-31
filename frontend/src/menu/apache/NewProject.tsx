@@ -33,7 +33,8 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
     const [specificVersion, setSpecificVersion] = useState('');
 
     // STATE PROGRESS BAR
-    const [isCreating, setIsCreating] = useState(false);
+    const [internalIsCreating, setInternalIsCreating] = useState(false);
+    const isCreating = props.isCreatingExternal !== undefined ? props.isCreatingExternal : internalIsCreating;
     const [progress, setProgress] = useState({ percent: 0, text: '' });
 
     // ENHANCEMENT: Ref untuk scroll ke bawah
@@ -158,7 +159,7 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
                 specific_version: specificVersion
             };
 
-            setIsCreating(true);
+            setInternalIsCreating(true); 
             setProgress({ percent: 10, text: "Menyiapkan konfigurasi proyek..." });
 
             try {
@@ -180,7 +181,7 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
                 showToast("Terjadi kesalahan sistem saat menghubungi backend.", "error");
                 return false;
             } finally {
-                setIsCreating(false);
+                setInternalIsCreating(false);
             }
         }
     }));

@@ -1,5 +1,5 @@
 // src/menu/apache/InstallWizard.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 export interface ApacheVersionData {
     version: string;
@@ -38,6 +38,7 @@ export default function ApacheInstallWizard({
 }: ApacheInstallWizardProps) {
 
     const [osInfo, setOsInfo] = useState({ name: 'Windows', arch: 'x64', icon: 'window' });
+    const bottomRef = useRef<HTMLDivElement>(null); // Ref untuk auto-scroll
 
     // Deteksi Sistem Operasi
     useEffect(() => {
@@ -51,6 +52,15 @@ export default function ApacheInstallWizard({
         }
     }, []);
 
+    // --- ENHANCEMENT: Auto-scroll ke bawah saat loading instalasi dimulai ---
+    useEffect(() => {
+        if (isInstalling && bottomRef.current) {
+            setTimeout(() => {
+                bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+            }, 100);
+        }
+    }, [isInstalling]);
+
     // Handler saat opsi versi diubah
     const handleVersionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const selectedVersion = e.target.value;
@@ -62,7 +72,7 @@ export default function ApacheInstallWizard({
     };
 
     return (
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-6 relative">
 
             {/* --- INFO SISTEM & PEMILIHAN VERSI --- */}
             <div className="flex flex-col gap-4">
@@ -153,21 +163,23 @@ export default function ApacheInstallWizard({
                     </div>
                 </div>
 
-                {/* --- PROGRESS BAR (Hanya muncul saat proses instalasi) --- */}
-                {isInstalling && (
-                    <div className="mt-4 p-4 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg flex flex-col gap-2 animate-in fade-in duration-300">
-                        <div className="flex justify-between items-center">
-                            <span className="text-xs font-medium text-slate-700 dark:text-slate-300">{progressText || 'Memulai proses...'}</span>
-                            <span className="text-xs font-bold text-primary dark:text-blue-400">{progress}%</span>
+                {/* --- PROGRESS BAR CONTAINER DENGAN REF --- */}
+                <div ref={bottomRef} className="pt-1 mt-1">
+                    {isInstalling && (
+                        <div className="p-3.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg flex flex-col gap-2 animate-in fade-in duration-300 shadow-sm">
+                            <div className="flex justify-between items-center">
+                                <span className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate w-3/4">{progressText || 'Memulai proses...'}</span>
+                                <span className="text-xs font-bold text-primary dark:text-blue-400">{progress}%</span>
+                            </div>
+                            <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
+                                <div
+                                    className="bg-primary h-2 rounded-full transition-all duration-300 ease-out"
+                                    style={{ width: `${progress}%` }}
+                                ></div>
+                            </div>
                         </div>
-                        <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2.5 overflow-hidden">
-                            <div
-                                className="bg-primary h-2.5 rounded-full transition-all duration-300 ease-out"
-                                style={{ width: `${progress}%` }}
-                            ></div>
-                        </div>
-                    </div>
-                )}
+                    )}
+                </div>
 
             </div>
         </div>

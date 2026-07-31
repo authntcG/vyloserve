@@ -13,8 +13,9 @@ export default function ApacheSettings() {
         const fetchInstalledVersions = async () => {
             setIsLoading(true);
             try {
-                if (window.pywebview && window.pywebview.api) {
-                    const response = await window.pywebview.api.get_apache_installed_versions();
+                const api = window.pywebview?.api || window.api;
+                if (api && typeof api.get_apache_installed_versions === 'function') {
+                    const response = await api.get_apache_installed_versions();
                     if (response.status === 'success') {
                         setInstalledVersions(response.data);
                         setActiveVersion(response.active || '');
@@ -32,15 +33,16 @@ export default function ApacheSettings() {
         };
 
         fetchInstalledVersions();
-    }, []);
+    }, [showToast]);
 
     const handleVersionChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
         const newVersion = e.target.value;
         setActiveVersion(newVersion);
 
         try {
-            if (window.pywebview && window.pywebview.api) {
-                const response = await window.pywebview.api.set_apache_active_version(newVersion);
+            const api = window.pywebview?.api || window.api;
+            if (api && typeof api.set_apache_active_version === 'function') {
+                const response = await api.set_apache_active_version(newVersion);
                 if (response.status === 'success') {
                     showToast(response.message, 'success');
                     window.dispatchEvent(new Event('apache_version_changed'));
@@ -55,8 +57,9 @@ export default function ApacheSettings() {
 
     const handleOpenFile = async (fileType: string) => {
         try {
-            if (window.pywebview && window.pywebview.api) {
-                const response = await window.pywebview.api.open_apache_file(fileType);
+            const api = window.pywebview?.api || window.api;
+            if (api && typeof api.open_apache_file === 'function') {
+                const response = await api.open_apache_file(fileType);
                 if (response.status === 'error') {
                     showToast(response.message, 'error');
                 }
@@ -67,7 +70,7 @@ export default function ApacheSettings() {
     };
 
     return (
-        <>
+        <div className="flex flex-col gap-5">
             {/* Version Selector */}
             <div className="flex flex-col gap-2">
                 <label htmlFor="apache-version" className="text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -75,7 +78,8 @@ export default function ApacheSettings() {
                 </label>
 
                 {isLoading ? (
-                    <div className="h-[42px] bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg animate-pulse"></div>
+                    // Skeleton Loader untuk Dropdown
+                    <div className="h-[42px] bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-lg animate-pulse"></div>
                 ) : (
                     <select
                         id="apache-version"
@@ -104,8 +108,21 @@ export default function ApacheSettings() {
             <div className="flex flex-col gap-3">
                 <h4 className="text-sm font-medium text-slate-700 dark:text-slate-300">Essential Configurations</h4>
 
-                {installedVersions.length === 0 ? (
-                    <div className="text-sm text-slate-500 italic p-3 border border-dashed border-slate-300 dark:border-slate-700 rounded-lg text-center">
+                {isLoading ? (
+                    // Skeleton Loader untuk Button Grid
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {[1, 2, 3].map((item) => (
+                            <div key={item} className="flex items-center gap-3 p-3 border border-slate-100 dark:border-slate-800/60 rounded-lg animate-pulse">
+                                <div className="w-6 h-6 bg-slate-200 dark:bg-slate-700/50 rounded-md shrink-0"></div>
+                                <div className="flex flex-col gap-1.5 w-full">
+                                    <div className="h-3.5 bg-slate-200 dark:bg-slate-700/50 rounded w-1/2"></div>
+                                    <div className="h-2.5 bg-slate-100 dark:bg-slate-800/80 rounded w-3/4"></div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : installedVersions.length === 0 ? (
+                    <div className="text-sm text-slate-500 italic p-3 border border-dashed border-slate-300 dark:border-slate-700 rounded-lg text-center bg-slate-50 dark:bg-slate-900/50">
                         Install Apache first to access configurations.
                     </div>
                 ) : (
@@ -136,6 +153,6 @@ export default function ApacheSettings() {
                     </div>
                 )}
             </div>
-        </>
+        </div>
     );
 }

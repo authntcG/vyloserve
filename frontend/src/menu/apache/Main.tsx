@@ -7,6 +7,7 @@ import ApacheSettings from './Settings';
 import NewApacheProject, { type NewProjectRef } from './NewProject';
 import ProjectSettings from './ProjectSettings';
 import ApacheInstallWizard, { type ApacheVersionData } from './InstallWizard';
+import BackgroundProgressWidget from '../../components/BackgroundProgressWidget';
 
 export interface ProjectData {
     id: string;
@@ -58,6 +59,7 @@ export default function ApacheMain() {
     const [isDeleteFiles, setIsDeleteFiles] = useState(false); // Checkbox Hapus File
     const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
     const [isUpdatingProject, setIsUpdatingProject] = useState(false);
+    const [isCreatingProject, setIsCreatingProject] = useState(false);
 
     const selectedProject = projects.find(p => p.id === selectedProjectId);
     const projectFormRef = useRef<NewProjectRef>(null);
@@ -92,8 +94,15 @@ export default function ApacheMain() {
 
     const handleCreateSubmit = async () => {
         if (!projectFormRef.current) return;
-        setIsNewProjectModalOpen(false); // Modal ditutup, proses berjalan di background
-        await projectFormRef.current.submit();
+        
+        setIsCreatingProject(true); // Tandai proses sedang berjalan
+
+        const isSuccess = await projectFormRef.current.submit();
+        
+        setIsCreatingProject(false); // Proses selesai
+        if (isSuccess) {
+            setIsNewProjectModalOpen(false); // Tutup modal secara permanen
+        }
     };
 
     const handleUpdateProjectSubmit = async () => {
@@ -170,7 +179,14 @@ export default function ApacheMain() {
             if (e.detail && e.detail.percent !== undefined) {
                 setProgress(e.detail.percent);
                 setProgressText(e.detail.text || '');
-                if (e.detail.percent >= 100) setTimeout(() => setProgress(0), 3000);
+                
+                // Mencegah widget tertahan jika error 0% atau selesai 100%
+                if (e.detail.percent >= 100 || e.detail.percent === 0) {
+                    setTimeout(() => {
+                        setProgress(0);
+                        setIsCreatingProject(false);
+                    }, 3000);
+                }
             }
         };
         window.addEventListener('vylo_progress', handleProgress);
@@ -527,27 +543,26 @@ export default function ApacheMain() {
                 )}
             </div>
 
-            {/* --- WIDGET PROGRESS BACKGROUND (Muncul jika Modal Instalasi ditutup) --- */}
-            {(progress > 0 && progress < 100 && !isInstallServerOpen && !isNewProjectModalOpen) && (
-                <div className="fixed bottom-6 right-6 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl rounded-xl p-4 z-50 flex flex-col gap-2 animate-in slide-in-from-bottom-5 fade-in duration-300">
-                    <div className="flex justify-between items-center">
-                        <span className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate w-3/4">{progressText || 'Memproses...'}</span>
-                        <span className="text-xs font-bold text-primary dark:text-blue-400">{progress}%</span>
-                    </div>
-                    <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
-                        <div className="bg-primary h-2 rounded-full transition-all duration-300 ease-out" style={{ width: `${progress}%` }}></div>
-                    </div>
-                </div>
-            )}
+            {/* --- MEMAKAI REUSABLE BACKGROUND PROGRESS WIDGET UNTUK MULTI-PROSES --- */}
+            <BackgroundProgressWidget
+                isOpen={(isCreatingProject && !isNewProjectModalOpen) || (isInstalling && !isInstallServerOpen)}
+                progress={progress}
+                progressText={progressText}
+                title={isInstalling ? "Installing Apache Server..." : "Installing Project..."}
+                onRestore={() => {
+                    if (isInstalling) setIsInstallServerOpen(true);
+                    if (isCreatingProject) setIsNewProjectModalOpen(true);
+                }}
+            />
 
             {/* --- KUMPULAN MODALS SERVER --- */}
             <Modal
                 isOpen={isInstallServerOpen}
-                onClose={() => !isInstalling && setIsInstallServerOpen(false)}
+                onClose={() => setIsInstallServerOpen(false)}
                 title="Install Apache Server"
                 icon="download"
                 onApply={handleInstallApache}
-                applyText={isInstalling ? "Downloading..." : "Download & Install"}
+                applyText={isInstalling ? "Installing in background..." : "Download & Install"}
                 isApplyDisabled={isFetchingVersions || isInstalling || availableVersions.length === 0}
             >
                 <ApacheInstallWizard
@@ -579,6 +594,7 @@ export default function ApacheMain() {
                 applyText={isUninstalling ? "Uninstalling..." : "Yes, Uninstall"}
                 isApplyDisabled={isUninstalling}
                 isDestructive={true}
+                isLoading={isUninstalling}
             >
                 <div className="flex flex-col gap-2">
                     <p className="text-slate-700 dark:text-slate-300">
@@ -593,13 +609,14 @@ export default function ApacheMain() {
             {/* --- KUMPULAN MODALS PROJECT --- */}
             <Modal
                 isOpen={isNewProjectModalOpen}
-                onClose={() => setIsNewProjectModalOpen(false)} // DIBUKA: Boleh ditutup kapan saja (Background Install)
+                onClose={() => setIsNewProjectModalOpen(false)} 
                 title="Create New Project"
                 icon="add_box"
                 onApply={handleCreateSubmit}
-                applyText="Create Project"
+                applyText={isCreatingProject ? "Installing in background..." : "Create Project"}
+                isApplyDisabled={isCreatingProject} // Disable tombol Apply selama proses jalan
             >
-                <NewApacheProject ref={projectFormRef} />
+                <NewApacheProject ref={projectFormRef} isCreatingExternal={isCreatingProject} />
             </Modal>
 
             <Modal 
@@ -610,6 +627,7 @@ export default function ApacheMain() {
                 onApply={handleUpdateProjectSubmit}
                 applyText={isUpdatingProject ? "Saving..." : "Save Changes"}
                 isApplyDisabled={isUpdatingProject}
+                isLoading={isUpdatingProject}
             >
                 {selectedProject && <ProjectSettings project={selectedProject as any} ref={projectSettingsRef} />}
             </Modal>
@@ -623,6 +641,7 @@ export default function ApacheMain() {
                 applyText={isDeletingProject ? "Deleting..." : "Delete Project"}
                 isApplyDisabled={isDeletingProject}
                 isDestructive={true}
+                isLoading={isDeletingProject}
             >
                 <div className="flex flex-col gap-3">
                     <p className="text-slate-700 dark:text-slate-300">
