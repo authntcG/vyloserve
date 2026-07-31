@@ -3,7 +3,8 @@ import { useState, useEffect } from 'react';
 import Card from '../../components/Card';
 import Modal from '../../components/Modal';
 import NewPhpInstance from './NewInstance';
-import PhpSettings from './Settings'; // IMPORT KOMPONEN SETTINGS
+import PhpSettings from './Settings';
+import BackgroundProgressWidget from '../../components/BackgroundProgressWidget'; // <--- IMPORT WIDGET
 import { useToast } from '../../components/ToastContext';
 
 interface PhpInstance {
@@ -20,18 +21,23 @@ export default function PhpMain() {
     const [instances, setInstances] = useState<PhpInstance[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
+    const [togglingInstanceId, setTogglingInstanceId] = useState<string | null>(null);
+
     // STATE UNTUK MODAL INSTALASI
     const [isNewInstanceOpen, setIsNewInstanceOpen] = useState(false);
     const [installVersion, setInstallVersion] = useState('');
     const [installFilename, setInstallFilename] = useState('');
-    const [installPort, setInstallPort] = useState(9002);
+    const [installPort, setInstallPort] = useState(9000);
     const [isInstalling, setIsInstalling] = useState(false);
     const [isFetchingVersions, setIsFetchingVersions] = useState(true);
 
-    // ---> STATE UNTUK MODAL SETTINGS & DATA <---
+    // ---> STATE PROGRESS LINTAS KOMPONEN (UNTUK WIDGET) <---
+    const [progress, setProgress] = useState(0);
+    const [progressText, setProgressText] = useState('');
+
+    // STATE UNTUK MODAL SETTINGS & DATA
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [selectedInstance, setSelectedInstance] = useState<PhpInstance | null>(null);
-
     const [settingsConfig, setSettingsConfig] = useState<any>({});
     const [settingsExtensions, setSettingsExtensions] = useState<any[]>([]);
     const [isLoadingSettings, setIsLoadingSettings] = useState(false);
@@ -42,76 +48,74 @@ export default function PhpMain() {
     const [isDeleting, setIsDeleting] = useState(false);
 
     const { showToast } = useToast();
+    const usedPorts = instances.map(inst => inst.port);
 
     const fetchInstalledInstances = async () => {
         setIsLoading(true);
-        // Tidak perlu cek if (window.pywebview) lagi, karena sudah dijamin oleh App.tsx
         try {
             const data = await window.pywebview.api.get_installed_php();
             setInstances(data);
+            if (data.length > 0) {
+                const maxPort = Math.max(...data.map((i: any) => i.port));
+                setInstallPort(maxPort + 1);
+            }
         } catch (error) {
-            console.error("Gagal memuat instance:", error);
             showToast("Gagal memuat data PHP.", "error");
         }
         setIsLoading(false);
     };
 
-    // KODE YANG SANGAT BERSIH SEKARANG (DENGAN EVENT LISTENER)
+    // ---> EVENT LISTENER UNTUK WIDGET PROGRESS <---
     useEffect(() => {
-        // Fetch data pertama kali saat halaman dimuat
-        fetchInstalledInstances();
-
-        // ---> MENDENGARKAN SINYAL DARI SIDEBAR <---
-        const handleStatusChange = (e: Event) => {
-            const customEvent = e as CustomEvent;
-            // Jika sinyal yang datang adalah untuk 'php', fetch ulang datanya!
-            if (customEvent.detail.service === 'php') {
-                fetchInstalledInstances();
+        const handleProgress = (e: any) => {
+            if (e.detail && e.detail.percent !== undefined) {
+                setProgress(e.detail.percent);
+                setProgressText(e.detail.text || '');
+                if (e.detail.percent >= 100 || e.detail.percent === 0) {
+                    setTimeout(() => setProgress(0), 3000);
+                }
             }
         };
-
-        window.addEventListener('service_status_changed', handleStatusChange);
-        
-        // Membersihkan listener saat pindah halaman agar memori tidak bocor
-        return () => window.removeEventListener('service_status_changed', handleStatusChange);
-        
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        window.addEventListener('vylo_progress', handleProgress);
+        return () => window.removeEventListener('vylo_progress', handleProgress);
     }, []);
 
-    // KODE YANG SANGAT BERSIH SEKARANG
     useEffect(() => {
         fetchInstalledInstances();
+        const handleStatusChange = (e: Event) => {
+            const customEvent = e as CustomEvent;
+            if (customEvent.detail.service === 'php') fetchInstalledInstances();
+        };
+        window.addEventListener('service_status_changed', handleStatusChange);
+        return () => window.removeEventListener('service_status_changed', handleStatusChange);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const handleInstallPhp = async () => {
         if (!installVersion || !installFilename) return showToast("Pilih versi PHP terlebih dahulu.", "warning");
+        if (usedPorts.includes(installPort)) return showToast("Port sudah digunakan! Pilih port lain.", "error");
 
         setIsInstalling(true);
         try {
             const response = await window.pywebview.api.install_php(installVersion, installFilename, installPort);
-
             if (response.status === 'success') {
                 showToast(response.message, 'success');
-                setIsNewInstanceOpen(false);
+                setIsNewInstanceOpen(false); // Tutup modal instalasi
                 fetchInstalledInstances();
             } else {
                 showToast(`Gagal: ${response.message}`, 'error');
             }
         } catch (error) {
             showToast("Terjadi kesalahan sistem.", "error");
-            console.error(error);
         } finally {
             setIsInstalling(false);
         }
     };
 
-    // ---> HANDLER BARU UNTUK MEMBUKA SETTINGS <---
     const handleOpenSettings = async (php: PhpInstance) => {
         setSelectedInstance(php);
         setIsSettingsOpen(true);
         setIsLoadingSettings(true);
-
         if (window.pywebview && window.pywebview.api) {
             try {
                 const response = await window.pywebview.api.get_php_config(php.version);
@@ -128,18 +132,18 @@ export default function PhpMain() {
 
     const handleSaveSettings = async () => {
         if (!selectedInstance) return;
-
+        const otherPorts = usedPorts.filter(p => p !== selectedInstance.port);
+        if (otherPorts.includes(Number(settingsConfig.port))) {
+            return showToast("Port tersebut sudah digunakan oleh instalasi PHP lain!", "error");
+        }
         setIsSavingSettings(true);
         try {
-            // Filter hanya extension yang active
             const activeExts = settingsExtensions.filter(e => e.active).map(e => e.name);
-
             const response = await window.pywebview.api.save_php_config(selectedInstance.version, settingsConfig, activeExts);
-
             if (response.status === 'success') {
                 showToast(response.message, 'success');
                 setIsSettingsOpen(false);
-                fetchInstalledInstances(); // Refresh halaman agar data Card berubah
+                fetchInstalledInstances();
             } else {
                 showToast(response.message, 'error');
             }
@@ -150,33 +154,14 @@ export default function PhpMain() {
         }
     };
 
-    const handleOpenIni = async (version: string) => {
-        try {
-            const response = await window.pywebview.api.open_php_ini(version);
-            if (response.status === 'error') showToast(response.message, 'error');
-        } catch (error) {
-            showToast("Gagal menghubungi sistem.", "error");
-        }
-    };
-
-    const handleOpenDir = async (version: string) => {
-        try {
-            const response = await window.pywebview.api.open_php_dir(version);
-            if (response.status === 'error') showToast(response.message, 'error');
-        } catch (error) {
-            showToast("Gagal menghubungi sistem.", "error");
-        }
-    };
-
     const handleConfirmUninstall = async () => {
         if (!deleteTarget) return;
-
         setIsDeleting(true);
         try {
             const response = await window.pywebview.api.uninstall_php(deleteTarget.version);
             if (response.status === 'success') {
                 showToast(response.message, 'success');
-                setDeleteTarget(null); // Tutup modal dengan mengosongkan state
+                setDeleteTarget(null);
                 fetchInstalledInstances();
             } else {
                 showToast(response.message, 'error');
@@ -189,35 +174,29 @@ export default function PhpMain() {
     };
 
     const handleToggleStatus = async (php: PhpInstance) => {
+        setTogglingInstanceId(php.id);
         try {
-            let response;
             const newStatus = php.status === 'running' ? 'stopped' : 'running';
-
-            if (php.status === 'running') {
-                response = await window.pywebview.api.stop_php(php.version);
-            } else {
-                response = await window.pywebview.api.start_php(php.version);
-            }
+            let response = php.status === 'running'
+                ? await window.pywebview.api.stop_php(php.version)
+                : await window.pywebview.api.start_php(php.version);
 
             if (response.status === 'success') {
                 showToast(response.message, 'success');
-                
-                // 1. UPDATE STATE LOKAL AGAR UI LANGSUNG BERUBAH
-                setInstances(prev => prev.map(inst => 
-                    inst.id === php.id ? { ...inst, status: newStatus } : inst
-                ));
-
-                // 2. TEMBAKKAN EVENT GLOBAL agar Sidebar tahu ada perubahan
-                window.dispatchEvent(new CustomEvent('service_status_changed', { 
-                    detail: { service: 'php', running: newStatus === 'running' } 
-                }));
+                setInstances(prev => prev.map(inst => inst.id === php.id ? { ...inst, status: newStatus } : inst));
+                window.dispatchEvent(new CustomEvent('service_status_changed', { detail: { service: 'php', running: newStatus === 'running' } }));
             } else {
                 showToast(response.message, 'error');
             }
         } catch (error) {
             showToast("Gagal menghubungi server VyloServe.", "error");
+        } finally {
+            setTogglingInstanceId(null);
         }
     };
+
+    const handleOpenIni = async (version: string) => { try { await window.pywebview.api.open_php_ini(version); } catch (e) { } };
+    const handleOpenDir = async (version: string) => { try { await window.pywebview.api.open_php_dir(version); } catch (e) { } };
 
     return (
         <>
@@ -264,6 +243,7 @@ export default function PhpMain() {
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
                         {instances.map(php => {
                             const isRunning = php.status === 'running';
+                            const isToggling = togglingInstanceId === php.id;
 
                             return (
                                 <Card
@@ -271,42 +251,32 @@ export default function PhpMain() {
                                     title={php.name}
                                     status={php.status}
                                     gridCols="grid-cols-2 md:grid-cols-3"
-
                                     dropdownActions={
                                         <>
-                                            <button
-                                                onClick={() => handleOpenIni(php.version)}
-                                                className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"
-                                            >
-                                                Open php.ini
-                                            </button>
-                                            <button
-                                                onClick={() => handleOpenDir(php.version)}
-                                                className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"
-                                            >
-                                                Open Directory
-                                            </button>
+                                            <button onClick={() => handleOpenIni(php.version)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">Open php.ini</button>
+                                            <button onClick={() => handleOpenDir(php.version)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">Open Directory</button>
                                             <div className="border-t border-slate-200 dark:border-slate-700 my-1"></div>
-                                            <button
-                                                onClick={() => setDeleteTarget(php)} // Buka Modal Konfirmasi
-                                                className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
-                                            >
-                                                Uninstall
-                                            </button>
+                                            <button onClick={() => setDeleteTarget(php)} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">Uninstall</button>
                                         </>
                                     }
-
                                     footerActions={
                                         <>
-                                            {/* ---> PASANG onClick PADA TOMBOL START/STOP DI SINI <--- */}
                                             <button
                                                 onClick={() => handleToggleStatus(php)}
-                                                className={`flex-1 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm ${isRunning ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600'}`}
+                                                disabled={isToggling}
+                                                className={`flex-1 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm disabled:opacity-70 disabled:cursor-not-allowed ${isRunning ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600'}`}
                                             >
-                                                <span className="material-symbols-outlined text-[18px]">
-                                                    {isRunning ? 'stop' : 'play_arrow'}
-                                                </span>
-                                                {isRunning ? 'Stop CGI' : 'Start CGI'}
+                                                {isToggling ? (
+                                                    <>
+                                                        <span className="material-symbols-outlined text-[18px] animate-spin">sync</span>
+                                                        {isRunning ? 'Stopping...' : 'Starting...'}
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <span className="material-symbols-outlined text-[18px]">{isRunning ? 'stop' : 'play_arrow'}</span>
+                                                        {isRunning ? 'Stop CGI' : 'Start CGI'}
+                                                    </>
+                                                )}
                                             </button>
 
                                             <button
@@ -337,15 +307,24 @@ export default function PhpMain() {
                 )}
             </div>
 
-            {/* --- MODAL INSTALASI --- */}
+            {/* ---> WIDGET PROGRESS BACKGROUND <--- */}
+            <BackgroundProgressWidget
+                isOpen={isInstalling && !isNewInstanceOpen}
+                progress={progress}
+                progressText={progressText}
+                title={`Installing PHP ${installVersion}...`}
+                onRestore={() => setIsNewInstanceOpen(true)}
+            />
+
+            {/* --- MODAL INSTALASI (Diubah onClose nya) --- */}
             <Modal
                 isOpen={isNewInstanceOpen}
-                onClose={() => !isInstalling && setIsNewInstanceOpen(false)}
+                onClose={() => setIsNewInstanceOpen(false)} // DIBUKA KUNCI: Biarkan tertutup meski isInstalling true
                 title="Install PHP Version"
                 icon="download"
                 onApply={handleInstallPhp}
-                applyText={isInstalling ? "Downloading..." : "Install & Configure"}
-                isApplyDisabled={isFetchingVersions || isInstalling || !installVersion}
+                applyText={isInstalling ? "Installing in background..." : "Install & Configure"}
+                isApplyDisabled={isFetchingVersions || isInstalling || !installVersion || usedPorts.includes(installPort)}
             >
                 <NewPhpInstance
                     version={installVersion}
@@ -356,10 +335,11 @@ export default function PhpMain() {
                     isInstalling={isInstalling}
                     isFetchingVersions={isFetchingVersions}
                     setIsFetchingVersions={setIsFetchingVersions}
+                    usedPorts={usedPorts}
                 />
             </Modal>
 
-            {/* ---> MODAL SETTINGS BARU <--- */}
+            {/* ---> MODAL SETTINGS <--- */}
             <Modal
                 isOpen={isSettingsOpen}
                 onClose={() => !isSavingSettings && setIsSettingsOpen(false)}
@@ -367,7 +347,8 @@ export default function PhpMain() {
                 icon="tune"
                 onApply={handleSaveSettings}
                 applyText={isSavingSettings ? "Saving..." : "Save Changes"}
-                isApplyDisabled={isLoadingSettings || isSavingSettings}
+                isApplyDisabled={isLoadingSettings || isSavingSettings || (selectedInstance ? usedPorts.filter(p => p !== selectedInstance.port).includes(Number(settingsConfig.port)) : false)}
+                isLoading={isSavingSettings}
             >
                 <PhpSettings
                     config={settingsConfig}
@@ -375,6 +356,7 @@ export default function PhpMain() {
                     extensions={settingsExtensions}
                     setExtensions={setSettingsExtensions}
                     isLoading={isLoadingSettings}
+                    usedPorts={selectedInstance ? usedPorts.filter(p => p !== selectedInstance.port) : []}
                 />
             </Modal>
 
@@ -387,7 +369,8 @@ export default function PhpMain() {
                 onApply={handleConfirmUninstall}
                 applyText={isDeleting ? "Uninstalling..." : "Yes, Uninstall"}
                 isApplyDisabled={isDeleting}
-                isDestructive={true} // Membuat tombol apply berwarna merah
+                isDestructive={true}
+                isLoading={isDeleting}
             >
                 <div className="flex flex-col gap-3">
                     <div className="p-4 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800/50 rounded-lg">

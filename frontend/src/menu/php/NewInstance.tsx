@@ -1,5 +1,5 @@
 // src/menu/php/NewInstance.tsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 interface PhpVersion {
     version: string;
@@ -15,11 +15,12 @@ interface Props {
     isInstalling?: boolean;
     isFetchingVersions: boolean;
     setIsFetchingVersions: (val: boolean) => void;
+    usedPorts: number[];
 }
 
 export default function NewPhpInstance({
     version, setVersion, setFilename, port, setPort, isInstalling,
-    isFetchingVersions, setIsFetchingVersions
+    isFetchingVersions, setIsFetchingVersions, usedPorts
 }: Props) {
 
     const [availableVersions, setAvailableVersions] = useState<PhpVersion[]>([]);
@@ -27,7 +28,9 @@ export default function NewPhpInstance({
     const [fetchError, setFetchError] = useState<string>('');
     const [osInfo, setOsInfo] = useState({ name: 'Windows', arch: 'x64', icon: 'window' });
 
-    // Deteksi Sistem Operasi (Konsisten dengan Apache)
+    const isPortConflict = usedPorts.includes(port);
+    const bottomRef = useRef<HTMLDivElement>(null); // ---> REF AUTO-SCROLL
+
     useEffect(() => {
         const userAgent = window.navigator.userAgent.toLowerCase();
         if (userAgent.includes('win')) {
@@ -39,6 +42,15 @@ export default function NewPhpInstance({
         }
     }, []);
 
+    // ---> ENHANCEMENT: Auto-scroll saat menginstal <---
+    useEffect(() => {
+        if (isInstalling && bottomRef.current) {
+            setTimeout(() => {
+                bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+            }, 100);
+        }
+    }, [isInstalling]);
+
     useEffect(() => {
         const fetchVersions = async () => {
             setIsFetchingVersions(true);
@@ -47,7 +59,6 @@ export default function NewPhpInstance({
             if (window.pywebview && window.pywebview.api) {
                 try {
                     const response = await window.pywebview.api.get_php_versions();
-
                     if (response.status === 'success') {
                         const versions = response.data;
                         setAvailableVersions(versions);
@@ -65,10 +76,8 @@ export default function NewPhpInstance({
                     }
                 } catch (error) {
                     setFetchError("Gagal terhubung ke backend Python.");
-                    console.error(error);
                 }
             }
-
             setIsFetchingVersions(false);
         };
 
@@ -79,7 +88,6 @@ export default function NewPhpInstance({
     useEffect(() => {
         const handleProgress = (e: Event) => {
             const customEvent = e as CustomEvent;
-            // Pastikan ID sesuai dengan emit_progress PHP di Python, atau tanpa ID
             setProgress({ percent: customEvent.detail.percent, text: customEvent.detail.text || '' });
         };
         window.addEventListener('vylo_progress', handleProgress);
@@ -97,13 +105,13 @@ export default function NewPhpInstance({
         if (found) setFilename(found.filename);
     };
 
+    const recommendedPort = usedPorts.length > 0 ? Math.max(...usedPorts) + 1 : 9001;
+
     return (
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-6 relative">
 
             {/* --- INFO SISTEM & PEMILIHAN VERSI --- */}
             <div className="flex flex-col gap-4">
-
-                {/* Banner Deteksi OS */}
                 <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg">
                     <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-400">
@@ -152,11 +160,6 @@ export default function NewPhpInstance({
                             )}
                         </select>
                     )}
-                    {osInfo.name === 'Windows' && !fetchError && !isFetchingVersions && (
-                        <p className="text-[11px] text-slate-500 mt-1">
-                            Binaries provided by <strong>windows.php.net</strong> (Thread Safe / NTS).
-                        </p>
-                    )}
                 </div>
             </div>
 
@@ -173,45 +176,54 @@ export default function NewPhpInstance({
                 </p>
 
                 <div className="flex flex-col gap-2">
-                    <label className="text-xs font-medium text-slate-700 dark:text-slate-300">Listening Port (Default: 9000)</label>
+                    <label className="text-xs font-medium text-slate-700 dark:text-slate-300">Listening Port</label>
                     <input
                         type="number"
                         value={port}
                         onChange={(e) => setPort(Number(e.target.value))}
                         disabled={isInstalling}
-                        className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2.5 outline-none transition-colors font-mono disabled:opacity-70"
+                        className={`w-full bg-white dark:bg-slate-950 border ${isPortConflict ? 'border-red-500 text-red-600 focus:ring-red-500 focus:border-red-500' : 'border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:ring-primary focus:border-primary'} text-sm rounded-lg block p-2.5 outline-none transition-colors font-mono disabled:opacity-70`}
                     />
                 </div>
 
-                {/* Peringatan pintar: Jika port 9000 digunakan */}
-                {port === 9000 && (
-                    <div className="mt-2 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/50 rounded-lg flex gap-3">
-                        <span className="material-symbols-outlined text-blue-600 dark:text-blue-500 text-[20px] shrink-0">info</span>
-                        <p className="text-[12px] text-blue-800 dark:text-blue-400">
-                            <strong>Tip:</strong> Port 9000 is the standard for PHP FastCGI. If you plan to install multiple PHP versions, use sequential ports (e.g., 9001, 9002).
+                {isPortConflict ? (
+                    <div className="mt-1 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-lg flex gap-3 animate-in fade-in">
+                        <span className="material-symbols-outlined text-red-600 dark:text-red-500 text-[20px] shrink-0">error</span>
+                        <p className="text-[12px] text-red-800 dark:text-red-400">
+                            <strong>Port Conflict:</strong> Port {port} is already used by another PHP installation. Please change it to an available port, such as <strong>{recommendedPort}</strong>.
                         </p>
                     </div>
-                )}
-
-                {/* --- PROGRESS BAR (Hanya muncul saat proses instalasi) --- */}
-                {isInstalling && (
-                    <div className="mt-4 p-4 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg flex flex-col gap-2 animate-in fade-in duration-300">
-                        <div className="flex justify-between items-center">
-                            <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                                {progress.text || 'Memulai proses...'}
-                            </span>
-                            <span className="text-xs font-bold text-primary dark:text-blue-400">
-                                {progress.percent}%
-                            </span>
-                        </div>
-                        <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2.5 overflow-hidden">
-                            <div
-                                className="bg-primary h-2.5 rounded-full transition-all duration-300 ease-out"
-                                style={{ width: `${progress.percent}%` }}
-                            ></div>
-                        </div>
+                ) : port === 9000 ? (
+                    <div className="mt-1 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/50 rounded-lg flex gap-3">
+                        <span className="material-symbols-outlined text-blue-600 dark:text-blue-500 text-[20px] shrink-0">info</span>
+                        <p className="text-[12px] text-blue-800 dark:text-blue-400">
+                            <strong>Tip:</strong> Port 9000 is the standard for PHP. If you plan to install multiple PHP versions, use sequential ports (e.g., 9001, 9002).
+                        </p>
                     </div>
-                )}
+                ) : null}
+
+                {/* --- PROGRESS BAR DENGAN GAP YANG DIRAPATKAN --- */}
+                <div ref={bottomRef} className="pt-1 mt-1">
+                    {isInstalling && (
+                        <div className="p-3.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg flex flex-col gap-2 animate-in fade-in duration-300 shadow-sm">
+                            <div className="flex justify-between items-center">
+                                <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                                    {progress.text || 'Memulai proses...'}
+                                </span>
+                                <span className="text-xs font-bold text-primary dark:text-blue-400">
+                                    {progress.percent}%
+                                </span>
+                            </div>
+                            <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2.5 overflow-hidden">
+                                <div
+                                    className="bg-primary h-2.5 rounded-full transition-all duration-300 ease-out"
+                                    style={{ width: `${progress.percent}%` }}
+                                ></div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
             </div>
         </div>
     );
