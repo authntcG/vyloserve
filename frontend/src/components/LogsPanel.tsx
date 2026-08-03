@@ -205,7 +205,7 @@ export default function LogsPanel() {
                         }`}
                 >
                     {logs.map((log) => (
-                        <div key={log.id} className="flex gap-3 mb-1 font-medium hover:bg-slate-900/50 px-1 rounded">
+                        <div key={log.id} className="vylo-log-area flex gap-3 mb-1 font-medium hover:bg-slate-900/50 px-1 rounded">
                             <span className="text-slate-500 shrink-0 select-none">[{log.timestamp}]</span>
                             <span className={`${getColorClass(log.level)} break-all selection:bg-primary/50 selection:text-white`}>
                                 {log.message}

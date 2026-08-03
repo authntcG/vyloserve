@@ -167,6 +167,15 @@ class Api:
                 # Normalisasi path untuk Windows/React
                 return result[0].replace('\\', '/')
         return None
+    
+    def open_browser(self, url):
+        """Membuka URL di browser bawaan OS (Chrome/Edge/dll) tanpa memicu URL Hint UI"""
+        import webbrowser
+        try:
+            webbrowser.open(url)
+            return {"status": "success"}
+        except Exception as e:
+            return {"status": "error", "message": f"Gagal membuka browser: {str(e)}"}
 
     def detect_framework(self, directory):
         """Mendeteksi framework dari suatu folder secara real-time"""

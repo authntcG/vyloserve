@@ -65,6 +65,20 @@ export default function ApacheMain() {
     const projectFormRef = useRef<NewProjectRef>(null);
     const projectSettingsRef = useRef<any>(null);
 
+    const handleOpenBrowser = async (domain: string) => {
+        const url = `https://${domain}`;
+        try {
+            const api = window.pywebview?.api || window.api;
+            if (api && typeof api.open_browser === 'function') {
+                api.open_browser(url);
+            } else {
+                window.open(url, '_blank'); // Fallback aman
+            }
+        } catch (error) {
+            console.error("Gagal membuka browser", error);
+        }
+    };
+
     const fetchProjects = async () => {
         setIsFetchingProjects(true);
         try {
@@ -94,11 +108,11 @@ export default function ApacheMain() {
 
     const handleCreateSubmit = async () => {
         if (!projectFormRef.current) return;
-        
+
         setIsCreatingProject(true); // Tandai proses sedang berjalan
 
         const isSuccess = await projectFormRef.current.submit();
-        
+
         setIsCreatingProject(false); // Proses selesai
         if (isSuccess) {
             setIsNewProjectModalOpen(false); // Tutup modal secara permanen
@@ -179,7 +193,7 @@ export default function ApacheMain() {
             if (e.detail && e.detail.percent !== undefined) {
                 setProgress(e.detail.percent);
                 setProgressText(e.detail.text || '');
-                
+
                 // Mencegah widget tertahan jika error 0% atau selesai 100%
                 if (e.detail.percent >= 100 || e.detail.percent === 0) {
                     setTimeout(() => {
@@ -485,9 +499,12 @@ export default function ApacheMain() {
                                 }
                                 footerActions={
                                     <>
-                                        <a href={`https://${project.domain}`} target="_blank" rel="noreferrer" className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
+                                        <button
+                                            onClick={() => handleOpenBrowser(project.domain)}
+                                            className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm outline-none"
+                                        >
                                             <span className="material-symbols-outlined text-[18px]">open_in_browser</span> Open in Browser
-                                        </a>
+                                        </button>
                                         <button onClick={() => handleOpenProjectSettings(project.id)} className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
                                             <span className="material-symbols-outlined text-[18px]">settings</span> Setup
                                         </button>
@@ -510,9 +527,12 @@ export default function ApacheMain() {
                                         </div>
                                         <div className="flex flex-col gap-1 col-span-2">
                                             <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Local Domain</span>
-                                            <a href={`https://${project.domain}`} target="_blank" rel="noreferrer" className="font-mono text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1.5 hover:text-primary transition-colors w-fit truncate">
+                                            <button
+                                                onClick={() => handleOpenBrowser(project.domain)}
+                                                className="font-mono text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1.5 hover:text-primary transition-colors w-fit truncate outline-none"
+                                            >
                                                 {project.domain} <span className="material-symbols-outlined text-[14px]">open_in_new</span>
-                                            </a>
+                                            </button>
                                         </div>
                                     </div>
 
@@ -609,7 +629,7 @@ export default function ApacheMain() {
             {/* --- KUMPULAN MODALS PROJECT --- */}
             <Modal
                 isOpen={isNewProjectModalOpen}
-                onClose={() => setIsNewProjectModalOpen(false)} 
+                onClose={() => setIsNewProjectModalOpen(false)}
                 title="Create New Project"
                 icon="add_box"
                 onApply={handleCreateSubmit}
@@ -619,11 +639,11 @@ export default function ApacheMain() {
                 <NewApacheProject ref={projectFormRef} isCreatingExternal={isCreatingProject} />
             </Modal>
 
-            <Modal 
-                isOpen={isProjectSettingsOpen} 
-                onClose={() => !isUpdatingProject && setIsProjectSettingsOpen(false)} 
-                title={`Vhost Settings: ${selectedProject?.name}`} 
-                icon="settings" 
+            <Modal
+                isOpen={isProjectSettingsOpen}
+                onClose={() => !isUpdatingProject && setIsProjectSettingsOpen(false)}
+                title={`Vhost Settings: ${selectedProject?.name}`}
+                icon="settings"
                 onApply={handleUpdateProjectSubmit}
                 applyText={isUpdatingProject ? "Saving..." : "Save Changes"}
                 isApplyDisabled={isUpdatingProject}

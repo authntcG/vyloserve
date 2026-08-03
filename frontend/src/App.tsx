@@ -5,8 +5,9 @@ import Sidebar from './components/Sidebar';
 import ApacheMain from './menu/apache/Main';
 import PhpMain from './menu/php/Main';
 import LogsPanel from './components/LogsPanel';
-import { ToastProvider, useToast } from './components/ToastContext';
+import { ToastProvider } from './components/ToastContext';
 import DatabaseMain from './menu/database/Main';
+import GlobalAppInterceptor from './components/AppInterceptor';
 
 declare global {
   interface Window {
@@ -100,6 +101,7 @@ function AppContent() {
 export default function App() {
   return (
     <ToastProvider>
+      <GlobalAppInterceptor />
       <AppContent />
     </ToastProvider>
   );
