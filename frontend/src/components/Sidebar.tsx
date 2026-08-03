@@ -1,10 +1,17 @@
 import { useEffect, useState } from 'react';
 
+// Menambahkan interface untuk Main Menu
+interface MainMenuItem {
+    id: string;
+    name: string;
+    icon: string;
+}
+
 interface ServiceItem {
     id: string;
     name: string;
     icon: string;
-    isActive: boolean; // Kembalikan isActive untuk default value toggle
+    isActive: boolean;
 }
 
 interface ToolItem {
@@ -21,6 +28,11 @@ interface SidebarProps {
     activeMenu: string;
     onSelectMenu: (id: string) => void;
 }
+
+// ---> 1. TAMBAHKAN MENU DASHBOARD DI SINI <---
+const MAIN_MENU: MainMenuItem[] = [
+    { id: 'dashboard', name: 'Dashboard', icon: 'space_dashboard' }
+];
 
 const SERVICES: ServiceItem[] = [
     { id: 'apache', name: 'Apache', icon: 'dns', isActive: true },
@@ -51,21 +63,15 @@ export default function Sidebar({
         database: false
     });
 
-    // 1. SAFE API ACCESSOR: Fungsi pembantu untuk mengakses backend dengan aman
     const getBackendApi = () => {
-        // Prioritaskan window.pywebview.api jika menggunakan PyWebView standar
-        // Atau window.api jika Anda menamai global object-nya 'api'
         return window.pywebview?.api || window.api;
     };
 
-    // 2. Fungsi untuk Sinkronisasi Status dari Backend
     const fetchServiceStatuses = async () => {
         const api = getBackendApi();
 
-        // Mencegah crash jika aplikasi dibuka di browser biasa tanpa Python
         if (!api || typeof api.get_all_services_status !== 'function') {
             console.warn("Backend API tidak ditemukan. Menjalankan mode demo/mock.");
-            // Mock data untuk mode development
             setServiceStatus({ apache: true, php: false, database: false });
             return;
         }
@@ -82,22 +88,15 @@ export default function Sidebar({
         }
     };
 
-    // 2. Polling status setiap 2 detik
     useEffect(() => {
         fetchServiceStatuses();
         const interval = setInterval(fetchServiceStatuses, 2000);
         return () => clearInterval(interval);
     }, []);
 
-    // 3. Handle Toggle dengan Aksi Backend
-    // 3. Handle Toggle dengan Aksi Backend
     const handleToggleClick = async (id: string) => {
         const api = getBackendApi();
-
-        if (!api) {
-            console.error("Backend API tidak tersedia!");
-            return;
-        }
+        if (!api) return;
 
         const isCurrentlyRunning = serviceStatus[id];
 
@@ -108,10 +107,7 @@ export default function Sidebar({
                 await api.start_service(id);
             }
 
-            // 1. Update state di Sidebar sendiri
             fetchServiceStatuses();
-
-            // ---> 2. FIX: Tembakkan sinyal global ke halaman Utama <---
             window.dispatchEvent(new CustomEvent('service_status_changed', {
                 detail: { service: id, running: !isCurrentlyRunning }
             }));
@@ -123,6 +119,11 @@ export default function Sidebar({
 
     const sidebarWidthClass = isDesktopCollapsed ? 'w-20' : 'w-sidebar-width';
     const mobileTranslateClass = isMobileOpen ? 'translate-x-0' : '-translate-x-full';
+
+    // ---> FILTER UNTUK MAIN MENU <---
+    const filteredMain = MAIN_MENU.filter(menu =>
+        menu.name.toLowerCase().includes(searchQuery.toLowerCase())
+    );
 
     const filteredServices = SERVICES.filter(service =>
         service.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -142,7 +143,7 @@ export default function Sidebar({
 
             <nav className={`bg-surface dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col h-[calc(100vh-64px)] md:h-screen fixed left-0 top-[64px] md:top-0 z-50 transition-all duration-300 ease-in-out md:translate-x-0 ${sidebarWidthClass} ${mobileTranslateClass}`}>
 
-                {/* Header ... */}
+                {/* Header */}
                 <div className="flex items-center justify-between px-md py-md border-b border-slate-200 dark:border-slate-800">
                     {!isDesktopCollapsed && (
                         <h1 className="font-headline-md text-lg font-semibold text-primary dark:text-blue-400 transition-opacity duration-200">
@@ -161,7 +162,7 @@ export default function Sidebar({
                     </div>
                 </div>
 
-                {/* Search ... */}
+                {/* Search */}
                 {!isDesktopCollapsed && (
                     <div className="px-md py-md transition-opacity duration-200">
                         <div className="relative group">
@@ -180,15 +181,39 @@ export default function Sidebar({
                 {/* Navigation Items */}
                 <div className="flex flex-col gap-1 py-2 px-2 flex-1 overflow-y-auto">
 
+                    {/* ---> MAIN MENU (DASHBOARD) SECTION <--- */}
+                    {!isDesktopCollapsed && filteredMain.length > 0 && (
+                        <div className="px-3 pt-2 pb-1 text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                            Overview
+                        </div>
+                    )}
+                    {filteredMain.map((menu) => {
+                        const isMenuSelected = activeMenu === menu.id;
+                        return (
+                            <div
+                                key={menu.id}
+                                onClick={() => onSelectMenu(menu.id)}
+                                className={`flex items-center justify-between gap-3 rounded-md px-3 py-2.5 cursor-pointer transition-colors duration-200 group ${isMenuSelected ? 'bg-slate-100 dark:bg-slate-800 text-primary-fixed-dim dark:text-primary-fixed' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                            >
+                                <div className="flex items-center gap-3">
+                                    <span className={`material-symbols-outlined ${isMenuSelected ? 'text-primary' : ''}`} style={{ fontVariationSettings: isMenuSelected ? "'FILL' 1" : "'FILL' 0" }}>{menu.icon}</span>
+                                    {!isDesktopCollapsed && (
+                                        <span className="font-medium text-sm transition-opacity duration-200">{menu.name}</span>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
+
                     {/* SERVICES SECTION */}
                     {!isDesktopCollapsed && filteredServices.length > 0 && (
-                        <div className="px-3 pt-2 pb-1 text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                        <div className="px-3 pt-4 pb-1 text-xs font-semibold text-slate-400 uppercase tracking-wider border-t border-slate-200 dark:border-slate-800 mt-2">
                             Services
                         </div>
                     )}
 
                     {filteredServices.map((service) => {
-                        const isMenuSelected = activeMenu === service.id; // Untuk highlight menu
+                        const isMenuSelected = activeMenu === service.id;
 
                         return (
                             <div
@@ -204,21 +229,15 @@ export default function Sidebar({
                                 </div>
 
                                 {!isDesktopCollapsed && (
-                                    // 3. Ubah trigger onClick ke handleToggleClick
                                     <label
                                         className="relative inline-flex items-center cursor-pointer"
                                         onClick={(e) => {
-                                            e.preventDefault();  // <--- FIX: Mencegah browser mengirim klik ganda ke <input>
-                                            e.stopPropagation(); // <--- Mencegah parent div berpindah menu
+                                            e.preventDefault();
+                                            e.stopPropagation();
                                             handleToggleClick(service.id);
                                         }}
                                     >
-                                        <input
-                                            type="checkbox"
-                                            checked={serviceStatus[service.id]}
-                                            readOnly
-                                            className="sr-only peer"
-                                        />
+                                        <input type="checkbox" checked={serviceStatus[service.id] || false} readOnly className="sr-only peer" />
                                         <div className="w-8 h-4 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
                                     </label>
                                 )}
@@ -226,7 +245,7 @@ export default function Sidebar({
                         );
                     })}
 
-                    {/* TOOLS SECTION ... */}
+                    {/* TOOLS SECTION */}
                     {filteredTools.length > 0 && (
                         <>
                             {!isDesktopCollapsed && (
@@ -260,7 +279,7 @@ export default function Sidebar({
                             {(showToolsDropdown && !isDesktopCollapsed) && (
                                 <div className="flex flex-col gap-1 ml-4 pl-2 border-l border-slate-200 dark:border-slate-700 my-1 overflow-hidden">
                                     {filteredTools.map((tool) => (
-                                        <div key={tool.id} className="flex items-center gap-3 rounded-md px-3 py-2 cursor-pointer text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-primary hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors duration-200">
+                                        <div key={tool.id} onClick={() => onSelectMenu(tool.id)} className={`flex items-center gap-3 rounded-md px-3 py-2 cursor-pointer transition-colors duration-200 ${activeMenu === tool.id ? 'text-primary dark:text-primary bg-slate-50 dark:bg-slate-800/50' : 'text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-primary hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}>
                                             <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 0" }}>{tool.icon}</span>
                                             <span className="font-medium text-sm">{tool.name}</span>
                                         </div>
@@ -271,7 +290,7 @@ export default function Sidebar({
                     )}
 
                     {/* Empty State Jika Pencarian Tidak Ditemukan */}
-                    {filteredServices.length === 0 && filteredTools.length === 0 && (
+                    {filteredMain.length === 0 && filteredServices.length === 0 && filteredTools.length === 0 && (
                         <div className="text-center py-6 text-sm text-slate-500 dark:text-slate-400">
                             No results found for "{searchQuery}"
                         </div>
@@ -279,17 +298,14 @@ export default function Sidebar({
 
                 </div>
 
-                {/* Footer ... */}
+                {/* Footer */}
                 {!isDesktopCollapsed && (
                     <div className="p-md border-t border-slate-200 dark:border-slate-800 mt-auto transition-opacity duration-200">
                         <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
-                            {/* Ikon dinamis berganti warna berdasarkan beban */}
                             <span className={`material-symbols-outlined text-[18px] transition-colors ${systemLoad > 80 ? 'text-red-500' : systemLoad > 50 ? 'text-amber-500' : 'text-emerald-500'
                                 }`}>
                                 memory
                             </span>
-
-                            {/* Teks dinamis menampilkan persentase CPU */}
                             <span className="text-xs font-medium uppercase tracking-wider flex gap-1">
                                 System Load:
                                 <span className={`transition-colors ${systemLoad > 80 ? 'text-red-500 font-bold' : systemLoad > 50 ? 'text-amber-500 font-bold' : 'text-slate-700 dark:text-slate-300'

@@ -6,6 +6,7 @@ from core.services.php import PhpManager
 from core.services.apache import ApacheManager
 from core.services.project import ProjectManager
 from core.services.ssl_manager import SslManager
+from core.services.dashboard import DashboardManager
 
 class Api:
     def __init__(self):
@@ -14,6 +15,7 @@ class Api:
         self.apache = ApacheManager(self)
         self.project = ProjectManager(self)
         self.ssl = SslManager(self)
+        self.dashboard = DashboardManager(self)
 
     def set_window(self, window):
         self._window = window
@@ -143,19 +145,15 @@ class Api:
             return {"status": "success"}
     
     def get_all_services_status(self):
-        try:
-            # FIX: Gunakan interval=0.1 (100 milidetik) 
-            # psutil akan "menahan" kode selama 100ms untuk menghitung beban CPU yang akurat,
-            # sehingga kebal terhadap pemanggilan ganda/beruntun dari Frontend.
-            cpu_usage = psutil.cpu_percent(interval=0.1)
-        except:
-            cpu_usage = 0
+        cpu_usage = psutil.cpu_percent(interval=0.1)
+        ram_usage = psutil.virtual_memory().percent
 
         return {
             "apache": self.apache.check_is_running(),
             "php": len(self.php.processes) > 0,
             "database": False, # Sesuaikan jika modul database sudah jadi
-            "cpu_load": round(cpu_usage)
+            "cpu_load": round(cpu_usage),
+            "ram_usage": ram_usage
         }
     
     # Project sections
@@ -218,3 +216,12 @@ class Api:
         if hasattr(self, 'project') and self.project:
             return self.project.update_project(payload)
         return {"status": "error", "message": "Modul Project tidak dimuat."}
+    
+    # Dashboard Sections
+    def get_dashboard_config(self):
+        """Mengambil konfigurasi layout dashboard"""
+        return self.dashboard.get_config()
+        
+    def save_dashboard_config(self, data):
+        """Menyimpan konfigurasi layout dashboard"""
+        return self.dashboard.save_config(data)
