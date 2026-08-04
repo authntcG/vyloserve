@@ -23,7 +23,6 @@ export default function DashboardMain() {
     const [projects, setProjects] = useState<ProjectData[]>([]);
     const [status, setStatus] = useState<ServiceStatus>({ apache: false, php: false, database: false, cpu_load: 0, ram_usage: 0 });
 
-    // ---> ENHANCEMENT: State untuk menyimpan Riwayat Historis Grafik (20 Titik Terakhir) <---
     const [cpuHistory, setCpuHistory] = useState<number[]>(Array(20).fill(0));
     const [ramHistory, setRamHistory] = useState<number[]>(Array(20).fill(0));
 
@@ -34,6 +33,8 @@ export default function DashboardMain() {
 
     const [includedServices, setIncludedServices] = useState({ apache: true, php: true, database: false });
 
+    // ---> STATE UNTUK LOADING OVERLAY GLOBAL PANEL <---
+    const [isGlobalLoading, setIsGlobalLoading] = useState(true);
     const [isLoadingProjects, setIsLoadingProjects] = useState(true);
     const [isTogglingAll, setIsTogglingAll] = useState<'start' | 'stop' | null>(null);
 
@@ -78,7 +79,6 @@ export default function DashboardMain() {
                 }
             } catch (e) { console.error("Gagal menyimpan config:", e); }
         };
-
         saveConfig();
     }, [includedServices, selectedPhp]);
 
@@ -104,17 +104,14 @@ export default function DashboardMain() {
 
             if (typeof api.get_all_services_status === 'function') {
                 const resStatus = await api.get_all_services_status();
-                
-                // LANGSUNG GUNAKAN DATA ASLI DARI BACKEND (Hapus simulasi random)
-                setStatus({ 
+                setStatus({
                     apache: resStatus.apache,
                     php: resStatus.php,
                     database: resStatus.database,
-                    cpu_load: resStatus.cpu_load || 0, 
-                    ram_usage: resStatus.ram_usage || 0 
+                    cpu_load: resStatus.cpu_load || 0,
+                    ram_usage: resStatus.ram_usage || 0
                 });
 
-                // Update Riwayat Historis untuk Grafik
                 setCpuHistory(prev => [...prev, resStatus.cpu_load || 0].slice(-20));
                 setRamHistory(prev => [...prev, resStatus.ram_usage || 0].slice(-20));
             }
@@ -148,7 +145,11 @@ export default function DashboardMain() {
                     return prev;
                 });
             }
-        } catch (error) { console.error(error); }
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setIsGlobalLoading(false); // <--- Matikan Loading Overlay
+        }
     };
 
     useEffect(() => {
@@ -276,25 +277,19 @@ export default function DashboardMain() {
         return suggestions;
     };
 
-    // ---> ENHANCEMENT: Komponen Helper SVG Sparkline Native <---
-    // ---> ENHANCEMENT: Komponen Helper SVG Sparkline Native (Smooth & Vertical Gradient) <---
     const renderSparkline = (data: number[], id: string) => {
         const maxPoints = 20;
         const width = 100;
         const height = 35;
         const xStep = width / (maxPoints - 1);
 
-        // 1. Kalkulasi Koordinat Dasar
         const points = data.map((val, idx) => ({
             x: idx * xStep,
-            y: height - (val / 100) * height // Inversi Y (Y=0 ada di atas)
+            y: height - (val / 100) * height
         }));
 
         if (points.length === 0) return null;
 
-        // 2. Matematika Kurva Bezier 1D (Smooth Spline)
-        // Kita menggunakan midpoint X sebagai control point agar kurva melengkung mulus 
-        // namun tidak pernah menembus/overshoot dari nilai asli Y-nya.
         let linePath = `M ${points[0].x},${points[0].y}`;
         for (let i = 0; i < points.length - 1; i++) {
             const p1 = points[i];
@@ -303,31 +298,23 @@ export default function DashboardMain() {
             linePath += ` C ${midX},${p1.y} ${midX},${p2.y} ${p2.x},${p2.y}`;
         }
 
-        // 3. Menutup Jalur untuk Area Fill (Bayangan Bawah)
         const fillPath = `${linePath} L ${width},${height} L 0,${height} Z`;
 
         return (
             <div className="w-full h-12 mt-2 relative rounded overflow-hidden">
                 <svg viewBox={`0 -2 ${width} ${height + 4}`} className="w-full h-full overflow-visible" preserveAspectRatio="none">
-
-                    {/* DEFINISI GRADIEN VERTIKAL */}
                     <defs>
-                        {/* Gradien untuk area bawah (Fill Area) - Transparan di bawah */}
                         <linearGradient id={`grad-fill-${id}`} x1="0" x2="0" y1="0" y2="1">
-                            <stop offset="0%" stopColor="#ef4444" stopOpacity="0.4" />   {/* Red (Top / 100%) */}
-                            <stop offset="50%" stopColor="#f59e0b" stopOpacity="0.2" />  {/* Amber (Mid / 50%) */}
-                            <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" /> {/* Green (Bot / 0%) */}
+                            <stop offset="0%" stopColor="#ef4444" stopOpacity="0.4" />
+                            <stop offset="50%" stopColor="#f59e0b" stopOpacity="0.2" />
+                            <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
                         </linearGradient>
-
-                        {/* Gradien untuk Garis (Stroke Line) - Solid */}
                         <linearGradient id={`grad-stroke-${id}`} x1="0" x2="0" y1="0" y2="1">
-                            <stop offset="0%" stopColor="#ef4444" />   {/* Red */}
-                            <stop offset="50%" stopColor="#f59e0b" />  {/* Amber */}
-                            <stop offset="100%" stopColor="#10b981" /> {/* Green */}
+                            <stop offset="0%" stopColor="#ef4444" />
+                            <stop offset="50%" stopColor="#f59e0b" />
+                            <stop offset="100%" stopColor="#10b981" />
                         </linearGradient>
                     </defs>
-
-                    {/* MENGGAMBAR PATH */}
                     <path d={fillPath} fill={`url(#grad-fill-${id})`} stroke="none" />
                     <path d={linePath} stroke={`url(#grad-stroke-${id})`} strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
@@ -335,17 +322,20 @@ export default function DashboardMain() {
         );
     };
 
-    const getCpuColors = (val: number) => val > 80 ? { stroke: 'text-red-500', fill: 'text-red-500/20' } : val > 50 ? { stroke: 'text-amber-500', fill: 'text-amber-500/20' } : { stroke: 'text-primary', fill: 'text-primary/20' };
-    const getRamColors = (val: number) => val > 80 ? { stroke: 'text-red-500', fill: 'text-red-500/20' } : { stroke: 'text-emerald-500', fill: 'text-emerald-500/20' };
-
     return (
         <div className="flex flex-col w-full gap-6 pb-10 animate-in fade-in duration-300">
 
-            <div className="flex flex-col gap-2 mb-2">
-                <h2 className="text-2xl md:text-3xl font-semibold text-slate-900 dark:text-white">Dashboard</h2>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                    Welcome back. Here is the overview of your local environment.
-                </p>
+            {/* --- ENHANCEMENT: HEADER DENGAN ICON (Konsisten seperti Apache/PHP) --- */}
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-2">
+                <div className="flex flex-col gap-3">
+                    <div className="flex items-center gap-3">
+                        <span className="material-symbols-outlined text-slate-700 dark:text-slate-300 text-[32px]">space_dashboard</span>
+                        <h2 className="text-2xl md:text-3xl font-semibold text-slate-900 dark:text-white">Dashboard</h2>
+                    </div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                        Welcome back. Here is the overview of your local environment.
+                    </p>
+                </div>
             </div>
 
             <div className="flex flex-col gap-3">
@@ -361,9 +351,17 @@ export default function DashboardMain() {
 
                 {/* 1. GLOBAL CONTROL PANEL */}
                 <div className="lg:col-span-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm flex flex-col gap-6 relative overflow-hidden h-full">
+
+                    {/* ---> ENHANCEMENT: LOADING OVERLAY (Glassmorphism) <--- */}
+                    {isGlobalLoading && (
+                        <div className="absolute inset-0 z-[100] bg-white/60 dark:bg-slate-900/60 backdrop-blur-[2px] flex flex-col items-center justify-center rounded-xl animate-in fade-in duration-300">
+                            <span className="material-symbols-outlined animate-spin text-primary text-4xl mb-2">sync</span>
+                            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Syncing Services...</span>
+                        </div>
+                    )}
+
                     <div className="absolute -right-10 -top-10 w-40 h-40 bg-primary/5 rounded-full blur-3xl pointer-events-none"></div>
 
-                    {/* ---> FIX BUG LAYOUT: Menggunakan flex-wrap dan min-w-[240px] agar bisa membungkus rapi ke bawah jika sempit <--- */}
                     <div className="flex flex-wrap justify-between items-start gap-4 z-10 shrink-0">
                         <div className="flex flex-col gap-1 flex-1 min-w-[240px]">
                             <h3 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
@@ -510,7 +508,6 @@ export default function DashboardMain() {
                     </div>
 
                     <div className="flex flex-col gap-4 mt-2">
-                        {/* ---> GRAFIK SPARKLINE CPU <--- */}
                         <div className="flex flex-col gap-1">
                             <div className="flex justify-between items-center text-sm font-medium">
                                 <span className="text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
@@ -518,12 +515,9 @@ export default function DashboardMain() {
                                 </span>
                                 <span className="text-slate-900 dark:text-white font-mono">{status.cpu_load}%</span>
                             </div>
-
-                            {/* CUKUP MASUKKAN DATA DAN ID UNIK */}
                             {renderSparkline(cpuHistory, 'cpu')}
                         </div>
 
-                        {/* ---> GRAFIK SPARKLINE RAM <--- */}
                         <div className="flex flex-col gap-1">
                             <div className="flex justify-between items-center text-sm font-medium">
                                 <span className="text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
@@ -531,8 +525,6 @@ export default function DashboardMain() {
                                 </span>
                                 <span className="text-slate-900 dark:text-white font-mono">{status.ram_usage}%</span>
                             </div>
-
-                            {/* CUKUP MASUKKAN DATA DAN ID UNIK */}
                             {renderSparkline(ramHistory, 'ram')}
                         </div>
                     </div>

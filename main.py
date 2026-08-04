@@ -25,6 +25,7 @@ if __name__ == '__main__':
     try:
         print("[DEBUG] Membuat instance API...")
         api = Api()
+        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'frontend', 'src', 'assets', 'icons-nobg.ico')
 
         print("[DEBUG] Membangun jendela UI (Window)...")
         window = webview.create_window(
@@ -40,7 +41,7 @@ if __name__ == '__main__':
 
         print("[DEBUG] Menjalankan WebView (Aplikasi mulai render)...")
         # Kita paksa gui='edgechromium' agar Windows tahu engine apa yang harus dipakai
-        webview.start(debug=True, gui='edgechromium') 
+        webview.start(debug=False, gui='edgechromium', icon=icon_path) 
         
         print("[DEBUG] Aplikasi ditutup dengan normal.")
         
