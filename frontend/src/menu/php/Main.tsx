@@ -1,10 +1,9 @@
-// src/menu/php/Main.tsx
 import { useState, useEffect } from 'react';
 import Card from '../../components/Card';
 import Modal from '../../components/Modal';
 import NewPhpInstance from './NewInstance';
 import PhpSettings from './Settings';
-import BackgroundProgressWidget from '../../components/BackgroundProgressWidget'; // <--- IMPORT WIDGET
+import BackgroundProgressWidget from '../../components/BackgroundProgressWidget';
 import { useToast } from '../../components/ToastContext';
 
 interface PhpInstance {
@@ -100,7 +99,7 @@ export default function PhpMain() {
             const response = await window.pywebview.api.install_php(installVersion, installFilename, installPort);
             if (response.status === 'success') {
                 showToast(response.message, 'success');
-                setIsNewInstanceOpen(false); // Tutup modal instalasi
+                setIsNewInstanceOpen(false);
                 fetchInstalledInstances();
             } else {
                 showToast(`Gagal: ${response.message}`, 'error');
@@ -225,10 +224,35 @@ export default function PhpMain() {
                     </button>
                 </div>
 
-                {/* --- Render Data --- */}
+                {/* --- Render Data DENGAN SKELETON LOADER --- */}
                 {isLoading ? (
-                    <div className="flex items-center justify-center py-12">
-                        <span className="material-symbols-outlined animate-spin text-4xl text-slate-300">sync</span>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
+                        {[1, 2].map((item) => (
+                            <div key={item} className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/60 rounded-xl p-5 shadow-sm flex flex-col gap-4 animate-pulse">
+                                <div className="flex items-center justify-between mb-2">
+                                    <div className="h-5 bg-slate-200 dark:bg-slate-700/50 rounded w-1/3"></div>
+                                    <div className="w-16 h-6 bg-slate-200 dark:bg-slate-700/50 rounded-full"></div>
+                                </div>
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-y-4 gap-x-3 w-full">
+                                    <div className="flex flex-col gap-2">
+                                        <div className="h-3 bg-slate-200 dark:bg-slate-700/50 rounded w-20"></div>
+                                        <div className="h-4 bg-slate-200 dark:bg-slate-700/50 rounded w-12"></div>
+                                    </div>
+                                    <div className="flex flex-col gap-2">
+                                        <div className="h-3 bg-slate-200 dark:bg-slate-700/50 rounded w-24"></div>
+                                        <div className="h-4 bg-slate-200 dark:bg-slate-700/50 rounded w-16"></div>
+                                    </div>
+                                    <div className="flex flex-col gap-2 col-span-2 md:col-span-3">
+                                        <div className="h-3 bg-slate-200 dark:bg-slate-700/50 rounded w-16"></div>
+                                        <div className="h-4 bg-slate-200 dark:bg-slate-700/50 rounded w-3/4"></div>
+                                    </div>
+                                </div>
+                                <div className="flex gap-2 mt-auto pt-4 border-t border-slate-100 dark:border-slate-800">
+                                    <div className="h-9 bg-slate-200 dark:bg-slate-700/50 rounded-lg flex-1"></div>
+                                    <div className="h-9 bg-slate-200 dark:bg-slate-700/50 rounded-lg flex-1"></div>
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 ) : instances.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-16 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
@@ -316,10 +340,10 @@ export default function PhpMain() {
                 onRestore={() => setIsNewInstanceOpen(true)}
             />
 
-            {/* --- MODAL INSTALASI (Diubah onClose nya) --- */}
+            {/* --- MODAL INSTALASI --- */}
             <Modal
                 isOpen={isNewInstanceOpen}
-                onClose={() => setIsNewInstanceOpen(false)} // DIBUKA KUNCI: Biarkan tertutup meski isInstalling true
+                onClose={() => setIsNewInstanceOpen(false)}
                 title="Install PHP Version"
                 icon="download"
                 onApply={handleInstallPhp}

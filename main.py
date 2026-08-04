@@ -41,7 +41,7 @@ if __name__ == '__main__':
 
         print("[DEBUG] Menjalankan WebView (Aplikasi mulai render)...")
         # Kita paksa gui='edgechromium' agar Windows tahu engine apa yang harus dipakai
-        webview.start(debug=False, gui='edgechromium', icon=icon_path) 
+        webview.start(debug=True, gui='edgechromium', icon=icon_path) 
         
         print("[DEBUG] Aplikasi ditutup dengan normal.")
         

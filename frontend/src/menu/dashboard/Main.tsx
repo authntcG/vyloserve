@@ -33,7 +33,7 @@ export default function DashboardMain() {
 
     const [includedServices, setIncludedServices] = useState({ apache: true, php: true, database: false });
 
-    // ---> STATE UNTUK LOADING OVERLAY GLOBAL PANEL <---
+    // ---> STATE LOADING <---
     const [isGlobalLoading, setIsGlobalLoading] = useState(true);
     const [isLoadingProjects, setIsLoadingProjects] = useState(true);
     const [isTogglingAll, setIsTogglingAll] = useState<'start' | 'stop' | null>(null);
@@ -148,7 +148,7 @@ export default function DashboardMain() {
         } catch (error) {
             console.error(error);
         } finally {
-            setIsGlobalLoading(false); // <--- Matikan Loading Overlay
+            setIsGlobalLoading(false); // <--- Mematikan Skeleton Loaders
         }
     };
 
@@ -325,7 +325,7 @@ export default function DashboardMain() {
     return (
         <div className="flex flex-col w-full gap-6 pb-10 animate-in fade-in duration-300">
 
-            {/* --- ENHANCEMENT: HEADER DENGAN ICON (Konsisten seperti Apache/PHP) --- */}
+            {/* HEADER DENGAN ICON */}
             <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-2">
                 <div className="flex flex-col gap-3">
                     <div className="flex items-center gap-3">
@@ -352,14 +352,6 @@ export default function DashboardMain() {
                 {/* 1. GLOBAL CONTROL PANEL */}
                 <div className="lg:col-span-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm flex flex-col gap-6 relative overflow-hidden h-full">
 
-                    {/* ---> ENHANCEMENT: LOADING OVERLAY (Glassmorphism) <--- */}
-                    {isGlobalLoading && (
-                        <div className="absolute inset-0 z-[100] bg-white/60 dark:bg-slate-900/60 backdrop-blur-[2px] flex flex-col items-center justify-center rounded-xl animate-in fade-in duration-300">
-                            <span className="material-symbols-outlined animate-spin text-primary text-4xl mb-2">sync</span>
-                            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Syncing Services...</span>
-                        </div>
-                    )}
-
                     <div className="absolute -right-10 -top-10 w-40 h-40 bg-primary/5 rounded-full blur-3xl pointer-events-none"></div>
 
                     <div className="flex flex-wrap justify-between items-start gap-4 z-10 shrink-0">
@@ -373,7 +365,7 @@ export default function DashboardMain() {
                         <div className="flex flex-wrap gap-2 shrink-0">
                             <button
                                 onClick={() => handleToggleAll('start')}
-                                disabled={isTogglingAll !== null || !canStart}
+                                disabled={isGlobalLoading || isTogglingAll !== null || !canStart}
                                 className="bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-300 dark:disabled:bg-slate-800 disabled:text-slate-500 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm flex-1 sm:flex-none"
                             >
                                 {isTogglingAll === 'start' ? (
@@ -385,7 +377,7 @@ export default function DashboardMain() {
 
                             <button
                                 onClick={() => handleToggleAll('stop')}
-                                disabled={isTogglingAll !== null || !canStop}
+                                disabled={isGlobalLoading || isTogglingAll !== null || !canStop}
                                 className="bg-amber-500 hover:bg-amber-600 disabled:bg-slate-300 dark:disabled:bg-slate-800 disabled:text-slate-500 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm flex-1 sm:flex-none"
                             >
                                 {isTogglingAll === 'stop' ? (
@@ -398,102 +390,126 @@ export default function DashboardMain() {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4 z-10 flex-1 overflow-y-auto custom-scrollbar pr-2 pb-2 content-start">
-                        {/* --- APACHE CARD --- */}
-                        <div className={`flex flex-col gap-3 p-4 bg-slate-50 dark:bg-slate-950 border ${includedServices.apache ? 'border-primary/30 shadow-sm' : 'border-slate-200 dark:border-slate-800/60 opacity-60'} rounded-lg transition-all`}>
-                            <div className="flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-2 min-w-0">
-                                    <span className={`material-symbols-outlined shrink-0 transition-colors ${includedServices.apache ? 'text-primary' : 'text-slate-400'}`}>dns</span>
-                                    <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 truncate">Apache Web</span>
+                        {/* ---> ENHANCEMENT: SKELETON LOADER UNTUK KARTU MODUL <--- */}
+                        {isGlobalLoading ? (
+                            [1, 2, 3].map((item) => (
+                                <div key={item} className="flex flex-col gap-3 p-4 border border-slate-100 dark:border-slate-800/60 rounded-lg animate-pulse bg-slate-50 dark:bg-slate-950/50">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-5 h-5 bg-slate-200 dark:bg-slate-700/50 rounded-md shrink-0"></div>
+                                            <div className="h-4 bg-slate-200 dark:bg-slate-700/50 rounded w-24"></div>
+                                        </div>
+                                        <div className="w-9 h-5 bg-slate-200 dark:bg-slate-700/50 rounded-full shrink-0"></div>
+                                    </div>
+                                    <div className="flex flex-col gap-2 mt-1">
+                                        <div className="flex justify-between items-center">
+                                            <div className="h-2.5 bg-slate-200 dark:bg-slate-700/50 rounded w-20"></div>
+                                            <div className="w-2 h-2 rounded-full bg-slate-200 dark:bg-slate-700/50 shrink-0"></div>
+                                        </div>
+                                        <div className="h-8 bg-slate-200 dark:bg-slate-700/50 rounded-md w-full mt-1"></div>
+                                    </div>
                                 </div>
-                                <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                                    <input
-                                        type="checkbox"
-                                        checked={includedServices.apache}
-                                        onChange={(e) => setIncludedServices(p => ({ ...p, apache: e.target.checked }))}
-                                        className="sr-only peer"
-                                    />
-                                    <div className="w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
-                                </label>
-                            </div>
+                            ))
+                        ) : (
+                            <>
+                                {/* --- APACHE CARD --- */}
+                                <div className={`flex flex-col gap-3 p-4 bg-slate-50 dark:bg-slate-950 border ${includedServices.apache ? 'border-primary/30 shadow-sm' : 'border-slate-200 dark:border-slate-800/60 opacity-60'} rounded-lg transition-all`}>
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <span className={`material-symbols-outlined shrink-0 transition-colors ${includedServices.apache ? 'text-primary' : 'text-slate-400'}`}>dns</span>
+                                            <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 truncate">Apache Web</span>
+                                        </div>
+                                        <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                                            <input
+                                                type="checkbox"
+                                                checked={includedServices.apache}
+                                                onChange={(e) => setIncludedServices(p => ({ ...p, apache: e.target.checked }))}
+                                                className="sr-only peer"
+                                            />
+                                            <div className="w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+                                        </label>
+                                    </div>
 
-                            <div className={`flex flex-col gap-1 mt-1 transition-all ${includedServices.apache ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-                                <div className="flex justify-between items-center">
-                                    <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Default Version</span>
-                                    <span className={`w-2 h-2 shrink-0 rounded-full ${status.apache ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300 dark:bg-slate-600'}`}></span>
+                                    <div className={`flex flex-col gap-1 mt-1 transition-all ${includedServices.apache ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Default Version</span>
+                                            <span className={`w-2 h-2 shrink-0 rounded-full ${status.apache ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300 dark:bg-slate-600'}`}></span>
+                                        </div>
+                                        <select
+                                            value={selectedApache}
+                                            onChange={(e) => setSelectedApache(e.target.value)}
+                                            className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs rounded-md p-1.5 outline-none focus:border-primary transition-colors cursor-pointer"
+                                        >
+                                            {apacheVersions.length > 0 ? apacheVersions.map(v => (
+                                                <option key={v} value={v}>Apache {v}</option>
+                                            )) : <option>No version installed</option>}
+                                        </select>
+                                    </div>
                                 </div>
-                                <select
-                                    value={selectedApache}
-                                    onChange={(e) => setSelectedApache(e.target.value)}
-                                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs rounded-md p-1.5 outline-none focus:border-primary transition-colors cursor-pointer"
-                                >
-                                    {apacheVersions.length > 0 ? apacheVersions.map(v => (
-                                        <option key={v} value={v}>Apache {v}</option>
-                                    )) : <option>No version installed</option>}
-                                </select>
-                            </div>
-                        </div>
 
-                        {/* --- PHP CARD --- */}
-                        <div className={`flex flex-col gap-3 p-4 bg-slate-50 dark:bg-slate-950 border ${includedServices.php ? 'border-primary/30 shadow-sm' : 'border-slate-200 dark:border-slate-800/60 opacity-60'} rounded-lg transition-all`}>
-                            <div className="flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-2 min-w-0">
-                                    <span className={`material-symbols-outlined shrink-0 transition-colors ${includedServices.php ? 'text-primary' : 'text-slate-400'}`}>php</span>
-                                    <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 truncate">PHP FastCGI</span>
-                                </div>
-                                <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                                    <input
-                                        type="checkbox"
-                                        checked={includedServices.php}
-                                        onChange={(e) => {
-                                            if (e.target.checked && selectedPhp.length === 0 && phpInstances.length > 0) {
-                                                setSelectedPhp([phpInstances[0].version]);
-                                            }
-                                            setIncludedServices(p => ({ ...p, php: e.target.checked }));
-                                        }}
-                                        className="sr-only peer"
-                                    />
-                                    <div className="w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
-                                </label>
-                            </div>
+                                {/* --- PHP CARD --- */}
+                                <div className={`flex flex-col gap-3 p-4 bg-slate-50 dark:bg-slate-950 border ${includedServices.php ? 'border-primary/30 shadow-sm' : 'border-slate-200 dark:border-slate-800/60 opacity-60'} rounded-lg transition-all`}>
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <span className={`material-symbols-outlined shrink-0 transition-colors ${includedServices.php ? 'text-primary' : 'text-slate-400'}`}>php</span>
+                                            <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 truncate">PHP FastCGI</span>
+                                        </div>
+                                        <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                                            <input
+                                                type="checkbox"
+                                                checked={includedServices.php}
+                                                onChange={(e) => {
+                                                    if (e.target.checked && selectedPhp.length === 0 && phpInstances.length > 0) {
+                                                        setSelectedPhp([phpInstances[0].version]);
+                                                    }
+                                                    setIncludedServices(p => ({ ...p, php: e.target.checked }));
+                                                }}
+                                                className="sr-only peer"
+                                            />
+                                            <div className="w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+                                        </label>
+                                    </div>
 
-                            <div className={`flex flex-col gap-1 mt-1 transition-all ${includedServices.php ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-                                <div className="flex justify-between items-center">
-                                    <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Select Version(s)</span>
-                                    <span className={`w-2 h-2 shrink-0 rounded-full ${phpInstances.some(p => p.status === 'running') ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300 dark:bg-slate-600'}`}></span>
+                                    <div className={`flex flex-col gap-1 mt-1 transition-all ${includedServices.php ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Select Version(s)</span>
+                                            <span className={`w-2 h-2 shrink-0 rounded-full ${phpInstances.some(p => p.status === 'running') ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300 dark:bg-slate-600'}`}></span>
+                                        </div>
+                                        <div className="flex flex-wrap gap-1.5 max-h-[56px] overflow-y-auto custom-scrollbar pr-1 mt-0.5">
+                                            {phpInstances.length > 0 ? phpInstances.map(php => {
+                                                const isSelected = selectedPhp.includes(php.version);
+                                                return (
+                                                    <button
+                                                        key={php.id}
+                                                        onClick={() => togglePhpSelection(php.version)}
+                                                        className={`text-[11px] font-medium px-2 py-1 rounded transition-colors border ${isSelected ? 'bg-blue-50 dark:bg-blue-900/30 border-primary/50 text-primary dark:text-blue-400 shadow-sm' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500 hover:border-slate-400'}`}
+                                                    >
+                                                        {php.version}
+                                                    </button>
+                                                )
+                                            }) : <span className="text-xs text-slate-400 italic mt-1">No PHP installed</span>}
+                                        </div>
+                                    </div>
                                 </div>
-                                <div className="flex flex-wrap gap-1.5 max-h-[56px] overflow-y-auto custom-scrollbar pr-1 mt-0.5">
-                                    {phpInstances.length > 0 ? phpInstances.map(php => {
-                                        const isSelected = selectedPhp.includes(php.version);
-                                        return (
-                                            <button
-                                                key={php.id}
-                                                onClick={() => togglePhpSelection(php.version)}
-                                                className={`text-[11px] font-medium px-2 py-1 rounded transition-colors border ${isSelected ? 'bg-blue-50 dark:bg-blue-900/30 border-primary/50 text-primary dark:text-blue-400 shadow-sm' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500 hover:border-slate-400'}`}
-                                            >
-                                                {php.version}
-                                            </button>
-                                        )
-                                    }) : <span className="text-xs text-slate-400 italic mt-1">No PHP installed</span>}
-                                </div>
-                            </div>
-                        </div>
 
-                        {/* --- DATABASE CARD --- */}
-                        <div className={`flex flex-col gap-3 p-4 bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800/60 rounded-lg opacity-40`}>
-                            <div className="flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-2 min-w-0">
-                                    <span className="material-symbols-outlined shrink-0 text-slate-400">database</span>
-                                    <span className="text-sm font-semibold text-slate-500 dark:text-slate-400 truncate">Database</span>
+                                {/* --- DATABASE CARD --- */}
+                                <div className={`flex flex-col gap-3 p-4 bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800/60 rounded-lg opacity-40`}>
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <span className="material-symbols-outlined shrink-0 text-slate-400">database</span>
+                                            <span className="text-sm font-semibold text-slate-500 dark:text-slate-400 truncate">Database</span>
+                                        </div>
+                                        <div className="w-9 h-5 bg-slate-200 dark:bg-slate-800 rounded-full cursor-not-allowed shrink-0"></div>
+                                    </div>
+                                    <div className="flex flex-col gap-1 mt-1">
+                                        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Engine</span>
+                                        <span className="text-xs font-semibold text-slate-500 bg-slate-200 dark:bg-slate-800 px-2 py-1.5 rounded w-fit mt-0.5">
+                                            Coming Soon
+                                        </span>
+                                    </div>
                                 </div>
-                                <div className="w-9 h-5 bg-slate-200 dark:bg-slate-800 rounded-full cursor-not-allowed shrink-0"></div>
-                            </div>
-                            <div className="flex flex-col gap-1 mt-1">
-                                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Engine</span>
-                                <span className="text-xs font-semibold text-slate-500 bg-slate-200 dark:bg-slate-800 px-2 py-1.5 rounded w-fit mt-0.5">
-                                    Coming Soon
-                                </span>
-                            </div>
-                        </div>
+                            </>
+                        )}
                     </div>
                 </div>
 
@@ -507,27 +523,42 @@ export default function DashboardMain() {
                         <span className="text-xs text-slate-500">Real-time historical metrics</span>
                     </div>
 
-                    <div className="flex flex-col gap-4 mt-2">
-                        <div className="flex flex-col gap-1">
-                            <div className="flex justify-between items-center text-sm font-medium">
-                                <span className="text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
-                                    <span className="material-symbols-outlined text-[16px] text-slate-400">speed</span> CPU Load
-                                </span>
-                                <span className="text-slate-900 dark:text-white font-mono">{status.cpu_load}%</span>
-                            </div>
-                            {renderSparkline(cpuHistory, 'cpu')}
+                    {/* ---> ENHANCEMENT: SKELETON LOADER UNTUK GRAFIK <--- */}
+                    {isGlobalLoading ? (
+                        <div className="flex flex-col gap-4 mt-2">
+                            {[1, 2].map((item) => (
+                                <div key={item} className="flex flex-col gap-2 animate-pulse">
+                                    <div className="flex justify-between items-center">
+                                        <div className="h-3 bg-slate-200 dark:bg-slate-700/50 rounded w-24"></div>
+                                        <div className="h-3 bg-slate-200 dark:bg-slate-700/50 rounded w-8"></div>
+                                    </div>
+                                    <div className="w-full h-12 bg-slate-100 dark:bg-slate-800/60 rounded-lg mt-1"></div>
+                                </div>
+                            ))}
                         </div>
+                    ) : (
+                        <div className="flex flex-col gap-4 mt-2">
+                            <div className="flex flex-col gap-1">
+                                <div className="flex justify-between items-center text-sm font-medium">
+                                    <span className="text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
+                                        <span className="material-symbols-outlined text-[16px] text-slate-400">speed</span> CPU Load
+                                    </span>
+                                    <span className="text-slate-900 dark:text-white font-mono">{status.cpu_load}%</span>
+                                </div>
+                                {renderSparkline(cpuHistory, 'cpu')}
+                            </div>
 
-                        <div className="flex flex-col gap-1">
-                            <div className="flex justify-between items-center text-sm font-medium">
-                                <span className="text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
-                                    <span className="material-symbols-outlined text-[16px] text-slate-400">memory_alt</span> Memory Usage
-                                </span>
-                                <span className="text-slate-900 dark:text-white font-mono">{status.ram_usage}%</span>
+                            <div className="flex flex-col gap-1">
+                                <div className="flex justify-between items-center text-sm font-medium">
+                                    <span className="text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
+                                        <span className="material-symbols-outlined text-[16px] text-slate-400">memory_alt</span> Memory Usage
+                                    </span>
+                                    <span className="text-slate-900 dark:text-white font-mono">{status.ram_usage}%</span>
+                                </div>
+                                {renderSparkline(ramHistory, 'ram')}
                             </div>
-                            {renderSparkline(ramHistory, 'ram')}
                         </div>
-                    </div>
+                    )}
                 </div>
             </div>
 
@@ -543,9 +574,23 @@ export default function DashboardMain() {
                     </div>
                 </div>
 
+                {/* ---> ENHANCEMENT: SKELETON LOADER UNTUK RECENT PROJECTS <--- */}
                 {isLoadingProjects ? (
-                    <div className="flex justify-center py-8">
-                        <span className="material-symbols-outlined animate-spin text-primary text-3xl">sync</span>
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                        {[1, 2, 3, 4].map((item) => (
+                            <div key={item} className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/60 rounded-xl p-4 shadow-sm flex flex-col gap-4 animate-pulse">
+                                <div className="flex items-start justify-between">
+                                    <div className="flex flex-col gap-2 w-full">
+                                        <div className="h-4 bg-slate-200 dark:bg-slate-700/50 rounded w-3/4"></div>
+                                        <div className="h-3 bg-slate-100 dark:bg-slate-800/80 rounded w-1/2"></div>
+                                    </div>
+                                </div>
+                                <div className="flex gap-2 mt-auto pt-2 border-t border-slate-100 dark:border-slate-800">
+                                    <div className="h-7 bg-slate-200 dark:bg-slate-700/50 rounded-lg flex-1"></div>
+                                    <div className="h-7 bg-slate-200 dark:bg-slate-700/50 rounded-lg flex-1"></div>
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 ) : projects.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-10 bg-slate-50/50 dark:bg-slate-900/20 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl">

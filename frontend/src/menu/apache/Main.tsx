@@ -24,6 +24,7 @@ export default function ApacheMain() {
     const { showToast } = useToast();
 
     // State untuk Global Apache Control
+    const [isFetchingApacheStatus, setIsFetchingApacheStatus] = useState(true); // <--- State baru untuk Skeleton
     const [isApacheInstalled, setIsApacheInstalled] = useState(false);
     const [installedApacheVersion, setInstalledApacheVersion] = useState<string | null>(null);
     const [apachePath, setApachePath] = useState<string>('Not Installed');
@@ -56,7 +57,7 @@ export default function ApacheMain() {
     const [isProjectSettingsOpen, setIsProjectSettingsOpen] = useState(false);
     const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
     const [isDeletingProject, setIsDeletingProject] = useState(false);
-    const [isDeleteFiles, setIsDeleteFiles] = useState(false); // Checkbox Hapus File
+    const [isDeleteFiles, setIsDeleteFiles] = useState(false);
     const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
     const [isUpdatingProject, setIsUpdatingProject] = useState(false);
     const [isCreatingProject, setIsCreatingProject] = useState(false);
@@ -72,7 +73,7 @@ export default function ApacheMain() {
             if (api && typeof api.open_browser === 'function') {
                 api.open_browser(url);
             } else {
-                window.open(url, '_blank'); // Fallback aman
+                window.open(url, '_blank');
             }
         } catch (error) {
             console.error("Gagal membuka browser", error);
@@ -109,13 +110,13 @@ export default function ApacheMain() {
     const handleCreateSubmit = async () => {
         if (!projectFormRef.current) return;
 
-        setIsCreatingProject(true); // Tandai proses sedang berjalan
+        setIsCreatingProject(true);
 
         const isSuccess = await projectFormRef.current.submit();
 
-        setIsCreatingProject(false); // Proses selesai
+        setIsCreatingProject(false);
         if (isSuccess) {
-            setIsNewProjectModalOpen(false); // Tutup modal secara permanen
+            setIsNewProjectModalOpen(false);
         }
     };
 
@@ -125,7 +126,7 @@ export default function ApacheMain() {
         const isSuccess = await projectSettingsRef.current.submit();
         setIsUpdatingProject(false);
         if (isSuccess) {
-            setIsProjectSettingsOpen(false); // Tutup modal jika sukses
+            setIsProjectSettingsOpen(false);
         }
     };
 
@@ -148,7 +149,7 @@ export default function ApacheMain() {
             showToast("Terjadi kesalahan saat menghapus proyek.", "error");
         } finally {
             setIsDeletingProject(false);
-            setIsDeleteFiles(false); // Reset checkbox
+            setIsDeleteFiles(false);
         }
     };
 
@@ -194,7 +195,6 @@ export default function ApacheMain() {
                 setProgress(e.detail.percent);
                 setProgressText(e.detail.text || '');
 
-                // Mencegah widget tertahan jika error 0% atau selesai 100%
                 if (e.detail.percent >= 100 || e.detail.percent === 0) {
                     setTimeout(() => {
                         setProgress(0);
@@ -207,7 +207,9 @@ export default function ApacheMain() {
         return () => window.removeEventListener('vylo_progress', handleProgress);
     }, []);
 
+    // ---> UPDATE: Matikan Skeleton Load setelah fungsi selesai <---
     const fetchApacheStatus = async () => {
+        setIsFetchingApacheStatus(true);
         if (window.pywebview && window.pywebview.api) {
             try {
                 const res = await window.pywebview.api.get_apache_status();
@@ -217,14 +219,17 @@ export default function ApacheMain() {
                     setIsApacheRunning(res.running || false);
                 }
 
-                // Fetch active version yang benar (Mengatasi bug list versi lama)
                 const versionRes = await window.pywebview.api.get_apache_installed_versions();
                 if (versionRes.status === 'success') {
                     setInstalledApacheVersion(versionRes.active || versionRes.data[0]);
                 }
             } catch (error) {
                 console.error("Gagal mengambil status Apache", error);
+            } finally {
+                setIsFetchingApacheStatus(false);
             }
+        } else {
+            setIsFetchingApacheStatus(false);
         }
     };
 
@@ -340,7 +345,7 @@ export default function ApacheMain() {
 
     const handleOpenDeleteConfirm = (id: string) => {
         setSelectedProjectId(id);
-        setIsDeleteFiles(false); // Pastikan defaultnya unchecked
+        setIsDeleteFiles(false);
         setIsDeleteConfirmOpen(true);
     };
 
@@ -371,8 +376,35 @@ export default function ApacheMain() {
                     </button>
                 </div>
 
-                {/* --- APACHE ENGINE CARD --- */}
-                {isApacheInstalled ? (
+                {/* --- APACHE ENGINE CARD (DENGAN SKELETON LOADER) --- */}
+                {isFetchingApacheStatus ? (
+                    <div className="mb-8">
+                        <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/60 rounded-xl p-5 shadow-sm flex flex-col gap-4 animate-pulse">
+                            <div className="flex items-center justify-between mb-2">
+                                <div className="h-6 bg-slate-200 dark:bg-slate-700/50 rounded w-1/3"></div>
+                                <div className="w-8 h-8 bg-slate-200 dark:bg-slate-700/50 rounded-lg"></div>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-2">
+                                <div className="flex flex-col gap-2">
+                                    <div className="h-3 bg-slate-200 dark:bg-slate-700/50 rounded w-20"></div>
+                                    <div className="h-4 bg-slate-200 dark:bg-slate-700/50 rounded w-16"></div>
+                                </div>
+                                <div className="flex flex-col gap-2">
+                                    <div className="h-3 bg-slate-200 dark:bg-slate-700/50 rounded w-24"></div>
+                                    <div className="h-4 bg-slate-200 dark:bg-slate-700/50 rounded w-24"></div>
+                                </div>
+                                <div className="flex flex-col gap-2 col-span-2 md:col-span-3">
+                                    <div className="h-3 bg-slate-200 dark:bg-slate-700/50 rounded w-24"></div>
+                                    <div className="h-4 bg-slate-200 dark:bg-slate-700/50 rounded w-1/2"></div>
+                                </div>
+                            </div>
+                            <div className="flex gap-3 mt-2 border-t border-slate-100 dark:border-slate-800 pt-4">
+                                <div className="h-9 bg-slate-200 dark:bg-slate-700/50 rounded-lg flex-1"></div>
+                                <div className="h-9 bg-slate-200 dark:bg-slate-700/50 rounded-lg flex-1"></div>
+                            </div>
+                        </div>
+                    </div>
+                ) : isApacheInstalled ? (
                     <div className="mb-8">
                         <Card
                             title={`Apache ${installedApacheVersion || 'Unknown'} (Win64)`}
@@ -463,10 +495,35 @@ export default function ApacheMain() {
                     </button>
                 </div>
 
-                {/* --- Render Card Virtual Hosts --- */}
+                {/* --- Render Card Virtual Hosts (DENGAN SKELETON LOADER) --- */}
                 {isFetchingProjects ? (
-                    <div className="flex justify-center py-10">
-                        <span className="material-symbols-outlined animate-spin text-primary text-3xl">sync</span>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
+                        {[1, 2, 3, 4].map((item) => (
+                            <div key={item} className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/60 rounded-xl p-5 shadow-sm flex flex-col gap-4 animate-pulse">
+                                <div className="flex items-center justify-between mb-2">
+                                    <div className="h-5 bg-slate-200 dark:bg-slate-700/50 rounded w-1/3"></div>
+                                    <div className="w-8 h-8 bg-slate-200 dark:bg-slate-700/50 rounded-lg"></div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-y-4 gap-x-3 w-full">
+                                    <div className="flex flex-col gap-2">
+                                        <div className="h-3 bg-slate-200 dark:bg-slate-700/50 rounded w-16"></div>
+                                        <div className="h-4 bg-slate-200 dark:bg-slate-700/50 rounded w-24"></div>
+                                    </div>
+                                    <div className="flex flex-col gap-2">
+                                        <div className="h-3 bg-slate-200 dark:bg-slate-700/50 rounded w-20"></div>
+                                        <div className="h-4 bg-slate-200 dark:bg-slate-700/50 rounded w-20"></div>
+                                    </div>
+                                    <div className="flex flex-col gap-2 col-span-2">
+                                        <div className="h-3 bg-slate-200 dark:bg-slate-700/50 rounded w-24"></div>
+                                        <div className="h-4 bg-slate-200 dark:bg-slate-700/50 rounded w-48"></div>
+                                    </div>
+                                </div>
+                                <div className="flex gap-2 mt-auto pt-4 border-t border-slate-100 dark:border-slate-800">
+                                    <div className="h-9 bg-slate-200 dark:bg-slate-700/50 rounded-lg flex-1"></div>
+                                    <div className="h-9 bg-slate-200 dark:bg-slate-700/50 rounded-lg flex-1"></div>
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 ) : projects.length === 0 ? (
                     <div className="text-center py-10 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-slate-500">
@@ -634,7 +691,7 @@ export default function ApacheMain() {
                 icon="add_box"
                 onApply={handleCreateSubmit}
                 applyText={isCreatingProject ? "Installing in background..." : "Create Project"}
-                isApplyDisabled={isCreatingProject} // Disable tombol Apply selama proses jalan
+                isApplyDisabled={isCreatingProject}
             >
                 <NewApacheProject ref={projectFormRef} isCreatingExternal={isCreatingProject} />
             </Modal>
