@@ -1,39 +1,64 @@
 import os
-import json
+from typing import Dict, Any
+
+# ---> IMPORT UTILITIES DARI TAHAP 1 <---
+from core.utils.system_utils import get_project_root
+from core.utils.file_utils import read_json, write_json
 
 class DashboardManager:
+    """
+    Manager untuk menangani konfigurasi preferensi UI Dashboard.
+    Berfungsi sebagai 'Source of Truth' untuk status seleksi (Apache, PHP, Database).
+    """
     def __init__(self, api_ref):
         self.api = api_ref
-        self.root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        
+        # 1. DRY: Menggunakan fungsi utilitas terpusat, bukan hardcode os.path berulang
+        self.root_dir = get_project_root()
         self.data_dir = os.path.join(self.root_dir, 'data')
         self.config_path = os.path.join(self.data_dir, 'dashboard.json')
 
-    def get_config(self):
-        """Membaca preferensi toggle Dashboard dari JSON"""
+    def get_config(self) -> Dict[str, Any]:
+        """
+        Membaca preferensi toggle Dashboard dari JSON.
+        Menerapkan Auto-Merge dengan nilai Default untuk mencegah KeyError.
+        """
         try:
-            if os.path.exists(self.config_path):
-                with open(self.config_path, 'r', encoding='utf-8') as f:
-                    return {"status": "success", "data": json.load(f)}
-            # ---> TAMBAHKAN 'selected_database': [] SEBAGAI DEFAULT BARU <---
-            return {"status": "success", "data": {
+            default_config = {
                 "apache": True, 
                 "php": True, 
                 "database": False, 
                 "selected_php": [], 
                 "selected_database": []
-            }}
+            }
+            
+            # 2. DRY: Menggunakan utilitas JSON universal
+            data = read_json(self.config_path, default_type=dict)
+            
+            if not data:
+                return {"status": "success", "data": default_config}
+                
+            # Cerdas: Gabungkan data lama dengan default (agar key baru dari update tidak hilang)
+            merged_data = {**default_config, **data}
+            return {"status": "success", "data": merged_data}
+            
         except Exception as e:
             if hasattr(self, 'api'):
                 self.api.emit_log(f"Gagal membaca config dashboard: {str(e)}", "error")
             return {"status": "error", "message": str(e)}
 
-    def save_config(self, data):
-        """Menyimpan preferensi toggle Dashboard ke JSON"""
+    def save_config(self, data: dict) -> Dict[str, str]:
+        """
+        Menyimpan preferensi toggle Dashboard ke JSON.
+        """
         try:
-            os.makedirs(self.data_dir, exist_ok=True)
-            with open(self.config_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=4)
-            return {"status": "success"}
+            # 3. DRY: write_json sudah otomatis menangani os.makedirs di dalamnya
+            success = write_json(self.config_path, data)
+            if success:
+                return {"status": "success"}
+            else:
+                raise Exception("Proses penulisan diblokir oleh OS.")
+                
         except Exception as e:
             if hasattr(self, 'api'):
                 self.api.emit_log(f"Gagal menyimpan config dashboard: {str(e)}", "error")
