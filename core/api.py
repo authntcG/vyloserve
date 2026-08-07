@@ -24,15 +24,12 @@ class Api:
 
     # Logs Sections
     def emit_log(self, message: str, level: str = "info"):
-        """ Menembakkan log real-time ke LogsPanel React """
         if self._window:
-            # Gunakan json.dumps agar string aman dari karakter petik/newline
             detail = json.dumps({"message": message, "level": level})
             script = f"window.dispatchEvent(new CustomEvent('vylo_log', {{detail: {detail} }}));"
             self._window.evaluate_js(script)
 
     def emit_progress(self, percent: int, text: str = ""):
-        """ Menembakkan progress bar real-time ke Modal Instalasi """
         if self._window:
             detail = json.dumps({"percent": percent, "text": text})
             script = f"window.dispatchEvent(new CustomEvent('vylo_progress', {{detail: {detail} }}));"
@@ -51,7 +48,6 @@ class Api:
         return self.php.install_version(version, filename, int(port))
     
     def get_installed_php(self):
-        """ Mengirim daftar PHP yang terinstal beserta konfigurasinya ke React """
         return self.php.get_installed_instances()
     
     def get_php_config(self, version: str):
@@ -77,11 +73,9 @@ class Api:
     
     # Apache sections
     def get_available_apache(self):
-        """ Mengirim perintah ke Python untuk scrape ApacheLounge """
         return self.apache.get_available_versions()
 
     def install_apache(self, version: str, url: str, http_port: int, https_port: int):
-        """ Memulai instalasi dan memberikan rollback protection """
         return self.apache.install_version(version, url, http_port, https_port)
     
     def get_apache_status(self):
@@ -111,40 +105,32 @@ class Api:
     def stop_apache_server(self):
         return self.apache.stop_server()
     
-    # Sidebar sections
+    # Sidebar & Global Services Sections
     def start_service(self, service_id):
         if service_id == 'apache':
-            # BENAR: Gunakan self.emit_log (tanpa .api)
             self.emit_log("Memulai Apache...", "info")
             return self.apache.start_server()
             
         elif service_id == 'php':
-            versions = self.php.get_installed_versions() 
-            if not versions:
-                self.emit_log("Tidak ada versi PHP terinstal", "error")
-                return {"status": "error"}
+            self.emit_log("Memulai Servis PHP...", "info")
+            return self.php.start_all()
             
-            latest_version = sorted(versions)[-1] 
-            self.emit_log(f"Memulai PHP versi terbaru: {latest_version}...", "info")
-            return self.php.start_php(latest_version)
+        elif service_id == 'database':
+            self.emit_log("Memulai Servis Database...", "info")
+            return self.database.start_all()
 
     def stop_service(self, service_id):
         if service_id == 'apache':
-            # BENAR: Gunakan self.emit_log
             self.emit_log("Menghentikan Apache...", "warn")
             return self.apache.stop_server()
             
         elif service_id == 'php':
-            self.emit_log("Menghentikan semua proses PHP...", "warn")
+            self.emit_log("Menghentikan Servis PHP...", "warn")
+            return self.php.stop_all()
             
-            # Gunakan list() untuk menghindari KeyError secara permanen
-            for version in list(self.php.processes.keys()):
-                try:
-                    self.php.stop_php(version)
-                except Exception as e:
-                    self.emit_log(f"Melewati error saat stop PHP {version}: {str(e)}", "warn")
-                    
-            return {"status": "success"}
+        elif service_id == 'database':
+            self.emit_log("Menghentikan Servis Database...", "warn")
+            return self.database.stop_all()
     
     def get_all_services_status(self):
         cpu_usage = psutil.cpu_percent(interval=0.1)
@@ -152,24 +138,21 @@ class Api:
 
         return {
             "apache": self.apache.check_is_running(),
-            "php": len(self.php.processes) > 0,
-            "database": False, # Sesuaikan jika modul database sudah jadi
+            "php": self.php.check_is_running(),       # <--- Modular & Universal
+            "database": self.database.check_is_running(), # <--- Modular & Universal
             "cpu_load": round(cpu_usage),
             "ram_usage": ram_usage
         }
     
     # Project sections
     def browse_directory(self):
-        """Membuka dialog Windows Explorer agar user bisa memilih folder"""
         if self._window:
             result = self._window.create_file_dialog(webview.FOLDER_DIALOG)
             if result and len(result) > 0:
-                # Normalisasi path untuk Windows/React
                 return result[0].replace('\\', '/')
         return None
     
     def open_browser(self, url):
-        """Membuka URL di browser bawaan OS (Chrome/Edge/dll) tanpa memicu URL Hint UI"""
         import webbrowser
         try:
             webbrowser.open(url)
@@ -178,54 +161,42 @@ class Api:
             return {"status": "error", "message": f"Gagal membuka browser: {str(e)}"}
 
     def detect_framework(self, directory):
-        """Mendeteksi framework dari suatu folder secara real-time"""
         return self.project.detect_framework(directory)
 
     def create_project(self, payload):
-        """
-        Menerima payload dari frontend dan meneruskannya ke ProjectManager.
-        Payload berisi: name, domain, php_version, is_existing, document_root, dll.
-        """
         self.emit_log(f"Memulai setup project untuk {payload.get('domain')}...", "info")
         return self.project.create_project(payload)
     
     def get_projects(self):
-        """Memanggil fungsi get_projects dari ProjectManager"""
         if hasattr(self, 'project') and self.project:
             return self.project.get_projects()
         return {"status": "error", "message": "Modul Project tidak dimuat."}
 
     def delete_project(self, project_id, delete_files=False):
-        """Memanggil fungsi delete_project dari ProjectManager"""
         if hasattr(self, 'project') and self.project:
             return self.project.delete_project(project_id, delete_files)
         return {"status": "error", "message": "Modul Project tidak dimuat."}
 
     def retry_sync_host(self, project_id):
-        """Memanggil fungsi retry_sync_host dari ProjectManager"""
         if hasattr(self, 'project') and self.project:
             return self.project.retry_sync_host(project_id)
         return {"status": "error", "message": "Modul Project tidak dimuat."}
 
     def open_in_explorer(self, path):
-        """Memanggil fungsi open_in_explorer dari ProjectManager"""
         if hasattr(self, 'project') and self.project:
             return self.project.open_in_explorer(path)
         return {"status": "error", "message": "Modul Project tidak dimuat."}
     
     def update_project(self, payload):
-        """Memanggil fungsi update_project dari ProjectManager"""
         if hasattr(self, 'project') and self.project:
             return self.project.update_project(payload)
         return {"status": "error", "message": "Modul Project tidak dimuat."}
     
     # Dashboard Sections
     def get_dashboard_config(self):
-        """Mengambil konfigurasi layout dashboard"""
         return self.dashboard.get_config()
         
     def save_dashboard_config(self, data):
-        """Menyimpan konfigurasi layout dashboard"""
         return self.dashboard.save_config(data)
     
     # Database Sections
@@ -236,15 +207,12 @@ class Api:
         return self.database.is_port_in_use(port)
     
     def get_available_databases(self, engine):
-        """Mengambil versi online dari web resmi"""
         return self.database.get_available_versions(engine)
 
     def install_database(self, engine, version, url, port, root_pass):
-        """Memicu proses instalasi di latar belakang"""
         return self.database.install_database(engine, version, url, port, root_pass)
     
     def uninstall_database(self, db_id, delete_data=False):
-        """Memicu penghapusan instalasi engine"""
         return self.database.uninstall_database(db_id, delete_data)
     
     def open_db_config_file(self, db_id):
@@ -264,4 +232,6 @@ class Api:
 
     def stop_database(self, db_id):
         return self.database.stop_database(db_id)
-        
+    
+    def change_db_credentials(self, db_id, username, old_pass, new_pass):
+        return self.database.change_db_credentials(db_id, username, old_pass, new_pass)

@@ -128,13 +128,12 @@ export default function DatabaseMain() {
 
                 if (response.status === 'success') {
                     showToast(response.message, 'success');
-                    
-                    // ---> EMIT EVENT: Agar Switch Database di Sidebar ikut berubah statusnya <---
-                    window.dispatchEvent(new CustomEvent('service_status_changed', { 
-                        detail: { service: 'database', running: !isRunning } 
+                    fetchDatabases(); // Segarkan data lokal
+
+                    // ---> KIRIM SINYAL KE SIDEBAR BAHWA STATUS TELAH BERUBAH <---
+                    window.dispatchEvent(new CustomEvent('service_status_changed', {
+                        detail: { service: 'database' }
                     }));
-                    
-                    fetchDatabases();
                 } else {
                     showToast(response.message, 'error');
                 }
@@ -190,22 +189,22 @@ export default function DatabaseMain() {
     // ========================================================
     const handleConfirmUninstall = async () => {
         if (!selectedDbId) return;
-        
+
         setIsDeleting(true);
         try {
             const api = window.pywebview?.api || window.api;
             if (api && typeof api.uninstall_database === 'function') {
                 // ---> KIRIM STATE DELETEDATA KE BACKEND <---
                 const response = await api.uninstall_database(selectedDbId, deleteData);
-                
+
                 if (response.status === 'success') {
                     showToast(response.message, 'success');
                     setIsDeleteConfirmOpen(false);
                     setSelectedDbId(null);
                     setDeleteData(false); // Reset Checkbox
-                    fetchDatabases(); 
+                    fetchDatabases();
                 } else {
-                    showToast(response.message, 'error'); 
+                    showToast(response.message, 'error');
                 }
             }
         } catch (error) {
@@ -219,7 +218,7 @@ export default function DatabaseMain() {
         setSelectedDbId(db.id);
         setIsSettingsOpen(true);
         setIsLoadingSettings(true);
-        
+
         try {
             const api = window.pywebview?.api || window.api;
             if (api) {
@@ -239,7 +238,7 @@ export default function DatabaseMain() {
 
     const handleSaveSettings = async () => {
         if (!selectedDb) return;
-        
+
         // Cek bentrok Port
         const otherPorts = usedPorts.filter(p => p !== selectedDb.port);
         if (otherPorts.includes(Number(settingsConfig.port))) {
@@ -266,6 +265,28 @@ export default function DatabaseMain() {
         }
     };
 
+    const handleUpdateCredentials = async (user: string, oldPass: string, newPass: string) => {
+        if (!selectedDb) return;
+        if (selectedDb.status !== 'running') {
+            showToast("Database harus dalam keadaan menyala (Running) untuk mengubah kredensial.", "warning");
+            return;
+        }
+
+        try {
+            const api = window.pywebview?.api || window.api;
+            if (api) {
+                const response = await api.change_db_credentials(selectedDb.id, user, oldPass, newPass);
+                if (response.status === 'success') {
+                    showToast(response.message, 'success');
+                } else {
+                    showToast(response.message, 'error');
+                }
+            }
+        } catch (error) {
+            showToast("Gagal menghubungi server untuk mengubah kredensial.", "error");
+        }
+    };
+
     const handleConfigChange = (key: string, value: string | number) => {
         setSettingsConfig((prev: any) => ({ ...prev, [key]: value }));
     };
@@ -282,16 +303,13 @@ export default function DatabaseMain() {
         <>
             <div className="flex flex-col w-full">
 
+                {/* ---> SEBELUMNYA ADA TAG ACTIVE DI SINI <--- */}
                 <div className="flex flex-col gap-3 mb-8">
                     <div className="flex items-center gap-3">
                         <span className="material-symbols-outlined text-slate-700 dark:text-slate-300 text-[32px]" style={{ fontVariationSettings: "'FILL' 0" }}>database</span>
                         <h2 className="text-2xl md:text-3xl font-semibold text-slate-900 dark:text-white">Database Engine</h2>
                     </div>
                     <div className="flex items-center gap-4">
-                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/50">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-2"></span>
-                            Active
-                        </span>
                         <span className="font-mono text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
                             <span className="material-symbols-outlined text-[14px]">info</span>
                             {dbInstances.length} Instances installed
@@ -461,18 +479,19 @@ export default function DatabaseMain() {
                         config={settingsConfig} 
                         onChange={handleConfigChange} 
                         isLoading={isLoadingSettings} 
+                        onUpdateCredentials={handleUpdateCredentials} /* <--- TAMBAHKAN INI */
                     />
                 )}
             </Modal>
 
-            <Modal 
-                isOpen={isDeleteConfirmOpen} 
-                onClose={() => !isDeleting && setIsDeleteConfirmOpen(false)} 
-                title="Drop Database Engine" 
-                icon="warning" 
-                onApply={handleConfirmUninstall} 
-                applyText={isDeleting ? "Dropping Engine..." : "Yes, Drop"} 
-                isApplyDisabled={isDeleting} 
+            <Modal
+                isOpen={isDeleteConfirmOpen}
+                onClose={() => !isDeleting && setIsDeleteConfirmOpen(false)}
+                title="Drop Database Engine"
+                icon="warning"
+                onApply={handleConfirmUninstall}
+                applyText={isDeleting ? "Dropping Engine..." : "Yes, Drop"}
+                isApplyDisabled={isDeleting}
                 isDanger={true}
                 isLoading={isDeleting} // <--- INI ADALAH KUNCI UNTUK MENGELUARKAN ANIMASI SPINNER!
             >

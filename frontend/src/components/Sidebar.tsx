@@ -92,7 +92,20 @@ export default function Sidebar({
     useEffect(() => {
         fetchServiceStatuses();
         const interval = setInterval(fetchServiceStatuses, 2000);
-        return () => clearInterval(interval);
+
+        // ---> TAMBAHAN: Listener agar Toggle sinkron instan dari Main.tsx <---
+        const handleStatusSync = (e: Event) => {
+            const customEvent = e as CustomEvent;
+            if (customEvent.detail.service === 'database' || customEvent.detail.service === 'all') {
+                fetchServiceStatuses();
+            }
+        };
+        window.addEventListener('service_status_changed', handleStatusSync);
+
+        return () => {
+            clearInterval(interval);
+            window.removeEventListener('service_status_changed', handleStatusSync);
+        };
     }, []);
 
     const handleToggleClick = async (id: string) => {
@@ -143,10 +156,7 @@ export default function Sidebar({
 
             <nav className={`bg-surface dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col h-[calc(100vh-64px)] md:h-screen fixed left-0 top-[64px] md:top-0 z-50 transition-all duration-300 ease-in-out md:translate-x-0 ${sidebarWidthClass} ${mobileTranslateClass}`}>
 
-                {/* --- HEADER DENGAN LOGO BRAND & ANIMASI SMOOTH --- */}
                 <div className="flex items-center justify-between px-4 py-4 border-b border-slate-200 dark:border-slate-800 h-[72px]">
-
-                    {/* Logo Wrapper dengan Transisi Lebar */}
                     <div className={`transition-all duration-300 overflow-hidden flex items-center shrink-0 ${isDesktopCollapsed ? 'max-w-0 opacity-0 ml-0' : 'max-w-[150px] opacity-100 ml-1'}`}>
                         <img src={brandNavLight} alt="VyloServe" className="h-7 w-auto object-contain block dark:hidden" draggable="false" />
                         <img src={brandNavDark} alt="VyloServe" className="h-7 w-auto object-contain hidden dark:block" draggable="false" />
@@ -164,7 +174,6 @@ export default function Sidebar({
                     </div>
                 </div>
 
-                {/* --- SEARCH BAR DENGAN ANIMASI FOLD --- */}
                 <div className={`transition-all duration-300 overflow-hidden ${isDesktopCollapsed ? 'max-h-0 opacity-0' : 'max-h-[80px] opacity-100'}`}>
                     <div className="px-4 py-4">
                         <div className="relative group">
@@ -180,11 +189,8 @@ export default function Sidebar({
                     </div>
                 </div>
 
-                {/* --- NAVIGATION ITEMS --- */}
-                {/* Enhancement: Mematikan auto-scroll (overflow-y-auto) saat collapsed agar Flyout Submenu tidak terpotong (clipped) */}
                 <div className={`flex flex-col gap-1 py-2 px-2 flex-1 custom-scrollbar ${isDesktopCollapsed ? 'overflow-visible' : 'overflow-y-auto overflow-x-hidden'}`}>
 
-                    {/* MAIN MENU SECTION */}
                     {filteredMain.length > 0 && (
                         <div className={`px-3 pb-1 text-xs font-semibold text-slate-400 uppercase tracking-wider whitespace-nowrap overflow-hidden transition-all duration-300 ${isDesktopCollapsed ? 'max-h-0 opacity-0 pt-0' : 'max-h-[40px] opacity-100 pt-2'}`}>
                             Overview
@@ -209,7 +215,6 @@ export default function Sidebar({
                         );
                     })}
 
-                    {/* SERVICES SECTION */}
                     {filteredServices.length > 0 && (
                         <div className={`px-3 pb-1 text-xs font-semibold text-slate-400 uppercase tracking-wider whitespace-nowrap overflow-hidden transition-all duration-300 ${isDesktopCollapsed ? 'max-h-0 opacity-0 pt-0 border-transparent mt-0' : 'max-h-[40px] opacity-100 pt-4 border-t border-slate-200 dark:border-slate-800 mt-2'}`}>
                             Services
@@ -233,7 +238,6 @@ export default function Sidebar({
                                     </span>
                                 </div>
 
-                                {/* Animated Switch Toggle */}
                                 <label
                                     className={`relative inline-flex items-center cursor-pointer overflow-hidden transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[40px] opacity-100'}`}
                                     onClick={(e) => {
@@ -249,7 +253,6 @@ export default function Sidebar({
                         );
                     })}
 
-                    {/* TOOLS / UTILITIES SECTION DENGAN HOVER FLYOUT */}
                     {filteredTools.length > 0 && (
                         <div className="relative group">
 
@@ -269,7 +272,6 @@ export default function Sidebar({
                                     </span>
                                 </div>
 
-                                {/* Indikator Mode Normal (Expand Arrow) */}
                                 <span
                                     className={`material-symbols-outlined text-[20px] transition-all duration-300 overflow-hidden ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[20px] opacity-100'}`}
                                     style={{ transform: showToolsDropdown ? 'rotate(180deg)' : 'rotate(0deg)' }}
@@ -277,7 +279,6 @@ export default function Sidebar({
                                     expand_more
                                 </span>
 
-                                {/* Indikator Mode Collapsed (Chevron Right) */}
                                 {isDesktopCollapsed && (
                                     <span className="material-symbols-outlined text-[14px] absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 opacity-60">
                                         chevron_right
@@ -285,7 +286,6 @@ export default function Sidebar({
                                 )}
                             </div>
 
-                            {/* --- EXPANDED MODE: INLINE DROPDOWN --- */}
                             <div className={`transition-all duration-300 overflow-hidden ${(!isDesktopCollapsed && showToolsDropdown) ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}>
                                 <div className="flex flex-col gap-1 ml-4 pl-2 border-l border-slate-200 dark:border-slate-700 my-1">
                                     {filteredTools.map((tool) => (
@@ -297,7 +297,6 @@ export default function Sidebar({
                                 </div>
                             </div>
 
-                            {/* --- COLLAPSED MODE: HOVER FLYOUT POP-UP --- */}
                             {isDesktopCollapsed && (
                                 <div className="absolute left-[calc(100%+4px)] top-0 w-48 flex-col gap-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl p-2 z-[60] opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 translate-x-[-10px] group-hover:translate-x-0">
                                     <div className="px-3 pt-1 pb-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 mb-1">
@@ -323,18 +322,15 @@ export default function Sidebar({
 
                 </div>
 
-                {/* --- FOOTER: SYSTEM LOAD (SIMPLIFIED ON COLLAPSED) --- */}
                 <div className="p-4 border-t border-slate-200 dark:border-slate-800 mt-auto transition-all duration-300 flex justify-center md:justify-start">
                     <div
                         className={`flex items-center gap-2 text-slate-500 dark:text-slate-400 w-full ${isDesktopCollapsed ? 'justify-center flex-col gap-1' : ''}`}
                         title={isDesktopCollapsed ? `System Load: ${systemLoad}%` : ''}
                     >
-                        {/* Ikon CPU Berubah Warna Otomatis */}
                         <span className={`material-symbols-outlined transition-colors text-[20px] ${systemLoad > 80 ? 'text-red-500' : systemLoad > 50 ? 'text-amber-500' : 'text-emerald-500'}`}>
                             memory
                         </span>
 
-                        {/* Teks Lengkap (Sembunyikan saat Collapsed dengan transisi) */}
                         <span className={`text-xs font-medium uppercase tracking-wider flex items-center gap-1 whitespace-nowrap overflow-hidden transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0 hidden' : 'max-w-[150px] opacity-100'}`}>
                             System Load:
                             <span className={`transition-colors ${systemLoad > 80 ? 'text-red-500 font-bold' : systemLoad > 50 ? 'text-amber-500 font-bold' : 'text-slate-700 dark:text-slate-300'}`}>
@@ -342,7 +338,6 @@ export default function Sidebar({
                             </span>
                         </span>
 
-                        {/* Indikator Angka Kecil (Hanya Muncul saat Collapsed) */}
                         {isDesktopCollapsed && (
                             <span className={`text-[10px] font-bold transition-colors ${systemLoad > 80 ? 'text-red-500' : systemLoad > 50 ? 'text-amber-500' : 'text-slate-500'}`}>
                                 {systemLoad}%

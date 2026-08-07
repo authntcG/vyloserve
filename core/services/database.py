@@ -44,13 +44,29 @@ class DatabaseManager:
 
     def is_port_in_use(self, port):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            # OPTIMASI 1: Aggressive Timeout 50ms (Mencegah blocking OS)
+            s.settimeout(0.05) 
             return s.connect_ex(('127.0.0.1', int(port))) == 0
 
     def get_installed(self):
         try:
             data = self._read_json()
-            for db in data:
-                db['status'] = 'running' if self.is_port_in_use(db['port']) else 'stopped'
+            if not data:
+                return {"status": "success", "data": []}
+
+            def enrich_status(db):
+                # OPTIMASI 2: O(1) Memory Check (Instan)
+                if db['id'] in self.processes and self.processes[db['id']].poll() is None:
+                    db['status'] = 'running'
+                else:
+                    # Cek fisik socket jika proses dijalankan di luar VyloServe
+                    db['status'] = 'running' if self.is_port_in_use(db['port']) else 'stopped'
+                return db
+
+            # OPTIMASI 3: Pengecekan Paralel/Serentak (Multi-threading)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                data = list(executor.map(enrich_status, data))
+
             return {"status": "success", "data": data}
         except Exception as e:
             return {"status": "error", "message": str(e)}
@@ -81,7 +97,6 @@ class DatabaseManager:
             proc = subprocess.Popen(cmd, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self.processes[db_id] = proc
 
-            # Tunggu port terbuka (Maksimal 5 detik)
             for _ in range(50):
                 if self.is_port_in_use(db_obj['port']):
                     if hasattr(self, 'api'): self.api.emit_log(f"Engine {db_obj['name']} berjalan di port {db_obj['port']}.", "success")
@@ -104,7 +119,6 @@ class DatabaseManager:
                 except: proc.kill()
             del self.processes[db_id]
 
-        # Mode Stop Aman (Graceful Shutdown)
         if db_obj and self.is_port_in_use(db_obj['port']):
             engine = db_obj['engine']
             install_dir = db_obj['installDir']
@@ -544,7 +558,6 @@ class DatabaseManager:
         data_dir = db_obj['dataDir']
         config = {"port": db_obj.get("port")}
 
-        # MENAMBAHKAN REKOMENDASI KONFIGURASI BARU (Enhancement Tuning)
         if engine == 'mysql':
             config.update({
                 "bind_address": "127.0.0.1",
@@ -602,8 +615,6 @@ class DatabaseManager:
 
         engine = db_obj['engine']
         data_dir = db_obj['dataDir']
-        
-        # ---> Pengecekan status berjalan untuk AUTO-RESTART <---
         was_running = self.is_port_in_use(db_obj['port'])
 
         db_obj['port'] = int(new_config.get('port', db_obj['port']))
@@ -688,12 +699,11 @@ class DatabaseManager:
             with open(conf_file, 'w', encoding='utf-8') as f:
                 f.writelines(new_lines)
 
-        # ---> LOGIKA AUTO RESTART <---
         msg = "Konfigurasi berhasil disimpan."
         if was_running:
             self.api.emit_log(f"Menerapkan konfigurasi baru dengan merestart {db_obj['name']}...", "info")
             self.stop_database(db_id)
-            time.sleep(1) # Jeda agar OS merebut ulang Port
+            time.sleep(1) 
             start_res = self.start_database(db_id)
             
             if start_res.get('status') == 'success':
@@ -705,3 +715,147 @@ class DatabaseManager:
 
         self.api.emit_log(msg, "success")
         return {"status": "success", "message": msg}
+    
+    def change_db_credentials(self, db_id, username, old_password, new_password):
+        data = self._read_json()
+        db_obj = next((db for db in data if db['id'] == db_id), None)
+        if not db_obj: return {"status": "error", "message": "Database tidak ditemukan."}
+
+        if not self.is_port_in_use(db_obj['port']):
+            return {"status": "error", "message": "Database harus dalam keadaan menyala (Start DB) untuk mengubah password."}
+
+        engine = db_obj['engine']
+        install_dir = db_obj['installDir']
+        port = db_obj['port']
+
+        try:
+            if engine == 'mysql':
+                exe = os.path.join(install_dir, 'bin', 'mysql.exe' if sys.platform == 'win32' else 'mysql')
+                cmd = [exe, "-u", username, f"-P{port}", "-h", "127.0.0.1"]
+                if old_password:
+                    cmd.append(f"-p{old_password}")
+                
+                query = f"ALTER USER '{username}'@'localhost' IDENTIFIED BY '{new_password}'; FLUSH PRIVILEGES;"
+                cmd.extend(["-e", query])
+
+                result = subprocess.run(cmd, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0, capture_output=True, text=True)
+                if result.returncode != 0:
+                    err = result.stderr.strip()
+                    if "Access denied" in err:
+                        return {"status": "error", "message": "Password lama salah atau user tidak ditemukan."}
+                    return {"status": "error", "message": f"Gagal MySQL: {err}"}
+
+            elif engine == 'postgres':
+                exe = os.path.join(install_dir, 'bin', 'psql.exe' if sys.platform == 'win32' else 'psql')
+                env = os.environ.copy()
+                if old_password:
+                    env['PGPASSWORD'] = old_password
+
+                query = f"ALTER ROLE {username} WITH PASSWORD '{new_password}';"
+                cmd = [exe, "-U", username, "-p", str(port), "-h", "127.0.0.1", "-c", query]
+
+                result = subprocess.run(cmd, env=env, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0, capture_output=True, text=True)
+                if result.returncode != 0:
+                    err = result.stderr.strip()
+                    if "authentication failed" in err:
+                        return {"status": "error", "message": "Password lama salah atau user tidak ditemukan."}
+                    return {"status": "error", "message": f"Gagal PostgreSQL: {err}"}
+
+            if hasattr(self, 'api'):
+                self.api.emit_log(f"Kredensial {engine} untuk user '{username}' berhasil diperbarui.", "success")
+            return {"status": "success", "message": "Password berhasil diperbarui!"}
+            
+        except Exception as e:
+            return {"status": "error", "message": f"Kesalahan internal sistem: {str(e)}"}
+        
+    # ==========================================
+    # MASTER CONTROLLER (UNIVERSAL SERVICE STANDARD)
+    # ==========================================
+    def check_is_running(self):
+        """Memeriksa apakah ada minimal 1 database yang sedang berjalan secara instan"""
+        try:
+            # 1. Deteksi O(1) dari Memory Track (0 milidetik)
+            for v in list(self.processes.keys()):
+                if self.processes[v].poll() is None:
+                    return True
+                else:
+                    # Bersihkan proses yang sudah mati (zombie)
+                    self.processes.pop(v, None)
+                    
+            # 2. Paralel Socket Polling jika memori kosong
+            dbs = self._read_json()
+            if not dbs: return False
+            
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                results = executor.map(lambda db: self.is_port_in_use(db['port']), dbs)
+                return any(results)
+        except:
+            return False
+
+    def _get_preferred_dbs(self, dbs):
+        """ Mendapatkan target DB berdasarkan dashboard.json atau fallback ke versi terbaru per engine """
+        dashboard_json = os.path.join(self.data_dir, 'dashboard.json')
+        selected_dbs = []
+        try:
+            if os.path.exists(dashboard_json):
+                with open(dashboard_json, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    selected_dbs = config.get('selected_database', [])
+        except: pass
+        
+        valid_selected = [db['id'] for db in dbs if db['id'] in selected_dbs]
+        if valid_selected:
+            return valid_selected
+            
+        # Fallback: Versi terbaru dari masing-masing engine jika tidak ada yang dipilih
+        fallback_dbs = []
+        def get_version_score(v):
+            matches = re.findall(r'\d+', v['version'])
+            return [int(x) for x in matches] if matches else [0]
+            
+        mysql_dbs = [db for db in dbs if db['engine'] == 'mysql']
+        if mysql_dbs:
+            mysql_dbs.sort(key=get_version_score, reverse=True)
+            fallback_dbs.append(mysql_dbs[0]['id'])
+            
+        postgres_dbs = [db for db in dbs if db['engine'] == 'postgres']
+        if postgres_dbs:
+            postgres_dbs.sort(key=get_version_score, reverse=True)
+            fallback_dbs.append(postgres_dbs[0]['id'])
+            
+        return fallback_dbs
+
+    def start_all(self):
+        dbs = self.get_installed().get('data', [])
+        if not dbs:
+            return {"status": "error", "message": "Tidak ada database terinstal."}
+            
+        target_db_ids = self._get_preferred_dbs(dbs)
+        
+        success_count = 0
+        for db in dbs:
+            if db['id'] in target_db_ids and not self.is_port_in_use(db['port']):
+                res = self.start_database(db['id'])
+                if res.get('status') == 'success':
+                    success_count += 1
+        
+        if success_count > 0:
+            return {"status": "success", "message": f"{success_count} Database berhasil dijalankan."}
+        else:
+            if self.check_is_running():
+                return {"status": "success", "message": "Database pilihan sudah berjalan."}
+            return {"status": "error", "message": "Gagal memulai database."}
+
+    def stop_all(self):
+        dbs = self.get_installed().get('data', [])
+        target_db_ids = self._get_preferred_dbs(dbs)
+        
+        stopped_count = 0
+        for db in dbs:
+            if db['id'] in target_db_ids and self.is_port_in_use(db['port']):
+                self.stop_database(db['id'])
+                stopped_count += 1
+                
+        if stopped_count > 0:
+            return {"status": "success", "message": f"{stopped_count} Database pilihan berhasil dihentikan."}
+        return {"status": "success", "message": "Tidak ada database pilihan yang sedang berjalan."}

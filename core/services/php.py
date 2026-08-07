@@ -7,6 +7,7 @@ import tarfile
 import shutil
 import subprocess
 import time
+import json # <--- TAMBAHKAN IMPORT JSON
 
 class PhpManager:
     # Tangkap api_ref untuk menembakkan log/progress
@@ -251,12 +252,6 @@ class PhpManager:
                 
                 f.write("memory_limit = 512M\n")
                 f.write(f"fastcgi.logging = 0\n")
-                # WAJIB untuk setup Apache mod_proxy_fcgi + php-cgi:
-                # cgi.force_redirect adalah proteksi keamanan bawaan PHP-CGI yang
-                # menolak eksekusi kecuali menerima REDIRECT_STATUS dari web server.
-                # mod_proxy_fcgi (beda dari mod_cgi klasik) tidak mengirim variabel
-                # ini secara default, sehingga tanpa baris berikut PHP akan selalu
-                # membalas "No input file specified" walau path file valid.
                 f.write("cgi.force_redirect = 0\n")
                 f.write("cgi.fix_pathinfo = 1\n")
                 if sys.platform == 'win32':
@@ -306,7 +301,6 @@ class PhpManager:
         }
         active_exts = set()
 
-        # 1. BACA FILE PHP.INI
         if os.path.exists(php_ini_path):
             with open(php_ini_path, 'r') as f:
                 for line in f:
@@ -327,7 +321,6 @@ class PhpManager:
                         ext_name = line.split('=')[1].strip().strip('"\'')
                         active_exts.add(ext_name)
 
-        # 2. PINDAI FOLDER EXTENSION (Mencari php_*.dll di Windows)
         available_exts = []
         if os.path.exists(ext_dir):
             for file in os.listdir(ext_dir):
@@ -338,12 +331,10 @@ class PhpManager:
                         "active": ext_name in active_exts
                     })
                     
-        # Tambahkan extension bawaan yang aktif tapi mungkin tidak ada file fisiknya
         for ext in active_exts:
             if not any(e['name'] == ext for e in available_exts):
                 available_exts.append({"name": ext, "active": True})
 
-        # Urutkan secara alfabetis
         available_exts.sort(key=lambda x: x['name'])
         
         return {"status": "success", "config": config, "extensions": available_exts}
@@ -363,7 +354,6 @@ class PhpManager:
         config_keys = ['memory_limit', 'max_execution_time', 'upload_max_filesize', 'post_max_size']
         found_keys = set()
         
-        # 1. TULIS ULANG BARIS YANG ADA (REPLACE)
         for line in lines:
             stripped = line.strip()
             
@@ -371,7 +361,6 @@ class PhpManager:
                 new_lines.append(f"; vyloserve_port = {new_config.get('port', 9000)}\n")
                 continue
                 
-            # Hapus semua pemanggilan extension yang lama, karena akan kita tulis ulang di bawah
             if stripped.startswith('extension=') or stripped.startswith(';extension='):
                 continue
                 
@@ -386,7 +375,6 @@ class PhpManager:
             if not updated:
                 new_lines.append(line)
                 
-        # 2. TAMBAHKAN CONFIG YANG SEBELUMNYA TIDAK ADA DI FILE
         for key in config_keys:
             if key not in found_keys and key in new_config:
                 new_lines.append(f"{key} = {new_config[key]}\n")
@@ -394,7 +382,6 @@ class PhpManager:
         if not any('extension_dir' in l for l in new_lines) and sys.platform == 'win32':
             new_lines.append('extension_dir = "ext"\n')
 
-        # 3. TULIS ULANG DAFTAR EXTENSION
         new_lines.append("\n; --- VyloServe Managed Extensions ---\n")
         for ext in active_extensions:
             new_lines.append(f"extension={ext}\n")
@@ -404,15 +391,11 @@ class PhpManager:
             
         self.api.emit_log(f"Konfigurasi PHP {version} berhasil diperbarui.", "success")
         
-        # ========================================================
-        # HOOK SINKRONISASI OTOMATIS: UBAH CONFIG PHP
-        # ========================================================
         try:
             if hasattr(self.api, 'project'):
                 self.api.emit_log("Menulis ulang VHost Apache menyesuaikan konfigurasi PHP baru...", "info")
                 self.api.project.sync_apache_vhosts()
                 
-            # Restart Apache jika sedang berjalan agar port baru langsung aktif
             if hasattr(self.api, 'apache') and self.api.apache.check_is_running():
                 self.api.emit_log("Merestart Apache untuk menerapkan Port PHP yang baru...", "info")
                 self.api.apache.restart_server()
@@ -432,9 +415,9 @@ class PhpManager:
         try:
             if sys.platform == 'win32':
                 os.startfile(target_path)
-            elif sys.platform == 'darwin': # Mac OS
+            elif sys.platform == 'darwin': 
                 subprocess.Popen(['open', target_path])
-            else: # Linux
+            else: 
                 subprocess.Popen(['xdg-open', target_path])
                 
             return {"status": "success", "message": "Berhasil dibuka."}
@@ -443,7 +426,6 @@ class PhpManager:
             return {"status": "error", "message": str(e)}
 
     def uninstall_version(self, version: str):
-        """ Menghapus instalasi PHP secara permanen """
         target_dir = os.path.join(self.base_dir, version)
         
         try:
@@ -452,9 +434,6 @@ class PhpManager:
                 
                 self.api.emit_log(f"PHP {version} beserta konfigurasinya berhasil dihapus.", "success")
                 
-                # ========================================================
-                # HOOK SINKRONISASI OTOMATIS: HAPUS PHP
-                # ========================================================
                 if hasattr(self.api, 'project'):
                     self.api.project.sync_apache_vhosts()
                 if hasattr(self.api, 'apache') and self.api.apache.check_is_running():
@@ -468,42 +447,19 @@ class PhpManager:
             return {"status": "error", "message": str(e)}
         
     def _verify_and_patch_ini(self, php_ini_path: str):
-        """
-        Pre-flight Check untuk php.ini: memastikan cgi.force_redirect dinonaktifkan.
-
-        PENTING: Ini WAJIB ada di php.ini, bukan di environment variable proses.
-        php-cgi yang berjalan dalam mode FastCGI (-b host:port) melayani banyak
-        request lewat satu proses; nilai seperti REDIRECT_STATUS harus dikirim
-        Apache PER REQUEST lewat protokol FastCGI (FCGI_PARAMS), bukan dibaca
-        dari OS environment proses yang cuma di-set sekali saat proses dimulai.
-        Karena itu, mengandalkan `subprocess.Popen(env=...)` untuk REDIRECT_STATUS
-        tidak akan pernah berhasil. Menonaktifkan cgi.force_redirect di php.ini
-        adalah satu-satunya cara yang independen dari perilaku Apache/FastCGI,
-        dan dijamin efektif karena dibaca langsung oleh php-cgi saat start.
-        Dipanggil setiap kali start_php() supaya instalasi PHP lama yang belum
-        punya baris ini pun otomatis diperbaiki (self-healing).
-        """
         try:
-            if not os.path.exists(php_ini_path):
-                return
+            if not os.path.exists(php_ini_path): return
 
             with open(php_ini_path, 'r') as f:
                 lines = f.readlines()
 
-            has_force_redirect = any(
-                l.strip().lower().startswith('cgi.force_redirect') and not l.strip().startswith(';')
-                for l in lines
-            )
-            has_fix_pathinfo = any(
-                l.strip().lower().startswith('cgi.fix_pathinfo') and not l.strip().startswith(';')
-                for l in lines
-            )
+            has_force_redirect = any(l.strip().lower().startswith('cgi.force_redirect') and not l.strip().startswith(';') for l in lines)
+            has_fix_pathinfo = any(l.strip().lower().startswith('cgi.fix_pathinfo') and not l.strip().startswith(';') for l in lines)
 
             modified = False
             new_lines = []
             for l in lines:
                 stripped = l.strip().lower()
-                # Perbaiki baris cgi.force_redirect yang mungkin tertulis "= 1"
                 if stripped.startswith('cgi.force_redirect') and not stripped.startswith(';'):
                     new_lines.append("cgi.force_redirect = 0\n")
                     modified = True
@@ -529,60 +485,41 @@ class PhpManager:
             return {"status": "error", "message": f"PHP {version} sudah berjalan!"}
             
         target_dir = os.path.join(self.base_dir, version)
-        # Windows menggunakan .exe, Mac/Linux tanpa ekstensi
         php_cgi = "php-cgi.exe" if sys.platform == 'win32' else "php-cgi"
         exe_path = os.path.join(target_dir, php_cgi)
         
         if not os.path.exists(exe_path):
             return {"status": "error", "message": f"File binary {php_cgi} tidak ditemukan."}
 
-        # Cari tahu port dari php.ini (untuk argumen start)
         port = 9000
         php_ini_path = os.path.join(target_dir, 'php.ini')
         if os.path.exists(php_ini_path):
             with open(php_ini_path, 'r') as f:
                 for line in f:
                     if 'vyloserve_port' in line:
-                        try:
-                            port = int(line.split('=')[1].strip())
+                        try: port = int(line.split('=')[1].strip())
                         except: pass
 
-        # Perintah eksekusi: php-cgi -b 127.0.0.1:PORT -c php.ini
         cmd = [exe_path, "-b", f"127.0.0.1:{port}", "-c", php_ini_path]
         
-        # ---> PRE-FLIGHT CHECK: pastikan cgi.force_redirect nonaktif di php.ini <---
-        # (self-healing, berlaku juga untuk instalasi PHP lama yang belum punya baris ini)
         self._verify_and_patch_ini(php_ini_path)
 
-        # ---> SIAPKAN ENVIRONMENT UNTUK PHP <---
         php_env = os.environ.copy()
-        php_env['PHP_FCGI_MAX_REQUESTS'] = '0'     # Mencegah PHP mati otomatis setelah 500 request
-        # CATATAN: REDIRECT_STATUS sengaja TIDAK di-set di sini. Variabel ini harus
-        # dikirim Apache per-request lewat FastCGI (lihat ProxyFCGISetEnvIf di
-        # httpd-vyloserve-php.conf / vyloserve-vhosts.conf), bukan lewat OS env
-        # proses yang di-set sekali di awal -- itu tidak akan pernah terbaca oleh
-        # request individual. Pencegahan "No input file specified" yang sesungguhnya
-        # dilakukan lewat cgi.force_redirect = 0 di php.ini (lihat _verify_and_patch_ini).
-        
+        php_env['PHP_FCGI_MAX_REQUESTS'] = '0'     
 
         try:
             if sys.platform == 'win32':
-                # Sembunyikan jendela Console hitam bawaan Windows
                 CREATE_NO_WINDOW = 0x08000000
-                # Masukkan argumen env=php_env ke dalam Popen
                 process = subprocess.Popen(cmd, cwd=target_dir, env=php_env, creationflags=CREATE_NO_WINDOW)
             else:
                 process = subprocess.Popen(cmd, cwd=target_dir, env=php_env)
                 
-            # Tunggu setengah detik untuk memastikan proses tidak langsung crash
-            import time
             time.sleep(0.5)
             if process.poll() is not None:
                  return {"status": "error", "message": f"Gagal menjalankan CGI. Port {port} mungkin sudah digunakan aplikasi lain."}
 
             self.processes[version] = process
             
-            # Update Proxy Apache dengan Try-Except agar tidak gagal diam-diam
             try:
                 if hasattr(self, 'api') and hasattr(self.api, 'apache'):
                     self.api.apache.update_global_php_proxy(port)
@@ -601,15 +538,12 @@ class PhpManager:
 
     def stop_php(self, version: str):
         try:
-            # 1. Matikan proses (Taskkill / Terminate) jika ada
             if version in self.processes:
                 process = self.processes[version]
                 if process.poll() is None:
-                    # Logika spesifik OS untuk mematikan proses (contoh Windows taskkill)
                     import subprocess
                     subprocess.call(['taskkill', '/F', '/T', '/PID', str(process.pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
-                # ---> SOLUSI BUG KEYERROR: Gunakan .pop() sebagai pengganti del <---
                 self.processes.pop(version, None)
                 
             if hasattr(self, 'api'):
@@ -624,10 +558,87 @@ class PhpManager:
 
     def get_installed_versions(self):
         """Mendapatkan daftar versi PHP yang terinstal berdasarkan direktori"""
-        php_path = os.path.join(self.base_dir) # Asumsi base_dir adalah path folder 'php'
-        if not os.path.exists(php_path):
-            return []
+        php_path = os.path.join(self.base_dir)
+        if not os.path.exists(php_path): return []
         
-        # Mengambil daftar folder, filter hanya direktori
         versions = [d for d in os.listdir(php_path) if os.path.isdir(os.path.join(php_path, d))]
         return versions
+
+    # ==========================================
+    # MASTER CONTROLLER (UNIVERSAL SERVICE STANDARD)
+    # ==========================================
+    def check_is_running(self):
+        """Memeriksa apakah ada proses PHP yang aktif, sekaligus membersihkan yang sudah mati"""
+        for v in list(self.processes.keys()):
+            if self.processes[v].poll() is not None:
+                self.processes.pop(v, None)
+        return len(self.processes) > 0
+
+    def _get_preferred_versions(self):
+        """ Membaca preferensi user dari dashboard.json dengan fallback versi tertinggi """
+        root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        dashboard_json = os.path.join(root_dir, 'data', 'dashboard.json')
+        
+        installed = self.get_installed_versions()
+        if not installed:
+            return []
+            
+        selected_php = []
+        try:
+            if os.path.exists(dashboard_json):
+                with open(dashboard_json, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    selected_php = config.get('selected_php', [])
+        except: pass
+        
+        # Saring hanya versi yang benar-benar terinstal di sistem
+        valid_selected = [v for v in selected_php if v in installed]
+        if valid_selected:
+            return valid_selected
+            
+        # Fallback: Ambil versi terbaru
+        def get_version_score(v):
+            matches = re.findall(r'\d+', v)
+            return [int(x) for x in matches] if matches else [0]
+            
+        installed.sort(key=get_version_score, reverse=True)
+        return [installed[0]]
+
+    def start_all(self):
+        """Menjalankan instansi PHP pilihan (Biasa dipicu dari Sidebar)"""
+        target_versions = self._get_preferred_versions()
+        if not target_versions:
+            return {"status": "error", "message": "Tidak ada versi PHP terinstal."}
+            
+        success_count = 0
+        for v in target_versions:
+            # Cegah start ulang jika proses sudah ada
+            if v not in self.processes or self.processes[v].poll() is not None:
+                res = self.start_php(v)
+                if res.get('status') == 'success':
+                    success_count += 1
+                
+        if success_count > 0:
+            return {"status": "success", "message": f"{success_count} instansi PHP dijalankan."}
+        else:
+            if self.check_is_running():
+                return {"status": "success", "message": "PHP pilihan sudah berjalan."}
+            return {"status": "error", "message": "Gagal memulai PHP."}
+
+    def stop_all(self):
+        """Menghentikan seluruh proses PHP yang tercatat di sistem (Biasa dipicu dari Sidebar)"""
+        stopped_count = 0
+        
+        # Untuk PHP, kita hentikan SEMUA proses yang sedang berjalan, 
+        # tidak hanya yang ada di daftar preferensi, agar benar-benar bersih.
+        for version in list(self.processes.keys()):
+            try: 
+                self.stop_php(version)
+                stopped_count += 1
+            except Exception as e: 
+                if hasattr(self, 'api'):
+                    self.api.emit_log(f"Melewati error saat stop PHP {version}: {str(e)}", "warn")
+        
+        if stopped_count > 0:
+            return {"status": "success", "message": f"{stopped_count} proses PHP berhasil dihentikan."}
+        return {"status": "success", "message": "Tidak ada proses PHP yang sedang berjalan."}

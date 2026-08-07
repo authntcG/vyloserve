@@ -31,15 +31,19 @@ export default function DashboardMain() {
     const [phpInstances, setPhpInstances] = useState<any[]>([]);
     const [selectedPhp, setSelectedPhp] = useState<string[]>([]);
 
+    // ---> STATE DATABASE BARU <---
+    const [dbInstances, setDbInstances] = useState<any[]>([]);
+    const [selectedDb, setSelectedDb] = useState<string[]>([]);
+
     const [includedServices, setIncludedServices] = useState({ apache: true, php: true, database: false });
 
-    // ---> STATE LOADING <---
     const [isGlobalLoading, setIsGlobalLoading] = useState(true);
     const [isLoadingProjects, setIsLoadingProjects] = useState(true);
     const [isTogglingAll, setIsTogglingAll] = useState<'start' | 'stop' | null>(null);
 
     const isPhpInitialized = useRef(false);
     const isApacheInitialized = useRef(false);
+    const isDbInitialized = useRef(false); // Ref deteksi inisialisasi DB
     const isConfigLoaded = useRef(false);
 
     const loadDashboardConfig = async () => {
@@ -58,6 +62,11 @@ export default function DashboardMain() {
                         setSelectedPhp(res.data.selected_php);
                         isPhpInitialized.current = true;
                     }
+
+                    if (res.data.selected_database && Array.isArray(res.data.selected_database) && res.data.selected_database.length > 0) {
+                        setSelectedDb(res.data.selected_database);
+                        isDbInitialized.current = true;
+                    }
                 }
             }
         } catch (error) { console.error("Gagal memuat config dashboard:", error); }
@@ -73,14 +82,15 @@ export default function DashboardMain() {
                 if (api && typeof api.save_dashboard_config === 'function') {
                     const payload = {
                         ...includedServices,
-                        selected_php: selectedPhp
+                        selected_php: selectedPhp,
+                        selected_database: selectedDb // Sertakan database ke payload
                     };
                     await api.save_dashboard_config(payload);
                 }
             } catch (e) { console.error("Gagal menyimpan config:", e); }
         };
         saveConfig();
-    }, [includedServices, selectedPhp]);
+    }, [includedServices, selectedPhp, selectedDb]);
 
     const fetchRecentProjects = async () => {
         setIsLoadingProjects(true);
@@ -102,6 +112,7 @@ export default function DashboardMain() {
             const api = window.pywebview?.api || window.api;
             if (!api) return;
 
+            // Status Keseluruhan
             if (typeof api.get_all_services_status === 'function') {
                 const resStatus = await api.get_all_services_status();
                 setStatus({
@@ -116,6 +127,7 @@ export default function DashboardMain() {
                 setRamHistory(prev => [...prev, resStatus.ram_usage || 0].slice(-20));
             }
 
+            // Status Apache
             if (typeof api.get_apache_installed_versions === 'function') {
                 const resAp = await api.get_apache_installed_versions();
                 if (resAp.status === 'success') {
@@ -130,10 +142,10 @@ export default function DashboardMain() {
                 }
             }
 
+            // Status PHP
             if (typeof api.get_installed_php === 'function') {
                 const resPhp = await api.get_installed_php();
                 setPhpInstances(resPhp);
-
                 setSelectedPhp(prev => {
                     if (!isPhpInitialized.current) {
                         isPhpInitialized.current = true;
@@ -145,10 +157,29 @@ export default function DashboardMain() {
                     return prev;
                 });
             }
+
+            // ---> MENGAMBIL STATUS INSTALASI DATABASE (BARU) <---
+            if (typeof api.get_installed_databases === 'function') {
+                const resDb = await api.get_installed_databases();
+                if (resDb.status === 'success') {
+                    setDbInstances(resDb.data);
+                    setSelectedDb(prev => {
+                        if (!isDbInitialized.current) {
+                            isDbInitialized.current = true;
+                            if (prev.length === 0 && resDb.data.length > 0) {
+                                // Default select yang sedang running, atau index pertama
+                                const running = resDb.data.filter((p: any) => p.status === 'running').map((p: any) => p.id);
+                                return running.length > 0 ? running : [resDb.data[0].id];
+                            }
+                        }
+                        return prev;
+                    });
+                }
+            }
         } catch (error) {
             console.error(error);
         } finally {
-            setIsGlobalLoading(false); // <--- Mematikan Skeleton Loaders
+            setIsGlobalLoading(false);
         }
     };
 
@@ -157,7 +188,17 @@ export default function DashboardMain() {
         fetchRecentProjects();
         fetchServicesStatus();
         const interval = setInterval(fetchServicesStatus, 3000);
-        return () => clearInterval(interval);
+
+        // ---> PENYELESAIAN BUG: Listener Sinkronisasi Sidebar & Dashboard <---
+        const handleStatusSync = () => {
+            fetchServicesStatus();
+        };
+        window.addEventListener('service_status_changed', handleStatusSync);
+
+        return () => {
+            clearInterval(interval);
+            window.removeEventListener('service_status_changed', handleStatusSync);
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -171,6 +212,7 @@ export default function DashboardMain() {
                 if (includedServices.apache && selectedApache) {
                     await api.set_apache_active_version(selectedApache);
                 }
+                // Eksekusi PHP
                 if (includedServices.php) {
                     for (const v of selectedPhp) {
                         const inst = phpInstances.find(p => p.version === v);
@@ -179,6 +221,16 @@ export default function DashboardMain() {
                         }
                     }
                 }
+                // ---> EKSEKUSI DATABASE START <---
+                if (includedServices.database) {
+                    for (const id of selectedDb) {
+                        const inst = dbInstances.find(p => p.id === id);
+                        if (inst && inst.status !== 'running') {
+                            await api.start_database(id);
+                        }
+                    }
+                }
+
                 if (includedServices.apache) {
                     await api.start_apache_server();
                 }
@@ -187,6 +239,7 @@ export default function DashboardMain() {
                 if (includedServices.apache) {
                     await api.stop_apache_server();
                 }
+                // Eksekusi PHP Stop
                 if (includedServices.php) {
                     for (const v of selectedPhp) {
                         const inst = phpInstances.find(p => p.version === v);
@@ -195,10 +248,20 @@ export default function DashboardMain() {
                         }
                     }
                 }
+                // ---> EKSEKUSI DATABASE STOP <---
+                if (includedServices.database) {
+                    for (const id of selectedDb) {
+                        const inst = dbInstances.find(p => p.id === id);
+                        if (inst && inst.status === 'running') {
+                            await api.stop_database(id);
+                        }
+                    }
+                }
                 showToast("Proses Stop servis berhasil dieksekusi!", "success");
             }
 
             fetchServicesStatus();
+            // Emit Event Selesai agar Sidebar ikut terefresh
             window.dispatchEvent(new Event('service_status_changed'));
 
         } catch (error) {
@@ -217,6 +280,20 @@ export default function DashboardMain() {
 
             if (newSelection.length === 0) setIncludedServices(p => ({ ...p, php: false }));
             else if (newSelection.length > 0 && !includedServices.php) setIncludedServices(p => ({ ...p, php: true }));
+
+            return newSelection;
+        });
+    };
+
+    // ---> FUNGSI SELEKSI KARTU DATABASE BARU <---
+    const toggleDbSelection = (id: string) => {
+        setSelectedDb(prev => {
+            const newSelection = prev.includes(id)
+                ? prev.filter(v => v !== id)
+                : [...prev, id];
+
+            if (newSelection.length === 0) setIncludedServices(p => ({ ...p, database: false }));
+            else if (newSelection.length > 0 && !includedServices.database) setIncludedServices(p => ({ ...p, database: true }));
 
             return newSelection;
         });
@@ -254,9 +331,20 @@ export default function DashboardMain() {
         });
     }
 
+    // Validasi Izin Tombol Start/Stop dari State Database
+    if (includedServices.database && selectedDb.length > 0) {
+        selectedDb.forEach(id => {
+            const inst = dbInstances.find(p => p.id === id);
+            if (inst) {
+                if (inst.status !== 'running') canStart = true;
+                if (inst.status === 'running') canStop = true;
+            }
+        });
+    }
+
     const getSuggestions = () => {
         const suggestions = [];
-        if (!status.apache && !status.php) {
+        if (!status.apache && !status.php && !status.database) {
             suggestions.push({
                 icon: 'power_settings_new', color: 'text-amber-500', bg: 'bg-amber-50 dark:bg-amber-900/20', border: 'border-amber-200 dark:border-amber-800/50',
                 text: 'Server lokal sedang berhenti. Tentukan versi, aktifkan switch modul, lalu klik "Start Selected".'
@@ -325,7 +413,6 @@ export default function DashboardMain() {
     return (
         <div className="flex flex-col w-full gap-6 pb-10 animate-in fade-in duration-300">
 
-            {/* HEADER DENGAN ICON */}
             <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-2">
                 <div className="flex flex-col gap-3">
                     <div className="flex items-center gap-3">
@@ -349,7 +436,6 @@ export default function DashboardMain() {
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:h-[300px]">
 
-                {/* 1. GLOBAL CONTROL PANEL */}
                 <div className="lg:col-span-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm flex flex-col gap-6 relative overflow-hidden h-full">
 
                     <div className="absolute -right-10 -top-10 w-40 h-40 bg-primary/5 rounded-full blur-3xl pointer-events-none"></div>
@@ -390,7 +476,6 @@ export default function DashboardMain() {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4 z-10 flex-1 overflow-y-auto custom-scrollbar pr-2 pb-2 content-start">
-                        {/* ---> ENHANCEMENT: SKELETON LOADER UNTUK KARTU MODUL <--- */}
                         {isGlobalLoading ? (
                             [1, 2, 3].map((item) => (
                                 <div key={item} className="flex flex-col gap-3 p-4 border border-slate-100 dark:border-slate-800/60 rounded-lg animate-pulse bg-slate-50 dark:bg-slate-950/50">
@@ -492,22 +577,54 @@ export default function DashboardMain() {
                                     </div>
                                 </div>
 
-                                {/* --- DATABASE CARD --- */}
-                                <div className={`flex flex-col gap-3 p-4 bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800/60 rounded-lg opacity-40`}>
+                                {/* --- DATABASE CARD (KINI AKTIF & INTERAKTIF) --- */}
+                                <div className={`flex flex-col gap-3 p-4 bg-slate-50 dark:bg-slate-950 border ${includedServices.database ? 'border-primary/30 shadow-sm' : 'border-slate-200 dark:border-slate-800/60 opacity-60'} rounded-lg transition-all`}>
                                     <div className="flex items-center justify-between gap-2">
                                         <div className="flex items-center gap-2 min-w-0">
-                                            <span className="material-symbols-outlined shrink-0 text-slate-400">database</span>
-                                            <span className="text-sm font-semibold text-slate-500 dark:text-slate-400 truncate">Database</span>
+                                            <span className={`material-symbols-outlined shrink-0 transition-colors ${includedServices.database ? 'text-primary' : 'text-slate-400'}`}>database</span>
+                                            <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 truncate">Database Engine</span>
                                         </div>
-                                        <div className="w-9 h-5 bg-slate-200 dark:bg-slate-800 rounded-full cursor-not-allowed shrink-0"></div>
+                                        <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                                            <input
+                                                type="checkbox"
+                                                checked={includedServices.database}
+                                                onChange={(e) => {
+                                                    if (e.target.checked && selectedDb.length === 0 && dbInstances.length > 0) {
+                                                        setSelectedDb([dbInstances[0].id]);
+                                                    }
+                                                    setIncludedServices(p => ({ ...p, database: e.target.checked }));
+                                                }}
+                                                className="sr-only peer"
+                                            />
+                                            <div className="w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+                                        </label>
                                     </div>
-                                    <div className="flex flex-col gap-1 mt-1">
-                                        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Engine</span>
-                                        <span className="text-xs font-semibold text-slate-500 bg-slate-200 dark:bg-slate-800 px-2 py-1.5 rounded w-fit mt-0.5">
-                                            Coming Soon
-                                        </span>
+
+                                    <div className={`flex flex-col gap-1 mt-1 transition-all ${includedServices.database ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Select Engine(s)</span>
+                                            <span className={`w-2 h-2 shrink-0 rounded-full ${dbInstances.some(p => p.status === 'running') ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300 dark:bg-slate-600'}`}></span>
+                                        </div>
+                                        <div className="flex flex-wrap gap-1.5 max-h-[56px] overflow-y-auto custom-scrollbar pr-1 mt-0.5">
+                                            {dbInstances.length > 0 ? dbInstances.map(db => {
+                                                const isSelected = selectedDb.includes(db.id);
+                                                // Ekstrak nama singkat agar chip tidak terlalu panjang
+                                                const shortName = db.name.replace('MariaDB', 'MDB').replace('PostgreSQL', 'PG');
+                                                return (
+                                                    <button
+                                                        key={db.id}
+                                                        onClick={() => toggleDbSelection(db.id)}
+                                                        title={db.name}
+                                                        className={`text-[11px] font-medium px-2 py-1 rounded transition-colors border ${isSelected ? 'bg-blue-50 dark:bg-blue-900/30 border-primary/50 text-primary dark:text-blue-400 shadow-sm' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500 hover:border-slate-400'}`}
+                                                    >
+                                                        {shortName}
+                                                    </button>
+                                                )
+                                            }) : <span className="text-xs text-slate-400 italic mt-1">No Database installed</span>}
+                                        </div>
                                     </div>
                                 </div>
+
                             </>
                         )}
                     </div>
@@ -523,7 +640,6 @@ export default function DashboardMain() {
                         <span className="text-xs text-slate-500">Real-time historical metrics</span>
                     </div>
 
-                    {/* ---> ENHANCEMENT: SKELETON LOADER UNTUK GRAFIK <--- */}
                     {isGlobalLoading ? (
                         <div className="flex flex-col gap-4 mt-2">
                             {[1, 2].map((item) => (
@@ -562,7 +678,6 @@ export default function DashboardMain() {
                 </div>
             </div>
 
-            {/* --- RECENT PROJECTS WIDGET --- */}
             <div className="flex flex-col gap-4 mt-2">
                 <div className="flex justify-between items-end">
                     <div className="flex flex-col gap-1">
@@ -574,7 +689,6 @@ export default function DashboardMain() {
                     </div>
                 </div>
 
-                {/* ---> ENHANCEMENT: SKELETON LOADER UNTUK RECENT PROJECTS <--- */}
                 {isLoadingProjects ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                         {[1, 2, 3, 4].map((item) => (

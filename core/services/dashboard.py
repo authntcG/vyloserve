@@ -4,7 +4,6 @@ import json
 class DashboardManager:
     def __init__(self, api_ref):
         self.api = api_ref
-        # Mencari root directory aplikasi (3 tingkat ke atas dari /core/services/dashboard.py)
         self.root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         self.data_dir = os.path.join(self.root_dir, 'data')
         self.config_path = os.path.join(self.data_dir, 'dashboard.json')
@@ -15,8 +14,14 @@ class DashboardManager:
             if os.path.exists(self.config_path):
                 with open(self.config_path, 'r', encoding='utf-8') as f:
                     return {"status": "success", "data": json.load(f)}
-            # TAMBAHKAN 'selected_php': [] SEBAGAI DEFAULT
-            return {"status": "success", "data": {"apache": True, "php": True, "database": False, "selected_php": []}}
+            # ---> TAMBAHKAN 'selected_database': [] SEBAGAI DEFAULT BARU <---
+            return {"status": "success", "data": {
+                "apache": True, 
+                "php": True, 
+                "database": False, 
+                "selected_php": [], 
+                "selected_database": []
+            }}
         except Exception as e:
             if hasattr(self, 'api'):
                 self.api.emit_log(f"Gagal membaca config dashboard: {str(e)}", "error")
