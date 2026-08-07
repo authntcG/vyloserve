@@ -7,6 +7,7 @@ from core.services.apache import ApacheManager
 from core.services.project import ProjectManager
 from core.services.ssl_manager import SslManager
 from core.services.dashboard import DashboardManager
+from core.services.database import DatabaseManager
 
 class Api:
     def __init__(self):
@@ -16,6 +17,7 @@ class Api:
         self.project = ProjectManager(self)
         self.ssl = SslManager(self)
         self.dashboard = DashboardManager(self)
+        self.database = DatabaseManager(self)
 
     def set_window(self, window):
         self._window = window
@@ -225,3 +227,41 @@ class Api:
     def save_dashboard_config(self, data):
         """Menyimpan konfigurasi layout dashboard"""
         return self.dashboard.save_config(data)
+    
+    # Database Sections
+    def get_installed_databases(self):
+        return self.database.get_installed()
+        
+    def check_port_in_use(self, port):
+        return self.database.is_port_in_use(port)
+    
+    def get_available_databases(self, engine):
+        """Mengambil versi online dari web resmi"""
+        return self.database.get_available_versions(engine)
+
+    def install_database(self, engine, version, url, port, root_pass):
+        """Memicu proses instalasi di latar belakang"""
+        return self.database.install_database(engine, version, url, port, root_pass)
+    
+    def uninstall_database(self, db_id, delete_data=False):
+        """Memicu penghapusan instalasi engine"""
+        return self.database.uninstall_database(db_id, delete_data)
+    
+    def open_db_config_file(self, db_id):
+        return self.database.open_path(db_id, is_file=True)
+
+    def open_db_dir(self, db_id):
+        return self.database.open_path(db_id, is_file=False)
+
+    def get_db_config(self, db_id):
+        return self.database.get_db_config(db_id)
+
+    def save_db_config(self, db_id, new_config):
+        return self.database.save_db_config(db_id, new_config)
+    
+    def start_database(self, db_id):
+        return self.database.start_database(db_id)
+
+    def stop_database(self, db_id):
+        return self.database.stop_database(db_id)
+        
