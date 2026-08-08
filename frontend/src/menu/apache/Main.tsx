@@ -2,29 +2,28 @@ import { useState, useEffect, useRef } from 'react';
 import Card from '../../components/Card';
 import Modal from '../../components/Modal';
 import { useToast } from '../../components/ToastContext';
+import BackgroundProgressWidget from '../../components/BackgroundProgressWidget';
+
+// ---> IMPORT UI KIT COMPONENTS <---
+import PageHeader from '../../components/PageHeader';
+import SkeletonCard from '../../components/SkeletonCard';
+import EmptyState from '../../components/EmptyState';
 
 import ApacheSettings from './Settings';
 import NewApacheProject, { type NewProjectRef } from './NewProject';
 import ProjectSettings from './ProjectSettings';
 import ApacheInstallWizard, { type ApacheVersionData } from './InstallWizard';
-import BackgroundProgressWidget from '../../components/BackgroundProgressWidget';
 
 export interface ProjectData {
-    id: string;
-    name: string;
-    domain: string;
-    path: string;
-    php_version: string;
-    php_port: number;
-    framework?: string;
-    host_synced?: boolean;
+    id: string; name: string; domain: string; path: string;
+    php_version: string; php_port: number; framework?: string; host_synced?: boolean;
 }
 
 export default function ApacheMain() {
     const { showToast } = useToast();
 
-    // State untuk Global Apache Control
-    const [isFetchingApacheStatus, setIsFetchingApacheStatus] = useState(true); // <--- State baru untuk Skeleton
+    // State Global & Instalasi
+    const [isFetchingApacheStatus, setIsFetchingApacheStatus] = useState(true);
     const [isApacheInstalled, setIsApacheInstalled] = useState(false);
     const [installedApacheVersion, setInstalledApacheVersion] = useState<string | null>(null);
     const [apachePath, setApachePath] = useState<string>('Not Installed');
@@ -32,7 +31,6 @@ export default function ApacheMain() {
     const [isUninstalling, setIsUninstalling] = useState(false);
     const [isTogglingServer, setIsTogglingServer] = useState(false);
 
-    // State Modals Server & Wizard Instalasi
     const [isInstallServerOpen, setIsInstallServerOpen] = useState(false);
     const [availableVersions, setAvailableVersions] = useState<ApacheVersionData[]>([]);
     const [isFetchingVersions, setIsFetchingVersions] = useState(false);
@@ -42,15 +40,12 @@ export default function ApacheMain() {
     const [httpsPort, setHttpsPort] = useState(443);
     const [isInstalling, setIsInstalling] = useState(false);
 
-    // Progress Lintas Komponen
     const [progress, setProgress] = useState(0);
     const [progressText, setProgressText] = useState('');
 
     // State Project Management
     const [projects, setProjects] = useState<ProjectData[]>([]);
     const [isFetchingProjects, setIsFetchingProjects] = useState(true);
-
-    // State Project Modal lainnya
     const [isOptionsOpen, setIsOptionsOpen] = useState(false);
     const [isUninstallServerOpen, setIsUninstallServerOpen] = useState(false);
     const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -69,168 +64,98 @@ export default function ApacheMain() {
     const handleOpenBrowser = async (domain: string) => {
         const url = `https://${domain}`;
         try {
-            const api = window.pywebview?.api || window.api;
-            if (api && typeof api.open_browser === 'function') {
-                api.open_browser(url);
-            } else {
-                window.open(url, '_blank');
-            }
-        } catch (error) {
-            console.error("Gagal membuka browser", error);
-        }
+            if (window.pywebview?.api?.open_browser) window.pywebview.api.open_browser(url);
+            else window.open(url, '_blank');
+        } catch (e) { console.error(e); }
     };
 
     const fetchProjects = async () => {
         setIsFetchingProjects(true);
         try {
-            const api = window.pywebview?.api || window.api;
+            const api = window.pywebview?.api;
             if (api && typeof api.get_projects === 'function') {
                 const res = await api.get_projects();
-                if (res.status === 'success') {
-                    setProjects(res.data || []);
-                } else {
-                    showToast(res.message, 'error');
-                }
+                if (res.status === 'success') setProjects(res.data || []);
+                else showToast(res.message, 'error');
             }
-        } catch (error) {
-            showToast("Gagal memuat daftar proyek dari backend.", "error");
-        } finally {
-            setIsFetchingProjects(false);
-        }
+        } catch (e) { showToast("Gagal memuat daftar proyek.", "error"); }
+        finally { setIsFetchingProjects(false); }
     };
 
     useEffect(() => {
         fetchProjects();
-        const handleProjectUpdate = () => fetchProjects();
-        window.addEventListener('project_list_updated', handleProjectUpdate);
-        return () => window.removeEventListener('project_list_updated', handleProjectUpdate);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        window.addEventListener('project_list_updated', fetchProjects);
+        return () => window.removeEventListener('project_list_updated', fetchProjects);
     }, []);
 
     const handleCreateSubmit = async () => {
         if (!projectFormRef.current) return;
-
         setIsCreatingProject(true);
-
-        const isSuccess = await projectFormRef.current.submit();
-
+        if (await projectFormRef.current.submit()) setIsNewProjectModalOpen(false);
         setIsCreatingProject(false);
-        if (isSuccess) {
-            setIsNewProjectModalOpen(false);
-        }
     };
 
     const handleUpdateProjectSubmit = async () => {
         if (!projectSettingsRef.current) return;
         setIsUpdatingProject(true);
-        const isSuccess = await projectSettingsRef.current.submit();
+        if (await projectSettingsRef.current.submit()) setIsProjectSettingsOpen(false);
         setIsUpdatingProject(false);
-        if (isSuccess) {
-            setIsProjectSettingsOpen(false);
-        }
     };
 
     const handleDeleteProjectSubmit = async () => {
         if (!selectedProjectId) return;
         setIsDeletingProject(true);
         try {
-            const api = window.pywebview?.api || window.api;
-            if (api && typeof api.delete_project === 'function') {
-                const res = await api.delete_project(selectedProjectId, isDeleteFiles);
-                if (res.status === 'success') {
-                    showToast(res.message || "Proyek berhasil dihapus", "success");
-                    fetchProjects();
-                    setIsDeleteConfirmOpen(false);
-                } else {
-                    showToast(res.message, "error");
-                }
-            }
-        } catch (error) {
-            showToast("Terjadi kesalahan saat menghapus proyek.", "error");
-        } finally {
-            setIsDeletingProject(false);
-            setIsDeleteFiles(false);
-        }
+            const res = await window.pywebview?.api?.delete_project(selectedProjectId, isDeleteFiles);
+            if (res?.status === 'success') {
+                showToast(res.message || "Proyek dihapus", "success");
+                fetchProjects(); setIsDeleteConfirmOpen(false);
+            } else showToast(res?.message, "error");
+        } catch (e) { showToast("Terjadi kesalahan saat menghapus.", "error"); }
+        finally { setIsDeletingProject(false); setIsDeleteFiles(false); }
     };
 
     const handleSyncHost = async (projectId: string) => {
         try {
-            const api = window.pywebview?.api || window.api;
-            if (api && typeof api.retry_sync_host === 'function') {
-                const res = await api.retry_sync_host(projectId);
-                if (res.status === 'success') {
-                    showToast(res.message, "success");
-                    fetchProjects();
-                } else {
-                    showToast(res.message, "error");
-                }
-            }
-        } catch (error) {
-            showToast("Gagal menghubungi backend.", "error");
-        }
+            const res = await window.pywebview?.api?.retry_sync_host(projectId);
+            showToast(res?.message, res?.status === 'success' ? "success" : "error");
+            if (res?.status === 'success') fetchProjects();
+        } catch (e) { showToast("Gagal sinkronisasi.", "error"); }
     };
 
     const handleOpenDocumentRoot = async (path: string) => {
-        try {
-            const api = window.pywebview?.api || window.api;
-            if (api && typeof api.open_in_explorer === 'function') {
-                api.open_in_explorer(path);
-            }
-        } catch (e) {
-            console.error(e);
-        }
-    }
+        try { window.pywebview?.api?.open_in_explorer(path); } catch (e) { }
+    };
 
     useEffect(() => {
-        const handleStatusChange = (e: any) => {
-            if (e.detail.service === 'apache') setIsApacheRunning(e.detail.running);
-        };
-        window.addEventListener('service_status_changed', handleStatusChange);
-        return () => window.removeEventListener('service_status_changed', handleStatusChange);
-    }, []);
-
-    useEffect(() => {
-        const handleProgress = (e: any) => {
-            if (e.detail && e.detail.percent !== undefined) {
-                setProgress(e.detail.percent);
-                setProgressText(e.detail.text || '');
-
-                if (e.detail.percent >= 100 || e.detail.percent === 0) {
-                    setTimeout(() => {
-                        setProgress(0);
-                        setIsCreatingProject(false);
-                    }, 3000);
-                }
+        const handleStatus = (e: any) => { if (e.detail.service === 'apache') setIsApacheRunning(e.detail.running); };
+        const handleProg = (e: any) => {
+            if (e.detail) {
+                setProgress(e.detail.percent); setProgressText(e.detail.text || '');
+                if (e.detail.percent >= 100 || e.detail.percent === 0) setTimeout(() => { setProgress(0); setIsCreatingProject(false); }, 3000);
             }
         };
-        window.addEventListener('vylo_progress', handleProgress);
-        return () => window.removeEventListener('vylo_progress', handleProgress);
+        window.addEventListener('service_status_changed', handleStatus);
+        window.addEventListener('vylo_progress', handleProg);
+        return () => {
+            window.removeEventListener('service_status_changed', handleStatus);
+            window.removeEventListener('vylo_progress', handleProg);
+        };
     }, []);
 
-    // ---> UPDATE: Matikan Skeleton Load setelah fungsi selesai <---
     const fetchApacheStatus = async () => {
         setIsFetchingApacheStatus(true);
-        if (window.pywebview && window.pywebview.api) {
-            try {
-                const res = await window.pywebview.api.get_apache_status();
-                if (res.status === 'success') {
-                    setIsApacheInstalled(res.installed);
-                    setApachePath(res.path || 'Not Installed');
-                    setIsApacheRunning(res.running || false);
-                }
-
-                const versionRes = await window.pywebview.api.get_apache_installed_versions();
-                if (versionRes.status === 'success') {
-                    setInstalledApacheVersion(versionRes.active || versionRes.data[0]);
-                }
-            } catch (error) {
-                console.error("Gagal mengambil status Apache", error);
-            } finally {
-                setIsFetchingApacheStatus(false);
+        try {
+            const res = await window.pywebview?.api?.get_apache_status();
+            if (res?.status === 'success') {
+                setIsApacheInstalled(res.installed);
+                setApachePath(res.path || 'Not Installed');
+                setIsApacheRunning(res.running || false);
             }
-        } else {
-            setIsFetchingApacheStatus(false);
-        }
+            const ver = await window.pywebview?.api?.get_apache_installed_versions();
+            if (ver?.status === 'success') setInstalledApacheVersion(ver.active || ver.data[0]);
+        } catch (e) { }
+        finally { setIsFetchingApacheStatus(false); }
     };
 
     useEffect(() => {
@@ -242,50 +167,28 @@ export default function ApacheMain() {
     const handleToggleServer = async () => {
         setIsTogglingServer(true);
         try {
-            if (isApacheRunning) {
-                const res = await window.pywebview.api.stop_apache_server();
-                if (res.status === 'success') {
-                    showToast(res.message, 'success');
-                    setIsApacheRunning(false);
-                } else showToast(res.message, 'error');
-            } else {
-                const res = await window.pywebview.api.start_apache_server();
-                if (res.status === 'success') {
-                    showToast(res.message, 'success');
-                    setIsApacheRunning(true);
-                } else showToast(res.message, 'error');
-            }
-        } catch (error) {
-            showToast("Gagal menghubungi server lokal", "error");
-        } finally {
-            setIsTogglingServer(false);
-        }
+            const api = window.pywebview?.api;
+            const res = isApacheRunning ? await api?.stop_apache_server() : await api?.start_apache_server();
+            if (res?.status === 'success') {
+                showToast(res.message, 'success'); setIsApacheRunning(!isApacheRunning);
+            } else showToast(res?.message, 'error');
+        } catch (e) { showToast("Gagal merubah status", "error"); }
+        finally { setIsTogglingServer(false); }
     };
 
     const fetchAvailableVersions = async () => {
         setIsFetchingVersions(true);
         try {
-            if (window.pywebview && window.pywebview.api) {
-                const response = await window.pywebview.api.get_available_apache();
-                if (response.status === 'success') {
-                    const filteredVersions = response.data.filter(
-                        (v: ApacheVersionData) => v.version !== installedApacheVersion
-                    );
-                    setAvailableVersions(filteredVersions);
-                    if (filteredVersions.length > 0) {
-                        setInstallVersion(filteredVersions[0].version);
-                        setInstallUrl(filteredVersions[0].url);
-                    } else {
-                        setInstallVersion('');
-                        setInstallUrl('');
-                    }
-                } else showToast(response.message, 'error');
-            }
-        } catch (error) {
-            showToast("Gagal mengambil data versi dari server.", "error");
-        } finally {
-            setIsFetchingVersions(false);
-        }
+            const res = await window.pywebview?.api?.get_available_apache();
+            if (res?.status === 'success') {
+                const filtered = res.data.filter((v: ApacheVersionData) => v.version !== installedApacheVersion);
+                setAvailableVersions(filtered);
+                if (filtered.length > 0) {
+                    setInstallVersion(filtered[0].version); setInstallUrl(filtered[0].url);
+                }
+            } else showToast(res?.message, 'error');
+        } catch (e) { showToast("Gagal mengambil versi online.", "error"); }
+        finally { setIsFetchingVersions(false); }
     };
 
     const handleOpenInstallModal = () => {
@@ -295,115 +198,47 @@ export default function ApacheMain() {
 
     const handleInstallApache = async () => {
         if (!installVersion || !installUrl) return;
-        setIsInstalling(true);
-        setProgress(0);
-        setProgressText("Memulai instalasi...");
+        setIsInstalling(true); setProgress(0); setProgressText("Memulai instalasi...");
         try {
-            const response = await window.pywebview.api.install_apache(installVersion, installUrl, httpPort, httpsPort);
-            if (response.status === 'success') {
-                showToast(response.message, 'success');
-                setIsInstallServerOpen(false);
-                fetchApacheStatus();
-            } else showToast(response.message, 'error');
-        } catch (error) {
-            showToast("Terjadi kesalahan tak terduga saat instalasi.", "error");
-        } finally {
-            setIsInstalling(false);
-        }
+            const res = await window.pywebview?.api?.install_apache(installVersion, installUrl, httpPort, httpsPort);
+            showToast(res?.message, res?.status === 'success' ? 'success' : 'error');
+            if (res?.status === 'success') { setIsInstallServerOpen(false); fetchApacheStatus(); }
+        } catch (e) { showToast("Kesalahan sistem", "error"); }
+        finally { setIsInstalling(false); }
     };
 
     const handleUninstall = async () => {
         setIsUninstalling(true);
         try {
-            const res = await window.pywebview.api.uninstall_apache();
-            if (res.status === 'success') {
-                showToast(res.message, 'success');
-                setIsUninstallServerOpen(false);
-                fetchApacheStatus();
-            } else showToast(res.message, 'error');
-        } catch (error) {
-            showToast("Gagal melakukan proses uninstall", 'error');
-        } finally {
-            setIsUninstalling(false);
-        }
-    };
-
-    const handleOpenDirectory = async () => {
-        const res = await window.pywebview.api.open_apache_directory();
-        if (res.status === 'error') showToast(res.message, 'error');
-    };
-
-    const handleOpenConfig = async () => {
-        const res = await window.pywebview.api.open_apache_config();
-        if (res.status === 'error') showToast(res.message, 'error');
-    };
-
-    const handleOpenProjectSettings = (id: string) => {
-        setSelectedProjectId(id);
-        setIsProjectSettingsOpen(true);
-    };
-
-    const handleOpenDeleteConfirm = (id: string) => {
-        setSelectedProjectId(id);
-        setIsDeleteFiles(false);
-        setIsDeleteConfirmOpen(true);
+            const res = await window.pywebview?.api?.uninstall_apache();
+            showToast(res?.message, res?.status === 'success' ? 'success' : 'error');
+            if (res?.status === 'success') { setIsUninstallServerOpen(false); fetchApacheStatus(); }
+        } catch (e) { showToast("Gagal uninstall", "error"); }
+        finally { setIsUninstalling(false); }
     };
 
     return (
         <>
             <div className="flex flex-col w-full">
-                {/* --- HEADER --- */}
-                <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
-                    <div className="flex flex-col gap-3">
-                        <div className="flex items-center gap-3">
-                            <span className="material-symbols-outlined text-slate-700 dark:text-slate-300 text-[32px]" style={{ fontVariationSettings: "'FILL' 0" }}>dns</span>
-                            <h2 className="text-2xl md:text-3xl font-semibold text-slate-900 dark:text-white">Apache Web Server</h2>
-                        </div>
-                        <div className="flex items-center gap-4">
-                            <span className="font-mono text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                                <span className="material-symbols-outlined text-[14px]">info</span>
-                                {isApacheInstalled ? '1 Server Instance Installed' : 'Not Installed'} • {projects.length} Virtual Hosts
-                            </span>
-                        </div>
-                    </div>
+                {/* ---> PENGGUNAAN KOMPONEN PAGE HEADER <--- */}
+                <PageHeader
+                    icon="dns"
+                    title="Apache Web Server"
+                    subtitle={
+                        <>
+                            <span className="material-symbols-outlined text-[14px]">info</span>
+                            {isApacheInstalled ? '1 Server Instance Installed' : 'Not Installed'} • {projects.length} Virtual Hosts
+                        </>
+                    }
+                    actions={
+                        <button onClick={handleOpenInstallModal} className="bg-primary hover:bg-blue-600 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center gap-2 shadow-sm">
+                            <span className="material-symbols-outlined text-[18px]">download</span> Install / Update Server
+                        </button>
+                    }
+                />
 
-                    <button
-                        onClick={handleOpenInstallModal}
-                        className="bg-primary hover:bg-blue-600 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm"
-                    >
-                        <span className="material-symbols-outlined text-[18px]">download</span>
-                        Install / Update Server
-                    </button>
-                </div>
-
-                {/* --- APACHE ENGINE CARD (DENGAN SKELETON LOADER) --- */}
                 {isFetchingApacheStatus ? (
-                    <div className="mb-8">
-                        <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/60 rounded-xl p-5 shadow-sm flex flex-col gap-4 animate-pulse">
-                            <div className="flex items-center justify-between mb-2">
-                                <div className="h-6 bg-slate-200 dark:bg-slate-700/50 rounded w-1/3"></div>
-                                <div className="w-8 h-8 bg-slate-200 dark:bg-slate-700/50 rounded-lg"></div>
-                            </div>
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-2">
-                                <div className="flex flex-col gap-2">
-                                    <div className="h-3 bg-slate-200 dark:bg-slate-700/50 rounded w-20"></div>
-                                    <div className="h-4 bg-slate-200 dark:bg-slate-700/50 rounded w-16"></div>
-                                </div>
-                                <div className="flex flex-col gap-2">
-                                    <div className="h-3 bg-slate-200 dark:bg-slate-700/50 rounded w-24"></div>
-                                    <div className="h-4 bg-slate-200 dark:bg-slate-700/50 rounded w-24"></div>
-                                </div>
-                                <div className="flex flex-col gap-2 col-span-2 md:col-span-3">
-                                    <div className="h-3 bg-slate-200 dark:bg-slate-700/50 rounded w-24"></div>
-                                    <div className="h-4 bg-slate-200 dark:bg-slate-700/50 rounded w-1/2"></div>
-                                </div>
-                            </div>
-                            <div className="flex gap-3 mt-2 border-t border-slate-100 dark:border-slate-800 pt-4">
-                                <div className="h-9 bg-slate-200 dark:bg-slate-700/50 rounded-lg flex-1"></div>
-                                <div className="h-9 bg-slate-200 dark:bg-slate-700/50 rounded-lg flex-1"></div>
-                            </div>
-                        </div>
-                    </div>
+                    <div className="mb-8"><SkeletonCard /></div>
                 ) : isApacheInstalled ? (
                     <div className="mb-8">
                         <Card
@@ -412,42 +247,18 @@ export default function ApacheMain() {
                             gridCols="grid-cols-2 md:grid-cols-3"
                             dropdownActions={
                                 <>
-                                    <button onClick={handleOpenConfig} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">Open httpd.conf</button>
-                                    <button onClick={handleOpenDirectory} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">Open Directory</button>
+                                    <button onClick={() => window.pywebview?.api?.open_apache_config()} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">Open httpd.conf</button>
+                                    <button onClick={() => window.pywebview?.api?.open_apache_directory()} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">Open Directory</button>
                                     <div className="border-t border-slate-200 dark:border-slate-700 my-1"></div>
-                                    <button
-                                        onClick={() => setIsUninstallServerOpen(true)}
-                                        className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
-                                    >
-                                        Uninstall Server
-                                    </button>
+                                    <button onClick={() => setIsUninstallServerOpen(true)} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">Uninstall Server</button>
                                 </>
                             }
                             footerActions={
                                 <>
-                                    <button
-                                        onClick={handleToggleServer}
-                                        disabled={isTogglingServer}
-                                        className={`flex-1 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm disabled:opacity-70 disabled:scale-100 ${isApacheRunning ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600'}`}
-                                    >
-                                        {isTogglingServer ? (
-                                            <>
-                                                <span className="material-symbols-outlined text-[18px] animate-spin">sync</span>
-                                                {isApacheRunning ? 'Stopping...' : 'Starting...'}
-                                            </>
-                                        ) : (
-                                            <>
-                                                <span className="material-symbols-outlined text-[18px]">
-                                                    {isApacheRunning ? 'stop' : 'play_arrow'}
-                                                </span>
-                                                {isApacheRunning ? 'Stop Server' : 'Start Server'}
-                                            </>
-                                        )}
+                                    <button onClick={handleToggleServer} disabled={isTogglingServer} className={`flex-1 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm disabled:opacity-70 disabled:scale-100 ${isApacheRunning ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600'}`}>
+                                        {isTogglingServer ? <><span className="material-symbols-outlined text-[18px] animate-spin">sync</span> {isApacheRunning ? 'Stopping...' : 'Starting...'}</> : <><span className="material-symbols-outlined text-[18px]">{isApacheRunning ? 'stop' : 'play_arrow'}</span> {isApacheRunning ? 'Stop Server' : 'Start Server'}</>}
                                     </button>
-                                    <button
-                                        onClick={() => setIsOptionsOpen(true)}
-                                        className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm"
-                                    >
+                                    <button onClick={() => setIsOptionsOpen(true)} className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
                                         <span className="material-symbols-outlined text-[18px]">tune</span> Config
                                     </button>
                                 </>
@@ -463,106 +274,50 @@ export default function ApacheMain() {
                             </div>
                             <div className="flex flex-col gap-1 col-span-2 md:col-span-3">
                                 <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Server Path</span>
-                                <span className="font-mono text-sm text-slate-700 dark:text-slate-300 truncate" title={apachePath}>
-                                    {apachePath}
-                                </span>
+                                <span className="font-mono text-sm text-slate-700 dark:text-slate-300 truncate" title={apachePath}>{apachePath}</span>
                             </div>
                         </Card>
                     </div>
                 ) : (
-                    <div className="flex flex-col items-center justify-center py-12 mb-8 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
-                        <span className="material-symbols-outlined text-[48px] text-slate-300 dark:text-slate-600 mb-4">dns</span>
-                        <h3 className="text-lg font-medium text-slate-900 dark:text-slate-100">Apache is not installed</h3>
-                        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Install Apache Web Server to start serving your projects.</p>
-                        <button onClick={handleOpenInstallModal} className="mt-4 text-sm font-medium text-primary hover:underline">
-                            Install now
-                        </button>
-                    </div>
+                    <div className="mb-8"><EmptyState icon="dns" title="Apache is not installed" description="Install Apache Web Server to start serving your projects." actionText="Install now" onAction={handleOpenInstallModal} /></div>
                 )}
 
                 <hr className="border-slate-200 dark:border-slate-800 mb-6" />
 
-                {/* --- Project List Header --- */}
                 <div className="flex justify-between items-center mb-6">
                     <h3 className="text-xl font-semibold text-slate-900 dark:text-white">Virtual Hosts (Projects)</h3>
-                    <button
-                        onClick={() => setIsNewProjectModalOpen(true)}
-                        disabled={!isApacheInstalled}
-                        className="bg-slate-900 dark:bg-white hover:bg-slate-800 dark:hover:bg-slate-200 text-white dark:text-slate-900 disabled:opacity-50 disabled:cursor-not-allowed border border-transparent text-sm font-medium py-2 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-sm"
-                    >
-                        <span className="material-symbols-outlined text-[18px]">add</span>
-                        <span className="hidden sm:inline">Add Project</span>
+                    <button onClick={() => setIsNewProjectModalOpen(true)} disabled={!isApacheInstalled} className="bg-slate-900 dark:bg-white hover:bg-slate-800 dark:hover:bg-slate-200 text-white dark:text-slate-900 disabled:opacity-50 disabled:cursor-not-allowed border border-transparent text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center gap-2 shadow-sm">
+                        <span className="material-symbols-outlined text-[18px]">add</span> <span className="hidden sm:inline">Add Project</span>
                     </button>
                 </div>
 
-                {/* --- Render Card Virtual Hosts (DENGAN SKELETON LOADER) --- */}
                 {isFetchingProjects ? (
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
-                        {[1, 2, 3, 4].map((item) => (
-                            <div key={item} className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/60 rounded-xl p-5 shadow-sm flex flex-col gap-4 animate-pulse">
-                                <div className="flex items-center justify-between mb-2">
-                                    <div className="h-5 bg-slate-200 dark:bg-slate-700/50 rounded w-1/3"></div>
-                                    <div className="w-8 h-8 bg-slate-200 dark:bg-slate-700/50 rounded-lg"></div>
-                                </div>
-                                <div className="grid grid-cols-2 gap-y-4 gap-x-3 w-full">
-                                    <div className="flex flex-col gap-2">
-                                        <div className="h-3 bg-slate-200 dark:bg-slate-700/50 rounded w-16"></div>
-                                        <div className="h-4 bg-slate-200 dark:bg-slate-700/50 rounded w-24"></div>
-                                    </div>
-                                    <div className="flex flex-col gap-2">
-                                        <div className="h-3 bg-slate-200 dark:bg-slate-700/50 rounded w-20"></div>
-                                        <div className="h-4 bg-slate-200 dark:bg-slate-700/50 rounded w-20"></div>
-                                    </div>
-                                    <div className="flex flex-col gap-2 col-span-2">
-                                        <div className="h-3 bg-slate-200 dark:bg-slate-700/50 rounded w-24"></div>
-                                        <div className="h-4 bg-slate-200 dark:bg-slate-700/50 rounded w-48"></div>
-                                    </div>
-                                </div>
-                                <div className="flex gap-2 mt-auto pt-4 border-t border-slate-100 dark:border-slate-800">
-                                    <div className="h-9 bg-slate-200 dark:bg-slate-700/50 rounded-lg flex-1"></div>
-                                    <div className="h-9 bg-slate-200 dark:bg-slate-700/50 rounded-lg flex-1"></div>
-                                </div>
-                            </div>
-                        ))}
+                        {[1, 2, 3, 4].map((item) => <SkeletonCard key={item} />)}
                     </div>
                 ) : projects.length === 0 ? (
-                    <div className="text-center py-10 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-slate-500">
-                        <p>No projects found. Click "Add Project" to create one.</p>
-                    </div>
+                    <EmptyState icon="folder_open" title="No projects found" description="Click 'Add Project' to create your first virtual host." />
                 ) : (
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
                         {projects.map(project => (
-                            <Card
-                                key={project.id}
-                                title={project.name || 'Untitled Project'}
-                                gridCols="grid-cols-1"
+                            <Card key={project.id} title={project.name || 'Untitled Project'} gridCols="grid-cols-1"
                                 dropdownActions={
                                     <>
                                         <button onClick={() => handleOpenDocumentRoot(project.path)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">Open Document Root</button>
-                                        <button onClick={() => handleOpenProjectSettings(project.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">Vhost Settings</button>
-
+                                        <button onClick={() => { setSelectedProjectId(project.id); setIsProjectSettingsOpen(true); }} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">Vhost Settings</button>
                                         {project.host_synced === false && (
-                                            <button
-                                                onClick={() => handleSyncHost(project.id)}
-                                                className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2"
-                                            >
-                                                Retry Host Sync
-                                            </button>
+                                            <button onClick={() => handleSyncHost(project.id)} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">Retry Host Sync</button>
                                         )}
-
                                         <div className="border-t border-slate-200 dark:border-slate-700 my-1"></div>
-                                        <button onClick={() => handleOpenDeleteConfirm(project.id)} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">Delete Project</button>
+                                        <button onClick={() => { setSelectedProjectId(project.id); setIsDeleteFiles(false); setIsDeleteConfirmOpen(true); }} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">Delete Project</button>
                                     </>
                                 }
                                 footerActions={
                                     <>
-                                        <button
-                                            onClick={() => handleOpenBrowser(project.domain)}
-                                            className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm outline-none"
-                                        >
+                                        <button onClick={() => handleOpenBrowser(project.domain)} className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
                                             <span className="material-symbols-outlined text-[18px]">open_in_browser</span> Open in Browser
                                         </button>
-                                        <button onClick={() => handleOpenProjectSettings(project.id)} className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
+                                        <button onClick={() => { setSelectedProjectId(project.id); setIsProjectSettingsOpen(true); }} className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
                                             <span className="material-symbols-outlined text-[18px]">settings</span> Setup
                                         </button>
                                     </>
@@ -572,43 +327,27 @@ export default function ApacheMain() {
                                     <div className="grid grid-cols-2 gap-y-4 gap-x-3 w-full">
                                         <div className="flex flex-col gap-1">
                                             <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Framework</span>
-                                            <span className="text-sm font-medium text-slate-900 dark:text-slate-200 capitalize">
-                                                {project.framework || 'Unknown'}
-                                            </span>
+                                            <span className="text-sm font-medium text-slate-900 dark:text-slate-200 capitalize">{project.framework || 'Unknown'}</span>
                                         </div>
                                         <div className="flex flex-col gap-1">
                                             <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">PHP Engine</span>
-                                            <span className="text-sm font-medium text-primary dark:text-blue-400 font-mono">
-                                                {project.php_version || 'Unknown'} <span className="text-slate-400 text-xs">(Port {project.php_port || 'N/A'})</span>
-                                            </span>
+                                            <span className="text-sm font-medium text-primary dark:text-blue-400 font-mono">{project.php_version || 'Unknown'} <span className="text-slate-400 text-xs">(Port {project.php_port || 'N/A'})</span></span>
                                         </div>
                                         <div className="flex flex-col gap-1 col-span-2">
                                             <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Local Domain</span>
-                                            <button
-                                                onClick={() => handleOpenBrowser(project.domain)}
-                                                className="font-mono text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1.5 hover:text-primary transition-colors w-fit truncate outline-none"
-                                            >
+                                            <button onClick={() => handleOpenBrowser(project.domain)} className="font-mono text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1.5 hover:text-primary transition-colors w-fit truncate outline-none">
                                                 {project.domain} <span className="material-symbols-outlined text-[14px]">open_in_new</span>
                                             </button>
                                         </div>
                                     </div>
-
                                     {project.host_synced === false && (
                                         <div className="flex flex-col gap-3 border-t border-slate-100 dark:border-slate-800/50 pt-3 mt-1">
                                             <div className="p-3 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800/30 rounded-lg flex gap-3 items-start animate-in fade-in">
                                                 <span className="material-symbols-outlined text-red-500 dark:text-red-400 text-[20px] shrink-0">admin_panel_settings</span>
                                                 <div className="flex flex-col gap-1.5 w-full">
                                                     <span className="text-sm font-semibold text-red-800 dark:text-red-500">Local Domain Not Routed</span>
-                                                    <span className="text-xs text-red-700 dark:text-red-400/80 leading-relaxed">
-                                                        VyloServe needs Administrator privileges to write this domain to the Windows Hosts file. The site might not be accessible yet.
-                                                    </span>
-                                                    <button
-                                                        onClick={() => handleSyncHost(project.id)}
-                                                        className="mt-1 self-start text-xs font-medium text-red-800 dark:text-red-300 bg-red-200 dark:bg-red-800/50 hover:bg-red-300 dark:hover:bg-red-700/60 px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5"
-                                                    >
-                                                        <span className="material-symbols-outlined text-[14px]">sync</span>
-                                                        Retry Sync
-                                                    </button>
+                                                    <span className="text-xs text-red-700 dark:text-red-400/80 leading-relaxed">VyloServe needs Administrator privileges to write this domain to the Windows Hosts file.</span>
+                                                    <button onClick={() => handleSyncHost(project.id)} className="mt-1 self-start text-xs font-medium text-red-800 dark:text-red-300 bg-red-200 dark:bg-red-800/50 hover:bg-red-300 dark:hover:bg-red-700/60 px-3 py-1.5 rounded-md flex items-center gap-1.5"><span className="material-symbols-outlined text-[14px]">sync</span> Retry Sync</button>
                                                 </div>
                                             </div>
                                         </div>
@@ -620,123 +359,27 @@ export default function ApacheMain() {
                 )}
             </div>
 
-            {/* --- MEMAKAI REUSABLE BACKGROUND PROGRESS WIDGET UNTUK MULTI-PROSES --- */}
-            <BackgroundProgressWidget
-                isOpen={(isCreatingProject && !isNewProjectModalOpen) || (isInstalling && !isInstallServerOpen)}
-                progress={progress}
-                progressText={progressText}
-                title={isInstalling ? "Installing Apache Server..." : "Installing Project..."}
-                onRestore={() => {
-                    if (isInstalling) setIsInstallServerOpen(true);
-                    if (isCreatingProject) setIsNewProjectModalOpen(true);
-                }}
-            />
+            {/* ---> WIDGETS & MODALS <--- */}
+            <BackgroundProgressWidget isOpen={(isCreatingProject && !isNewProjectModalOpen) || (isInstalling && !isInstallServerOpen)} progress={progress} progressText={progressText} title={isInstalling ? "Installing Apache..." : "Installing Project..."} onRestore={() => { if (isInstalling) setIsInstallServerOpen(true); if (isCreatingProject) setIsNewProjectModalOpen(true); }} />
 
-            {/* --- KUMPULAN MODALS SERVER --- */}
-            <Modal
-                isOpen={isInstallServerOpen}
-                onClose={() => setIsInstallServerOpen(false)}
-                title="Install Apache Server"
-                icon="download"
-                onApply={handleInstallApache}
-                applyText={isInstalling ? "Installing in background..." : "Download & Install"}
-                isApplyDisabled={isFetchingVersions || isInstalling || availableVersions.length === 0}
-            >
-                <ApacheInstallWizard
-                    versions={availableVersions}
-                    version={installVersion}
-                    setVersion={setInstallVersion}
-                    setUrl={setInstallUrl}
-                    httpPort={httpPort}
-                    setHttpPort={setHttpPort}
-                    httpsPort={httpsPort}
-                    setHttpsPort={setHttpsPort}
-                    isInstalling={isInstalling}
-                    isFetchingVersions={isFetchingVersions}
-                    progress={progress}
-                    progressText={progressText}
-                />
+            <Modal isOpen={isInstallServerOpen} onClose={() => setIsInstallServerOpen(false)} title="Install Apache Server" icon="download" onApply={handleInstallApache} applyText={isInstalling ? "Installing..." : "Download & Install"} isApplyDisabled={isFetchingVersions || isInstalling || availableVersions.length === 0}>
+                <ApacheInstallWizard versions={availableVersions} version={installVersion} setVersion={setInstallVersion} setUrl={setInstallUrl} httpPort={httpPort} setHttpPort={setHttpPort} httpsPort={httpsPort} setHttpsPort={setHttpsPort} isInstalling={isInstalling} isFetchingVersions={isFetchingVersions} progress={progress} progressText={progressText} />
             </Modal>
 
-            <Modal isOpen={isOptionsOpen} onClose={() => setIsOptionsOpen(false)} title="Global Apache Config" icon="tune" onApply={() => setIsOptionsOpen(false)}>
-                <ApacheSettings />
+            <Modal isOpen={isOptionsOpen} onClose={() => setIsOptionsOpen(false)} title="Global Apache Config" icon="tune" onApply={() => setIsOptionsOpen(false)}><ApacheSettings /></Modal>
+            <Modal isOpen={isNewProjectModalOpen} onClose={() => setIsNewProjectModalOpen(false)} title="Create New Project" icon="add_box" onApply={handleCreateSubmit} applyText={isCreatingProject ? "Installing..." : "Create Project"} isApplyDisabled={isCreatingProject}><NewApacheProject ref={projectFormRef} isCreatingExternal={isCreatingProject} /></Modal>
+            <Modal isOpen={isProjectSettingsOpen} onClose={() => !isUpdatingProject && setIsProjectSettingsOpen(false)} title={`Vhost Settings: ${selectedProject?.name}`} icon="settings" onApply={handleUpdateProjectSubmit} applyText={isUpdatingProject ? "Saving..." : "Save Changes"} isApplyDisabled={isUpdatingProject} isLoading={isUpdatingProject}>{selectedProject && <ProjectSettings project={selectedProject as any} ref={projectSettingsRef} />}</Modal>
+
+            <Modal isOpen={isUninstallServerOpen} onClose={() => !isUninstalling && setIsUninstallServerOpen(false)} title="Uninstall Apache" icon="warning" onApply={handleUninstall} applyText={isUninstalling ? "Uninstalling..." : "Yes, Uninstall"} isApplyDisabled={isUninstalling} isDestructive={true} isLoading={isUninstalling}>
+                <p className="text-slate-700 dark:text-slate-300">Are you sure you want to uninstall <strong className="text-slate-900 dark:text-white">Apache Web Server</strong>?</p>
             </Modal>
 
-            <Modal
-                isOpen={isUninstallServerOpen}
-                onClose={() => !isUninstalling && setIsUninstallServerOpen(false)}
-                title="Uninstall Apache"
-                icon="warning"
-                onApply={handleUninstall}
-                applyText={isUninstalling ? "Uninstalling..." : "Yes, Uninstall"}
-                isApplyDisabled={isUninstalling}
-                isDestructive={true}
-                isLoading={isUninstalling}
-            >
-                <div className="flex flex-col gap-2">
-                    <p className="text-slate-700 dark:text-slate-300">
-                        Are you sure you want to uninstall <strong className="text-slate-900 dark:text-white">Apache Web Server ({installedApacheVersion})</strong>?
-                    </p>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">
-                        All global configurations and virtual host mappings will be deleted. Your project files in the document root will remain safe.
-                    </p>
-                </div>
-            </Modal>
-
-            {/* --- KUMPULAN MODALS PROJECT --- */}
-            <Modal
-                isOpen={isNewProjectModalOpen}
-                onClose={() => setIsNewProjectModalOpen(false)}
-                title="Create New Project"
-                icon="add_box"
-                onApply={handleCreateSubmit}
-                applyText={isCreatingProject ? "Installing in background..." : "Create Project"}
-                isApplyDisabled={isCreatingProject}
-            >
-                <NewApacheProject ref={projectFormRef} isCreatingExternal={isCreatingProject} />
-            </Modal>
-
-            <Modal
-                isOpen={isProjectSettingsOpen}
-                onClose={() => !isUpdatingProject && setIsProjectSettingsOpen(false)}
-                title={`Vhost Settings: ${selectedProject?.name}`}
-                icon="settings"
-                onApply={handleUpdateProjectSubmit}
-                applyText={isUpdatingProject ? "Saving..." : "Save Changes"}
-                isApplyDisabled={isUpdatingProject}
-                isLoading={isUpdatingProject}
-            >
-                {selectedProject && <ProjectSettings project={selectedProject as any} ref={projectSettingsRef} />}
-            </Modal>
-
-            <Modal
-                isOpen={isDeleteConfirmOpen}
-                onClose={() => !isDeletingProject && setIsDeleteConfirmOpen(false)}
-                title="Delete Virtual Host"
-                icon="delete"
-                onApply={handleDeleteProjectSubmit}
-                applyText={isDeletingProject ? "Deleting..." : "Delete Project"}
-                isApplyDisabled={isDeletingProject}
-                isDestructive={true}
-                isLoading={isDeletingProject}
-            >
-                <div className="flex flex-col gap-3">
-                    <p className="text-slate-700 dark:text-slate-300">
-                        Are you sure you want to delete <strong className="text-slate-900 dark:text-white">{selectedProject?.domain}</strong>?
-                    </p>
-                    <label className="flex items-start gap-2 mt-2 cursor-pointer bg-red-50 dark:bg-red-900/10 p-3 rounded-lg border border-red-200 dark:border-red-800/30">
-                        <input
-                            type="checkbox"
-                            checked={isDeleteFiles}
-                            onChange={(e) => setIsDeleteFiles(e.target.checked)}
-                            className="mt-0.5 rounded border-slate-300 text-red-600 focus:ring-red-500 bg-white dark:bg-slate-900"
-                        />
-                        <div className="flex flex-col">
-                            <span className="text-sm font-semibold text-red-800 dark:text-red-400">Delete all project files from disk</span>
-                            <span className="text-xs text-red-600/80 dark:text-red-400/80">This action is permanent and cannot be undone.</span>
-                        </div>
-                    </label>
-                </div>
+            <Modal isOpen={isDeleteConfirmOpen} onClose={() => !isDeletingProject && setIsDeleteConfirmOpen(false)} title="Delete Virtual Host" icon="delete" onApply={handleDeleteProjectSubmit} applyText={isDeletingProject ? "Deleting..." : "Delete Project"} isApplyDisabled={isDeletingProject} isDestructive={true} isLoading={isDeletingProject}>
+                <p className="text-slate-700 dark:text-slate-300 mb-2">Delete <strong className="text-slate-900 dark:text-white">{selectedProject?.domain}</strong>?</p>
+                <label className="flex items-start gap-2 cursor-pointer bg-red-50 dark:bg-red-900/10 p-3 rounded-lg border border-red-200 dark:border-red-800/30">
+                    <input type="checkbox" checked={isDeleteFiles} onChange={(e) => setIsDeleteFiles(e.target.checked)} className="mt-0.5" />
+                    <div className="flex flex-col"><span className="text-sm font-semibold text-red-800 dark:text-red-400">Delete all project files</span><span className="text-xs text-red-600/80 dark:text-red-400/80">Permanent action.</span></div>
+                </label>
             </Modal>
         </>
     );
