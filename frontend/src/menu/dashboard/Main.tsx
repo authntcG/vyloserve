@@ -48,7 +48,7 @@ export default function DashboardMain() {
 
     const loadDashboardConfig = async () => {
         try {
-            const api = window.pywebview?.api || window.api;
+            const api = window.pywebview?.api;
             if (api && typeof api.get_dashboard_config === 'function') {
                 const res = await api.get_dashboard_config();
                 if (res.status === 'success' && res.data) {
@@ -78,7 +78,7 @@ export default function DashboardMain() {
 
         const saveConfig = async () => {
             try {
-                const api = window.pywebview?.api || window.api;
+                const api = window.pywebview?.api;
                 if (api && typeof api.save_dashboard_config === 'function') {
                     const payload = {
                         ...includedServices,
@@ -95,7 +95,7 @@ export default function DashboardMain() {
     const fetchRecentProjects = async () => {
         setIsLoadingProjects(true);
         try {
-            const api = window.pywebview?.api || window.api;
+            const api = window.pywebview?.api;
             if (api && typeof api.get_projects === 'function') {
                 const res = await api.get_projects();
                 if (res.status === 'success') {
@@ -109,7 +109,7 @@ export default function DashboardMain() {
 
     const fetchServicesStatus = async () => {
         try {
-            const api = window.pywebview?.api || window.api;
+            const api = window.pywebview?.api;
             if (!api) return;
 
             // Status Keseluruhan
@@ -205,7 +205,7 @@ export default function DashboardMain() {
     const handleToggleAll = async (action: 'start' | 'stop') => {
         setIsTogglingAll(action);
         try {
-            const api = window.pywebview?.api || window.api;
+            const api = window.pywebview?.api;
             if (!api) return;
 
             if (action === 'start') {

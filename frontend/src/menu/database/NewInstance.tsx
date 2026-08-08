@@ -276,11 +276,11 @@ const NewDbInstance = forwardRef<NewDbInstanceRef, Props>(({ activeTab, usedPort
                 </div>
             </div>
 
-            {/* ---> PROGRESS BAR (Teks diselaraskan dengan PHP) <--- */}
-            <div ref={bottomRef} className="pt-1 mt-1 transition-all duration-300">
+            {/* --- PROGRESS BAR DENGAN GAP YANG DIRAPATKAN --- */}
+            <div ref={bottomRef} className="pt-1 mt-1">
                 {isInstalling && (
-                    <div className="p-3.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300 shadow-sm">
-                        <div className="flex justify-between items-center mb-1">
+                    <div className="p-3.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg flex flex-col gap-2 animate-in fade-in duration-300 shadow-sm">
+                        <div className="flex justify-between items-center">
                             <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
                                 {progressText || 'Memulai proses...'}
                             </span>
@@ -294,10 +294,6 @@ const NewDbInstance = forwardRef<NewDbInstanceRef, Props>(({ activeTab, usedPort
                                 style={{ width: `${progress}%` }}
                             ></div>
                         </div>
-                        <p className="text-[10px] text-slate-500 mt-1 flex items-center gap-1.5">
-                            <span className="material-symbols-outlined text-[14px]">info</span>
-                            You can safely close this dialog. The download will continue.
-                        </p>
                     </div>
                 )}
             </div>

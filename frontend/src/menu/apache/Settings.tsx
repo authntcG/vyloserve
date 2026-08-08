@@ -13,7 +13,7 @@ export default function ApacheSettings() {
         const fetchInstalledVersions = async () => {
             setIsLoading(true);
             try {
-                const api = window.pywebview?.api || window.api;
+                const api = window.pywebview?.api;
                 if (api && typeof api.get_apache_installed_versions === 'function') {
                     const response = await api.get_apache_installed_versions();
                     if (response.status === 'success') {
@@ -40,7 +40,7 @@ export default function ApacheSettings() {
         setActiveVersion(newVersion);
 
         try {
-            const api = window.pywebview?.api || window.api;
+            const api = window.pywebview?.api;
             if (api && typeof api.set_apache_active_version === 'function') {
                 const response = await api.set_apache_active_version(newVersion);
                 if (response.status === 'success') {
@@ -57,7 +57,7 @@ export default function ApacheSettings() {
 
     const handleOpenFile = async (fileType: string) => {
         try {
-            const api = window.pywebview?.api || window.api;
+            const api = window.pywebview?.api;
             if (api && typeof api.open_apache_file === 'function') {
                 const response = await api.open_apache_file(fileType);
                 if (response.status === 'error') {

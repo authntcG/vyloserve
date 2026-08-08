@@ -4,16 +4,20 @@ import socket
 import subprocess
 from typing import List, Optional
 
-def get_project_root() -> str:
+def get_project_root():
+    """ 
+    Mendapatkan root direktori yang aman.
+    Jika berupa .exe, gunakan folder tempat .exe berada (Portable Mode).
+    Jika berupa .py, gunakan folder root proyek.
     """
-    Mendapatkan path absolut dari root direktori proyek.
-    Berfungsi universal dimanapun file utility ini diletakkan.
-    
-    Returns:
-        str: Absolute path ke root folder aplikasi (sejajar dengan /core, /data, /bin).
-    """
-    # Jika file ini ada di core/utils/system_utils.py, maka root adalah 3 tingkat ke atas
-    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    if getattr(sys, 'frozen', False):
+        # Berjalan sebagai executable PyInstaller (.exe)
+        # Menghasilkan path folder tempat .exe tersebut diletakkan
+        return os.path.dirname(sys.executable)
+    else:
+        # Berjalan sebagai script Python normal (.py)
+        # Asumsi: file ini ada di core/utils/system_utils.py (mundur 3 level ke root)
+        return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def get_silent_flags() -> int:
     """

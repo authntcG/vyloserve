@@ -3,6 +3,27 @@ import os
 import sys
 import traceback
 
+# --- 1. FUNGSI RESOLUSI PATH PYINSTALLER ---
+def resource_path(relative_path):
+    """ Mendapatkan path absolut ke resource, kompatibel untuk Dev dan PyInstaller """
+    try:
+        # PyInstaller menyimpan path folder temporary di sys._MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        # Jika dijalankan normal (.py), gunakan direktori script ini
+        base_path = os.path.abspath(os.path.dirname(__file__))
+
+    return os.path.join(base_path, relative_path)
+
+# --- 2. PERBARUI ENTRYPOINT ---
+def get_entrypoint():
+    is_production = True 
+    if is_production:
+        # Gunakan resource_path agar path dinamis mengikuti environment
+        return resource_path(os.path.join('frontend', 'dist', 'index.html'))
+    else:
+        return 'http://localhost:5173'
+
 # 1. Jejak Debug Import
 print("[DEBUG] Memulai program...")
 try:
@@ -14,18 +35,13 @@ except Exception as e:
     traceback.print_exc()
     sys.exit(1)
 
-def get_entrypoint():
-    is_production = False 
-    if is_production:
-        return os.path.join(os.path.dirname(__file__), 'frontend', 'dist', 'index.html')
-    else:
-        return 'http://localhost:5173'
-
 if __name__ == '__main__':
     try:
         print("[DEBUG] Membuat instance API...")
         api = Api()
-        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'frontend', 'src', 'assets', 'icons-nobg.ico')
+        
+        # PERBAIKI JUGA PATH ICON MENGGUNAKAN RESOURCE_PATH
+        icon_path = resource_path(os.path.join('frontend', 'src', 'assets', 'icons-nobg.ico'))
 
         print("[DEBUG] Membangun jendela UI (Window)...")
         window = webview.create_window(
@@ -40,8 +56,7 @@ if __name__ == '__main__':
         api.set_window(window)
 
         print("[DEBUG] Menjalankan WebView (Aplikasi mulai render)...")
-        # Kita paksa gui='edgechromium' agar Windows tahu engine apa yang harus dipakai
-        webview.start(debug=True, gui='edgechromium', icon=icon_path) 
+        webview.start(debug=False, gui='edgechromium', icon=icon_path) 
         
         print("[DEBUG] Aplikasi ditutup dengan normal.")
         

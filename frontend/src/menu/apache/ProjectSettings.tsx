@@ -1,9 +1,9 @@
 import { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
-import type { ProjectProps } from '../../components/ProjectCard';
+import type { ProjectData } from './Main';
 import { useToast } from '../../components/ToastContext';
 
 interface Props {
-    project: ProjectProps;
+    project: ProjectData;
 }
 
 export interface ProjectSettingsRef {
@@ -25,7 +25,7 @@ const ProjectSettings = forwardRef<ProjectSettingsRef, Props>(({ project }, ref)
         const fetchVersions = async () => {
             setIsLoading(true);
             try {
-                const api = window.pywebview?.api || window.api;
+                const api = window.pywebview?.api;
                 if (api && typeof api.get_installed_php === 'function') {
                     const res = await api.get_installed_php();
                     setPhpVersions(res || []);
@@ -54,7 +54,7 @@ const ProjectSettings = forwardRef<ProjectSettingsRef, Props>(({ project }, ref)
                     php_version: phpVersion
                 };
 
-                const api = window.pywebview?.api || window.api;
+                const api = window.pywebview?.api;
                 if (api && typeof api.update_project === 'function') {
                     const res = await api.update_project(payload);
 
