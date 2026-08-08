@@ -11,7 +11,8 @@ export interface ModalProps {
     isDanger?: boolean;
     isApplyDisabled?: boolean;
     isDestructive?: boolean;
-    isLoading?: boolean; // PROPERTI BARU: Penanda status loading
+    isLoading?: boolean;
+    keepMounted?: boolean;
 }
 
 export default function Modal({
@@ -25,14 +26,15 @@ export default function Modal({
     isDanger = false,
     isApplyDisabled = false,
     isDestructive = false,
-    isLoading = false // DEFAULT: False
+    isLoading = false,
+    keepMounted = false // ---> DEFAULT FALSE
 }: ModalProps) {
-    if (!isOpen) return null;
+    // ---> FIX: Jangan hancurkan DOM jika keepMounted aktif <---
+    if (!isOpen && !keepMounted) return null;
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            // KUNCI ESCAPE: Abaikan jika destruktif ATAU sedang loading
-            if (e.key === 'Escape' && !isDestructive && !isLoading) {
+            if (e.key === 'Escape' && !isDestructive && !isLoading && isOpen) {
                 onClose();
             }
         };
@@ -43,29 +45,29 @@ export default function Modal({
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [isOpen, onClose, isDestructive, isLoading]);
 
-    // Tambahkan class flex, items-center, gap-2 untuk merapikan ikon dan teks
     const applyButtonClass = isDestructive
         ? "bg-red-600 hover:bg-red-700 disabled:bg-red-400 dark:disabled:bg-red-900/40 disabled:cursor-not-allowed text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
         : "bg-primary hover:bg-blue-600 disabled:bg-slate-400 dark:disabled:bg-slate-800 disabled:cursor-not-allowed text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2";
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            {/* KUNCI OVERLAY: Jangan panggil onClose jika sedang loading */}
+        <div className={`fixed inset-0 z-[100] flex items-center justify-center p-4 transition-all duration-300 ${isOpen ? 'opacity-100 visible' : 'opacity-0 invisible pointer-events-none'}`}>
+
+            {/* OVERLAY DENGAN ANIMASI OPACITY */}
             <div
-                className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity"
+                className={`absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0'}`}
                 onClick={(e) => {
                     e.stopPropagation();
-                    if (!isLoading) onClose();
+                    if (!isLoading && isOpen) onClose();
                 }}
             />
 
-            <div className="relative w-full sm:w-[500px] max-w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl flex flex-col">
+            {/* KOTAK MODAL DENGAN ANIMASI SCALE & SLIDE */}
+            <div className={`relative w-full sm:w-[500px] max-w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl flex flex-col transition-all duration-300 ${isOpen ? 'scale-100 translate-y-0' : 'scale-95 translate-y-4'}`}>
                 <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 rounded-t-xl">
                     <div className="flex items-center gap-3">
                         <span className={`material-symbols-outlined ${isDanger || isDestructive ? 'text-red-500' : 'text-slate-700 dark:text-slate-300'}`}>{icon}</span>
                         <h3 className="text-lg font-semibold text-slate-900 dark:text-white">{title}</h3>
                     </div>
-                    {/* KUNCI TOMBOL X: Sembunyikan atau nonaktifkan saat loading */}
                     <button
                         onClick={onClose}
                         disabled={isLoading}
@@ -93,7 +95,6 @@ export default function Modal({
                             disabled={isApplyDisabled || isLoading}
                             className={applyButtonClass}
                         >
-                            {/* RENDER ANIMASI SPINNER BILA ISLOADING TRUE */}
                             {isLoading && (
                                 <span className="material-symbols-outlined animate-spin text-[18px]">sync</span>
                             )}

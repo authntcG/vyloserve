@@ -1,4 +1,3 @@
-// src/App.tsx
 import { useState, useEffect } from 'react';
 import HeaderMobile from './components/HeaderMobile';
 import Sidebar from './components/Sidebar';
@@ -21,13 +20,10 @@ function AppContent() {
   const [isDesktopCollapsed, setIsDesktopCollapsed] = useState(false);
   const [activeMenu, setActiveMenu] = useState('dashboard');
 
-  // ---> STATE BARU: Global Gatekeeper <---
   const [isApiReady, setIsApiReady] = useState(false);
 
-  // Pengecekan API Terpusat (Hanya berjalan sekali saat aplikasi dibuka)
   useEffect(() => {
     const checkApi = () => {
-      // Pastikan objek ada dan salah satu fungsi API kita sudah ter-bind
       if (window.pywebview && window.pywebview.api && window.pywebview.api.test_connection) {
         setIsApiReady(true);
         return true;
@@ -53,7 +49,6 @@ function AppContent() {
     }
   }, []);
 
-  // Jika API belum siap, tampilkan layar loading (Mencegah komponen anak di-render)
   if (!isApiReady) {
     return (
       <div className="h-screen w-screen bg-slate-50 dark:bg-slate-900 flex flex-col items-center justify-center gap-4">
@@ -65,7 +60,6 @@ function AppContent() {
     );
   }
 
-  // --- KODE RENDER APLIKASI UTAMA (Hanya dieksekusi setelah API Ready) ---
   const mainContentMargin = isDesktopCollapsed ? 'md:ml-20' : 'md:ml-sidebar-width';
 
   return (
@@ -84,11 +78,12 @@ function AppContent() {
 
         <div className={`flex flex-col flex-1 w-full transition-all duration-300 ${mainContentMargin}`}>
 
-          <div className="flex-1 overflow-y-auto px-4 py-6 md:px-8 md:py-8">
-            {activeMenu === 'dashboard' && <DashboardMain />}
-            {activeMenu === 'apache' && <ApacheMain />}
-            {activeMenu === 'php' && <PhpMain />}
-            {activeMenu === 'database' && <DatabaseMain />}
+          {/* ---> FIX: Ganti Kondisional Render dengan CSS Hiding <--- */}
+          <div className="flex-1 overflow-y-auto px-4 py-6 md:px-8 md:py-8 relative">
+            <div className={activeMenu === 'dashboard' ? 'block' : 'hidden'}><DashboardMain /></div>
+            <div className={activeMenu === 'apache' ? 'block' : 'hidden'}><ApacheMain /></div>
+            <div className={activeMenu === 'php' ? 'block' : 'hidden'}><PhpMain /></div>
+            <div className={activeMenu === 'database' ? 'block' : 'hidden'}><DatabaseMain /></div>
           </div>
 
           <div className="flex-none z-10 relative">

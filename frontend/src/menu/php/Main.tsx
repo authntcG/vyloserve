@@ -201,7 +201,7 @@ export default function PhpMain() {
 
             <BackgroundProgressWidget isOpen={isInstalling && !isNewInstanceOpen} progress={progress} progressText={progressText} title={`Installing PHP...`} onRestore={() => setIsNewInstanceOpen(true)} />
 
-            <Modal isOpen={isNewInstanceOpen} onClose={() => setIsNewInstanceOpen(false)} title="Install PHP Version" icon="download" onApply={handleInstallPhp} applyText={isInstalling ? "Installing..." : "Install & Configure"} isApplyDisabled={isFetchingVersions || isInstalling || !installVersion || usedPorts.includes(installPort)}>
+            <Modal keepMounted={isInstalling} isOpen={isNewInstanceOpen} onClose={() => setIsNewInstanceOpen(false)} title="Install PHP Version" icon="download" onApply={handleInstallPhp} applyText={isInstalling ? "Installing..." : "Install & Configure"} isApplyDisabled={isFetchingVersions || isInstalling || !installVersion || usedPorts.includes(installPort)}>
                 <NewPhpInstance version={installVersion} setVersion={setInstallVersion} setFilename={setInstallFilename} port={installPort} setPort={setInstallPort} isInstalling={isInstalling} isFetchingVersions={isFetchingVersions} setIsFetchingVersions={setIsFetchingVersions} usedPorts={usedPorts} />
             </Modal>
 

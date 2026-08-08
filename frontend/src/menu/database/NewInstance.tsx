@@ -81,7 +81,7 @@ const NewDbInstance = forwardRef<NewDbInstanceRef, Props>(({ activeTab, usedPort
     const fetchOnlineVersions = async (engine: string) => {
         setIsFetchingVersions(true);
         try {
-            const api = window.pywebview?.api || window.api;
+            const api = window.pywebview?.api;
             if (api && typeof api.get_available_databases === 'function') {
                 const res = await api.get_available_databases(engine);
                 if (res.status === 'success') {
@@ -160,9 +160,6 @@ const NewDbInstance = forwardRef<NewDbInstanceRef, Props>(({ activeTab, usedPort
                     <option value="mysql">MySQL / MariaDB</option>
                     <option value="postgres">PostgreSQL</option>
                 </select>
-                <p className="text-xs text-slate-500">
-                    Source: {engineFamily === 'mysql' ? 'archive.mariadb.org' : 'enterprisedb.com'}
-                </p>
             </div>
 
             <hr className="border-slate-200 dark:border-slate-800" />

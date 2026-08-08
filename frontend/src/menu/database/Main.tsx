@@ -246,7 +246,7 @@ export default function DatabaseMain() {
 
             <BackgroundProgressWidget isOpen={isInstalling && !isNewInstanceOpen} progress={progress} progressText={progressText} title="Installing Database Engine..." onRestore={() => setIsNewInstanceOpen(true)} />
 
-            <Modal isOpen={isNewInstanceOpen} onClose={() => setIsNewInstanceOpen(false)} title="Install Database Engine" icon="download" onApply={handleInstallDatabase} applyText={isInstalling ? "Processing..." : "Install Engine"} isApplyDisabled={isInstalling}>
+            <Modal keepMounted={isInstalling} isOpen={isNewInstanceOpen} onClose={() => setIsNewInstanceOpen(false)} title="Install Database Engine" icon="download" onApply={handleInstallDatabase} applyText={isInstalling ? "Processing..." : "Install Engine"} isApplyDisabled={isInstalling}>
                 <NewDbInstance ref={newDbRef} activeTab={activeTab} usedPorts={usedPorts} isInstalling={isInstalling} progress={progress} progressText={progressText} />
             </Modal>
 
