@@ -21,12 +21,14 @@ const SERVICES = [
     { id: 'apache', name: 'Apache', icon: 'dns' },
     { id: 'php', name: 'PHP', icon: 'code' },
     { id: 'database', name: 'Database', icon: 'database' },
+    { id: 'runtimes', name: 'Runtimes', icon: 'terminal' }
 ];
 
 const TOOLS = [
     { id: 'qr', name: 'QR Generator', icon: 'qr_code_2' },
     { id: 'base64', name: 'Base64 Encoder', icon: 'code_blocks' },
     { id: 'url', name: 'URL Encode/Decode', icon: 'link' },
+    { id: 'git', name: 'Git', icon: 'merge' },
 ];
 
 export default function Sidebar({

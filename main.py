@@ -7,6 +7,10 @@ from PIL import Image
 import pystray
 from pystray import MenuItem as item
 
+# --- KONFIGURASI ENVIRONMENT ---
+# Ubah menjadi True jika ingin melakukan build (.exe) atau Alpha Testing
+IS_PRODUCTION = False 
+
 # Flag global untuk membedakan antara "Hide" dan "Benar-benar Exit"
 is_real_exit = False
 
@@ -21,8 +25,7 @@ def resource_path(relative_path):
 
 # --- FUNGSI ENTRYPOINT ---
 def get_entrypoint():
-    is_production = True 
-    if is_production:
+    if IS_PRODUCTION:
         return resource_path(os.path.join('frontend', 'dist', 'index.html'))
     else:
         return 'http://localhost:5173'
@@ -37,7 +40,6 @@ def setup_systray(window, icon_path):
             image = Image.open(icon_path)
         else:
             print("[WARNING] File ikon tidak ditemukan! Menggunakan ikon darurat (Kotak Biru)...")
-            # Membuat gambar kotak biru 64x64 pixel murni dari kode (tanpa file)
             image = Image.new('RGB', (64, 64), color=(59, 130, 246))
 
         # 2. Aksi: Tampilkan Window
@@ -99,18 +101,32 @@ if __name__ == '__main__':
         # --- CEGAT EVENT TOMBOL CLOSE (X) ---
         def on_closing():
             global is_real_exit
+            
+            # Jika mode DEV (Production = False): Langsung tutup dan hancurkan aplikasi
+            if not IS_PRODUCTION:
+                print("[DEBUG] Development Mode: Menutup aplikasi sepenuhnya...")
+                is_real_exit = True
+                return True # Mengizinkan window.destroy() berjalan
+                
+            # Jika mode PROD (Production = True): Sembunyikan ke background
             if not is_real_exit:
                 window.hide() # Sembunyikan jendela saja
                 return False  # Return False berarti membatalkan proses destroy
+            
             return True       # Jika is_real_exit True, biarkan aplikasi mati
         
         window.events.closing += on_closing
 
-        # --- AKTIFKAN SYSTEM TRAY ---
-        setup_systray(window, icon_path)
+        # --- AKTIFKAN SYSTEM TRAY (Hanya untuk Production) ---
+        if IS_PRODUCTION:
+            setup_systray(window, icon_path)
+        else:
+            print("[DEBUG] Development Mode: System Tray dinonaktifkan untuk mempermudah reload.")
 
         print("[DEBUG] Menjalankan WebView (Aplikasi mulai render)...")
-        webview.start(debug=False, gui='edgechromium', icon=icon_path) 
+        
+        # Parameter debug akan otomatis menyesuaikan dengan status IS_PRODUCTION
+        webview.start(debug=not IS_PRODUCTION, gui='edgechromium', icon=icon_path) 
         
         print("[DEBUG] Aplikasi ditutup dengan normal.")
         

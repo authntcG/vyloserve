@@ -8,6 +8,8 @@ import { ToastProvider } from './components/ToastContext';
 import DatabaseMain from './menu/database/Main';
 import DashboardMain from './menu/dashboard/Main';
 import GlobalAppInterceptor from './components/AppInterceptor';
+import RuntimesMain from './menu/runtimes/Main';
+import GitMain from './menu/tools/git/Main';
 
 declare global {
   interface Window {
@@ -84,6 +86,8 @@ function AppContent() {
             <div className={activeMenu === 'apache' ? 'block' : 'hidden'}><ApacheMain /></div>
             <div className={activeMenu === 'php' ? 'block' : 'hidden'}><PhpMain /></div>
             <div className={activeMenu === 'database' ? 'block' : 'hidden'}><DatabaseMain /></div>
+            <div className={activeMenu === 'runtimes' ? 'block' : 'hidden'}><RuntimesMain /></div>
+            <div className={activeMenu === 'git' ? 'block' : 'hidden'}><GitMain /></div>
           </div>
 
           <div className="flex-none z-10 relative">

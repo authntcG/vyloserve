@@ -10,6 +10,7 @@ from core.services.project import ProjectManager
 from core.services.ssl_manager import SslManager
 from core.services.dashboard import DashboardManager
 from core.services.database import DatabaseManager
+from core.services.runtimes_manager import RuntimesManager
 
 class Api:
     """
@@ -24,6 +25,7 @@ class Api:
         self.ssl = SslManager(self)
         self.dashboard = DashboardManager(self)
         self.database = DatabaseManager(self)
+        self.runtimes_manager = RuntimesManager(self)
 
     def set_window(self, window: webview.Window):
         self._window = window
@@ -254,3 +256,63 @@ class Api:
     
     def change_db_credentials(self, db_id: str, username: str, old_pass: str, new_pass: str):
         return self.database.change_db_credentials(db_id, username, old_pass, new_pass)
+
+    # ==========================================
+    # RUNTIMES API ENDPOINTS
+    # ==========================================
+    
+    # --- Node.js ---
+    def get_node_status(self):
+        return self.runtimes_manager.get_node_status()
+
+    def install_node(self, version_mode, enable_corepack):
+        return self.runtimes_manager.install_node(version_mode, enable_corepack)
+
+    def uninstall_node(self):
+        return self.runtimes_manager.uninstall_node()
+
+    def get_available_node_versions(self):
+        return self.runtimes_manager.get_available_node_versions()
+
+    # --- Python ---
+    def get_python_status(self):
+        return self.runtimes_manager.get_python_status()
+        
+    def install_python(self, minor_version, install_pip):
+        return self.runtimes_manager.install_python(minor_version, install_pip)
+        
+    def uninstall_python(self):
+        return self.runtimes_manager.uninstall_python()
+    
+    def get_available_python_versions(self):
+        return self.runtimes_manager.get_available_python_versions()
+
+    # --- Java (JDK) ---
+    def get_java_status(self):
+        return self.runtimes_manager.get_java_status()
+        
+    def install_java(self, version):
+        return self.runtimes_manager.install_java(version)
+        
+    def uninstall_java(self):
+        return self.runtimes_manager.uninstall_java()
+    
+    def get_available_java_versions(self):
+        return self.runtimes_manager.get_available_java_versions()
+
+    # --- Go Compiler ---
+    def get_go_status(self):
+        return self.runtimes_manager.get_go_status()
+
+    def get_available_go_versions(self):
+        return self.runtimes_manager.get_available_go_versions()
+        
+    def install_go(self, version):
+        return self.runtimes_manager.install_go(version)
+        
+    def uninstall_go(self):
+        return self.runtimes_manager.uninstall_go()
+
+    # --- Universal Config ---
+    def toggle_global_path(self, engine, enable):
+        return self.runtimes_manager.toggle_user_path(engine, enable)
