@@ -48,6 +48,37 @@ class PhpManager:
                 "dir": target_dir, "memory_limit": memory_limit
             })
         return instances
+    
+    def toggle_global_path(self, target_path: str, enable: bool):
+        """ Mengatur PATH OS dinamis agar command 'php' dan 'composer' terhubung ke versi yang aktif """
+        if sys.platform != 'win32': return
+        import winreg, ctypes
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Environment', 0, winreg.KEY_ALL_ACCESS)
+            try: path_value, _ = winreg.QueryValueEx(key, 'Path')
+            except FileNotFoundError: path_value = ""
+
+            current_paths = [p for p in path_value.split(';') if p]
+            normalized_target = os.path.normpath(target_path)
+            modified = False
+
+            # Hapus semua path PHP VyloServe lain untuk mencegah konflik versi
+            vyloserve_php_base = os.path.normpath(self.base_dir)
+            cleaned_paths = [p for p in current_paths if not p.startswith(vyloserve_php_base)]
+
+            if enable:
+                cleaned_paths.append(normalized_target)
+                modified = True
+            elif current_paths != cleaned_paths:
+                modified = True
+
+            if modified:
+                new_path = ';'.join(cleaned_paths)
+                winreg.SetValueEx(key, 'Path', 0, winreg.REG_EXPAND_SZ, new_path)
+                HWND_BROADCAST, WM_SETTINGCHANGE, SMTO_ABORTIFHUNG = 0xFFFF, 0x001A, 0x0002
+                ctypes.windll.user32.SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, 'Environment', SMTO_ABORTIFHUNG, 5000, ctypes.byref(ctypes.c_ulong()))
+            winreg.CloseKey(key)
+        except Exception: pass
 
     def get_versions(self):
         try:
@@ -117,6 +148,20 @@ class PhpManager:
             with open(os.path.join(target_dir, 'php.ini'), 'w') as f:
                 f.write(f"; VyloServe PHP {version} Configuration\n; vyloserve_port = {port}\nmemory_limit = 512M\nfastcgi.logging = 0\ncgi.force_redirect = 0\ncgi.fix_pathinfo = 1\n")
                 if sys.platform == 'win32': f.write("extension_dir = \"ext\"\nextension=curl\nextension=mbstring\n")
+
+            # --- OTOMATISASI COMPOSER ---
+            if hasattr(self, 'api'): self.api.emit_progress(95, "Installing Composer...")
+            
+            # 1. Unduh composer.phar
+            composer_url = "https://getcomposer.org/composer.phar"
+            composer_phar = os.path.join(target_dir, 'composer.phar')
+            import urllib.request
+            urllib.request.urlretrieve(composer_url, composer_phar)
+            
+            # 2. Buat wrapper composer.bat agar bisa dieksekusi di Windows CMD
+            composer_bat = os.path.join(target_dir, 'composer.bat')
+            with open(composer_bat, 'w') as f:
+                f.write('@ECHO OFF\nphp "%~dp0composer.phar" %*\n')
             
             if hasattr(self, 'api'):
                 self.api.emit_log(f"Selesai! PHP {version} siap digunakan pada port {port}.", "success")
@@ -238,10 +283,13 @@ class PhpManager:
     def start_php(self, version: str):
         if version in self.processes and self.processes[version].poll() is None:
             return {"status": "error", "message": f"PHP {version} sudah berjalan!"}
+        
             
         target_dir = os.path.join(self.base_dir, version)
         exe_path = os.path.join(target_dir, "php-cgi.exe" if sys.platform == 'win32' else "php-cgi")
         if not os.path.exists(exe_path): return {"status": "error", "message": "Binary tidak ditemukan."}
+        
+        self.toggle_global_path(target_dir, enable=True)
 
         port = 9000
         php_ini_path = os.path.join(target_dir, 'php.ini')
@@ -278,6 +326,10 @@ class PhpManager:
             if proc.poll() is None:
                 run_silent_command(['taskkill', '/F', '/T', '/PID', str(proc.pid)]) if sys.platform == 'win32' else run_silent_command(['kill', '-9', str(proc.pid)])
             self.processes.pop(version, None)
+
+            target_dir = os.path.join(self.base_dir, version)
+            self.toggle_global_path(target_dir, enable=False)
+
         return {"status": "success", "message": f"PHP {version} dihentikan."}
 
     def get_installed_versions(self):

@@ -492,18 +492,53 @@ class RuntimesManager:
                 if pth_file:
                     pth_path = os.path.join(python_dir, pth_file)
                     with open(pth_path, 'r') as f: content = f.read()
-                    with open(pth_path, 'w') as f: f.write(content.replace('#import site', 'import site'))
+                    
+                    content = content.replace('#import site', 'import site')
+                    if 'Lib\\site-packages' not in content:
+                        content += '\nLib\\site-packages\n'
+                        
+                    with open(pth_path, 'w') as f: f.write(content)
+                
+                os.makedirs(os.path.join(python_dir, 'Lib', 'site-packages'), exist_ok=True)
 
                 if hasattr(self, 'api'): 
                     self.api.emit_log("Mengunduh & Menginstal pip...", "info")
                     self.api.emit_progress(85, "Menyiapkan package manager...")
                 
-                get_pip_url = "https://bootstrap.pypa.io/get-pip.py"
+                # FIX: Ekstrak dan komparasi versi menggunakan Tuple Integer
+                version_parts = version.split('.')
+                major = int(version_parts[0])
+                minor = int(version_parts[1])
+                
+                # (3, 9) < (3, 10) menghasilkan True secara akurat
+                if (major, minor) < (3, 10):
+                    get_pip_url = f"https://bootstrap.pypa.io/pip/{major}.{minor}/get-pip.py"
+                else:
+                    get_pip_url = "https://bootstrap.pypa.io/get-pip.py"
+                
                 get_pip_path = os.path.join(python_dir, 'get-pip.py')
                 urllib.request.urlretrieve(get_pip_url, get_pip_path)
                 
                 python_exe = os.path.join(python_dir, 'python.exe')
-                run_silent_command([python_exe, get_pip_path], cwd=python_dir)
+                
+                import certifi
+                custom_env = os.environ.copy()
+                custom_env['SSL_CERT_FILE'] = certifi.where()
+                custom_env['REQUESTS_CA_BUNDLE'] = certifi.where()
+                
+                cflags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+                res = subprocess.run(
+                    [python_exe, get_pip_path, '--no-warn-script-location'], 
+                    cwd=python_dir, 
+                    creationflags=cflags,
+                    env=custom_env,
+                    capture_output=True,
+                    text=True
+                )
+                
+                if res.returncode != 0:
+                    raise Exception(f"Gagal mengeksekusi get-pip.py: {res.stderr.strip() or res.stdout.strip()}")
+                
                 os.remove(get_pip_path)
 
             if hasattr(self, 'api'): 
@@ -604,7 +639,6 @@ class RuntimesManager:
                 if hasattr(self, 'api'): self.api.emit_log(msg, lvl)
                 
             def download_prog_cb(pct, msg): 
-                # Skala progres download di 5% hingga 60%
                 scaled_pct = 5 + int(pct * 0.55)
                 if hasattr(self, 'api'): self.api.emit_progress(scaled_pct, msg)
 
@@ -617,10 +651,9 @@ class RuntimesManager:
             # 3. FASE EKSTRAKSI (60% - 95%)
             if hasattr(self, 'api'): 
                 self.api.emit_log("Unduhan selesai. Memulai proses ekstraksi arsip...", "info")
-                self.api.emit_progress(65, "Mengekstrak Java Development Kit...")
+                self.api.emit_progress(65, "Me  ngekstrak Java Development Kit...")
             
             def extract_prog_cb(pct, msg):
-                # Skala progres ekstraksi di 65% hingga 95%
                 scaled_pct = 65 + int(pct * 0.30)
                 if hasattr(self, 'api'): self.api.emit_progress(scaled_pct, msg)
 
@@ -633,10 +666,9 @@ class RuntimesManager:
             if hasattr(self, 'api'):
                 self.api.emit_progress(95, "Menata ulang struktur direktori...")
 
-            # Cari folder hasil ekstrak (biasanya bernama jdk-21.x.x+x)
             extracted_folder = None
             for item in os.listdir(self.bin_dir):
-                if item.startswith('jdk-') and os.path.isdir(os.path.join(self.bin_dir, item)):
+                if item.startswith('jdk') and os.path.isdir(os.path.join(self.bin_dir, item)):
                     extracted_folder = os.path.join(self.bin_dir, item)
                     break
             

@@ -17,9 +17,12 @@ const InstallJava = forwardRef<InstallJavaRef, any>((_, ref) => {
                 if (res?.status === 'success' && res.data.length > 0) {
                     setVersionsList(res.data);
                     setVersion(res.data[0].value); // Set default ke yang pertama (Latest LTS biasanya)
+                } else {
+                    setVersionsList([]);
                 }
             } catch (error) {
-                showToast("Gagal memuat daftar versi Java.", "error");
+                setVersionsList([]);
+                showToast("Koneksi terputus. Gagal mengambil daftar versi.", "error");
             } finally {
                 setIsLoading(false);
             }
@@ -52,17 +55,34 @@ const InstallJava = forwardRef<InstallJavaRef, any>((_, ref) => {
                 <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Java Development Kit (Eclipse Temurin)</label>
 
                 {isLoading ? (
-                    <div className="w-full bg-slate-100 dark:bg-slate-800 animate-pulse h-10 rounded-lg"></div>
-                ) : (
-                    <select
-                        value={version}
-                        onChange={(e) => setVersion(e.target.value)}
-                        className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2.5 outline-none"
-                    >
-                        {versionsList.map(v => (
-                            <option key={v.value} value={v.value}>{v.label}</option>
-                        ))}
+                    <div className="relative w-full">
+                        <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                            <span className="material-symbols-outlined animate-spin text-slate-400 text-sm">sync</span>
+                        </div>
+                        <select disabled className="w-full bg-slate-50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 text-sm rounded-lg block p-2.5 pl-10 outline-none appearance-none cursor-wait">
+                            <option>Retrieving Available Version...</option>
+                        </select>
+                    </div>
+
+                ) : versionsList.length === 0 ? (
+                <div className="relative w-full">
+                    <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                        <span className="material-symbols-outlined text-[18px] text-red-500">wifi_off</span>
+                    </div>
+                    <select disabled className="w-full bg-red-50 dark:bg-red-900/10 border border-red-300 dark:border-red-800/50 text-red-600 dark:text-red-400 text-sm rounded-lg block p-2.5 pl-10 outline-none appearance-none cursor-not-allowed">
+                        <option>Error Fetching Result</option>
                     </select>
+                </div>
+                ) : (
+                <select
+                    value={version}
+                    onChange={(e) => setVersion(e.target.value)}
+                    className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2.5 outline-none cursor-pointer"
+                >
+                    {versionsList.map(v => (
+                        <option key={v.value} value={v.value}>{v.label}</option>
+                    ))}
+                </select>
                 )}
 
                 <span className="text-xs text-slate-500">

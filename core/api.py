@@ -11,6 +11,7 @@ from core.services.ssl_manager import SslManager
 from core.services.dashboard import DashboardManager
 from core.services.database import DatabaseManager
 from core.services.runtimes_manager import RuntimesManager
+from core.services.git_manager import GitManager
 
 class Api:
     """
@@ -26,6 +27,7 @@ class Api:
         self.dashboard = DashboardManager(self)
         self.database = DatabaseManager(self)
         self.runtimes_manager = RuntimesManager(self)
+        self.git_manager = GitManager(self)
 
     def set_window(self, window: webview.Window):
         self._window = window
@@ -316,3 +318,27 @@ class Api:
     # --- Universal Config ---
     def toggle_global_path(self, engine, enable):
         return self.runtimes_manager.toggle_user_path(engine, enable)
+
+    # ==========================================
+    # TOOLS API ENDPOINTS (GIT)
+    # ==========================================
+    def get_git_status(self):
+        return self.git_manager.get_git_status()
+
+    def get_available_git_versions(self):
+        return self.git_manager.get_available_git_versions()
+
+    def install_git(self, download_url, filename, version_text):
+        return self.git_manager.install_git(download_url, filename, version_text)
+
+    def uninstall_git(self):
+        return self.git_manager.uninstall_git()
+
+    def toggle_git_path(self, enable):
+        return self.git_manager.toggle_user_path(enable)
+    
+    def get_git_config(self):
+        return self.git_manager.get_git_config()
+
+    def set_git_config(self, name, email):
+        return self.git_manager.set_git_config(name, email)

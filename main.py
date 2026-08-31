@@ -3,13 +3,18 @@ import os
 import sys
 import traceback
 import threading
-from PIL import Image
 import pystray
+import ssl
+import certifi
+from PIL import Image
 from pystray import MenuItem as item
+
+# SSL Global Configuration
+ssl._create_default_https_context = lambda: ssl.create_default_context(cafile=certifi.where())
 
 # --- KONFIGURASI ENVIRONMENT ---
 # Ubah menjadi True jika ingin melakukan build (.exe) atau Alpha Testing
-IS_PRODUCTION = False 
+IS_PRODUCTION = True
 
 # Flag global untuk membedakan antara "Hide" dan "Benar-benar Exit"
 is_real_exit = False
