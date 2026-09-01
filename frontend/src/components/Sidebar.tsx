@@ -27,7 +27,7 @@ const SERVICES = [
 const TOOLS = [
     { id: 'qr', name: 'QR Generator', icon: 'qr_code_2' },
     { id: 'base64', name: 'Base64 Encoder', icon: 'code_blocks' },
-    { id: 'url', name: 'URL Encode/Decode', icon: 'link' },
+    { id: 'url-encode-decode', name: 'URL Encode/Decode', icon: 'link' },
     { id: 'git', name: 'Git', icon: 'merge' },
 ];
 

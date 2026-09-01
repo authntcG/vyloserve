@@ -10,6 +10,9 @@ import DashboardMain from './menu/dashboard/Main';
 import GlobalAppInterceptor from './components/AppInterceptor';
 import RuntimesMain from './menu/runtimes/Main';
 import GitMain from './menu/tools/git/Main';
+import UrlEncodeDecodeMain from './menu/tools/url-encode-decode/Main';
+import Base64Main from './menu/tools/base64-encode-decode/Main';
+import QrMain from './menu/tools/qr-generator/Main';
 
 declare global {
   interface Window {
@@ -88,6 +91,9 @@ function AppContent() {
             <div className={activeMenu === 'database' ? 'block' : 'hidden'}><DatabaseMain /></div>
             <div className={activeMenu === 'runtimes' ? 'block' : 'hidden'}><RuntimesMain /></div>
             <div className={activeMenu === 'git' ? 'block' : 'hidden'}><GitMain /></div>
+            <div className={activeMenu === 'url-encode-decode' ? 'block' : 'hidden'}><UrlEncodeDecodeMain /></div>
+            <div className={activeMenu === 'base64' ? 'block' : 'hidden'}><Base64Main /></div>
+            <div className={activeMenu === 'qr' ? 'block' : 'hidden'}><QrMain /></div>
           </div>
 
           <div className="flex-none z-10 relative">
