@@ -206,7 +206,25 @@ class ApacheManager:
                 
             php_conf_path = os.path.join(status["path"], "conf", "extra", "httpd-vyloserve-php.conf")
             os.makedirs(os.path.dirname(php_conf_path), exist_ok=True)
+            
+            # Direktori fisik asli (folder 'www')
             www_dir = self._ensure_default_htdocs()
+            
+            # ==========================================
+            # SMART ROUTING: Deteksi Folder Public
+            # ==========================================
+            document_root = www_dir
+            public_dir = os.path.join(www_dir, "public")
+            
+            # Jika ada folder 'public', paksa DocumentRoot ke sana
+            if os.path.exists(public_dir) and os.path.isdir(public_dir):
+                document_root = public_dir
+                if hasattr(self, 'api'):
+                    self.api.emit_log("Smart Routing aktif: Mengalihkan localhost ke folder /public.", "info")
+            # ==========================================
+            
+            # Sesuaikan string replace Windows agar aman untuk file config Apache
+            safe_doc_root = document_root.replace(chr(92), '/')
             
             fcgi_block = f"""
     ProxyFCGIBackendType GENERIC
@@ -216,12 +234,13 @@ class ApacheManager:
     </FilesMatch>"""
 
             with open(php_conf_path, 'w', encoding='utf-8') as f:
-                f.write(f"# Auto-Generated: Mengarahkan localhost ke PHP Port {port}\n\n<VirtualHost *:80>\n    ServerName localhost\n    DocumentRoot \"{www_dir}\"\n    <Directory \"{www_dir}\">\n        DirectoryIndex index.php index.html\n        Options Indexes FollowSymLinks ExecCGI\n        AllowOverride All\n        Require all granted\n    </Directory>\n{fcgi_block}\n</VirtualHost>\n\n")
+                # Gunakan safe_doc_root, bukan www_dir lagi
+                f.write(f"# Auto-Generated: Mengarahkan localhost ke PHP Port {port}\n\n<VirtualHost *:80>\n    ServerName localhost\n    DocumentRoot \"{safe_doc_root}\"\n    <Directory \"{safe_doc_root}\">\n        DirectoryIndex index.php index.html\n        Options Indexes FollowSymLinks ExecCGI\n        AllowOverride All\n        Require all granted\n    </Directory>\n{fcgi_block}\n</VirtualHost>\n\n")
 
                 if hasattr(self.api, 'ssl'):
                     try:
                         local_crt, local_key = self.api.ssl.generate_domain_cert("localhost")
-                        f.write(f"<VirtualHost *:443>\n    ServerName localhost\n    DocumentRoot \"{www_dir}\"\n    SSLEngine on\n    SSLCertificateFile \"{local_crt.replace(chr(92), '/')}\"\n    SSLCertificateKeyFile \"{local_key.replace(chr(92), '/')}\"\n    <Directory \"{www_dir}\">\n        DirectoryIndex index.php index.html\n        Options Indexes FollowSymLinks ExecCGI\n        AllowOverride All\n        Require all granted\n    </Directory>\n{fcgi_block}\n</VirtualHost>\n")
+                        f.write(f"<VirtualHost *:443>\n    ServerName localhost\n    DocumentRoot \"{safe_doc_root}\"\n    SSLEngine on\n    SSLCertificateFile \"{local_crt.replace(chr(92), '/')}\"\n    SSLCertificateKeyFile \"{local_key.replace(chr(92), '/')}\"\n    <Directory \"{safe_doc_root}\">\n        DirectoryIndex index.php index.html\n        Options Indexes FollowSymLinks ExecCGI\n        AllowOverride All\n        Require all granted\n    </Directory>\n{fcgi_block}\n</VirtualHost>\n")
                     except Exception as e:
                         if hasattr(self, 'api'): self.api.emit_log(f"Melewati SSL Localhost: {e}", "warn")
                 

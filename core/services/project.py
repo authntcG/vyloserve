@@ -328,8 +328,21 @@ class ProjectManager:
             
             vhost_content = "# --- VYLOSERVE AUTO-GENERATED VHOSTS ---\n\n"
             for p in projects:
-                domain, doc_root = p.get('domain'), str(p.get('path', '')).replace('\\', '/') 
+                domain = p.get('domain')
+                doc_root = str(p.get('path', '')).replace('\\', '/') 
                 saved_port, php_version = p.get('php_port'), p.get('php_version')
+                
+                # ==========================================
+                # SMART ROUTING: Deteksi Folder Public
+                # ==========================================
+                # Pengaman: Jangan ubah doc_root jika path dari projects.json sudah berakhiran /public
+                if not doc_root.rstrip('/').endswith('public'):
+                    public_dir = os.path.join(doc_root, "public").replace('\\', '/')
+                    if os.path.exists(public_dir) and os.path.isdir(public_dir):
+                        doc_root = public_dir
+                        if hasattr(self, 'api'):
+                            self.api.emit_log(f"[{domain}] Smart Routing aktif: Mengalihkan root ke folder /public.", "info")
+                # ==========================================
                 
                 php_port = self._get_php_port_from_system(php_version) or saved_port or 9000
                 if php_port != saved_port:
