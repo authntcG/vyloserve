@@ -62,10 +62,10 @@ VyloServe is actively in development. Here is what we have built and what is com
 * [x] **Apache Module:** Virtual host generator, version management, directory linking.
 * [x] **PHP Module:** FastCGI integration, extension toggling, multi-port collision detection.
 * [x] **Dashboard:** Global control panel, smart suggestions, and real-time resource polling.
-* [ ] **Database Module (MariaDB/MySQL):** Installation, port management, and service toggling[cite: 7].
-* [ ] **SSL Manager:** Auto-generate local trusted SSL certificates for `https://` access[cite: 7].
-* [ ] **Developer Utilities:** Built-in QR Code Generator, Base64 Encoder, and URL Decoder[cite: 7].
-* [ ] **Node.js / NVM Integration:** Manage Node versions and local PM2/NPM processes.
+* [x] **Database Module (MariaDB/MySQL):** Installation, port management, and service toggling[cite: 7].
+* [x] **SSL Manager:** Auto-generate local trusted SSL certificates for `https://` access[cite: 7].
+* [x] **Developer Utilities:** Built-in QR Code Generator, Base64 Encoder, and URL Decoder[cite: 7].
+* [x] **Node.js / NVM Integration:** Manage Node versions and local PM2/NPM processes.
 * [ ] **Redis / Memcached:** In-memory data structure store management.
 
 ## 🛠️ Getting Started (Development)

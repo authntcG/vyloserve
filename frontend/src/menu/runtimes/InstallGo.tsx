@@ -1,9 +1,11 @@
 import { useState, forwardRef, useImperativeHandle, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useToast } from '../../components/ToastContext';
 
 export interface InstallGoRef { submit: () => Promise<boolean>; }
 
 const InstallGo = forwardRef<InstallGoRef, any>((_, ref) => {
+    const { t } = useTranslation();
     const { showToast } = useToast();
     const [version, setVersion] = useState('latest');
     const [versionsList, setVersionsList] = useState<any[]>([]);
@@ -17,13 +19,11 @@ const InstallGo = forwardRef<InstallGoRef, any>((_, ref) => {
                     setVersionsList(res.data);
                     setVersion(res.data[0].value);
                 } else {
-                    // Memicu mode Error jika data kosong
                     setVersionsList([]);
                 }
             } catch (error) {
-                // Memicu mode Error jika tidak ada koneksi internet
                 setVersionsList([]);
-                showToast("Koneksi terputus. Gagal mengambil daftar versi.", "error");
+                showToast(t('runtimes.fetch_version_error'), "error");
             } finally {
                 setIsLoading(false);
             }
@@ -36,14 +36,14 @@ const InstallGo = forwardRef<InstallGoRef, any>((_, ref) => {
             try {
                 const res = await window.pywebview?.api?.install_go(version);
                 if (res?.status === 'success') {
-                    showToast(res.message || "Go Compiler berhasil diinstal!", 'success');
+                    showToast(res.message || t('runtimes.go_install_success'), 'success');
                     return true;
                 } else {
-                    showToast(res?.message || "Gagal menginstal Go", 'error');
+                    showToast(res?.message || t('runtimes.go_install_error'), 'error');
                     return false;
                 }
             } catch (error) {
-                showToast("Kesalahan sistem saat menghubungi backend.", "error");
+                showToast(t('runtimes.sys_error'), "error");
                 return false;
             }
         }
@@ -52,7 +52,7 @@ const InstallGo = forwardRef<InstallGoRef, any>((_, ref) => {
     return (
         <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Go Compiler Version</label>
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('runtimes.go_version')}</label>
 
                 {isLoading ? (
                     <div className="relative w-full">
@@ -60,7 +60,7 @@ const InstallGo = forwardRef<InstallGoRef, any>((_, ref) => {
                             <span className="material-symbols-outlined animate-spin text-slate-400 text-sm">sync</span>
                         </div>
                         <select disabled className="w-full bg-slate-50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 text-sm rounded-lg block p-2.5 pl-10 outline-none appearance-none cursor-wait">
-                            <option>Retrieving Available Version...</option>
+                            <option>{t('runtimes.retrieving_version')}</option>
                         </select>
                     </div>
 
@@ -68,7 +68,7 @@ const InstallGo = forwardRef<InstallGoRef, any>((_, ref) => {
                 <div className="relative w-full">
                     <span className="material-symbols-outlined animate-spin text-slate-400 text-sm">sync</span>
                     <select disabled className="w-full bg-red-50 dark:bg-red-900/10 border border-red-300 dark:border-red-800/50 text-red-600 dark:text-red-400 text-sm rounded-lg block p-2.5 pl-10 outline-none appearance-none cursor-not-allowed">
-                        <option>Error Fetching Result</option>
+                        <option>{t('runtimes.error_fetching_result')}</option>
                     </select>
                 </div>
                 ) : (
@@ -84,7 +84,7 @@ const InstallGo = forwardRef<InstallGoRef, any>((_, ref) => {
                 )}
 
                 <span className="text-xs text-slate-500">
-                    Biner yang diunduh difokuskan untuk arsitektur <strong>windows/amd64</strong>.
+                    {t('runtimes.go_arch_desc_1')}<strong>windows/amd64</strong>{t('runtimes.go_arch_desc_2')}
                 </span>
             </div>
         </div>

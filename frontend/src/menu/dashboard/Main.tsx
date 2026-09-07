@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useToast } from '../../components/ToastContext';
 
 interface ProjectData {
@@ -18,6 +19,7 @@ interface ServiceStatus {
 }
 
 export default function DashboardMain() {
+    const { t } = useTranslation();
     const { showToast } = useToast();
 
     const [projects, setProjects] = useState<ProjectData[]>([]);
@@ -257,7 +259,7 @@ export default function DashboardMain() {
                         }
                     }
                 }
-                showToast("Proses Stop servis berhasil dieksekusi!", "success");
+                showToast(t('dashboard.stop_success'), "success");
             }
 
             fetchServicesStatus();
@@ -266,7 +268,7 @@ export default function DashboardMain() {
 
         } catch (error) {
             console.error("Dashboard Toggle Error:", error);
-            showToast("Terjadi kesalahan saat memproses servis.", "error");
+            showToast(t('dashboard.toggle_error'), "error");
         } finally {
             setIsTogglingAll(null);
         }
@@ -347,19 +349,19 @@ export default function DashboardMain() {
         if (!status.apache && !status.php && !status.database) {
             suggestions.push({
                 icon: 'power_settings_new', color: 'text-amber-500', bg: 'bg-amber-50 dark:bg-amber-900/20', border: 'border-amber-200 dark:border-amber-800/50',
-                text: 'Server lokal sedang berhenti. Tentukan versi, aktifkan switch modul, lalu klik "Start Selected".'
+                text: t('dashboard.suggestion_stopped')
             });
         }
         if (projects.length === 0 && !isLoadingProjects) {
             suggestions.push({
                 icon: 'add_box', color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-900/20', border: 'border-blue-200 dark:border-blue-800/50',
-                text: 'Anda belum memiliki proyek virtual host. Buka menu Apache untuk membuat proyek pertama.'
+                text: t('dashboard.suggestion_no_project')
             });
         }
         if (suggestions.length === 0) {
             suggestions.push({
                 icon: 'check_circle', color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-900/20', border: 'border-emerald-200 dark:border-emerald-800/50',
-                text: 'Semua sistem berjalan optimal. Selamat bekerja!'
+                text: t('dashboard.suggestion_optimal')
             });
         }
         return suggestions;
@@ -417,10 +419,10 @@ export default function DashboardMain() {
                 <div className="flex flex-col gap-3">
                     <div className="flex items-center gap-3">
                         <span className="material-symbols-outlined text-slate-700 dark:text-slate-300 text-[32px]">space_dashboard</span>
-                        <h2 className="text-2xl md:text-3xl font-semibold text-slate-900 dark:text-white">Dashboard</h2>
+                        <h2 className="text-2xl md:text-3xl font-semibold text-slate-900 dark:text-white">{t('dashboard.title')}</h2>
                     </div>
                     <p className="text-sm text-slate-500 dark:text-slate-400">
-                        Welcome back. Here is the overview of your local environment.
+                        {t('dashboard.subtitle')}
                     </p>
                 </div>
             </div>
@@ -444,9 +446,9 @@ export default function DashboardMain() {
                         <div className="flex flex-col gap-1 flex-1 min-w-[240px]">
                             <h3 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
                                 <span className="material-symbols-outlined text-primary">dashboard_customize</span>
-                                Global Control Panel
+                                {t('dashboard.global_control_panel')}
                             </h3>
-                            <span className="text-xs text-slate-500">Configure and execute services simultaneously.</span>
+                            <span className="text-xs text-slate-500">{t('dashboard.global_control_panel_desc')}</span>
                         </div>
                         <div className="flex flex-wrap gap-2 shrink-0">
                             <button
@@ -455,9 +457,9 @@ export default function DashboardMain() {
                                 className="bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-300 dark:disabled:bg-slate-800 disabled:text-slate-500 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm flex-1 sm:flex-none"
                             >
                                 {isTogglingAll === 'start' ? (
-                                    <><span className="material-symbols-outlined text-[18px] animate-spin">sync</span> Starting...</>
+                                    <><span className="material-symbols-outlined text-[18px] animate-spin">sync</span> {t('dashboard.starting')}</>
                                 ) : (
-                                    <><span className="material-symbols-outlined text-[18px]">play_arrow</span> Start Selected</>
+                                    <><span className="material-symbols-outlined text-[18px]">play_arrow</span> {t('dashboard.start_selected')}</>
                                 )}
                             </button>
 
@@ -467,9 +469,9 @@ export default function DashboardMain() {
                                 className="bg-amber-500 hover:bg-amber-600 disabled:bg-slate-300 dark:disabled:bg-slate-800 disabled:text-slate-500 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm flex-1 sm:flex-none"
                             >
                                 {isTogglingAll === 'stop' ? (
-                                    <><span className="material-symbols-outlined text-[18px] animate-spin">sync</span> Stopping...</>
+                                    <><span className="material-symbols-outlined text-[18px] animate-spin">sync</span> {t('dashboard.stopping')}</>
                                 ) : (
-                                    <><span className="material-symbols-outlined text-[18px]">stop</span> Stop Selected</>
+                                    <><span className="material-symbols-outlined text-[18px]">stop</span> {t('dashboard.stop_selected')}</>
                                 )}
                             </button>
                         </div>
@@ -502,7 +504,7 @@ export default function DashboardMain() {
                                     <div className="flex items-center justify-between gap-2">
                                         <div className="flex items-center gap-2 min-w-0">
                                             <span className={`material-symbols-outlined shrink-0 transition-colors ${includedServices.apache ? 'text-primary' : 'text-slate-400'}`}>dns</span>
-                                            <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 truncate">Apache Web</span>
+                                            <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 truncate">{t('sidebar.menu_apache')}</span>
                                         </div>
                                         <label className="relative inline-flex items-center cursor-pointer shrink-0">
                                             <input
@@ -517,7 +519,7 @@ export default function DashboardMain() {
 
                                     <div className={`flex flex-col gap-1 mt-1 transition-all ${includedServices.apache ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
                                         <div className="flex justify-between items-center">
-                                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Default Version</span>
+                                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">{t('dashboard.default_version')}</span>
                                             <span className={`w-2 h-2 shrink-0 rounded-full ${status.apache ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300 dark:bg-slate-600'}`}></span>
                                         </div>
                                         <select
@@ -527,7 +529,7 @@ export default function DashboardMain() {
                                         >
                                             {apacheVersions.length > 0 ? apacheVersions.map(v => (
                                                 <option key={v} value={v}>Apache {v}</option>
-                                            )) : <option>No version installed</option>}
+                                            )) : <option>{t('dashboard.no_version_installed')}</option>}
                                         </select>
                                     </div>
                                 </div>
@@ -537,7 +539,7 @@ export default function DashboardMain() {
                                     <div className="flex items-center justify-between gap-2">
                                         <div className="flex items-center gap-2 min-w-0">
                                             <span className={`material-symbols-outlined shrink-0 transition-colors ${includedServices.php ? 'text-primary' : 'text-slate-400'}`}>php</span>
-                                            <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 truncate">PHP FastCGI</span>
+                                            <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 truncate">{t('sidebar.menu_php')}</span>
                                         </div>
                                         <label className="relative inline-flex items-center cursor-pointer shrink-0">
                                             <input
@@ -557,7 +559,7 @@ export default function DashboardMain() {
 
                                     <div className={`flex flex-col gap-1 mt-1 transition-all ${includedServices.php ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
                                         <div className="flex justify-between items-center">
-                                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Select Version(s)</span>
+                                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">{t('dashboard.select_versions')}</span>
                                             <span className={`w-2 h-2 shrink-0 rounded-full ${phpInstances.some(p => p.status === 'running') ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300 dark:bg-slate-600'}`}></span>
                                         </div>
                                         <div className="flex flex-wrap gap-1.5 max-h-[56px] overflow-y-auto custom-scrollbar pr-1 mt-0.5">
@@ -572,7 +574,7 @@ export default function DashboardMain() {
                                                         {php.version}
                                                     </button>
                                                 )
-                                            }) : <span className="text-xs text-slate-400 italic mt-1">No PHP installed</span>}
+                                            }) : <span className="text-xs text-slate-400 italic mt-1">{t('dashboard.no_php_installed')}</span>}
                                         </div>
                                     </div>
                                 </div>
@@ -582,7 +584,7 @@ export default function DashboardMain() {
                                     <div className="flex items-center justify-between gap-2">
                                         <div className="flex items-center gap-2 min-w-0">
                                             <span className={`material-symbols-outlined shrink-0 transition-colors ${includedServices.database ? 'text-primary' : 'text-slate-400'}`}>database</span>
-                                            <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 truncate">Database Engine</span>
+                                            <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 truncate">{t('sidebar.menu_database')}</span>
                                         </div>
                                         <label className="relative inline-flex items-center cursor-pointer shrink-0">
                                             <input
@@ -602,7 +604,7 @@ export default function DashboardMain() {
 
                                     <div className={`flex flex-col gap-1 mt-1 transition-all ${includedServices.database ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
                                         <div className="flex justify-between items-center">
-                                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Select Engine(s)</span>
+                                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">{t('dashboard.select_engines')}</span>
                                             <span className={`w-2 h-2 shrink-0 rounded-full ${dbInstances.some(p => p.status === 'running') ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300 dark:bg-slate-600'}`}></span>
                                         </div>
                                         <div className="flex flex-wrap gap-1.5 max-h-[56px] overflow-y-auto custom-scrollbar pr-1 mt-0.5">
@@ -620,7 +622,7 @@ export default function DashboardMain() {
                                                         {shortName}
                                                     </button>
                                                 )
-                                            }) : <span className="text-xs text-slate-400 italic mt-1">No Database installed</span>}
+                                            }) : <span className="text-xs text-slate-400 italic mt-1">{t('dashboard.no_db_installed')}</span>}
                                         </div>
                                     </div>
                                 </div>
@@ -635,9 +637,9 @@ export default function DashboardMain() {
                     <div className="flex flex-col gap-1">
                         <h3 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
                             <span className="material-symbols-outlined text-primary">memory</span>
-                            System Resources
+                            {t('dashboard.system_resources')}
                         </h3>
-                        <span className="text-xs text-slate-500">Real-time historical metrics</span>
+                        <span className="text-xs text-slate-500">{t('dashboard.system_resources_desc')}</span>
                     </div>
 
                     {isGlobalLoading ? (
@@ -657,7 +659,7 @@ export default function DashboardMain() {
                             <div className="flex flex-col gap-1">
                                 <div className="flex justify-between items-center text-sm font-medium">
                                     <span className="text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
-                                        <span className="material-symbols-outlined text-[16px] text-slate-400">speed</span> CPU Load
+                                        <span className="material-symbols-outlined text-[16px] text-slate-400">speed</span> {t('dashboard.cpu_load')}
                                     </span>
                                     <span className="text-slate-900 dark:text-white font-mono">{status.cpu_load}%</span>
                                 </div>
@@ -667,7 +669,7 @@ export default function DashboardMain() {
                             <div className="flex flex-col gap-1">
                                 <div className="flex justify-between items-center text-sm font-medium">
                                     <span className="text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
-                                        <span className="material-symbols-outlined text-[16px] text-slate-400">memory_alt</span> Memory Usage
+                                        <span className="material-symbols-outlined text-[16px] text-slate-400">memory_alt</span> {t('dashboard.memory_usage')}
                                     </span>
                                     <span className="text-slate-900 dark:text-white font-mono">{status.ram_usage}%</span>
                                 </div>
@@ -683,9 +685,9 @@ export default function DashboardMain() {
                     <div className="flex flex-col gap-1">
                         <h3 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
                             <span className="material-symbols-outlined text-primary">history</span>
-                            Recent Projects
+                            {t('dashboard.recent_projects')}
                         </h3>
-                        <span className="text-xs text-slate-500">Your latest virtual hosts.</span>
+                        <span className="text-xs text-slate-500">{t('dashboard.recent_projects_desc')}</span>
                     </div>
                 </div>
 
@@ -709,7 +711,7 @@ export default function DashboardMain() {
                 ) : projects.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-10 bg-slate-50/50 dark:bg-slate-900/20 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
                         <span className="material-symbols-outlined text-slate-400 text-4xl mb-2">folder_open</span>
-                        <span className="text-sm font-medium text-slate-600 dark:text-slate-400">No projects found</span>
+                        <span className="text-sm font-medium text-slate-600 dark:text-slate-400">{t('dashboard.no_projects_found')}</span>
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -732,13 +734,13 @@ export default function DashboardMain() {
                                         onClick={() => handleOpenBrowser(proj.domain)}
                                         className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-xs font-medium py-1.5 px-3 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm outline-none"
                                     >
-                                        <span className="material-symbols-outlined text-[16px]">public</span> Open
+                                        <span className="material-symbols-outlined text-[16px]">public</span> {t('dashboard.open')}
                                     </button>
                                     <button
                                         onClick={() => handleOpenDir(proj.path)}
                                         className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-xs font-medium py-1.5 px-3 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm outline-none"
                                     >
-                                        <span className="material-symbols-outlined text-[16px]">folder</span> Folder
+                                        <span className="material-symbols-outlined text-[16px]">folder</span> {t('dashboard.folder')}
                                     </button>
                                 </div>
                             </div>

@@ -1,5 +1,6 @@
 // src/menu/php/Settings.tsx
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface Extension {
     name: string;
@@ -24,6 +25,7 @@ interface Props {
 }
 
 export default function PhpSettings({ config, setConfig, extensions, setExtensions, isLoading, usedPorts }: Props) {
+    const { t } = useTranslation();
     // STATE BARU: Untuk fitur pencarian
     const [searchQuery, setSearchQuery] = useState('');
 
@@ -31,7 +33,7 @@ export default function PhpSettings({ config, setConfig, extensions, setExtensio
         return (
             <div className="flex flex-col items-center justify-center py-12">
                 <span className="material-symbols-outlined animate-spin text-3xl text-slate-400">sync</span>
-                <span className="text-sm text-slate-500 mt-3">Reading php.ini...</span>
+                <span className="text-sm text-slate-500 mt-3">{t('php.reading_php_ini')}</span>
             </div>
         );
     }
@@ -61,12 +63,12 @@ export default function PhpSettings({ config, setConfig, extensions, setExtensio
             <div className="flex flex-col gap-3">
                 <h4 className="text-sm font-semibold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
                     <span className="material-symbols-outlined text-[18px] text-primary">tune</span>
-                    Basic Configuration
+                    {t('php.basic_configuration')}
                 </h4>
 
                 <div className="grid grid-cols-2 gap-4">
                     <div className="flex flex-col gap-2">
-                        <label className="text-xs font-medium text-slate-700 dark:text-slate-300">FastCGI Port</label>
+                        <label className="text-xs font-medium text-slate-700 dark:text-slate-300">{t('php.fastcgi_port')}</label>
                         <input
                             type="number"
                             value={config.port}
@@ -77,7 +79,7 @@ export default function PhpSettings({ config, setConfig, extensions, setExtensio
                         {isPortConflict && (
                             <span className="text-[11px] text-red-500 font-medium flex items-center gap-1 animate-in fade-in">
                                 <span className="material-symbols-outlined text-[12px]">error</span>
-                                Port already in use!
+                                {t('php.port_already_in_use')}
                             </span>
                         )}
                     </div>
@@ -118,10 +120,10 @@ export default function PhpSettings({ config, setConfig, extensions, setExtensio
                 <div className="flex items-center justify-between">
                     <h4 className="text-sm font-semibold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
                         <span className="material-symbols-outlined text-[18px] text-emerald-500">extension</span>
-                        PHP Extensions
+                        {t('php.php_extensions')}
                     </h4>
                     <span className="text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 py-1 px-2 rounded">
-                        {extensions.filter(e => e.active).length} Active
+                        {extensions.filter(e => e.active).length}{t('php.active')}
                     </span>
                 </div>
 
@@ -132,7 +134,7 @@ export default function PhpSettings({ config, setConfig, extensions, setExtensio
                         type="text"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Search extension name..."
+                        placeholder={t('php.search_extension')}
                         className="w-full bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 text-sm rounded-lg pl-9 pr-3 py-2 outline-none focus:border-primary transition-colors text-slate-700 dark:text-slate-300 placeholder-slate-400"
                     />
                 </div>
@@ -161,7 +163,7 @@ export default function PhpSettings({ config, setConfig, extensions, setExtensio
                         ))
                     ) : (
                         <div className="col-span-2 md:col-span-3 text-center py-6 text-sm text-slate-500">
-                            {extensions.length === 0 ? "No extensions found in the ext/ folder." : "No extensions match your search."}
+                            {extensions.length === 0 ? t('php.no_extensions_found') : t('php.no_extensions_match')}
                         </div>
                     )}
                 </div>

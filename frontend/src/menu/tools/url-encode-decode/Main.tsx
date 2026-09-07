@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import PageHeader from '../../../components/PageHeader';
 import Card from '../../../components/Card';
 import { useToast } from '../../../components/ToastContext';
 
 export default function UrlMain() {
+    const { t } = useTranslation();
     const { showToast } = useToast();
     const [mode, setMode] = useState<'encode' | 'decode'>('encode');
     const [input, setInput] = useState('');
@@ -28,7 +30,7 @@ export default function UrlMain() {
                 setOutput(currentOutput);
             }
         } catch (e) {
-            setOutput('Error: Malformed URI sequence');
+            setOutput(t('tools.url.error_malformed'));
             setParsedUrl(null);
             return;
         }
@@ -45,20 +47,20 @@ export default function UrlMain() {
     const handleCopy = () => {
         if (!output) return;
         navigator.clipboard.writeText(output);
-        showToast("Disalin ke clipboard!", "success");
+        showToast(t('tools.url.copy_success'), "success");
     };
 
     return (
         <div className="flex flex-col w-full min-w-0">
             <PageHeader
                 icon="link"
-                title="URL Encode / Decode"
-                subtitle={<><span className="material-symbols-outlined text-[14px]">info</span> Konversi karakter khusus URL dan visualisasi hierarki path.</>}
+                title={t('tools.url.title')}
+                subtitle={<><span className="material-symbols-outlined text-[14px]">info</span> {t('tools.url.subtitle')}</>}
             />
 
             <div className="flex gap-1 overflow-x-auto no-scrollbar mb-6 border-b border-slate-200 dark:border-slate-800">
-                <button onClick={() => { setMode('encode'); setInput(''); }} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${mode === 'encode' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>Encode URL</button>
-                <button onClick={() => { setMode('decode'); setInput(''); }} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${mode === 'decode' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>Decode URL</button>
+                <button onClick={() => { setMode('encode'); setInput(''); }} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${mode === 'encode' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>{t('tools.url.encode_url')}</button>
+                <button onClick={() => { setMode('decode'); setInput(''); }} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${mode === 'decode' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>{t('tools.url.decode_url')}</button>
             </div>
 
             {/* Layout responsif menggunakan proporsi 7:5 (12 Grid) */}
@@ -66,7 +68,7 @@ export default function UrlMain() {
                 
                 {/* Editor Section (Col 7) */}
                 <div className="col-span-1 xl:col-span-7 flex flex-col gap-6 w-full min-w-0">
-                    <Card title={`Input Text (${mode === 'encode' ? 'Raw' : 'Encoded'})`} status="Active" gridCols="grid-cols-1">
+                    <Card title={`Input Text (${mode === 'encode' ? 'Raw' : 'Encoded'})`} status={t('tools.url.status_active')} gridCols="grid-cols-1">
                         <div className="w-full min-w-0 flex flex-col">
                             <textarea
                                 value={input}
@@ -78,7 +80,7 @@ export default function UrlMain() {
                         </div>
                     </Card>
 
-                    <Card title={`Output Text (${mode === 'encode' ? 'Encoded' : 'Decoded'})`} status="Result" gridCols="grid-cols-1">
+                    <Card title={`Output Text (${mode === 'encode' ? 'Encoded' : 'Decoded'})`} status={t('tools.url.status_result')} gridCols="grid-cols-1">
                         <div className="relative w-full min-w-0 flex flex-col">
                             <textarea
                                 value={output}
@@ -87,7 +89,7 @@ export default function UrlMain() {
                                 spellCheck="false"
                             ></textarea>
                             <button onClick={handleCopy} disabled={!output || output.startsWith('Error')} className="absolute bottom-3 right-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium py-1.5 px-3 rounded shadow-sm transition-all flex items-center gap-1 disabled:opacity-50">
-                                <span className="material-symbols-outlined text-[16px]">content_copy</span> Copy
+                                <span className="material-symbols-outlined text-[16px]">content_copy</span> {t('tools.url.copy')}
                             </button>
                         </div>
                     </Card>
@@ -95,16 +97,16 @@ export default function UrlMain() {
 
                 {/* URL Hierarchy Visualizer (Col 5) */}
                 <div className="col-span-1 xl:col-span-5 w-full min-w-0">
-                    <Card title="URL Structure & Hierarchy" status={parsedUrl ? "Valid URL" : "Waiting"} gridCols="grid-cols-1">
+                    <Card title={t('tools.url.hierarchy_title')} status={parsedUrl ? t('tools.url.valid_url') : t('tools.url.waiting')} gridCols="grid-cols-1">
                         {!parsedUrl ? (
                             <div className="flex flex-col items-center justify-center py-12 text-slate-400 dark:text-slate-500 w-full">
                                 <span className="material-symbols-outlined text-4xl mb-2 opacity-50">account_tree</span>
-                                <p className="text-sm text-center">Masukkan URL yang valid untuk melihat hierarki.</p>
+                                <p className="text-sm text-center">{t('tools.url.placeholder')}</p>
                             </div>
                         ) : (
                             <div className="flex flex-col gap-4 w-full min-w-0">
                                 <div className="flex flex-col gap-1 border-b border-slate-100 dark:border-slate-800 pb-3 w-full min-w-0">
-                                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Protocol & Origin</span>
+                                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{t('tools.url.protocol_origin')}</span>
                                     <div className="flex items-center gap-2 mt-1 w-full min-w-0">
                                         <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded text-xs font-mono font-bold shrink-0">{parsedUrl.protocol.replace(':', '')}</span>
                                         <span className="font-mono text-sm text-slate-900 dark:text-slate-200 truncate">{parsedUrl.host}</span>
@@ -112,7 +114,7 @@ export default function UrlMain() {
                                 </div>
 
                                 <div className="flex flex-col gap-1 border-b border-slate-100 dark:border-slate-800 pb-3 w-full min-w-0">
-                                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Path Hierarchy</span>
+                                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{t('tools.url.path_hierarchy')}</span>
                                     <div className="flex flex-wrap items-center gap-2 mt-2 w-full">
                                         <span className="material-symbols-outlined text-slate-300 dark:text-slate-600 text-[18px] shrink-0">home</span>
                                         {parsedUrl.pathname === '/' ? (
@@ -130,7 +132,7 @@ export default function UrlMain() {
 
                                 {parsedUrl.search && parsedUrl.search.length > 1 && (
                                     <div className="flex flex-col gap-1 w-full min-w-0">
-                                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Search Parameters (Query)</span>
+                                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{t('tools.url.search_params')}</span>
                                         <div className="flex flex-col gap-2 mt-2 w-full min-w-0">
                                             {parsedUrl.search.substring(1).split('&').map((param, idx) => {
                                                 const [key, ...valueParts] = param.split('=');

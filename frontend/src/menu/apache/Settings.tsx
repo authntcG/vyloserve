@@ -1,8 +1,10 @@
 // src/menu/apache/Settings.tsx
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useToast } from '../../components/ToastContext';
 
 export default function ApacheSettings() {
+    const { t } = useTranslation();
     const { showToast } = useToast();
 
     const [installedVersions, setInstalledVersions] = useState<string[]>([]);
@@ -26,14 +28,14 @@ export default function ApacheSettings() {
                     }
                 }
             } catch (error) {
-                showToast("Gagal mengambil data versi dari server lokal.", "error");
+                showToast(t('apache.fetch_version_local_error'), "error");
             } finally {
                 setIsLoading(false);
             }
         };
 
         fetchInstalledVersions();
-    }, [showToast]);
+    }, [showToast, t]);
 
     const handleVersionChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
         const newVersion = e.target.value;
@@ -47,11 +49,11 @@ export default function ApacheSettings() {
                     showToast(response.message, 'success');
                     window.dispatchEvent(new Event('apache_version_changed'));
                 } else {
-                    showToast(response.message, 'error');
+                        showToast(response.message, 'error');
                 }
             }
         } catch (error) {
-            showToast("Gagal menyimpan pengaturan versi.", "error");
+            showToast(t('apache.save_version_settings_error'), "error");
         }
     };
 
@@ -65,7 +67,7 @@ export default function ApacheSettings() {
                 }
             }
         } catch (error) {
-            showToast("Gagal membuka file. Periksa koneksi API.", "error");
+            showToast(t('apache.open_file_error'), "error");
         }
     };
 
@@ -74,7 +76,7 @@ export default function ApacheSettings() {
             {/* Version Selector */}
             <div className="flex flex-col gap-2">
                 <label htmlFor="apache-version" className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                    Active Version
+                    {t('apache.active_version')}
                 </label>
 
                 {isLoading ? (
@@ -93,12 +95,12 @@ export default function ApacheSettings() {
                                 <option key={ver} value={ver}>Apache {ver}</option>
                             ))
                         ) : (
-                            <option>No Apache installation found</option>
+                            <option>{t('apache.no_apache_installation_found')}</option>
                         )}
                     </select>
                 )}
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Changing the version will automatically restart the Apache service.
+                    {t('apache.change_version_desc')}
                 </p>
             </div>
 
@@ -106,7 +108,7 @@ export default function ApacheSettings() {
 
             {/* Quick Shortcuts */}
             <div className="flex flex-col gap-3">
-                <h4 className="text-sm font-medium text-slate-700 dark:text-slate-300">Essential Configurations</h4>
+                <h4 className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('apache.essential_configurations')}</h4>
 
                 {isLoading ? (
                     // Skeleton Loader untuk Button Grid
@@ -123,7 +125,7 @@ export default function ApacheSettings() {
                     </div>
                 ) : installedVersions.length === 0 ? (
                     <div className="text-sm text-slate-500 italic p-3 border border-dashed border-slate-300 dark:border-slate-700 rounded-lg text-center bg-slate-50 dark:bg-slate-900/50">
-                        Install Apache first to access configurations.
+                        {t('apache.install_first_config')}
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -131,7 +133,7 @@ export default function ApacheSettings() {
                             <span className="material-symbols-outlined text-slate-400 group-hover:text-primary transition-colors">description</span>
                             <div className="flex flex-col">
                                 <span className="text-sm font-medium text-slate-900 dark:text-slate-100">httpd.conf</span>
-                                <span className="text-xs text-slate-500">Main configuration</span>
+                                <span className="text-xs text-slate-500">{t('apache.main_configuration')}</span>
                             </div>
                         </button>
 
@@ -139,7 +141,7 @@ export default function ApacheSettings() {
                             <span className="material-symbols-outlined text-slate-400 group-hover:text-primary transition-colors">link</span>
                             <div className="flex flex-col">
                                 <span className="text-sm font-medium text-slate-900 dark:text-slate-100">vhosts.conf</span>
-                                <span className="text-xs text-slate-500">Virtual domains setup</span>
+                                <span className="text-xs text-slate-500">{t('apache.virtual_domains_setup')}</span>
                             </div>
                         </button>
 
@@ -147,7 +149,7 @@ export default function ApacheSettings() {
                             <span className="material-symbols-outlined text-slate-400 group-hover:text-primary transition-colors">bug_report</span>
                             <div className="flex flex-col">
                                 <span className="text-sm font-medium text-slate-900 dark:text-slate-100">error.log</span>
-                                <span className="text-xs text-slate-500">View crash reports</span>
+                                <span className="text-xs text-slate-500">{t('apache.view_crash_reports')}</span>
                             </div>
                         </button>
                     </div>

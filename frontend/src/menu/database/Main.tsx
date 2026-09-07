@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import Card from '../../components/Card';
 import Modal from '../../components/Modal';
 import { useToast } from '../../components/ToastContext';
@@ -20,6 +21,7 @@ interface DbInstance {
 }
 
 export default function DatabaseMain() {
+    const { t } = useTranslation();
     const { showToast } = useToast();
 
     const [dbInstances, setDbInstances] = useState<DbInstance[]>([]);
@@ -59,7 +61,7 @@ export default function DatabaseMain() {
         try {
             const res = await window.pywebview?.api?.get_installed_databases();
             if (res?.status === 'success') setDbInstances(res.data || []);
-        } catch (e) { showToast("Gagal memuat instalasi database.", "error"); }
+        } catch (e) { showToast(t('database.fetch_db_error'), "error"); }
         finally { setIsLoading(false); }
     };
 
@@ -68,6 +70,7 @@ export default function DatabaseMain() {
         const handleStatus = (e: any) => { if (['database', 'all'].includes(e.detail.service)) fetchDatabases(); };
         window.addEventListener('service_status_changed', handleStatus);
         return () => window.removeEventListener('service_status_changed', handleStatus);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     useEffect(() => {
@@ -82,6 +85,7 @@ export default function DatabaseMain() {
         };
         window.addEventListener('vylo_progress', handleProg);
         return () => window.removeEventListener('vylo_progress', handleProg);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isInstalling]);
 
     const handleToggleDB = async (db: DbInstance) => {
@@ -94,23 +98,23 @@ export default function DatabaseMain() {
                 fetchDatabases();
                 window.dispatchEvent(new CustomEvent('service_status_changed', { detail: { service: 'database' } }));
             }
-        } catch (e) { showToast("Kesalahan saat mengubah status DB.", "error"); }
+        } catch (e) { showToast(t('database.toggle_status_error'), "error"); }
         finally { setTogglingDbId(null); }
     };
 
     const handleInstallDatabase = async () => {
         const formData = newDbRef.current?.getFormData();
-        if (!formData) return showToast("Gagal membaca data instalasi.", "error");
-        if (formData.engine === 'postgres' && !formData.rootPass) return showToast("PostgreSQL mewajibkan password superuser!", "warning");
+        if (!formData) return showToast(t('database.read_install_data_error'), "error");
+        if (formData.engine === 'postgres' && !formData.rootPass) return showToast(t('database.pg_password_required'), "warning");
 
         try {
             const isUsed = await window.pywebview?.api?.check_port_in_use(formData.port);
-            if (isUsed || usedPorts.includes(formData.port)) return showToast(`Port ${formData.port} digunakan!`, "error");
+            if (isUsed || usedPorts.includes(formData.port)) return showToast(t('database.port_used'), "error");
 
-            setIsInstalling(true); setProgressText(`Menyiapkan ${formData.engine}...`);
+            setIsInstalling(true); setProgressText(t('database.preparing_engine'));
             const res = await window.pywebview?.api?.install_database(formData.engine, formData.version, formData.url, formData.port, formData.rootPass);
             if (res?.status === 'error') { showToast(res.message, "error"); setIsInstalling(false); setProgress(0); }
-        } catch (e) { showToast("Kesalahan instalasi.", "error"); setIsInstalling(false); setProgress(0); }
+        } catch (e) { showToast(t('database.install_error'), "error"); setIsInstalling(false); setProgress(0); }
     };
 
     const handleConfirmUninstall = async () => {
@@ -120,7 +124,7 @@ export default function DatabaseMain() {
             const res = await window.pywebview?.api?.uninstall_database(selectedDbId, deleteData);
             showToast(res?.message, res?.status === 'success' ? 'success' : 'error');
             if (res?.status === 'success') { setIsDeleteConfirmOpen(false); setSelectedDbId(null); setDeleteData(false); fetchDatabases(); }
-        } catch (e) { showToast("Gagal menghapus DB.", "error"); }
+        } catch (e) { showToast(t('database.delete_error'), "error"); }
         finally { setIsDeleting(false); }
     };
 
@@ -130,19 +134,19 @@ export default function DatabaseMain() {
             const res = await window.pywebview?.api?.get_db_config(db.id);
             if (res?.status === 'success') setSettingsConfig(res.config);
             else showToast(res?.message, "error");
-        } catch (e) { showToast("Gagal memuat konfigurasi.", "error"); }
+        } catch (e) { showToast(t('database.fetch_config_error'), "error"); }
         finally { setIsLoadingSettings(false); }
     };
 
     const handleSaveSettings = async () => {
         if (!selectedDb) return;
-        if (usedPorts.filter(p => p !== selectedDb.port).includes(Number(settingsConfig.port))) return showToast("Port digunakan instalasi lain!", "error");
+        if (usedPorts.filter(p => p !== selectedDb.port).includes(Number(settingsConfig.port))) return showToast(t('database.port_used_other'), "error");
         setIsSavingSettings(true);
         try {
             const res = await window.pywebview?.api?.save_db_config(selectedDb.id, settingsConfig);
             showToast(res?.message, res?.status === 'success' ? 'success' : 'error');
             if (res?.status === 'success') { setIsSettingsOpen(false); fetchDatabases(); }
-        } catch (e) { showToast("Kesalahan menyimpan.", "error"); }
+        } catch (e) { showToast(t('database.save_error'), "error"); }
         finally { setIsSavingSettings(false); }
     };
 
@@ -167,24 +171,24 @@ export default function DatabaseMain() {
 
                 <PageHeader
                     icon="database"
-                    title="Database Engine"
+                    title={t('database.db_engine')}
                     subtitle={
                         <>
                             <span className="material-symbols-outlined text-[14px]">info</span>
-                            {dbInstances.length} Instances installed
+                            {dbInstances.length}{t('database.instances_installed')}
                         </>
                     }
                     actions={
                         <button onClick={() => setIsNewInstanceOpen(true)} className="bg-primary hover:bg-blue-600 border border-transparent text-white text-sm font-medium py-2 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-sm">
-                            <span className="material-symbols-outlined text-[18px]">add</span> Add Engine
+                            <span className="material-symbols-outlined text-[18px]">add</span> {t('database.add_engine')}
                         </button>
                     }
                 />
 
                 <div className="flex gap-1 overflow-x-auto no-scrollbar mb-6 border-b border-slate-200 dark:border-slate-800">
-                    <button onClick={() => setActiveTab('all')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'all' ? 'border-primary text-primary' : 'border-transparent text-slate-500'}`}>All Instances</button>
-                    <button onClick={() => setActiveTab('mysql')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'mysql' ? 'border-primary text-primary' : 'border-transparent text-slate-500'}`}>MySQL & MariaDB</button>
-                    <button onClick={() => setActiveTab('postgres')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'postgres' ? 'border-primary text-primary' : 'border-transparent text-slate-500'}`}>PostgreSQL</button>
+                    <button onClick={() => setActiveTab('all')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'all' ? 'border-primary text-primary' : 'border-transparent text-slate-500'}`}>{t('database.all_instances')}</button>
+                    <button onClick={() => setActiveTab('mysql')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'mysql' ? 'border-primary text-primary' : 'border-transparent text-slate-500'}`}>{t('database.mysql_mariadb')}</button>
+                    <button onClick={() => setActiveTab('postgres')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'postgres' ? 'border-primary text-primary' : 'border-transparent text-slate-500'}`}>{t('database.postgres')}</button>
                 </div>
 
                 {isLoading ? (
@@ -194,9 +198,9 @@ export default function DatabaseMain() {
                 ) : filteredInstances.length === 0 ? (
                     <EmptyState
                         icon="dns"
-                        title="No Instances Found"
-                        description={`You haven't installed any ${activeTab === 'postgres' ? 'PostgreSQL' : 'MySQL/MariaDB'} engines yet.`}
-                        actionText="Install one now"
+                        title={t('database.no_instances_found')}
+                        description={activeTab === 'postgres' ? t('database.no_postgres_desc') : t('database.no_mysql_desc')}
+                        actionText={t('database.install_now')}
                         onAction={() => setIsNewInstanceOpen(true)}
                     />
                 ) : (
@@ -210,33 +214,33 @@ export default function DatabaseMain() {
                                         <>
                                             {/* ---> TEKS "Open Config" DIKEMBALIKAN KE OPEN MY.INI/POSTGRESQL.CONF <--- */}
                                             <button onClick={() => window.pywebview?.api?.open_db_config_file(db.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700">
-                                                {db.engine === 'postgres' ? 'Open postgresql.conf' : 'Open my.ini'}
+                                                {db.engine === 'postgres' ? t('database.open_postgres_conf') : t('database.open_my_ini')}
                                             </button>
-                                            <button onClick={() => window.pywebview?.api?.open_db_dir(db.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700">Open Data Folder</button>
+                                            <button onClick={() => window.pywebview?.api?.open_db_dir(db.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700">{t('database.open_data_folder')}</button>
 
                                             {/* ---> MENU BARU: CHANGE PASSWORD <--- */}
                                             <button onClick={() => { setSelectedDbId(db.id); setIsPasswordModalOpen(true); }} className="w-full flex items-center justify-between px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700">
-                                                Change Password
+                                                {t('database.change_password')}
                                             </button>
 
                                             <div className="border-t border-slate-200 dark:border-slate-700 my-1"></div>
-                                            <button onClick={() => { setSelectedDbId(db.id); setDeleteData(false); setIsDeleteConfirmOpen(true); }} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20">Drop Engine</button>
+                                            <button onClick={() => { setSelectedDbId(db.id); setDeleteData(false); setIsDeleteConfirmOpen(true); }} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20">{t('database.drop_engine')}</button>
                                         </>
                                     }
                                     footerActions={
                                         <>
                                             <button onClick={() => handleToggleDB(db)} disabled={togglingDbId === db.id} className={`flex-1 text-white text-sm font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2 disabled:opacity-70 ${isRunning ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600'}`}>
-                                                {togglingDbId === db.id ? <><span className="material-symbols-outlined text-[18px] animate-spin">sync</span></> : <span className="material-symbols-outlined text-[18px]">{isRunning ? 'stop' : 'play_arrow'}</span>} {isRunning ? 'Stop DB' : 'Start DB'}
+                                                {togglingDbId === db.id ? <><span className="material-symbols-outlined text-[18px] animate-spin">sync</span></> : <span className="material-symbols-outlined text-[18px]">{isRunning ? 'stop' : 'play_arrow'}</span>} {isRunning ? t('database.stop_db') : t('database.start_db')}
                                             </button>
                                             <button onClick={() => handleOpenSettings(db)} className="flex-1 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 dark:bg-slate-950 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2">
-                                                <span className="material-symbols-outlined text-[18px]">tune</span> Config
+                                                <span className="material-symbols-outlined text-[18px]">tune</span> {t('database.config')}
                                             </button>
                                         </>
                                     }
                                 >
-                                    <div className="flex flex-col gap-1 min-w-0"><span className="text-xs font-medium text-slate-500 uppercase">Engine</span><span className="text-sm font-medium text-slate-900 dark:text-slate-200 flex items-center gap-1.5 truncate"><span className="material-symbols-outlined text-[16px] text-slate-400">{db.engine === 'postgres' ? 'storage' : 'database'}</span>{db.engine === 'postgres' ? 'PostgreSQL' : 'MySQL/MariaDB'}</span></div>
-                                    <div className="flex flex-col gap-1 min-w-0"><span className="text-xs font-medium text-slate-500 uppercase">Port</span><span className="font-mono text-sm text-primary truncate">{db.port}</span></div>
-                                    <div className="flex flex-col gap-1 col-span-2 md:col-span-3 min-w-0"><span className="text-xs font-medium text-slate-500 uppercase">Data Directory</span><span className="font-mono text-sm text-slate-700 dark:text-slate-300 truncate" title={db.dataDir}>{db.dataDir}</span></div>
+                                    <div className="flex flex-col gap-1 min-w-0"><span className="text-xs font-medium text-slate-500 uppercase">{t('database.engine')}</span><span className="text-sm font-medium text-slate-900 dark:text-slate-200 flex items-center gap-1.5 truncate"><span className="material-symbols-outlined text-[16px] text-slate-400">{db.engine === 'postgres' ? 'storage' : 'database'}</span>{db.engine === 'postgres' ? 'PostgreSQL' : 'MySQL/MariaDB'}</span></div>
+                                    <div className="flex flex-col gap-1 min-w-0"><span className="text-xs font-medium text-slate-500 uppercase">{t('database.port')}</span><span className="font-mono text-sm text-primary truncate">{db.port}</span></div>
+                                    <div className="flex flex-col gap-1 col-span-2 md:col-span-3 min-w-0"><span className="text-xs font-medium text-slate-500 uppercase">{t('database.data_directory')}</span><span className="font-mono text-sm text-slate-700 dark:text-slate-300 truncate" title={db.dataDir}>{db.dataDir}</span></div>
                                 </Card>
                             )
                         })}
@@ -244,9 +248,9 @@ export default function DatabaseMain() {
                 )}
             </div>
 
-            <BackgroundProgressWidget isOpen={isInstalling && !isNewInstanceOpen} progress={progress} progressText={progressText} title="Installing Database Engine..." onRestore={() => setIsNewInstanceOpen(true)} />
+            <BackgroundProgressWidget isOpen={isInstalling && !isNewInstanceOpen} progress={progress} progressText={progressText} title={t('database.installing_db')} onRestore={() => setIsNewInstanceOpen(true)} />
 
-            <Modal keepMounted={isInstalling} isOpen={isNewInstanceOpen} onClose={() => setIsNewInstanceOpen(false)} title="Install Database Engine" icon="download" onApply={handleInstallDatabase} applyText={isInstalling ? "Processing..." : "Install Engine"} isApplyDisabled={isInstalling}>
+            <Modal keepMounted={isInstalling} isOpen={isNewInstanceOpen} onClose={() => setIsNewInstanceOpen(false)} title={t('database.install_db_title')} icon="download" onApply={handleInstallDatabase} applyText={isInstalling ? t('database.processing') : t('database.install_btn')} isApplyDisabled={isInstalling}>
                 <NewDbInstance ref={newDbRef} activeTab={activeTab} usedPorts={usedPorts} isInstalling={isInstalling} progress={progress} progressText={progressText} />
             </Modal>
 
@@ -254,25 +258,25 @@ export default function DatabaseMain() {
             <Modal
                 isOpen={isPasswordModalOpen}
                 onClose={() => !isUpdatingPassword && setIsPasswordModalOpen(false)}
-                title="Change Database Password"
+                title={t('database.change_db_password')}
                 icon="key"
                 onApply={handlePasswordSubmit}
-                applyText={isUpdatingPassword ? "Updating..." : "Update Password"}
+                applyText={isUpdatingPassword ? t('database.updating') : t('database.update_password')}
                 isApplyDisabled={isUpdatingPassword}
                 isLoading={isUpdatingPassword}
             >
                 {selectedDb && <ChangePassword instance={selectedDb} ref={passwordRef} />}
             </Modal>
 
-            <Modal isOpen={isSettingsOpen} onClose={() => !isSavingSettings && setIsSettingsOpen(false)} title={`${selectedDb?.name} Configuration`} icon="tune" onApply={handleSaveSettings} applyText={isSavingSettings ? "Saving..." : "Save Changes"} isApplyDisabled={isLoadingSettings || isSavingSettings} isLoading={isSavingSettings}>
+            <Modal isOpen={isSettingsOpen} onClose={() => !isSavingSettings && setIsSettingsOpen(false)} title={`${selectedDb?.name}${t('database.configuration')}`} icon="tune" onApply={handleSaveSettings} applyText={isSavingSettings ? t('database.saving') : t('database.save_changes')} isApplyDisabled={isLoadingSettings || isSavingSettings} isLoading={isSavingSettings}>
                 {selectedDb && <DbSettings instance={selectedDb} config={settingsConfig} onChange={handleConfigChange} isLoading={isLoadingSettings} />}
             </Modal>
 
-            <Modal isOpen={isDeleteConfirmOpen} onClose={() => !isDeleting && setIsDeleteConfirmOpen(false)} title="Drop Database Engine" icon="warning" onApply={handleConfirmUninstall} applyText={isDeleting ? "Dropping..." : "Yes, Drop"} isApplyDisabled={isDeleting} isDestructive={true} isLoading={isDeleting}>
-                <p className="text-slate-700 dark:text-slate-300 mb-2">Completely remove <strong className="text-slate-900 dark:text-white">{selectedDb?.name}</strong>?</p>
+            <Modal isOpen={isDeleteConfirmOpen} onClose={() => !isDeleting && setIsDeleteConfirmOpen(false)} title={t('database.drop_db_title')} icon="warning" onApply={handleConfirmUninstall} applyText={isDeleting ? t('database.dropping') : t('database.yes_drop')} isApplyDisabled={isDeleting} isDestructive={true} isLoading={isDeleting}>
+                <p className="text-slate-700 dark:text-slate-300 mb-2">{t('database.completely_remove')}<strong className="text-slate-900 dark:text-white">{selectedDb?.name}</strong>?</p>
                 <label className="flex items-start gap-2 bg-red-50 dark:bg-red-900/10 p-3 rounded-lg border border-red-200 cursor-pointer">
                     <input type="checkbox" checked={deleteData} onChange={(e) => setDeleteData(e.target.checked)} disabled={isDeleting} className="mt-0.5" />
-                    <div className="flex flex-col"><span className="text-sm font-semibold text-red-800">Permanently delete raw data directory</span></div>
+                    <div className="flex flex-col"><span className="text-sm font-semibold text-red-800">{t('database.delete_raw_data')}</span></div>
                 </label>
             </Modal>
         </>

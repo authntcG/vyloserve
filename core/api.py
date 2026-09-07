@@ -12,6 +12,7 @@ from core.services.dashboard import DashboardManager
 from core.services.database import DatabaseManager
 from core.services.runtimes_manager import RuntimesManager
 from core.services.git_manager import GitManager
+from core.services.settings import SettingsManager
 
 class Api:
     """
@@ -28,6 +29,7 @@ class Api:
         self.database = DatabaseManager(self)
         self.runtimes_manager = RuntimesManager(self)
         self.git_manager = GitManager(self)
+        self.settings = SettingsManager(self)
 
     def set_window(self, window: webview.Window):
         self._window = window
@@ -219,6 +221,12 @@ class Api:
         
     def save_dashboard_config(self, data: dict):
         return self.dashboard.save_config(data)
+
+    def get_app_settings(self):
+        return self.settings.get_settings()
+
+    def save_app_settings(self, data: dict):
+        return self.settings.save_settings(data)
     
     # ==========================================
     # DATABASE SECTIONS

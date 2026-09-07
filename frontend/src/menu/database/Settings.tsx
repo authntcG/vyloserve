@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+
 type DbEngineType = 'mysql' | 'postgres';
 
 interface DbInstance {
@@ -18,6 +20,7 @@ interface Props {
 }
 
 export default function DbSettings({ instance, config, onChange, isLoading }: Props) {
+    const { t } = useTranslation();
     const isPostgres = instance.engine === 'postgres';
     const isMysql = instance.engine === 'mysql';
 
@@ -37,7 +40,7 @@ export default function DbSettings({ instance, config, onChange, isLoading }: Pr
         <div className="flex flex-col gap-6">
             <div className="flex flex-col gap-4">
                 <h4 className="text-sm font-semibold text-slate-900 dark:text-white uppercase tracking-wider">
-                    Network Connection
+                    {t('database.network_connection')}
                 </h4>
                 <div className="grid grid-cols-2 gap-4">
                     <div className="flex flex-col gap-2">
@@ -57,7 +60,7 @@ export default function DbSettings({ instance, config, onChange, isLoading }: Pr
 
             <div className="flex flex-col gap-4">
                 <h4 className="text-sm font-semibold text-slate-900 dark:text-white uppercase tracking-wider flex justify-between">
-                    <span>Performance Tweaks</span>
+                    <span>{t('database.performance_tweaks')}</span>
                     <span className="text-slate-400 font-mono text-xs normal-case">{isPostgres ? 'postgresql.conf' : 'my.ini'}</span>
                 </h4>
 
@@ -130,7 +133,7 @@ export default function DbSettings({ instance, config, onChange, isLoading }: Pr
 
             <p className="text-xs text-amber-600 dark:text-amber-500 mt-2 bg-amber-50 dark:bg-amber-900/10 p-2.5 rounded border border-amber-200/50 dark:border-amber-800/30 flex gap-2 items-start">
                 <span className="material-symbols-outlined text-[16px]">info</span>
-                Saving file configurations will automatically restart the database engine to apply the changes.
+                {t('database.save_restart_warning')}
             </p>
         </div>
     );

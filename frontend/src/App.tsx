@@ -31,6 +31,18 @@ function AppContent() {
     const checkApi = () => {
       if (window.pywebview && window.pywebview.api && window.pywebview.api.test_connection) {
         setIsApiReady(true);
+        
+        // --- LOAD GLOBAL SETTINGS ---
+        if (window.pywebview.api.get_app_settings) {
+            window.pywebview.api.get_app_settings().then((res: any) => {
+                if (res?.status === 'success' && res.data?.language) {
+                    import('./i18n').then(({ default: i18n }) => {
+                        i18n.changeLanguage(res.data.language);
+                    });
+                }
+            }).catch((err: any) => console.error("Gagal memuat setting:", err));
+        }
+
         return true;
       }
       return false;

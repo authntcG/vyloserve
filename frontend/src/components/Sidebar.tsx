@@ -1,4 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
+import SettingsModals from '../menu/tools/settings/SettingsModals';
+import type { SettingsModalType } from '../menu/tools/settings/SettingsModals';
 
 // Import Aset Logo (Light & Dark)
 import brandNavLight from '../assets/brand-nav.png';
@@ -39,8 +42,12 @@ export default function Sidebar({
     activeMenu,
     onSelectMenu
 }: SidebarProps) {
+    const { t } = useTranslation();
     const [searchQuery, setSearchQuery] = useState('');
     const [isToolsOpen, setIsToolsOpen] = useState(false);
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [activeSettingsModal, setActiveSettingsModal] = useState<SettingsModalType>(null);
+    const settingsRef = useRef<HTMLDivElement>(null);
     const [systemLoad, setSystemLoad] = useState<number>(0);
     const [serviceStatus, setServiceStatus] = useState<Record<string, boolean>>({
         apache: false,
@@ -73,11 +80,20 @@ export default function Sidebar({
                 fetchServiceStatuses();
             }
         };
+
+        const handleClickOutside = (event: MouseEvent) => {
+            if (settingsRef.current && !settingsRef.current.contains(event.target as Node)) {
+                setIsSettingsOpen(false);
+            }
+        };
+
         window.addEventListener('service_status_changed', handleStatusSync);
+        document.addEventListener('mousedown', handleClickOutside);
 
         return () => {
             clearInterval(interval);
             window.removeEventListener('service_status_changed', handleStatusSync);
+            document.removeEventListener('mousedown', handleClickOutside);
         };
     }, []);
 
@@ -108,7 +124,11 @@ export default function Sidebar({
     const sidebarWidthClass = isDesktopCollapsed ? 'w-20' : 'w-sidebar-width';
     const mobileTranslateClass = isMobileOpen ? 'translate-x-0' : '-translate-x-full';
 
-    const filterQuery = (item: { name: string }) => item.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const filterQuery = (item: { id: string; name: string }) => {
+        // Fallback to name if key doesn't exist, though we defined all keys
+        const translatedName = t(`sidebar.menu_${item.id}`, item.name);
+        return translatedName.toLowerCase().includes(searchQuery.toLowerCase());
+    };
 
     const filteredMain = MAIN_MENU.filter(filterQuery);
     const filteredServices = SERVICES.filter(filterQuery);
@@ -147,7 +167,7 @@ export default function Sidebar({
                             <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors text-[20px]">search</span>
                             <input
                                 type="text"
-                                placeholder="Search..."
+                                placeholder={t('sidebar.search')}
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-primary focus:ring-1 focus:ring-primary text-slate-900 dark:text-slate-100 rounded-md py-2 pl-10 pr-3 text-sm transition-all outline-none"
@@ -167,14 +187,14 @@ export default function Sidebar({
                             className={`flex items-center gap-3 rounded-md px-3 py-2.5 cursor-pointer transition-colors ${activeMenu === menu.id ? 'bg-slate-100 dark:bg-slate-800 text-primary' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
                         >
                             <span className="material-symbols-outlined shrink-0" style={{ fontVariationSettings: activeMenu === menu.id ? "'FILL' 1" : "'FILL' 0" }}>{menu.icon}</span>
-                            <span className={`font-medium text-sm whitespace-nowrap overflow-hidden transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[150px] opacity-100'}`}>{menu.name}</span>
+                            <span className={`font-medium text-sm whitespace-nowrap overflow-hidden transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[150px] opacity-100'}`}>{t(`sidebar.menu_${menu.id}`, menu.name)}</span>
                         </div>
                     ))}
 
                     {/* Services */}
                     {filteredServices.length > 0 && (
                         <div className={`px-3 pb-1 text-xs font-semibold text-slate-400 uppercase tracking-wider transition-all ${isDesktopCollapsed ? 'hidden' : 'pt-4 border-t border-slate-200 dark:border-slate-800 mt-2'}`}>
-                            Services
+                            {t('sidebar.services')}
                         </div>
                     )}
                     {filteredServices.map(service => {
@@ -187,7 +207,7 @@ export default function Sidebar({
                             >
                                 <div className="flex items-center gap-3 min-w-0">
                                     <span className="material-symbols-outlined shrink-0" style={{ fontVariationSettings: isSelected ? "'FILL' 1" : "'FILL' 0" }}>{service.icon}</span>
-                                    <span className={`font-medium text-sm truncate transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[150px] opacity-100'}`}>{service.name}</span>
+                                    <span className={`font-medium text-sm truncate transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[150px] opacity-100'}`}>{t(`sidebar.menu_${service.id}`, service.name)}</span>
                                 </div>
 
                                 <label className={`relative inline-flex items-center cursor-pointer transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[40px] opacity-100'}`} onClick={(e) => handleToggleClick(service.id, e)}>
@@ -207,7 +227,7 @@ export default function Sidebar({
                             >
                                 <div className="flex items-center gap-3">
                                     <span className="material-symbols-outlined shrink-0">construction</span>
-                                    <span className={`font-medium text-sm whitespace-nowrap overflow-hidden transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[150px] opacity-100'}`}>Tools</span>
+                                    <span className={`font-medium text-sm whitespace-nowrap overflow-hidden transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[150px] opacity-100'}`}>{t('sidebar.tools')}</span>
                                 </div>
                                 <span className={`material-symbols-outlined text-[20px] transition-transform duration-300 ${isDesktopCollapsed ? 'hidden' : ''}`} style={{ transform: showToolsDropdown ? 'rotate(180deg)' : 'rotate(0deg)' }}>expand_more</span>
                             </div>
@@ -218,7 +238,7 @@ export default function Sidebar({
                                     {filteredTools.map(tool => (
                                         <div key={tool.id} onClick={() => onSelectMenu(tool.id)} className={`flex items-center gap-3 rounded-md px-3 py-2 cursor-pointer transition-colors ${activeMenu === tool.id ? 'text-primary bg-slate-50 dark:bg-slate-800/50' : 'text-slate-500 dark:text-slate-400 hover:text-primary'}`}>
                                             <span className="material-symbols-outlined text-[18px] shrink-0">{tool.icon}</span>
-                                            <span className="font-medium text-sm">{tool.name}</span>
+                                            <span className="font-medium text-sm">{t(`sidebar.menu_${tool.id}`, tool.name)}</span>
                                         </div>
                                     ))}
                                 </div>
@@ -227,11 +247,11 @@ export default function Sidebar({
                             {/* Flyout jika Collapsed */}
                             {isDesktopCollapsed && (
                                 <div className="absolute left-[calc(100%+4px)] top-0 w-48 flex-col gap-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl p-2 z-[60] opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
-                                    <div className="px-3 pt-1 pb-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 mb-1">Tools</div>
+                                    <div className="px-3 pt-1 pb-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 mb-1">{t('sidebar.tools')}</div>
                                     {filteredTools.map(tool => (
                                         <div key={tool.id} onClick={() => onSelectMenu(tool.id)} className={`flex items-center gap-3 rounded-md px-3 py-2 cursor-pointer ${activeMenu === tool.id ? 'text-primary bg-slate-50 dark:bg-slate-800' : 'text-slate-600 dark:text-slate-300'}`}>
                                             <span className="material-symbols-outlined text-[18px]">{tool.icon}</span>
-                                            <span className="font-medium text-sm truncate">{tool.name}</span>
+                                            <span className="font-medium text-sm truncate">{t(`sidebar.menu_${tool.id}`, tool.name)}</span>
                                         </div>
                                     ))}
                                 </div>
@@ -241,15 +261,55 @@ export default function Sidebar({
                 </div>
 
                 {/* Footer System Load */}
-                <div className="p-4 border-t border-slate-200 dark:border-slate-800 mt-auto flex justify-center md:justify-start">
-                    <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 w-full">
+                <div className="p-4 border-t border-slate-200 dark:border-slate-800 mt-auto flex justify-between items-center relative" ref={settingsRef}>
+                    <div className={`flex items-center gap-2 text-slate-500 dark:text-slate-400 ${isDesktopCollapsed ? 'w-full justify-center' : ''}`}>
                         <span className={`material-symbols-outlined text-[20px] ${systemLoad > 80 ? 'text-red-500' : systemLoad > 50 ? 'text-amber-500' : 'text-emerald-500'}`}>memory</span>
                         <span className={`text-xs font-medium uppercase tracking-wider transition-all duration-300 overflow-hidden whitespace-nowrap ${isDesktopCollapsed ? 'max-w-0 opacity-0 hidden' : 'max-w-[150px] opacity-100'}`}>
-                            System Load: <span className={systemLoad > 80 ? 'text-red-500 font-bold' : ''}>{systemLoad}%</span>
+                            {t('sidebar.system_load')} <span className={systemLoad > 80 ? 'text-red-500 font-bold' : ''}>{systemLoad}%</span>
                         </span>
                     </div>
+
+                    {!isDesktopCollapsed && (
+                        <button
+                            onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+                            className={`p-1.5 rounded-md flex items-center justify-center transition-colors ${isSettingsOpen ? 'bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                        >
+                            <span className="material-symbols-outlined text-[18px]">settings</span>
+                        </button>
+                    )}
+
+                    {isSettingsOpen && !isDesktopCollapsed && (
+                        <div className="absolute bottom-full mb-2 right-4 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 overflow-hidden text-sm font-medium">
+                            <button
+                                onClick={() => { setActiveSettingsModal('language'); setIsSettingsOpen(false); }}
+                                className="w-full text-left px-4 py-3 flex items-center gap-3 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-100 dark:border-slate-800"
+                            >
+                                <span className="material-symbols-outlined text-[18px] text-slate-400">translate</span>
+                                {t('settings.change_language')}
+                            </button>
+                            <button
+                                onClick={() => { setActiveSettingsModal('about'); setIsSettingsOpen(false); }}
+                                className="w-full text-left px-4 py-3 flex items-center gap-3 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-100 dark:border-slate-800"
+                            >
+                                <span className="material-symbols-outlined text-[18px] text-slate-400">info</span>
+                                {t('settings.about')}
+                            </button>
+                            <button
+                                onClick={() => { setActiveSettingsModal('quit'); setIsSettingsOpen(false); }}
+                                className="w-full text-left px-4 py-3 flex items-center gap-3 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                            >
+                                <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
+                                {t('settings.quit')}
+                            </button>
+                        </div>
+                    )}
                 </div>
             </nav>
+
+            <SettingsModals 
+                activeModal={activeSettingsModal} 
+                onClose={() => setActiveSettingsModal(null)} 
+            />
         </>
     );
 }

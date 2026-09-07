@@ -1,4 +1,5 @@
 import { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { ProjectData } from './Main';
 import { useToast } from '../../components/ToastContext';
 
@@ -11,6 +12,7 @@ export interface ProjectSettingsRef {
 }
 
 const ProjectSettings = forwardRef<ProjectSettingsRef, Props>(({ project }, ref) => {
+    const { t } = useTranslation();
     const { showToast } = useToast();
 
     // States untuk Dropdown PHP
@@ -43,7 +45,7 @@ const ProjectSettings = forwardRef<ProjectSettingsRef, Props>(({ project }, ref)
     useImperativeHandle(ref, () => ({
         submit: async () => {
             if (!projectName.trim()) {
-                showToast("Nama proyek tidak boleh kosong.", "warning");
+                showToast(t('apache.empty_project_name'), "warning");
                 return false;
             }
 
@@ -71,7 +73,7 @@ const ProjectSettings = forwardRef<ProjectSettingsRef, Props>(({ project }, ref)
                 return false;
             } catch (error) {
                 console.error(error);
-                showToast("Gagal memperbarui pengaturan.", "error");
+                showToast(t('apache.update_settings_error'), "error");
                 return false;
             }
         }
@@ -82,19 +84,19 @@ const ProjectSettings = forwardRef<ProjectSettingsRef, Props>(({ project }, ref)
 
             {/* Opsi Edit Nama Project */}
             <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Project Name</label>
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('apache.project_name')}</label>
                 <input
                     type="text"
                     value={projectName}
                     onChange={(e) => setProjectName(e.target.value)}
-                    placeholder="e.g., My Awesome Site"
+                    placeholder={t('apache.placeholder_project_name')}
                     className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2.5 outline-none transition-colors"
                 />
             </div>
 
             {/* Read-Only Domain Host */}
             <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Local Domain</label>
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('apache.local_domain')}</label>
                 <div className="flex shadow-sm rounded-lg opacity-80 cursor-not-allowed">
                     <input
                         type="text"
@@ -106,12 +108,12 @@ const ProjectSettings = forwardRef<ProjectSettingsRef, Props>(({ project }, ref)
                         .{project.domain.split('.').pop()}
                     </span>
                 </div>
-                <p className="text-xs text-slate-500">Domain is locked and tied to the Virtual Host.</p>
+                <p className="text-xs text-slate-500">{t('apache.domain_locked_desc')}</p>
             </div>
 
             {/* Opsi Edit Binding PHP */}
             <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">PHP FastCGI Routing</label>
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('apache.php_fastcgi_routing')}</label>
                 {isLoading ? (
                     <div className="h-[42px] bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg animate-pulse"></div>
                 ) : (
@@ -125,11 +127,11 @@ const ProjectSettings = forwardRef<ProjectSettingsRef, Props>(({ project }, ref)
                                 <option key={v.version} value={v.version}>PHP {v.version} (FastCGI)</option>
                             ))
                         ) : (
-                            <option>No PHP versions installed</option>
+                            <option>{t('apache.no_php_installed')}</option>
                         )}
                     </select>
                 )}
-                <p className="text-xs text-slate-500">Changing the PHP routing will automatically rewrite the VHost and restart Apache.</p>
+                <p className="text-xs text-slate-500">{t('apache.php_routing_desc')}</p>
             </div>
         </div>
     );

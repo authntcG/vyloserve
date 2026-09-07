@@ -1,4 +1,5 @@
 import { useState, forwardRef, useImperativeHandle } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useToast } from '../../components/ToastContext';
 
 interface DbInstance {
@@ -20,6 +21,7 @@ export interface ChangePasswordRef {
 }
 
 const ChangePassword = forwardRef<ChangePasswordRef, Props>(({ instance }, ref) => {
+    const { t } = useTranslation();
     const { showToast } = useToast();
     const isPostgres = instance.engine === 'postgres';
 
@@ -30,12 +32,12 @@ const ChangePassword = forwardRef<ChangePasswordRef, Props>(({ instance }, ref) 
     useImperativeHandle(ref, () => ({
         submit: async () => {
             if (!credNew) {
-                showToast("Password baru tidak boleh kosong.", "warning");
+                showToast(t('database.new_password_empty_warning'), "warning");
                 return false;
             }
 
             if (instance.status !== 'running') {
-                showToast("Database harus dalam keadaan menyala (Running) untuk mengubah kredensial.", "warning");
+                showToast(t('database.db_must_be_running'), "warning");
                 return false;
             }
 
@@ -54,7 +56,7 @@ const ChangePassword = forwardRef<ChangePasswordRef, Props>(({ instance }, ref) 
                 return false;
             } catch (error) {
                 console.error(error);
-                showToast("Gagal menghubungi server untuk mengubah kredensial.", "error");
+                showToast(t('database.fetch_cred_error'), "error");
                 return false;
             }
         }
@@ -65,15 +67,15 @@ const ChangePassword = forwardRef<ChangePasswordRef, Props>(({ instance }, ref) 
             <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/50 rounded-lg flex items-start gap-3 mb-2">
                 <span className="material-symbols-outlined text-blue-500 text-[20px] mt-0.5">info</span>
                 <div className="flex flex-col gap-1">
-                    <span className="text-sm font-semibold text-blue-800 dark:text-blue-400">Direct SQL Inject</span>
+                    <span className="text-sm font-semibold text-blue-800 dark:text-blue-400">{t('database.direct_sql_inject')}</span>
                     <span className="text-xs text-blue-600 dark:text-blue-300 leading-relaxed">
-                        Pengubahan password dieksekusi langsung menggunakan antarmuka Command Line (CLI) SQL ke dalam database. Pastikan engine sedang <b>Running</b>.
+                        {t('database.change_password_desc_1')}<b>{t('database.running_bold')}</b>.
                     </span>
                 </div>
             </div>
 
             <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Username</label>
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('database.username')}</label>
                 <input
                     type="text"
                     value={credUser}
@@ -82,20 +84,20 @@ const ChangePassword = forwardRef<ChangePasswordRef, Props>(({ instance }, ref) 
                 />
             </div>
             <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Current Password</label>
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('database.current_password')}</label>
                 <input
                     type="password"
-                    placeholder="Leave empty if no password"
+                    placeholder={t('database.leave_empty_no_password')}
                     value={credOld}
                     onChange={(e) => setCredOld(e.target.value)}
                     className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg block p-2.5 outline-none focus:ring-primary focus:border-primary transition-colors font-mono"
                 />
             </div>
             <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">New Password</label>
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('database.new_password')}</label>
                 <input
                     type="password"
-                    placeholder="Enter new password"
+                    placeholder={t('database.enter_new_password')}
                     value={credNew}
                     onChange={(e) => setCredNew(e.target.value)}
                     className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg block p-2.5 outline-none focus:ring-primary focus:border-primary transition-colors font-mono"
