@@ -5,7 +5,9 @@
         "cancel": "Batal",
         "delete": "Hapus",
         "success": "Berhasil",
-        "error": "Gagal"
+        "error": "Gagal",
+        "close": "Tutup",
+        "apply": "Terapkan Perubahan"
     },
     "sidebar": {
         "search": "Cari...",
@@ -432,7 +434,9 @@
         "quit": "Matikan Aplikasi",
         "language_desc": "Pilih bahasa antarmuka aplikasi.",
         "about_desc": "Lingkungan Pengembangan Web Lokal Modern yang Berkinerja Tinggi. Dibangun menggunakan React, Vite, Tailwind, dan Python.",
-        "quit_desc": "Apakah Anda yakin ingin mematikan aplikasi VyloServe? Semua servis latar belakang akan tetap berjalan sesuai dengan status terakhirnya."
+        "quit_desc": "Apakah Anda yakin ingin mematikan aplikasi VyloServe? Semua servis latar belakang akan tetap berjalan sesuai dengan status terakhirnya.",
+        "view_on_github": "Lihat di GitHub",
+        "documentation": "Dokumentasi"
     },
     "tools": {
         "base64": {
@@ -578,6 +582,26 @@
             "hierarchy_title": "Struktur & Hierarki URL",
             "valid_url": "URL Valid",
             "waiting": "Menunggu"
+        }
+    },
+    "components": {
+        "logs": {
+            "title": "Log Sistem",
+            "copy": "Salin",
+            "copied": "Tersalin!",
+            "auto": "Otomatis",
+            "paused": "Jeda",
+            "clear": "Bersihkan",
+            "empty": "Tidak ada log..."
+        },
+        "progress": {
+            "installing": "Menginstal...",
+            "processing": "Memproses..."
+        },
+        "interceptor": {
+            "copy_success": "Log disalin ke clipboard!",
+            "copy_error": "Gagal menyalin teks",
+            "copy_btn": "Salin Teks Log"
         }
     }
 }

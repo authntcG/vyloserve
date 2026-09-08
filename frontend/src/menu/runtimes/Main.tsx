@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import PageHeader from '../../components/PageHeader';
 import Card from '../../components/Card';
 import Modal from '../../components/Modal';
+import BackgroundProgressWidget from '../../components/BackgroundProgressWidget';
 import EmptyState from '../../components/EmptyState';
 import { useToast } from '../../components/ToastContext';
 
@@ -191,35 +192,7 @@ export default function RuntimesMain() {
         );
     };
 
-    const renderFloatingWidget = () => {
-        if (!isMinimized || !isProcessing || !installingEngine) return null;
-
-        return (
-            <div className="fixed bottom-6 right-6 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl p-4 z-[9999] animate-in slide-in-from-bottom-5 fade-in duration-300">
-                <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
-                            <span className="material-symbols-outlined text-primary text-[18px]">system_update_alt</span>
-                        </div>
-                        <div className="flex flex-col min-w-0 flex-1">
-                            <span className="text-sm font-bold text-slate-900 dark:text-white leading-none truncate">{t('runtimes.install_title')}{installingEngine}</span>
-                            <span className="text-[10px] text-slate-500 mt-1">{t('runtimes.running_in_background')}</span>
-                        </div>
-                    </div>
-                    <button onClick={() => setIsMinimized(false)} className="w-7 h-7 shrink-0 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors outline-none">
-                        <span className="material-symbols-outlined text-[18px]">open_in_full</span>
-                    </button>
-                </div>
-                <div className="flex justify-between text-[11px] mb-1.5 px-0.5">
-                    <span className="text-slate-500 truncate w-3/4">{progressText || t('runtimes.processing')}</span>
-                    <span className="font-bold text-primary">{progress}%</span>
-                </div>
-                <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                    <div className="bg-primary h-1.5 rounded-full transition-all duration-300 ease-out" style={{ width: `${progress}%` }}></div>
-                </div>
-            </div>
-        );
-    };
+    // Floating widget now uses standard BackgroundProgressWidget component below
 
     const renderExternalCard = (engineId: 'node' | 'python' | 'java' | 'go', engineTitle: string) => {
         const ext = runtimeData[engineId].external;
@@ -435,7 +408,13 @@ export default function RuntimesMain() {
                 )}
             </div>
 
-            {renderFloatingWidget()}
+            <BackgroundProgressWidget
+                isOpen={isMinimized && isProcessing && !!installingEngine}
+                progress={progress}
+                progressText={progressText}
+                title={`${t('runtimes.install_title')}${installingEngine}`}
+                onRestore={() => setIsMinimized(false)}
+            />
 
             <Modal
                 isOpen={!!engineToUninstall && !isMinimized}

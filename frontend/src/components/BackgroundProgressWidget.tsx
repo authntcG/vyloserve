@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+
 interface BackgroundProgressWidgetProps {
     isOpen: boolean;            // Apakah proses sedang berjalan
     progress: number;           // Nilai persen (0 - 100)
@@ -10,11 +12,15 @@ export default function BackgroundProgressWidget({
     isOpen,
     progress,
     progressText,
-    title = "Installing...",
+    title,
     onRestore
 }: BackgroundProgressWidgetProps) {
+    const { t } = useTranslation();
+    
     // Jika tidak aktif atau progress sudah selesai total, sembunyikan widget
     if (!isOpen || progress <= 0 || progress >= 100) return null;
+
+    const displayTitle = title || t('components.progress.installing');
 
     return (
         <div
@@ -24,13 +30,13 @@ export default function BackgroundProgressWidget({
             <div className="flex justify-between items-center mb-1">
                 <span className="text-xs font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
                     <span className="material-symbols-outlined text-[14px] text-primary animate-spin">sync</span>
-                    {title}
+                    {displayTitle}
                 </span>
                 <span className="material-symbols-outlined text-[16px] text-slate-400 group-hover:text-primary transition-colors">open_in_full</span>
             </div>
 
             <div className="flex justify-between items-center">
-                <span className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate w-3/4">{progressText || 'Memproses...'}</span>
+                <span className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate w-3/4">{progressText || t('components.progress.processing')}</span>
                 <span className="text-xs font-bold text-primary dark:text-blue-400">{progress}%</span>
             </div>
 

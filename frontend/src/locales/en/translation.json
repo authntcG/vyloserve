@@ -5,7 +5,9 @@
         "cancel": "Cancel",
         "delete": "Delete",
         "success": "Success",
-        "error": "Error"
+        "error": "Error",
+        "close": "Close",
+        "apply": "Apply Changes"
     },
     "sidebar": {
         "search": "Search...",
@@ -432,7 +434,9 @@
         "quit": "Quit Application",
         "language_desc": "Select the application interface language.",
         "about_desc": "The Modern, High-Performance Local Web Development Environment. Built with React, Vite, Tailwind, and Python.",
-        "quit_desc": "Are you sure you want to quit VyloServe? All background services will continue running based on their last status."
+        "quit_desc": "Are you sure you want to quit VyloServe? All background services will continue running based on their last status.",
+        "view_on_github": "View on GitHub",
+        "documentation": "Documentation"
     },
     "tools": {
         "base64": {
@@ -578,6 +582,26 @@
             "hierarchy_title": "URL Structure & Hierarchy",
             "valid_url": "Valid URL",
             "waiting": "Waiting"
+        }
+    },
+    "components": {
+        "logs": {
+            "title": "System Logs",
+            "copy": "Copy",
+            "copied": "Copied!",
+            "auto": "Auto",
+            "paused": "Paused",
+            "clear": "Clear",
+            "empty": "No logs available..."
+        },
+        "progress": {
+            "installing": "Installing...",
+            "processing": "Processing..."
+        },
+        "interceptor": {
+            "copy_success": "Log copied to clipboard!",
+            "copy_error": "Failed to copy text",
+            "copy_btn": "Copy Log Text"
         }
     }
 }

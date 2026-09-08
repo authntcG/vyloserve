@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useToast } from '../../components/ToastContext';
-
+import PageHeader from '../../components/PageHeader';
 interface ProjectData {
     id: string;
     name: string;
@@ -415,17 +415,11 @@ export default function DashboardMain() {
     return (
         <div className="flex flex-col w-full gap-6 pb-10 animate-in fade-in duration-300">
 
-            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-2">
-                <div className="flex flex-col gap-3">
-                    <div className="flex items-center gap-3">
-                        <span className="material-symbols-outlined text-slate-700 dark:text-slate-300 text-[32px]">space_dashboard</span>
-                        <h2 className="text-2xl md:text-3xl font-semibold text-slate-900 dark:text-white">{t('dashboard.title')}</h2>
-                    </div>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">
-                        {t('dashboard.subtitle')}
-                    </p>
-                </div>
-            </div>
+            <PageHeader 
+                icon="space_dashboard" 
+                title={t('dashboard.title')} 
+                subtitle={t('dashboard.subtitle')} 
+            />
 
             <div className="flex flex-col gap-3">
                 {getSuggestions().map((sugg, idx) => (
