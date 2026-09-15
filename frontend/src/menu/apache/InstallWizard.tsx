@@ -148,7 +148,7 @@ export default function ApacheInstallWizard({
                         <input
                             type="number"
                             value={httpPort}
-                            onChange={(e) => setHttpPort(parseInt(e.target.value) || 80)}
+                            onChange={(e) => setHttpPort(Number.parseInt(e.target.value) || 80)}
                             disabled={isInstalling}
                             className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2.5 outline-none disabled:opacity-50 transition-colors font-mono"
                         />
@@ -158,7 +158,7 @@ export default function ApacheInstallWizard({
                         <input
                             type="number"
                             value={httpsPort}
-                            onChange={(e) => setHttpsPort(parseInt(e.target.value) || 443)}
+                            onChange={(e) => setHttpsPort(Number.parseInt(e.target.value) || 443)}
                             disabled={isInstalling}
                             className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2.5 outline-none disabled:opacity-50 transition-colors font-mono"
                         />

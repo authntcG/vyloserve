@@ -80,7 +80,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                                     {toast.message}
                                 </p>
                             </div>
-                            <button
+                            <button type="button"
                                 onClick={() => removeToast(toast.id)}
                                 className="shrink-0 p-0.5 opacity-50 hover:opacity-100 transition-opacity"
                             >

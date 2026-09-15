@@ -232,7 +232,7 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
                                     placeholder={t('apache.placeholder_workspace')}
                                     className="w-full bg-white dark:bg-slate-950 border border-amber-300 dark:border-amber-700/50 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-amber-500 focus:border-amber-500 block p-2.5 outline-none transition-colors disabled:opacity-50"
                                 />
-                                <button
+                                <button type="button"
                                     onClick={handleBrowseFolder}
                                     disabled={isCreating}
                                     className="px-4 border rounded-lg bg-amber-100 hover:bg-amber-200 dark:bg-slate-800 dark:hover:bg-slate-700 border-amber-300 dark:border-amber-700/50 text-amber-800 dark:text-amber-400 text-sm font-medium outline-none transition-colors"
@@ -256,7 +256,7 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
                     <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('apache.project_directory')}</label>
                     <div className="flex gap-2">
                         <input type="text" value={documentRoot} onChange={(e) => { setDocumentRoot(e.target.value); setDetectedFramework(null); }} disabled={isCreating} placeholder="C:/Projects/my-site" className={inputClasses} />
-                        <button onClick={handleBrowseExistingProject} disabled={isCreating || isDetecting} className={`px-4 font-medium text-sm border rounded-lg transition-colors outline-none ${isCreating || isDetecting ? 'bg-slate-50 text-slate-400 dark:bg-slate-900 border-slate-200' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'}`}>
+                        <button type="button" onClick={handleBrowseExistingProject} disabled={isCreating || isDetecting} className={`px-4 font-medium text-sm border rounded-lg transition-colors outline-none ${isCreating || isDetecting ? 'bg-slate-50 text-slate-400 dark:bg-slate-900 border-slate-200' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'}`}>
                             {t('apache.browse')}
                         </button>
                     </div>
@@ -303,7 +303,7 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
                                 </label>
                                 <div className="flex gap-2">
                                     <input type="text" value={installLocation} onChange={(e) => handleInstallLocChange(e.target.value)} disabled={isCreating} placeholder="C:/vylo-workspace" className={inputClasses} />
-                                    <button onClick={handleBrowseFolder} disabled={isCreating} className="px-3 border rounded-lg bg-white hover:bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-sm outline-none transition-colors">{t('apache.browse')}</button>
+                                    <button type="button" onClick={handleBrowseFolder} disabled={isCreating} className="px-3 border rounded-lg bg-white hover:bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-sm outline-none transition-colors">{t('apache.browse')}</button>
                                 </div>
                                 <span className="text-[11px] text-slate-500">{t('apache.project_extracted_to')}<strong>{installLocation ? `${installLocation}\\${domainName}`.replace(/\\/g, '/') : '...'}</strong></span>
                             </div>

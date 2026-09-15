@@ -68,7 +68,7 @@ export default function PhpMain() {
     useEffect(() => {
         const handleProgress = (e: any) => {
             if (e.detail) {
-                setProgress(e.detail.percent); setProgressText(e.detail.text || '');
+                setProgress(e.detail.percent); setProgressText(t(e.detail.text || '', e.detail.args || {}) as string);
                 if (e.detail.percent >= 100 || e.detail.percent === 0) setTimeout(() => setProgress(0), 3000);
             }
         };
@@ -83,7 +83,7 @@ export default function PhpMain() {
         setIsInstalling(true);
         try {
             const res = await window.pywebview?.api?.install_php(installVersion, installFilename, installPort);
-            showToast(res?.message, res?.status === 'success' ? 'success' : 'error');
+            showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
             if (res?.status === 'success') { setIsNewInstanceOpen(false); fetchInstalledInstances(); }
         } catch (e) { showToast(t('php.system_error'), "error"); }
         finally { setIsInstalling(false); }
@@ -105,7 +105,7 @@ export default function PhpMain() {
         try {
             const activeExts = settingsExtensions.filter(e => e.active).map(e => e.name);
             const res = await window.pywebview?.api?.save_php_config(selectedInstance.version, settingsConfig, activeExts);
-            showToast(res?.message, res?.status === 'success' ? 'success' : 'error');
+            showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
             if (res?.status === 'success') { setIsSettingsOpen(false); fetchInstalledInstances(); }
         } catch (e) { showToast(t('php.save_error'), "error"); }
         finally { setIsSavingSettings(false); }
@@ -116,7 +116,7 @@ export default function PhpMain() {
         setIsDeleting(true);
         try {
             const res = await window.pywebview?.api?.uninstall_php(deleteTarget.version);
-            showToast(res?.message, res?.status === 'success' ? 'success' : 'error');
+            showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
             if (res?.status === 'success') { setDeleteTarget(null); fetchInstalledInstances(); }
         } catch (e) { showToast(t('php.delete_error'), "error"); }
         finally { setIsDeleting(false); }
@@ -127,7 +127,7 @@ export default function PhpMain() {
         try {
             const isRunning = php.status === 'running';
             const res = isRunning ? await window.pywebview?.api?.stop_php(php.version) : await window.pywebview?.api?.start_php(php.version);
-            showToast(res?.message, res?.status === 'success' ? 'success' : 'error');
+            showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
             if (res?.status === 'success') {
                 setInstances(prev => prev.map(i => i.id === php.id ? { ...i, status: isRunning ? 'stopped' : 'running' } : i));
                 window.dispatchEvent(new CustomEvent('service_status_changed', { detail: { service: 'php', running: !isRunning } }));
@@ -149,7 +149,7 @@ export default function PhpMain() {
                         </>
                     }
                     actions={
-                        <button onClick={() => setIsNewInstanceOpen(true)} className="bg-primary hover:bg-blue-600 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center gap-2 shadow-sm">
+                        <button type="button" onClick={() => setIsNewInstanceOpen(true)} className="bg-primary hover:bg-blue-600 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center gap-2 shadow-sm">
                             <span className="material-symbols-outlined text-[18px]">add</span> {t('php.add_version')}
                         </button>
                     }
@@ -177,18 +177,18 @@ export default function PhpMain() {
                                         key={php.id} title={php.name} status={php.status} gridCols="grid-cols-2 md:grid-cols-3"
                                         dropdownActions={
                                             <>
-                                                <button onClick={() => window.pywebview?.api?.open_php_ini(php.version)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">{t('php.open_php_ini')}</button>
-                                                <button onClick={() => window.pywebview?.api?.open_php_dir(php.version)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">{t('php.open_directory')}</button>
+                                                <button type="button" onClick={() => window.pywebview?.api?.open_php_ini(php.version)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">{t('php.open_php_ini')}</button>
+                                                <button type="button" onClick={() => window.pywebview?.api?.open_php_dir(php.version)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">{t('php.open_directory')}</button>
                                                 <div className="border-t border-slate-200 dark:border-slate-700 my-1"></div>
-                                                <button onClick={() => setDeleteTarget(php)} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">{t('php.uninstall')}</button>
+                                                <button type="button" onClick={() => setDeleteTarget(php)} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">{t('php.uninstall')}</button>
                                             </>
                                         }
                                         footerActions={
                                             <>
-                                                <button onClick={() => handleToggleStatus(php)} disabled={togglingInstanceId === php.id} className={`flex-1 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm disabled:opacity-70 ${isRunning ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600'}`}>
+                                                <button type="button" onClick={() => handleToggleStatus(php)} disabled={togglingInstanceId === php.id} className={`flex-1 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm disabled:opacity-70 ${isRunning ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600'}`}>
                                                     {togglingInstanceId === php.id ? <><span className="material-symbols-outlined text-[18px] animate-spin">sync</span> {isRunning ? t('php.stopping') : t('php.starting')}</> : <><span className="material-symbols-outlined text-[18px]">{isRunning ? 'stop' : 'play_arrow'}</span> {isRunning ? t('php.stop_cgi') : t('php.start_cgi')}</>}
                                                 </button>
-                                                <button onClick={() => handleOpenSettings(php)} className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
+                                                <button type="button" onClick={() => handleOpenSettings(php)} className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
                                                     <span className="material-symbols-outlined text-[18px]">tune</span> {t('php.config')}
                                                 </button>
                                             </>

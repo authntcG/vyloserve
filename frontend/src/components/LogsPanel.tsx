@@ -8,6 +8,7 @@ interface LogEntry {
 }
 
 export default function LogsPanel() {
+    const { t } = useTranslation();
     const [isExpanded, setIsExpanded] = useState(true);
     const [isAutoScroll, setIsAutoScroll] = useState(true);
     const [logs, setLogs] = useState<LogEntry[]>([
@@ -58,10 +59,16 @@ export default function LogsPanel() {
         const handleLogEvent = (e: Event) => {
             const customEvent = e as CustomEvent;
             logCounter.current += 1;
+            
+            // i18next will translate if it's a valid key, otherwise it returns the original string (safe fallback)
+            const rawMsg = customEvent.detail.message;
+            const args = customEvent.detail.args || {};
+            const translatedMsg = t(rawMsg, args) as string;
+
             const newLog: LogEntry = {
                 id: `log-${logCounter.current}`,
                 timestamp: new Date().toLocaleTimeString(),
-                message: customEvent.detail.message,
+                message: translatedMsg,
                 level: customEvent.detail.level || 'info'
             };
             setLogs((prev) => [...prev, newLog]);
@@ -69,7 +76,7 @@ export default function LogsPanel() {
 
         window.addEventListener('vylo_log', handleLogEvent);
         return () => window.removeEventListener('vylo_log', handleLogEvent);
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         if (scrollRef.current && isExpanded && isAutoScroll) {
@@ -100,7 +107,6 @@ export default function LogsPanel() {
         }
     };
 
-    const { t } = useTranslation();
 
     const getColorClass = (level: string) => {
         switch (level) {
@@ -128,19 +134,19 @@ export default function LogsPanel() {
                 </h3>
 
                 <div className="flex items-center gap-3">
-                    <button onClick={copyLogsToClipboard} className={`text-xs font-medium transition-colors flex items-center gap-1 ${isCopied ? 'text-emerald-500' : 'text-slate-500 hover:text-primary'}`}>
+                    <button type="button" onClick={copyLogsToClipboard} className={`text-xs font-medium transition-colors flex items-center gap-1 ${isCopied ? 'text-emerald-500' : 'text-slate-500 hover:text-primary'}`}>
                         <span className="material-symbols-outlined text-[14px]">{isCopied ? 'check' : 'content_copy'}</span>
                         {isCopied ? t('components.logs.copied') : t('components.logs.copy')}
                     </button>
-                    <button onClick={() => setIsAutoScroll(!isAutoScroll)} className={`text-xs font-medium transition-colors flex items-center gap-1 ${isAutoScroll ? 'text-slate-500 hover:text-amber-500' : 'text-amber-500'}`}>
+                    <button type="button" onClick={() => setIsAutoScroll(!isAutoScroll)} className={`text-xs font-medium transition-colors flex items-center gap-1 ${isAutoScroll ? 'text-slate-500 hover:text-amber-500' : 'text-amber-500'}`}>
                         <span className="material-symbols-outlined text-[14px]">{isAutoScroll ? 'pause_circle' : 'play_circle'}</span>
                         {isAutoScroll ? t('components.logs.auto') : t('components.logs.paused')}
                     </button>
-                    <button onClick={() => setLogs([])} className="text-xs font-medium text-slate-500 hover:text-red-500 transition-colors flex items-center gap-1">
+                    <button type="button" onClick={() => setLogs([])} className="text-xs font-medium text-slate-500 hover:text-red-500 transition-colors flex items-center gap-1">
                         <span className="material-symbols-outlined text-[14px]">delete</span>{t('components.logs.clear')}
                     </button>
                     <div className="w-px h-4 bg-slate-300 dark:bg-slate-700 mx-1"></div>
-                    <button onClick={() => setIsExpanded(!isExpanded)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors">
+                    <button type="button" onClick={() => setIsExpanded(!isExpanded)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors">
                         <span className="material-symbols-outlined text-slate-500 text-[18px]">{isExpanded ? 'expand_more' : 'expand_less'}</span>
                     </button>
                 </div>

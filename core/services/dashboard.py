@@ -44,7 +44,7 @@ class DashboardManager:
             
         except Exception as e:
             if hasattr(self, 'api'):
-                self.api.emit_log(f"Gagal membaca config dashboard: {str(e)}", "error")
+                self.api.emit_log("backend.dashboard.read_failed", "error", {"e": str(e)})
             return {"status": "error", "message": str(e)}
 
     def save_config(self, data: dict) -> Dict[str, str]:
@@ -57,9 +57,9 @@ class DashboardManager:
             if success:
                 return {"status": "success"}
             else:
-                raise Exception("Proses penulisan diblokir oleh OS.")
+                raise RuntimeError("Proses penulisan diblokir oleh OS.")
                 
         except Exception as e:
             if hasattr(self, 'api'):
-                self.api.emit_log(f"Gagal menyimpan config dashboard: {str(e)}", "error")
+                self.api.emit_log("backend.dashboard.save_failed", "error", {"e": str(e)})
             return {"status": "error", "message": str(e)}

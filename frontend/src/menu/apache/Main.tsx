@@ -78,7 +78,7 @@ export default function ApacheMain() {
             if (api && typeof api.get_projects === 'function') {
                 const res = await api.get_projects();
                 if (res.status === 'success') setProjects(res.data || []);
-                else showToast(res.message, 'error');
+                else showToast(t(res.message) as string, 'error');
             }
         } catch (e) { showToast(t('apache.fetch_projects_error'), "error"); }
         finally { setIsFetchingProjects(false); }
@@ -110,9 +110,9 @@ export default function ApacheMain() {
         try {
             const res = await window.pywebview?.api?.delete_project(selectedProjectId, isDeleteFiles);
             if (res?.status === 'success') {
-                showToast(res.message || t('apache.project_deleted'), "success");
+                showToast((res.message ? t(res.message, res.args || {}) : t('apache.project_deleted')) as string, "success");
                 fetchProjects(); setIsDeleteConfirmOpen(false);
-            } else showToast(res?.message, "error");
+            } else showToast(t(res?.message || '', res?.args || {}) as string, "error");
         } catch (e) { showToast(t('apache.delete_error'), "error"); }
         finally { setIsDeletingProject(false); setIsDeleteFiles(false); }
     };
@@ -120,20 +120,23 @@ export default function ApacheMain() {
     const handleSyncHost = async (projectId: string) => {
         try {
             const res = await window.pywebview?.api?.retry_sync_host(projectId);
-            showToast(res?.message, res?.status === 'success' ? "success" : "error");
+            showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? "success" : "error");
             if (res?.status === 'success') fetchProjects();
         } catch (e) { showToast(t('apache.sync_error'), "error"); }
     };
 
     const handleOpenDocumentRoot = async (path: string) => {
-        try { window.pywebview?.api?.open_in_explorer(path); } catch (e) { }
+        try { window.pywebview?.api?.open_in_explorer(path); } catch (e) { console.error(e); }
     };
 
     useEffect(() => {
         const handleStatus = (e: any) => { if (e.detail.service === 'apache') setIsApacheRunning(e.detail.running); };
         const handleProg = (e: any) => {
             if (e.detail) {
-                setProgress(e.detail.percent); setProgressText(e.detail.text || '');
+                const text = e.detail.text || '';
+                const args = e.detail.args || {};
+                setProgress(e.detail.percent); 
+                setProgressText(t(text, args) as string);
                 if (e.detail.percent >= 100 || e.detail.percent === 0) setTimeout(() => { setProgress(0); setIsCreatingProject(false); }, 3000);
             }
         };
@@ -143,7 +146,7 @@ export default function ApacheMain() {
             window.removeEventListener('service_status_changed', handleStatus);
             window.removeEventListener('vylo_progress', handleProg);
         };
-    }, []);
+    }, [t]);
 
     const fetchApacheStatus = async () => {
         setIsFetchingApacheStatus(true);
@@ -156,7 +159,7 @@ export default function ApacheMain() {
             }
             const ver = await window.pywebview?.api?.get_apache_installed_versions();
             if (ver?.status === 'success') setInstalledApacheVersion(ver.active || ver.data[0]);
-        } catch (e) { }
+        } catch (e) { console.error(e); }
         finally { setIsFetchingApacheStatus(false); }
     };
 
@@ -172,8 +175,8 @@ export default function ApacheMain() {
             const api = window.pywebview?.api;
             const res = isApacheRunning ? await api?.stop_apache_server() : await api?.start_apache_server();
             if (res?.status === 'success') {
-                showToast(res.message, 'success'); setIsApacheRunning(!isApacheRunning);
-            } else showToast(res?.message, 'error');
+                showToast(t(res.message || '', res.args || {}) as string, 'success'); setIsApacheRunning(!isApacheRunning);
+            } else showToast(t(res?.message || '', res?.args || {}) as string, 'error');
         } catch (e) { showToast(t('apache.toggle_error'), "error"); }
         finally { setIsTogglingServer(false); }
     };
@@ -188,7 +191,7 @@ export default function ApacheMain() {
                 if (filtered.length > 0) {
                     setInstallVersion(filtered[0].version); setInstallUrl(filtered[0].url);
                 }
-            } else showToast(res?.message, 'error');
+            } else showToast(t(res?.message || '', res?.args || {}) as string, 'error');
         } catch (e) { showToast(t('apache.fetch_versions_error'), "error"); }
         finally { setIsFetchingVersions(false); }
     };
@@ -202,8 +205,8 @@ export default function ApacheMain() {
         if (!installVersion || !installUrl) return;
         setIsInstalling(true); setProgress(0); setProgressText(t('apache.installing_start'));
         try {
-            const res = await window.pywebview?.api?.install_apache(installVersion, installUrl, httpPort, httpsPort);
-            showToast(res?.message, res?.status === 'success' ? 'success' : 'error');
+            const res = await window.pywebview?.api?.install_apache(installVersion, installUrl, httpPort);
+            showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
             if (res?.status === 'success') { setIsInstallServerOpen(false); fetchApacheStatus(); }
         } catch (e) { showToast(t('apache.system_error'), "error"); }
         finally { setIsInstalling(false); }
@@ -213,7 +216,7 @@ export default function ApacheMain() {
         setIsUninstalling(true);
         try {
             const res = await window.pywebview?.api?.uninstall_apache();
-            showToast(res?.message, res?.status === 'success' ? 'success' : 'error');
+            showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
             if (res?.status === 'success') { setIsUninstallServerOpen(false); fetchApacheStatus(); }
         } catch (e) { showToast(t('apache.uninstall_error'), "error"); }
         finally { setIsUninstalling(false); }
@@ -233,7 +236,7 @@ export default function ApacheMain() {
                         </>
                     }
                     actions={
-                        <button onClick={handleOpenInstallModal} className="bg-primary hover:bg-blue-600 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center gap-2 shadow-sm">
+                        <button type="button" onClick={handleOpenInstallModal} className="bg-primary hover:bg-blue-600 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center gap-2 shadow-sm">
                             <span className="material-symbols-outlined text-[18px]">download</span> {t('apache.install_update')}
                         </button>
                     }
@@ -249,18 +252,18 @@ export default function ApacheMain() {
                             gridCols="grid-cols-2 md:grid-cols-3"
                             dropdownActions={
                                 <>
-                                    <button onClick={() => window.pywebview?.api?.open_apache_config()} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">{t('apache.open_httpd_conf')}</button>
-                                    <button onClick={() => window.pywebview?.api?.open_apache_directory()} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">{t('apache.open_directory')}</button>
+                                    <button type="button" onClick={() => window.pywebview?.api?.open_apache_config()} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">{t('apache.open_httpd_conf')}</button>
+                                    <button type="button" onClick={() => window.pywebview?.api?.open_apache_directory()} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">{t('apache.open_directory')}</button>
                                     <div className="border-t border-slate-200 dark:border-slate-700 my-1"></div>
-                                    <button onClick={() => setIsUninstallServerOpen(true)} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">{t('apache.uninstall_server')}</button>
+                                    <button type="button" onClick={() => setIsUninstallServerOpen(true)} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">{t('apache.uninstall_server')}</button>
                                 </>
                             }
                             footerActions={
                                 <>
-                                    <button onClick={handleToggleServer} disabled={isTogglingServer} className={`flex-1 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm disabled:opacity-70 disabled:scale-100 ${isApacheRunning ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600'}`}>
+                                    <button type="button" onClick={handleToggleServer} disabled={isTogglingServer} className={`flex-1 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm disabled:opacity-70 disabled:scale-100 ${isApacheRunning ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600'}`}>
                                         {isTogglingServer ? <><span className="material-symbols-outlined text-[18px] animate-spin">sync</span> {isApacheRunning ? t('apache.stopping') : t('apache.starting')}</> : <><span className="material-symbols-outlined text-[18px]">{isApacheRunning ? 'stop' : 'play_arrow'}</span> {isApacheRunning ? t('apache.stop_server') : t('apache.start_server')}</>}
                                     </button>
-                                    <button onClick={() => setIsOptionsOpen(true)} className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
+                                    <button type="button" onClick={() => setIsOptionsOpen(true)} className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
                                         <span className="material-symbols-outlined text-[18px]">tune</span> {t('apache.config')}
                                     </button>
                                 </>
@@ -288,7 +291,7 @@ export default function ApacheMain() {
 
                 <div className="flex justify-between items-center mb-6">
                     <h3 className="text-xl font-semibold text-slate-900 dark:text-white">{t('apache.virtual_hosts_title')}</h3>
-                    <button onClick={() => setIsNewProjectModalOpen(true)} disabled={!isApacheInstalled} className="bg-slate-900 dark:bg-white hover:bg-slate-800 dark:hover:bg-slate-200 text-white dark:text-slate-900 disabled:opacity-50 disabled:cursor-not-allowed border border-transparent text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center gap-2 shadow-sm">
+                    <button type="button" onClick={() => setIsNewProjectModalOpen(true)} disabled={!isApacheInstalled} className="bg-slate-900 dark:bg-white hover:bg-slate-800 dark:hover:bg-slate-200 text-white dark:text-slate-900 disabled:opacity-50 disabled:cursor-not-allowed border border-transparent text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center gap-2 shadow-sm">
                         <span className="material-symbols-outlined text-[18px]">add</span> <span className="hidden sm:inline">{t('apache.add_project')}</span>
                     </button>
                 </div>
@@ -305,21 +308,21 @@ export default function ApacheMain() {
                             <Card key={project.id} title={project.name || 'Untitled Project'} gridCols="grid-cols-1"
                                 dropdownActions={
                                     <>
-                                        <button onClick={() => handleOpenDocumentRoot(project.path)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">{t('apache.open_document_root')}</button>
-                                        <button onClick={() => { setSelectedProjectId(project.id); setIsProjectSettingsOpen(true); }} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">{t('apache.vhost_settings')}</button>
+                                        <button type="button" onClick={() => handleOpenDocumentRoot(project.path)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">{t('apache.open_document_root')}</button>
+                                        <button type="button" onClick={() => { setSelectedProjectId(project.id); setIsProjectSettingsOpen(true); }} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">{t('apache.vhost_settings')}</button>
                                         {project.host_synced === false && (
-                                            <button onClick={() => handleSyncHost(project.id)} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">{t('apache.retry_host_sync')}</button>
+                                            <button type="button" onClick={() => handleSyncHost(project.id)} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">{t('apache.retry_host_sync')}</button>
                                         )}
                                         <div className="border-t border-slate-200 dark:border-slate-700 my-1"></div>
-                                        <button onClick={() => { setSelectedProjectId(project.id); setIsDeleteFiles(false); setIsDeleteConfirmOpen(true); }} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">{t('apache.delete_project')}</button>
+                                        <button type="button" onClick={() => { setSelectedProjectId(project.id); setIsDeleteFiles(false); setIsDeleteConfirmOpen(true); }} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">{t('apache.delete_project')}</button>
                                     </>
                                 }
                                 footerActions={
                                     <>
-                                        <button onClick={() => handleOpenBrowser(project.domain)} className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
+                                        <button type="button" onClick={() => handleOpenBrowser(project.domain)} className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
                                             <span className="material-symbols-outlined text-[18px]">open_in_browser</span> {t('apache.open_in_browser')}
                                         </button>
-                                        <button onClick={() => { setSelectedProjectId(project.id); setIsProjectSettingsOpen(true); }} className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
+                                        <button type="button" onClick={() => { setSelectedProjectId(project.id); setIsProjectSettingsOpen(true); }} className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
                                             <span className="material-symbols-outlined text-[18px]">settings</span> {t('apache.setup')}
                                         </button>
                                     </>
@@ -337,7 +340,7 @@ export default function ApacheMain() {
                                         </div>
                                         <div className="flex flex-col gap-1 col-span-2">
                                             <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('apache.local_domain')}</span>
-                                            <button onClick={() => handleOpenBrowser(project.domain)} className="font-mono text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1.5 hover:text-primary transition-colors w-fit truncate outline-none">
+                                            <button type="button" onClick={() => handleOpenBrowser(project.domain)} className="font-mono text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1.5 hover:text-primary transition-colors w-fit truncate outline-none">
                                                 {project.domain} <span className="material-symbols-outlined text-[14px]">open_in_new</span>
                                             </button>
                                         </div>
@@ -349,7 +352,7 @@ export default function ApacheMain() {
                                                 <div className="flex flex-col gap-1.5 w-full">
                                                     <span className="text-sm font-semibold text-red-800 dark:text-red-500">{t('apache.domain_not_routed')}</span>
                                                     <span className="text-xs text-red-700 dark:text-red-400/80 leading-relaxed">{t('apache.domain_not_routed_desc')}</span>
-                                                    <button onClick={() => handleSyncHost(project.id)} className="mt-1 self-start text-xs font-medium text-red-800 dark:text-red-300 bg-red-200 dark:bg-red-800/50 hover:bg-red-300 dark:hover:bg-red-700/60 px-3 py-1.5 rounded-md flex items-center gap-1.5"><span className="material-symbols-outlined text-[14px]">sync</span> {t('apache.retry_sync')}</button>
+                                                    <button type="button" onClick={() => handleSyncHost(project.id)} className="mt-1 self-start text-xs font-medium text-red-800 dark:text-red-300 bg-red-200 dark:bg-red-800/50 hover:bg-red-300 dark:hover:bg-red-700/60 px-3 py-1.5 rounded-md flex items-center gap-1.5"><span className="material-symbols-outlined text-[14px]">sync</span> {t('apache.retry_sync')}</button>
                                                 </div>
                                             </div>
                                         </div>

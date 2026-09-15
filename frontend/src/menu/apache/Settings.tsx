@@ -129,7 +129,7 @@ export default function ApacheSettings() {
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <button onClick={() => handleOpenFile('httpd')} className="flex items-center gap-3 p-3 border border-slate-200 dark:border-slate-700 rounded-lg hover:border-primary dark:hover:border-primary hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors text-left group">
+                        <button type="button" onClick={() => handleOpenFile('httpd')} className="flex items-center gap-3 p-3 border border-slate-200 dark:border-slate-700 rounded-lg hover:border-primary dark:hover:border-primary hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors text-left group">
                             <span className="material-symbols-outlined text-slate-400 group-hover:text-primary transition-colors">description</span>
                             <div className="flex flex-col">
                                 <span className="text-sm font-medium text-slate-900 dark:text-slate-100">httpd.conf</span>
@@ -137,7 +137,7 @@ export default function ApacheSettings() {
                             </div>
                         </button>
 
-                        <button onClick={() => handleOpenFile('vhosts')} className="flex items-center gap-3 p-3 border border-slate-200 dark:border-slate-700 rounded-lg hover:border-primary dark:hover:border-primary hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors text-left group">
+                        <button type="button" onClick={() => handleOpenFile('vhosts')} className="flex items-center gap-3 p-3 border border-slate-200 dark:border-slate-700 rounded-lg hover:border-primary dark:hover:border-primary hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors text-left group">
                             <span className="material-symbols-outlined text-slate-400 group-hover:text-primary transition-colors">link</span>
                             <div className="flex flex-col">
                                 <span className="text-sm font-medium text-slate-900 dark:text-slate-100">vhosts.conf</span>
@@ -145,7 +145,7 @@ export default function ApacheSettings() {
                             </div>
                         </button>
 
-                        <button onClick={() => handleOpenFile('error')} className="flex items-center gap-3 p-3 border border-slate-200 dark:border-slate-700 rounded-lg hover:border-primary dark:hover:border-primary hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors text-left group">
+                        <button type="button" onClick={() => handleOpenFile('error')} className="flex items-center gap-3 p-3 border border-slate-200 dark:border-slate-700 rounded-lg hover:border-primary dark:hover:border-primary hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors text-left group">
                             <span className="material-symbols-outlined text-slate-400 group-hover:text-primary transition-colors">bug_report</span>
                             <div className="flex flex-col">
                                 <span className="text-sm font-medium text-slate-900 dark:text-slate-100">error.log</span>

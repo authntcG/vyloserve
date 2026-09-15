@@ -79,7 +79,7 @@ export default function DatabaseMain() {
                 const p = e.detail.percent;
                 if (p < 0) { setIsInstalling(false); setProgress(0); return; }
                 if (p > 0 && p < 100) setIsInstalling(true);
-                setProgress(p); setProgressText(e.detail.text || '');
+                setProgress(p); setProgressText(t(e.detail.text || '', e.detail.args || {}) as string);
                 if (p >= 100) setTimeout(() => { setProgress(0); setIsInstalling(false); setIsNewInstanceOpen(false); fetchDatabases(); }, 3000);
             }
         };
@@ -93,7 +93,7 @@ export default function DatabaseMain() {
         try {
             const isRunning = db.status === 'running';
             const res = isRunning ? await window.pywebview?.api?.stop_database(db.id) : await window.pywebview?.api?.start_database(db.id);
-            showToast(res?.message, res?.status === 'success' ? 'success' : 'error');
+            showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
             if (res?.status === 'success') {
                 fetchDatabases();
                 window.dispatchEvent(new CustomEvent('service_status_changed', { detail: { service: 'database' } }));
@@ -113,7 +113,7 @@ export default function DatabaseMain() {
 
             setIsInstalling(true); setProgressText(t('database.preparing_engine'));
             const res = await window.pywebview?.api?.install_database(formData.engine, formData.version, formData.url, formData.port, formData.rootPass);
-            if (res?.status === 'error') { showToast(res.message, "error"); setIsInstalling(false); setProgress(0); }
+            if (res?.status === 'error') { showToast(t(res.message || '', res.args || {}) as string, "error"); setIsInstalling(false); setProgress(0); }
         } catch (e) { showToast(t('database.install_error'), "error"); setIsInstalling(false); setProgress(0); }
     };
 
@@ -122,7 +122,7 @@ export default function DatabaseMain() {
         setIsDeleting(true);
         try {
             const res = await window.pywebview?.api?.uninstall_database(selectedDbId, deleteData);
-            showToast(res?.message, res?.status === 'success' ? 'success' : 'error');
+            showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
             if (res?.status === 'success') { setIsDeleteConfirmOpen(false); setSelectedDbId(null); setDeleteData(false); fetchDatabases(); }
         } catch (e) { showToast(t('database.delete_error'), "error"); }
         finally { setIsDeleting(false); }
@@ -133,7 +133,7 @@ export default function DatabaseMain() {
         try {
             const res = await window.pywebview?.api?.get_db_config(db.id);
             if (res?.status === 'success') setSettingsConfig(res.config);
-            else showToast(res?.message, "error");
+            else showToast(t(res?.message || '', res?.args || {}) as string, "error");
         } catch (e) { showToast(t('database.fetch_config_error'), "error"); }
         finally { setIsLoadingSettings(false); }
     };
@@ -144,7 +144,7 @@ export default function DatabaseMain() {
         setIsSavingSettings(true);
         try {
             const res = await window.pywebview?.api?.save_db_config(selectedDb.id, settingsConfig);
-            showToast(res?.message, res?.status === 'success' ? 'success' : 'error');
+            showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
             if (res?.status === 'success') { setIsSettingsOpen(false); fetchDatabases(); }
         } catch (e) { showToast(t('database.save_error'), "error"); }
         finally { setIsSavingSettings(false); }
@@ -179,16 +179,16 @@ export default function DatabaseMain() {
                         </>
                     }
                     actions={
-                        <button onClick={() => setIsNewInstanceOpen(true)} className="bg-primary hover:bg-blue-600 border border-transparent text-white text-sm font-medium py-2 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-sm">
+                        <button type="button" onClick={() => setIsNewInstanceOpen(true)} className="bg-primary hover:bg-blue-600 border border-transparent text-white text-sm font-medium py-2 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-sm">
                             <span className="material-symbols-outlined text-[18px]">add</span> {t('database.add_engine')}
                         </button>
                     }
                 />
 
                 <div className="flex gap-1 overflow-x-auto no-scrollbar mb-6 border-b border-slate-200 dark:border-slate-800">
-                    <button onClick={() => setActiveTab('all')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'all' ? 'border-primary text-primary' : 'border-transparent text-slate-500'}`}>{t('database.all_instances')}</button>
-                    <button onClick={() => setActiveTab('mysql')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'mysql' ? 'border-primary text-primary' : 'border-transparent text-slate-500'}`}>{t('database.mysql_mariadb')}</button>
-                    <button onClick={() => setActiveTab('postgres')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'postgres' ? 'border-primary text-primary' : 'border-transparent text-slate-500'}`}>{t('database.postgres')}</button>
+                    <button type="button" onClick={() => setActiveTab('all')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'all' ? 'border-primary text-primary' : 'border-transparent text-slate-500'}`}>{t('database.all_instances')}</button>
+                    <button type="button" onClick={() => setActiveTab('mysql')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'mysql' ? 'border-primary text-primary' : 'border-transparent text-slate-500'}`}>{t('database.mysql_mariadb')}</button>
+                    <button type="button" onClick={() => setActiveTab('postgres')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'postgres' ? 'border-primary text-primary' : 'border-transparent text-slate-500'}`}>{t('database.postgres')}</button>
                 </div>
 
                 {isLoading ? (
@@ -213,26 +213,26 @@ export default function DatabaseMain() {
                                     dropdownActions={
                                         <>
                                             {/* ---> TEKS "Open Config" DIKEMBALIKAN KE OPEN MY.INI/POSTGRESQL.CONF <--- */}
-                                            <button onClick={() => window.pywebview?.api?.open_db_config_file(db.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700">
+                                            <button type="button" onClick={() => window.pywebview?.api?.open_db_config_file(db.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700">
                                                 {db.engine === 'postgres' ? t('database.open_postgres_conf') : t('database.open_my_ini')}
                                             </button>
-                                            <button onClick={() => window.pywebview?.api?.open_db_dir(db.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700">{t('database.open_data_folder')}</button>
+                                            <button type="button" onClick={() => window.pywebview?.api?.open_db_dir(db.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700">{t('database.open_data_folder')}</button>
 
                                             {/* ---> MENU BARU: CHANGE PASSWORD <--- */}
-                                            <button onClick={() => { setSelectedDbId(db.id); setIsPasswordModalOpen(true); }} className="w-full flex items-center justify-between px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700">
+                                            <button type="button" onClick={() => { setSelectedDbId(db.id); setIsPasswordModalOpen(true); }} className="w-full flex items-center justify-between px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700">
                                                 {t('database.change_password')}
                                             </button>
 
                                             <div className="border-t border-slate-200 dark:border-slate-700 my-1"></div>
-                                            <button onClick={() => { setSelectedDbId(db.id); setDeleteData(false); setIsDeleteConfirmOpen(true); }} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20">{t('database.drop_engine')}</button>
+                                            <button type="button" onClick={() => { setSelectedDbId(db.id); setDeleteData(false); setIsDeleteConfirmOpen(true); }} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20">{t('database.drop_engine')}</button>
                                         </>
                                     }
                                     footerActions={
                                         <>
-                                            <button onClick={() => handleToggleDB(db)} disabled={togglingDbId === db.id} className={`flex-1 text-white text-sm font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2 disabled:opacity-70 ${isRunning ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600'}`}>
+                                            <button type="button" onClick={() => handleToggleDB(db)} disabled={togglingDbId === db.id} className={`flex-1 text-white text-sm font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2 disabled:opacity-70 ${isRunning ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600'}`}>
                                                 {togglingDbId === db.id ? <><span className="material-symbols-outlined text-[18px] animate-spin">sync</span></> : <span className="material-symbols-outlined text-[18px]">{isRunning ? 'stop' : 'play_arrow'}</span>} {isRunning ? t('database.stop_db') : t('database.start_db')}
                                             </button>
-                                            <button onClick={() => handleOpenSettings(db)} className="flex-1 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 dark:bg-slate-950 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2">
+                                            <button type="button" onClick={() => handleOpenSettings(db)} className="flex-1 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 dark:bg-slate-950 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2">
                                                 <span className="material-symbols-outlined text-[18px]">tune</span> {t('database.config')}
                                             </button>
                                         </>

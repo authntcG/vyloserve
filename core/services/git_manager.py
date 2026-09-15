@@ -1,6 +1,7 @@
 import os
 import sys
 import shutil
+from typing import Optional
 import subprocess
 import winreg
 import ctypes
@@ -11,6 +12,7 @@ import concurrent.futures
 
 from core.utils.system_utils import get_project_root, run_silent_command
 from core.utils.file_utils import download_advanced
+GIT_EXE = "git.exe" if sys.platform == "win32" else "git"
 
 class GitManager:
     """
@@ -22,92 +24,96 @@ class GitManager:
         self.bin_dir = os.path.join(self.root_dir, 'bin')
         os.makedirs(self.bin_dir, exist_ok=True)
 
+    def _log(self, msg: str, level: str = "info", args: dict = None):
+        if hasattr(self, 'api') and self.api: self.api.emit_log(msg, level, args)
+
+    def _progress(self, pct: int, msg: str):
+        if hasattr(self, 'api') and self.api: self.api.emit_progress(pct, msg)
+
+    def _find_via_where(self, vyloserve_bin: str) -> Optional[str]:
+        if sys.platform != 'win32': return None
+        try:
+            res = subprocess.run(['where', 'git'], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
+            if res.returncode == 0:
+                for p in res.stdout.strip().split('\n'):
+                    p_clean = os.path.normpath(p.strip())
+                    if p_clean and vyloserve_bin not in p_clean.lower(): return p_clean
+        except Exception: pass
+        return None
+
+    def _find_via_registry(self, vyloserve_bin: str) -> Optional[str]:
+        if sys.platform != 'win32': return None
+        raw_paths = []
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r'SYSTEM\CurrentControlSet\Control\Session Manager\Environment', 0, winreg.KEY_READ) as key:
+                sys_path, _ = winreg.QueryValueEx(key, 'Path')
+                if sys_path: raw_paths.extend(sys_path.split(';'))
+        except Exception: pass
+
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Environment', 0, winreg.KEY_READ) as key:
+                user_path, _ = winreg.QueryValueEx(key, 'Path')
+                if user_path: raw_paths.extend(user_path.split(';'))
+        except Exception: pass
+
+        clean_paths = []
+        for p in raw_paths:
+            p_clean = p.strip(' "\'')
+            if not p_clean: continue
+            p_expanded = os.path.expandvars(p_clean) 
+            if vyloserve_bin not in os.path.normpath(p_expanded).lower(): clean_paths.append(p_expanded)
+        
+        fresh_path_env = os.pathsep.join(clean_paths)
+        return shutil.which('git', path=fresh_path_env)
+
+    def _find_via_hardcoded(self) -> Optional[str]:
+        if sys.platform != 'win32': return None
+        standard_paths = [
+            os.environ.get('PROGRAMFILES', 'C:\\Program Files') + r'\Git\cmd\git.exe',
+            os.environ.get('PROGRAMFILES(X86)', 'C:\\Program Files (x86)') + r'\Git\cmd\git.exe',
+            os.environ.get('LOCALAPPDATA', '') + r'\Programs\Git\cmd\git.exe'
+        ]
+        for sp in standard_paths:
+            if sp and os.path.exists(sp): return sp
+        return None
+
+    def _validate_git_binary(self, found_path: str):
+        try:
+            is_windows_script = found_path.lower().endswith(('.cmd', '.bat'))
+            creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+            
+            if is_windows_script:
+                result = subprocess.run(f'"{found_path}" --version', capture_output=True, text=True, shell=True, creationflags=creation_flags)
+            else:
+                result = subprocess.run([found_path, '--version'], capture_output=True, text=True, creationflags=creation_flags)
+            
+            version_out = result.stdout.strip() or result.stderr.strip()
+            
+            if version_out:
+                import re
+                match = re.search(r'git version (\d+\.\d+\.\d+)', version_out)
+                if match:
+                    self._log("backend.git.found_external", "success", {"version": match.group(1), "path": found_path})
+                    return {"exists": True, "version": match.group(1), "path": found_path}
+        except Exception: pass
+        return None
+
     # ==========================================
     # PENDETEKSI INSTALASI EKSTERNAL (4 LAPIS)
     # ==========================================
     def _check_external_installation(self):
         if hasattr(self, 'api'):
-            self.api.emit_log("Memindai instalasi eksternal untuk engine 'git'...", "info")
+            self._log("backend.git.scanning_external", "info")
 
         vyloserve_bin = os.path.normpath(os.path.join(self.root_dir, 'bin')).lower()
-        found_path = None
+        
+        found_path = self._find_via_where(vyloserve_bin) or self._find_via_registry(vyloserve_bin) or self._find_via_hardcoded()
 
-        # TAHAP 1: Menggunakan perintah 'where' (Lingkungan Aktif)
-        if sys.platform == 'win32':
-            try:
-                res = subprocess.run(['where', 'git'], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
-                if res.returncode == 0:
-                    paths = res.stdout.strip().split('\n')
-                    for p in paths:
-                        p_clean = os.path.normpath(p.strip())
-                        if p_clean and vyloserve_bin not in p_clean.lower():
-                            found_path = p_clean
-                            break
-            except Exception: pass
-
-        # TAHAP 2: Pemindaian Registry Langsung
-        if not found_path and sys.platform == 'win32':
-            raw_paths = []
-            try:
-                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r'SYSTEM\CurrentControlSet\Control\Session Manager\Environment', 0, winreg.KEY_READ) as key:
-                    sys_path, _ = winreg.QueryValueEx(key, 'Path')
-                    if sys_path: raw_paths.extend(sys_path.split(';'))
-            except Exception: pass
-
-            try:
-                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Environment', 0, winreg.KEY_READ) as key:
-                    user_path, _ = winreg.QueryValueEx(key, 'Path')
-                    if user_path: raw_paths.extend(user_path.split(';'))
-            except Exception: pass
-
-            clean_paths = []
-            for p in raw_paths:
-                p_clean = p.strip(' "\'')
-                if not p_clean: continue
-                p_expanded = os.path.expandvars(p_clean) 
-                if vyloserve_bin not in os.path.normpath(p_expanded).lower():
-                    clean_paths.append(p_expanded)
-            
-            fresh_path_env = os.pathsep.join(clean_paths)
-            found_path = shutil.which('git', path=fresh_path_env)
-
-        # TAHAP 3: Hardcoded Standard Paths Fallback (Jika Git terinstal tanpa opsi PATH)
-        if not found_path and sys.platform == 'win32':
-            standard_paths = [
-                os.environ.get('PROGRAMFILES', 'C:\\Program Files') + r'\Git\cmd\git.exe',
-                os.environ.get('PROGRAMFILES(X86)', 'C:\\Program Files (x86)') + r'\Git\cmd\git.exe',
-                os.environ.get('LOCALAPPDATA', '') + r'\Programs\Git\cmd\git.exe'
-            ]
-            for sp in standard_paths:
-                if sp and os.path.exists(sp):
-                    found_path = sp
-                    break
-
-        # TAHAP 4: Eksekusi File untuk Validasi & Ekstrak Versi
         if found_path:
-            try:
-                is_windows_script = found_path.lower().endswith(('.cmd', '.bat'))
-                creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
-                
-                # BUG FIX: .cmd dan .bat WAJIB menggunakan shell=True di subprocess.run Windows
-                if is_windows_script:
-                    result = subprocess.run(f'"{found_path}" --version', capture_output=True, text=True, shell=True, creationflags=creation_flags)
-                else:
-                    result = subprocess.run([found_path, '--version'], capture_output=True, text=True, creationflags=creation_flags)
-                
-                version_out = result.stdout.strip() or result.stderr.strip()
-                
-                if version_out:
-                    final_version = version_out.split('\n')[0].strip().replace('git version ', '')
-                    if hasattr(self, 'api'):
-                        self.api.emit_log(f"Instalasi eksternal git ({final_version}) terdeteksi pada sistem.", "warn")
-                    return {"exists": True, "path": found_path, "version": final_version}
-            except Exception as e: 
-                pass
-            
-            return {"exists": True, "path": found_path, "version": "Unknown Version"}
+            validated = self._validate_git_binary(found_path)
+            if validated: return validated
 
-        return {"exists": False, "path": "", "version": ""}
+        return {"exists": False, "version": "Unknown", "path": ""}
 
     def _is_in_user_path(self, target_path: str) -> bool:
         try:
@@ -123,7 +129,7 @@ class GitManager:
     # ==========================================
     def get_git_status(self):
         git_dir = os.path.join(self.bin_dir, 'git')
-        git_exe = os.path.join(git_dir, 'cmd', 'git.exe' if sys.platform == 'win32' else 'git')
+        git_exe = os.path.join(git_dir, 'cmd', GIT_EXE if sys.platform == 'win32' else 'git')
         
         internal_installed = os.path.exists(git_exe)
         internal_version = ""
@@ -131,7 +137,7 @@ class GitManager:
             try:
                 res = subprocess.run([git_exe, '--version'], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
                 internal_version = res.stdout.strip().replace('git version ', '')
-            except: internal_version = "Unknown"
+            except Exception: internal_version = "Unknown"
 
         external_info = self._check_external_installation()
 
@@ -194,7 +200,7 @@ class GitManager:
                     if res: valid_results.append(res)
                         
             if not valid_results:
-                raise Exception("Biner PortableGit 64-bit tidak ditemukan pada 20 rilis terbaru.")
+                raise RuntimeError("Biner PortableGit 64-bit tidak ditemukan pada 20 rilis terbaru.")
 
             # Mengembalikan urutan asli sesuai rilis GitHub (karena as_completed bersifat acak)
             original_order = {tag: i for i, tag in enumerate(unique_tags)}
@@ -215,8 +221,17 @@ class GitManager:
                 
             return {'status': 'success', 'data': results}
             
-        except Exception as e:
-            return {'status': 'error', 'message': f"Gagal mengambil versi Git: {str(e)}"}
+        except Exception:
+            return {'status': 'error', 'message': "backend.git.fetch_failed"}
+
+    def _extract_sfx(self, exe_path: str, git_dir: str):
+        extraction_cmd = f'"{exe_path}" -y -o"{git_dir}"'
+        creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+        res = subprocess.run(extraction_cmd, shell=True, capture_output=True, creationflags=creation_flags)
+        if res.returncode != 0:
+            raise RuntimeError("Gagal mengekstrak PortableGit. File instalasi mungkin korup.")
+        if os.path.exists(exe_path):
+            os.remove(exe_path)
 
     def install_git(self, download_url: str, filename: str, version_text: str):
         git_dir = os.path.join(self.bin_dir, 'git')
@@ -225,52 +240,42 @@ class GitManager:
         try:
             # 1. LOG INISIALISASI
             if hasattr(self, 'api'): 
-                self.api.emit_log(f"Memulai instalasi Git v{version_text}...", "info")
-                self.api.emit_progress(5, "Mempersiapkan pengunduhan...")
+                self._log("backend.git.install_start", "info", {"version": version_text})
+                self._progress(5, "backend.git.preparing_download")
 
             # 2. FASE UNDUHAN
             def log_cb(msg, lvl="info"): 
-                if hasattr(self, 'api'): self.api.emit_log(msg, lvl)
+                self._log(msg, lvl)
             def download_prog_cb(pct, msg): 
                 scaled_pct = 5 + int(pct * 0.65) # Porsi unduhan lebih besar karena filenya cukup berat (~50MB)
-                if hasattr(self, 'api'): self.api.emit_progress(scaled_pct, msg)
+                self._progress(scaled_pct, msg)
 
             if os.path.exists(git_dir): shutil.rmtree(git_dir, ignore_errors=True)
 
-            log_cb(f"Mulai mengunduh PortableGit dari GitHub...", "info")
+            log_cb("Mulai mengunduh PortableGit dari GitHub...", "info")
             download_advanced(download_url, exe_path, log_cb=log_cb, progress_cb=download_prog_cb)
 
             # 3. FASE EKSTRAKSI SFX
             if hasattr(self, 'api'): 
-                self.api.emit_log("Unduhan selesai. Mengeksekusi ekstraksi otomatis (SFX)...", "info")
-                self.api.emit_progress(75, "Mengekstrak berkas biner Git (Mohon tunggu)...")
+                self._log("backend.git.download_complete_extracting", "info")
+                self._progress(75, "backend.git.extracting_binary")
             
-            # MAGIS DI SINI: Kita menggunakan argumen bawaan 7-Zip SFX untuk Windows
-            extraction_cmd = f'"{exe_path}" -y -o"{git_dir}"'
-            creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
-            
-            res = subprocess.run(extraction_cmd, shell=True, capture_output=True, creationflags=creation_flags)
-            
-            if res.returncode != 0:
-                raise Exception("Gagal mengekstrak PortableGit. File instalasi mungkin korup.")
-
-            if os.path.exists(exe_path):
-                os.remove(exe_path)
+            self._extract_sfx(exe_path, git_dir)
 
             # 4. FINALISASI
             if hasattr(self, 'api'): 
-                self.api.emit_progress(100, "Instalasi Git Selesai!")
-                self.api.emit_log(f"Git v{version_text} berhasil diinstal dan siap digunakan.", "success")
+                self._progress(100, "backend.git.install_complete")
+                self._log("backend.git.ready_to_use", "success")
                 
-            return {"status": "success"}
+            return {"status": "success", "message": "backend.git.install_success"}
 
         except Exception as e:
             if os.path.exists(exe_path): 
                 try: os.remove(exe_path)
-                except: pass
+                except Exception: pass
             if hasattr(self, 'api'):
-                self.api.emit_progress(-1, f"Instalasi Gagal: {str(e)}")
-                self.api.emit_log(f"Gagal menginstal Git: {str(e)}", "error")
+                self._progress(-1, "backend.git.install_failed")
+                self._log("backend.git.install_error", "error", {"e": str(e)})
             return {"status": "error", "message": str(e)}
 
     def uninstall_git(self):
@@ -278,7 +283,7 @@ class GitManager:
         self.toggle_user_path(False)
         if os.path.exists(git_dir):
             shutil.rmtree(git_dir, ignore_errors=True)
-        if hasattr(self, 'api'): self.api.emit_log("Git berhasil dihapus dari sistem.", "warn")
+        self._log("backend.git.uninstalled", "warn")
         return {"status": "success"}
 
     def toggle_user_path(self, enable: bool):
@@ -309,10 +314,10 @@ class GitManager:
                 ctypes.windll.user32.SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, 'Environment', SMTO_ABORTIFHUNG, 5000, ctypes.byref(ctypes.c_ulong()))
                 
             winreg.CloseKey(key)
-            if hasattr(self, 'api'): self.api.emit_log("Global PATH GIT diperbarui.", "success")
+            self._log("backend.git.path_updated", "success")
             return {"status": "success"}
         except Exception as e:
-            return {"status": "error", "message": f"Registry Error: {str(e)}"}
+            return {"status": "error", "message": "backend.git.registry_error", "args": {"e": str(e)}}
             
     # ==========================================
     # MANAJEMEN KONFIGURASI GIT (user.name / user.email)
@@ -320,7 +325,7 @@ class GitManager:
     def get_git_config(self):
         """ Membaca konfigurasi global Git dari OS """
         git_dir = os.path.join(self.bin_dir, 'git')
-        git_exe = os.path.join(git_dir, 'cmd', 'git.exe' if sys.platform == 'win32' else 'git')
+        git_exe = os.path.join(git_dir, 'cmd', GIT_EXE if sys.platform == 'win32' else 'git')
         
         # Fallback ke git native OS jika VyloServe Git belum dipasang tapi native Git ada
         if not os.path.exists(git_exe):
@@ -338,21 +343,21 @@ class GitManager:
                     "email": email_res.stdout.strip()
                 }
             }
-        except Exception:
-            return {"status": "error", "message": "Gagal membaca konfigurasi Git."}
+        except Exception as e:
+            return {"status": "error", "message": "backend.git.read_config_failed", "args": {"e": str(e)}}
 
     def set_git_config(self, name: str, email: str):
         """ Menyimpan konfigurasi global Git """
         git_dir = os.path.join(self.bin_dir, 'git')
-        git_exe = os.path.join(git_dir, 'cmd', 'git.exe' if sys.platform == 'win32' else 'git')
+        git_exe = os.path.join(git_dir, 'cmd', GIT_EXE if sys.platform == 'win32' else 'git')
         if not os.path.exists(git_exe): git_exe = 'git'
 
         try:
             cflags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
             if name: subprocess.run([git_exe, 'config', '--global', 'user.name', name], creationflags=cflags)
             if email: subprocess.run([git_exe, 'config', '--global', 'user.email', email], creationflags=cflags)
-            if hasattr(self, 'api'): self.api.emit_log("Global Git Config berhasil diperbarui.", "success")
+            self._log("backend.git.config_updated", "success")
             return {"status": "success"}
         except Exception as e:
-            if hasattr(self, 'api'): self.api.emit_log(f"Gagal mengatur konfigurasi: {str(e)}", "error")
+            self._log("backend.git.config_error", "error", {"e": str(e)})
             return {"status": "error", "message": str(e)}

@@ -250,7 +250,7 @@ export default function QrMain() {
                                         <option value="svg">SVG</option>
                                     </select>
                                     
-                                    <button onClick={handleDownload} className="flex-1 bg-primary hover:bg-blue-600 text-white text-sm font-medium py-2.5 px-4 rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm">
+                                    <button type="button" onClick={handleDownload} className="flex-1 bg-primary hover:bg-blue-600 text-white text-sm font-medium py-2.5 px-4 rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm">
                                         <span className="material-symbols-outlined text-[18px]">download</span> {t('tools.qr.download')}
                                     </button>
                                 </div>

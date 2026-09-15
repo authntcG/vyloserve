@@ -151,10 +151,10 @@ export default function Sidebar({
                     </div>
 
                     <div className="flex items-center gap-2 mx-auto md:mx-0 shrink-0">
-                        <button onClick={onToggleDesktop} className="p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors hidden md:flex items-center justify-center outline-none">
+                        <button type="button" onClick={onToggleDesktop} className="p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors hidden md:flex items-center justify-center outline-none">
                             <span className="material-symbols-outlined">{isDesktopCollapsed ? 'menu' : 'menu_open'}</span>
                         </button>
-                        <button onClick={onCloseMobile} className="p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors md:hidden flex items-center justify-center outline-none">
+                        <button type="button" onClick={onCloseMobile} className="p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors md:hidden flex items-center justify-center outline-none">
                             <span className="material-symbols-outlined">close</span>
                         </button>
                     </div>
@@ -270,7 +270,7 @@ export default function Sidebar({
                     </div>
 
                     {!isDesktopCollapsed && (
-                        <button
+                        <button type="button"
                             onClick={() => setIsSettingsOpen(!isSettingsOpen)}
                             className={`p-1.5 rounded-md flex items-center justify-center transition-colors ${isSettingsOpen ? 'bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
                         >
@@ -280,21 +280,21 @@ export default function Sidebar({
 
                     {isSettingsOpen && !isDesktopCollapsed && (
                         <div className="absolute bottom-full mb-2 right-4 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 overflow-hidden text-sm font-medium">
-                            <button
+                            <button type="button"
                                 onClick={() => { setActiveSettingsModal('language'); setIsSettingsOpen(false); }}
                                 className="w-full text-left px-4 py-3 flex items-center gap-3 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-100 dark:border-slate-800"
                             >
                                 <span className="material-symbols-outlined text-[18px] text-slate-400">translate</span>
                                 {t('settings.change_language')}
                             </button>
-                            <button
+                            <button type="button"
                                 onClick={() => { setActiveSettingsModal('about'); setIsSettingsOpen(false); }}
                                 className="w-full text-left px-4 py-3 flex items-center gap-3 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-100 dark:border-slate-800"
                             >
                                 <span className="material-symbols-outlined text-[18px] text-slate-400">info</span>
                                 {t('settings.about')}
                             </button>
-                            <button
+                            <button type="button"
                                 onClick={() => { setActiveSettingsModal('quit'); setIsSettingsOpen(false); }}
                                 className="w-full text-left px-4 py-3 flex items-center gap-3 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                             >

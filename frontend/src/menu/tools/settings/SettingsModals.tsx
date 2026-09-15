@@ -100,7 +100,7 @@ export default function SettingsModals({ activeModal, onClose }: SettingsModalsP
                             <span className="material-symbols-outlined text-[20px] text-primary">info</span>
                             <span className="text-xs font-semibold tracking-wider uppercase">{t('settings.about')}</span>
                         </div>
-                        <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="Close">
+                        <button type="button" onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="Close">
                             <span className="material-symbols-outlined text-[20px]">close</span>
                         </button>
                     </div>
@@ -119,7 +119,7 @@ export default function SettingsModals({ activeModal, onClose }: SettingsModalsP
                                 <span>{t('settings.documentation') || 'Documentation'}</span>
                             </a>
                         </div>
-                        <button onClick={onClose} className="w-full sm:w-auto px-5 py-2 text-xs font-semibold rounded-lg bg-primary hover:bg-blue-600 text-white transition-all shadow-sm active:scale-95">
+                        <button type="button" onClick={onClose} className="w-full sm:w-auto px-5 py-2 text-xs font-semibold rounded-lg bg-primary hover:bg-blue-600 text-white transition-all shadow-sm active:scale-95">
                             {t('common.close') || 'Close'}
                         </button>
                     </div>
@@ -134,7 +134,7 @@ export default function SettingsModals({ activeModal, onClose }: SettingsModalsP
                         <span className="font-bold text-slate-900 dark:text-white text-base">VyloServe</span>
                         <div className="flex flex-wrap items-center justify-center gap-1.5 mt-2">
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60">
-                                v1.0.0
+                                {t('settings.version')}
                             </span>
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60">
                                 GPL-3.0

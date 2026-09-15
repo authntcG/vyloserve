@@ -5,6 +5,7 @@ import subprocess
 import ctypes
 import tempfile
 import time
+from typing import Optional
 
 from core.utils.system_utils import get_project_root, get_silent_flags
 from core.utils.file_utils import read_json, write_json
@@ -19,13 +20,19 @@ class ProjectManager:
         os.makedirs(self.base_dir, exist_ok=True)
         self.projects_file = os.path.join(self.base_dir, 'projects.json')
         if not os.path.exists(self.projects_file): write_json(self.projects_file, [])
+
+    def _log(self, msg: str, level: str = "info", args: dict = None):
+        if hasattr(self, 'api') and self.api: self.api.emit_log(msg, level, args)
+
+    def _progress(self, pct: int, msg: str):
+        if hasattr(self, 'api') and self.api: self.api.emit_progress(pct, msg)
     
     def _read_projects(self):
         return read_json(self.projects_file, list)
     
     def _save_projects(self, projects):
         if not write_json(self.projects_file, projects) and hasattr(self, 'api'):
-            self.api.emit_log("Gagal menyimpan ke projects.json", "error")
+            self._log("Gagal menyimpan ke projects.json", "error")
 
     def detect_framework(self, directory: str) -> str:
         if not os.path.isdir(directory): return "raw"
@@ -44,7 +51,7 @@ class ProjectManager:
                     if php.get('version') == php_version:
                         return int(php.get('port', php.get('fastcgi_port', 9000)))
         except Exception as e:
-            self.api.emit_log(f"Gagal membaca port asli PHP: {str(e)}", "warn")
+            self._log(f"Gagal membaca port asli PHP: {str(e)}", "warn")
         return 9000
 
     def _ensure_composer_exists(self) -> str:
@@ -53,12 +60,12 @@ class ProjectManager:
         composer_path = os.path.join(composer_dir, 'composer.phar')
         
         if not os.path.exists(composer_path):
-            self.api.emit_log("Mengunduh composer.phar...", "warn")
+            self._log("Mengunduh composer.phar...", "warn")
             try:
                 urllib.request.urlretrieve("https://getcomposer.org/download/latest-stable/composer.phar", composer_path)
-                self.api.emit_log("Composer berhasil diunduh.", "success")
+                self._log("Composer berhasil diunduh.", "success")
             except Exception as e:
-                self.api.emit_log(f"Gagal mengunduh Composer: {str(e)}", "error")
+                self._log(f"Gagal mengunduh Composer: {str(e)}", "error")
                 return None
         return composer_path
 
@@ -67,8 +74,49 @@ class ProjectManager:
         if os.path.exists(target_dir):
             if hasattr(self.api, "_window") and self.api._window:
                 self.api._window.evaluate_js(f"window.dispatchEvent(new CustomEvent('vylo_progress', {{ detail: {{ percent: 100, text: 'Melakukan rollback instalasi...' }} }}))")
-            self.api.emit_log(f"Instalasi gagal! Melakukan rollback ({target_dir})...", "warn")
+            self._log(f"Instalasi gagal! Melakukan rollback ({target_dir})...", "warn")
             shutil.rmtree(target_dir, ignore_errors=True)
+
+    def _determine_framework_package(self, framework: str, specific_version: str, php_version: str) -> tuple[str, bool]:
+        if framework == 'laravel':
+            return f"laravel/laravel:{specific_version}" if specific_version else "laravel/laravel", False
+        elif framework == 'codeigniter':
+            php_major = int(php_version.split('.')[0])
+            php_minor = int(php_version.split('.')[1]) if len(php_version.split('.')) > 1 else 0
+            if specific_version: 
+                return f"codeigniter4/appstarter:{specific_version}", False
+            if php_major > 8 or (php_major == 8 and php_minor >= 1): 
+                return "codeigniter4/appstarter", False
+            return "codeigniter/framework", True
+        return "", False
+
+    def _run_composer_update_with_retries(self, php_exe: str, php_ini_path: str, composer_phar: str, target_dir: str, custom_env: dict, cflags: int, current_percent: float, ansi_escape: re.Pattern) -> bool:
+        self._log("Menyesuaikan dependensi framework dengan versi PHP lokal...", "info")
+        for attempt in range(3):
+            lock_file = os.path.join(target_dir, "composer.lock")
+            if os.path.exists(lock_file): os.remove(lock_file)
+                
+            if attempt > 0: time.sleep(3) 
+                
+            process_update = subprocess.Popen(
+                [php_exe, "-c", php_ini_path, composer_phar, "update", "--no-interaction", "--prefer-dist", "--no-scripts"], 
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=custom_env, cwd=target_dir, creationflags=cflags
+            )
+            
+            for line in process_update.stdout:
+                clean_line = ansi_escape.sub('', line.strip())
+                if clean_line:
+                    self._log(f"[Composer] {clean_line}", "info")
+                    if current_percent < 95.0: current_percent += 0.5
+                    if hasattr(self.api, "_window"):
+                        safe_text = clean_line.replace("'", "\\'").replace('"', '\\"').replace('\n', '')[:62]
+                        self.api._window.evaluate_js(f"window.dispatchEvent(new CustomEvent('vylo_progress', {{ detail: {{ percent: {int(current_percent)}, text: 'Instalasi Vendor: {safe_text}' }} }}))")
+
+            process_update.wait()
+            if process_update.returncode == 0:
+                return True
+            self._log(f"Percobaan update ke-{attempt+1} gagal. Mencoba lagi...", "warn")
+        return False
 
     def _install_new_framework(self, payload: dict):
         framework = payload.get('framework')
@@ -86,18 +134,9 @@ class ProjectManager:
             composer_phar = self._ensure_composer_exists()
             if not composer_phar: return {"status": "error", "message": "Composer gagal disiapkan."}
 
-            package, is_ci3 = "", False
-            if framework == 'laravel':
-                package = f"laravel/laravel:{specific_version}" if specific_version else "laravel/laravel"
-            elif framework == 'codeigniter':
-                php_major = int(php_version.split('.')[0])
-                php_minor = int(php_version.split('.')[1]) if len(php_version.split('.')) > 1 else 0
-                if specific_version: package = f"codeigniter4/appstarter:{specific_version}"
-                else:
-                    if php_major > 8 or (php_major == 8 and php_minor >= 1): package = "codeigniter4/appstarter" 
-                    else: package, is_ci3 = "codeigniter/framework", True
+            package, is_ci3 = self._determine_framework_package(framework, specific_version, php_version)
 
-            self.api.emit_log(f"Instalasi {package} menggunakan PHP {php_version}...", "info")
+            self._log(f"Instalasi {package} menggunakan PHP {php_version}...", "info")
             
             try:
                 php_ini_path = os.path.join(self.bin_dir, 'php', php_version, 'php.ini')
@@ -116,7 +155,7 @@ class ProjectManager:
                     import shutil
                     shutil.rmtree(target_dir, ignore_errors=True)
 
-                self.api.emit_log("Mengunduh struktur dasar framework...", "info")
+                self._log("Mengunduh struktur dasar framework...", "info")
                 process_create = subprocess.Popen(
                     [php_exe, "-c", php_ini_path, composer_phar, "create-project", package, target_dir, "--prefer-dist", "--no-interaction", "--no-install", "--no-scripts"], 
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=custom_env, creationflags=cflags
@@ -128,7 +167,7 @@ class ProjectManager:
                     clean_line = ansi_escape.sub('', line.strip())
                     if clean_line:
                         error_log += clean_line + " "
-                        self.api.emit_log(f"[Composer] {clean_line}", "info")
+                        self._log(f"[Composer] {clean_line}", "info")
                         if current_percent < 60.0: current_percent += 0.5
                         if hasattr(self.api, "_window"):
                             safe_text = clean_line.replace("'", "\\'").replace('"', '\\"').replace('\n', '')[:62]
@@ -143,38 +182,13 @@ class ProjectManager:
                 try: subprocess.run([php_exe, "-c", php_ini_path, composer_phar, "config", "policy.advisories.block", "false"], env=custom_env, cwd=target_dir, creationflags=cflags)
                 except: pass
 
-                self.api.emit_log("Menyesuaikan dependensi framework dengan versi PHP lokal...", "info")
-                update_success = False
-                for attempt in range(3):
-                    lock_file = os.path.join(target_dir, "composer.lock")
-                    if os.path.exists(lock_file): os.remove(lock_file)
-                        
-                    if attempt > 0: time.sleep(3) 
-                        
-                    process_update = subprocess.Popen(
-                        [php_exe, "-c", php_ini_path, composer_phar, "update", "--no-interaction", "--prefer-dist", "--no-scripts"], 
-                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=custom_env, cwd=target_dir, creationflags=cflags
-                    )
-                    
-                    for line in process_update.stdout:
-                        clean_line = ansi_escape.sub('', line.strip())
-                        if clean_line:
-                            self.api.emit_log(f"[Composer] {clean_line}", "info")
-                            if current_percent < 95.0: current_percent += 0.5
-                            if hasattr(self.api, "_window"):
-                                safe_text = clean_line.replace("'", "\\'").replace('"', '\\"').replace('\n', '')[:62]
-                                self.api._window.evaluate_js(f"window.dispatchEvent(new CustomEvent('vylo_progress', {{ detail: {{ percent: {int(current_percent)}, text: 'Instalasi Vendor: {safe_text}' }} }}))")
-
-                    process_update.wait()
-                    if process_update.returncode == 0:
-                        update_success = True
-                        break 
+                update_success = self._run_composer_update_with_retries(php_exe, php_ini_path, composer_phar, target_dir, custom_env, cflags, current_percent, ansi_escape) 
                         
                 if not update_success:
                     self._rollback_dir(target_dir)
                     return {"status": "error", "message": "Gagal meracik dependensi (Vendor). OS/Antivirus mungkin mengunci file."}
 
-                self.api.emit_log("Menjalankan post-installation script framework...", "info")
+                self._log("Menjalankan post-installation script framework...", "info")
                 if framework == 'laravel':
                     if os.path.exists(os.path.join(target_dir, '.env.example')) and not os.path.exists(os.path.join(target_dir, '.env')):
                         import shutil
@@ -191,7 +205,7 @@ class ProjectManager:
                         except: pass
 
                 if hasattr(self.api, "_window"): self.api._window.evaluate_js(f"window.dispatchEvent(new CustomEvent('vylo_progress', {{ detail: {{ percent: 100, text: 'Instalasi selesai sempurna!' }} }}))")
-                self.api.emit_log(f"Instalasi {framework.capitalize()} berhasil!", "success")
+                self._log(f"Instalasi {framework.capitalize()} berhasil!", "success")
                 return {"status": "success", "document_root": target_dir.replace('\\', '/') if is_ci3 else os.path.join(target_dir, "public").replace('\\', '/')}
                 
             except Exception as e:
@@ -199,7 +213,7 @@ class ProjectManager:
         
         elif framework == 'wordpress':
             import zipfile
-            self.api.emit_log("Memulai instalasi WordPress...", "info")
+            self._log("Memulai instalasi WordPress...", "info")
             os.makedirs(target_dir, exist_ok=True)
             zip_path = os.path.join(target_dir, "latest.zip")
 
@@ -214,23 +228,45 @@ class ProjectManager:
                     os.rmdir(wp_extracted_dir)
 
                 if os.path.exists(zip_path): os.remove(zip_path)
-                self.api.emit_log("Instalasi WordPress berhasil!", "success")
+                self._log("Instalasi WordPress berhasil!", "success")
                 return {"status": "success", "document_root": target_dir.replace('\\', '/')}
             except Exception as e:
                 self._rollback_dir(target_dir)
                 return {"status": "error", "message": f"Gagal menginstal WordPress: {str(e)}"}
 
         elif framework == 'raw':
-            self.api.emit_log("Membuat proyek PHP murni (Raw)...", "info")
+            self._log("Membuat proyek PHP murni (Raw)...", "info")
             try:
                 os.makedirs(target_dir, exist_ok=True)
                 with open(os.path.join(target_dir, "index.php"), "w", encoding="utf-8") as f:
                     f.write("<?php\n\necho '<h1>Welcome to VyloServe</h1>';\n\n// phpinfo();\n")
-                self.api.emit_log("Proyek PHP berhasil disiapkan!", "success")
+                self._log("Proyek PHP berhasil disiapkan!", "success")
                 return {"status": "success", "document_root": target_dir.replace('\\', '/')}
             except Exception as e:
                 self._rollback_dir(target_dir)
                 return {"status": "error", "message": f"Gagal membuat proyek Raw: {str(e)}"}
+
+    def _sync_hosts_for_project(self, projects: list, project_id: str) -> Optional[str]:
+        if not hasattr(self, 'sync_windows_hosts'): return None
+        hosts_result = self.sync_windows_hosts()
+        if isinstance(hosts_result, dict) and hosts_result.get('status') == 'error':
+            for p in projects:
+                if p['id'] == project_id:
+                    p['host_synced'] = False
+                    break
+            self._save_projects(projects)
+            return "Proyek diinstal, namun gagal memodifikasi file Hosts Windows. Harap restart aplikasi sebagai Administrator."
+        return None
+
+    def _write_hosts_with_uac(self, hosts_path: str, final_content: str, temp_file: str):
+        try:
+            with open(hosts_path, 'w', encoding='utf-8') as f: f.write(final_content)
+            return {"status": "success", "message": "backend.project.hosts_updated"}
+        except PermissionError:
+            self._log("backend.project.request_uac", "info")
+            result = ctypes.windll.shell32.ShellExecuteW(None, "runas", "cmd.exe", f'/c copy /Y "{temp_file}" "{hosts_path}"', None, 0)
+            if result > 32: return {"status": "success", "message": "backend.project.uac_granted"}
+            else: return {"status": "error", "message": "backend.project.uac_denied"}
 
     def create_project(self, payload: dict):
         try:
@@ -258,25 +294,16 @@ class ProjectManager:
             self._save_projects(projects)
             
             if hasattr(self, 'sync_apache_vhosts'): self.sync_apache_vhosts()
-                    
-            warning_msg = None
-            if hasattr(self, 'sync_windows_hosts'):
-                hosts_result = self.sync_windows_hosts()
-                if isinstance(hosts_result, dict) and hosts_result.get('status') == 'error':
-                    for p in projects:
-                        if p['id'] == project_id: p['host_synced'] = False; break
-                    self._save_projects(projects)
-                    warning_msg = "Proyek diinstal, namun gagal memodifikasi file Hosts Windows. Harap restart aplikasi sebagai Administrator."
+            warning_msg = self._sync_hosts_for_project(projects, project_id)
             
-            # ---> FIX: Cek Apache berjalan sebelum restart <---
             if hasattr(self.api, 'apache') and hasattr(self.api.apache, 'restart_server'):
                 if self.api.apache.check_is_running():
                     self.api.apache.restart_server() 
                 
-            return {"status": "success", "message": warning_msg or f"Proyek {domain_full} berhasil disiapkan!"}
+            return {"status": "success", "message": warning_msg or {"message": "backend.project.project_ready", "args": {"domain": domain_full}}}
 
         except Exception as e:
-            self.api.emit_log(f"CRITICAL ERROR di create_project: {str(e)}", "error")
+            self._log("backend.project.critical_error", "error", {"e": str(e)})
             return {"status": "error", "message": str(e)}
 
     def sync_windows_hosts(self):
@@ -303,16 +330,42 @@ class ProjectManager:
             temp_file = os.path.join(tempfile.gettempdir(), 'vyloserve_hosts_temp.txt')
             with open(temp_file, 'w', encoding='utf-8') as f: f.write(final_content)
 
-            try:
-                with open(hosts_path, 'w', encoding='utf-8') as f: f.write(final_content)
-                return {"status": "success", "message": "Berhasil mengupdate Windows Hosts."}
-            except PermissionError:
-                self.api.emit_log("Meminta akses Administrator via UAC untuk file Hosts...", "info")
-                result = ctypes.windll.shell32.ShellExecuteW(None, "runas", "cmd.exe", f'/c copy /Y "{temp_file}" "{hosts_path}"', None, 0)
-                if result > 32: return {"status": "success", "message": "Akses diberikan! File Hosts diperbarui."}
-                else: return {"status": "error", "message": "Izin Administrator (UAC) ditolak."}
+            return self._write_hosts_with_uac(hosts_path, final_content, temp_file)
         except Exception as e:
-            return {"status": "error", "message": f"Error Hosts: {str(e)}"}
+            return {"status": "error", "message": "backend.project.hosts_error", "args": {"e": str(e)}}
+
+    def _generate_vhost_block(self, p: dict, projects: list) -> str:
+        domain = p.get('domain')
+        doc_root = str(p.get('path', '')).replace('\\', '/') 
+        saved_port, php_version = p.get('php_port'), p.get('php_version')
+        
+        if not doc_root.rstrip('/').endswith('public'):
+            public_dir = os.path.join(doc_root, "public").replace('\\', '/')
+            if os.path.exists(public_dir) and os.path.isdir(public_dir):
+                doc_root = public_dir
+                self._log("backend.project.smart_routing", "info", {"domain": domain})
+        
+        php_port = self._get_php_port_from_system(php_version) or saved_port or 9000
+        if php_port != saved_port:
+            p['php_port'] = php_port
+            self._save_projects(projects)
+        
+        fcgi_block = f"""
+    ProxyFCGIBackendType GENERIC
+    ProxyFCGISetEnvIf "reqenv('SCRIPT_FILENAME') =~ m#^/?(.*)$#" SCRIPT_FILENAME "$1"
+    <FilesMatch "\\.php$">
+        SetHandler "proxy:fcgi://127.0.0.1:{php_port}/"
+    </FilesMatch>"""
+
+        vhost = f"<VirtualHost *:80>\n    ServerName {domain}\n    DocumentRoot \"{doc_root}\"\n    DirectoryIndex index.php index.html\n    <Directory \"{doc_root}\">\n        Options Indexes FollowSymLinks ExecCGI\n        AllowOverride All\n        Require all granted\n    </Directory>\n{fcgi_block}\n</VirtualHost>\n\n"
+
+        if hasattr(self.api, 'ssl'):
+            try:
+                domain_crt, domain_key = self.api.ssl.generate_domain_cert(domain)
+                vhost += f"<VirtualHost *:443>\n    ServerName {domain}\n    DocumentRoot \"{doc_root}\"\n    SSLEngine on\n    SSLCertificateFile \"{domain_crt.replace(chr(92), '/')}\"\n    SSLCertificateKeyFile \"{domain_key.replace(chr(92), '/')}\"\n    DirectoryIndex index.php index.html\n    <Directory \"{doc_root}\">\n        Options Indexes FollowSymLinks ExecCGI\n        AllowOverride All\n        Require all granted\n    </Directory>\n{fcgi_block}\n</VirtualHost>\n\n"
+            except Exception: pass
+            
+        return vhost
 
     def sync_apache_vhosts(self):
         try:
@@ -328,44 +381,10 @@ class ProjectManager:
             
             vhost_content = "# --- VYLOSERVE AUTO-GENERATED VHOSTS ---\n\n"
             for p in projects:
-                domain = p.get('domain')
-                doc_root = str(p.get('path', '')).replace('\\', '/') 
-                saved_port, php_version = p.get('php_port'), p.get('php_version')
-                
-                # ==========================================
-                # SMART ROUTING: Deteksi Folder Public
-                # ==========================================
-                # Pengaman: Jangan ubah doc_root jika path dari projects.json sudah berakhiran /public
-                if not doc_root.rstrip('/').endswith('public'):
-                    public_dir = os.path.join(doc_root, "public").replace('\\', '/')
-                    if os.path.exists(public_dir) and os.path.isdir(public_dir):
-                        doc_root = public_dir
-                        if hasattr(self, 'api'):
-                            self.api.emit_log(f"[{domain}] Smart Routing aktif: Mengalihkan root ke folder /public.", "info")
-                # ==========================================
-                
-                php_port = self._get_php_port_from_system(php_version) or saved_port or 9000
-                if php_port != saved_port:
-                    p['php_port'] = php_port
-                    self._save_projects(projects)
-                
-                fcgi_block = f"""
-    ProxyFCGIBackendType GENERIC
-    ProxyFCGISetEnvIf "reqenv('SCRIPT_FILENAME') =~ m#^/?(.*)$#" SCRIPT_FILENAME "$1"
-    <FilesMatch "\\.php$">
-        SetHandler "proxy:fcgi://127.0.0.1:{php_port}/"
-    </FilesMatch>"""
-
-                vhost_content += f"<VirtualHost *:80>\n    ServerName {domain}\n    DocumentRoot \"{doc_root}\"\n    DirectoryIndex index.php index.html\n    <Directory \"{doc_root}\">\n        Options Indexes FollowSymLinks ExecCGI\n        AllowOverride All\n        Require all granted\n    </Directory>\n{fcgi_block}\n</VirtualHost>\n\n"
-
-                if hasattr(self.api, 'ssl'):
-                    try:
-                        domain_crt, domain_key = self.api.ssl.generate_domain_cert(domain)
-                        vhost_content += f"<VirtualHost *:443>\n    ServerName {domain}\n    DocumentRoot \"{doc_root}\"\n    SSLEngine on\n    SSLCertificateFile \"{domain_crt.replace(chr(92), '/')}\"\n    SSLCertificateKeyFile \"{domain_key.replace(chr(92), '/')}\"\n    DirectoryIndex index.php index.html\n    <Directory \"{doc_root}\">\n        Options Indexes FollowSymLinks ExecCGI\n        AllowOverride All\n        Require all granted\n    </Directory>\n{fcgi_block}\n</VirtualHost>\n\n"
-                    except Exception: pass
+                vhost_content += self._generate_vhost_block(p, projects)
 
             with open(vhosts_file, 'w', encoding='utf-8') as f: f.write(vhost_content)
-            return {"status": "success", "message": "Konfigurasi VHosts berhasil ditulis."}
+            return {"status": "success", "message": "backend.project.vhosts_written"}
         except Exception as e: return {"status": "error", "message": str(e)}
     
     def get_projects(self):
@@ -376,16 +395,18 @@ class ProjectManager:
             return {"status": "success", "data": projects}
         except Exception as e: return {"status": "error", "message": str(e)}
 
+    def _delete_ssl_cert(self, domain: str):
+        if hasattr(self.api, 'ssl'):
+            try: self.api.ssl.delete_domain_cert(domain)
+            except Exception: pass
+
     def delete_project(self, project_id: str, delete_files: bool = False):
         try:
             projects = self._read_projects()
             project_to_delete = next((p for p in projects if p['id'] == project_id), None)
-            if not project_to_delete: return {"status": "error", "message": "Proyek tidak ditemukan."}
+            if not project_to_delete: return {"status": "error", "message": "backend.project.project_not_found"}
             
-            # ---> FIX: Hapus Sertifikat SSL saat proyek dihapus <---
-            if hasattr(self.api, 'ssl'):
-                try: self.api.ssl.delete_domain_cert(project_to_delete['domain'])
-                except: pass
+            self._delete_ssl_cert(project_to_delete['domain'])
             
             self._save_projects([p for p in projects if p['id'] != project_id])
             
@@ -393,22 +414,21 @@ class ProjectManager:
                 hosts_result = self.sync_windows_hosts()
                 if isinstance(hosts_result, dict) and hosts_result.get('status') == 'error':
                     self._save_projects(projects) # Rollback
-                    return {"status": "error", "message": "Dibatalkan: Akses UAC ditolak."}
+                    return {"status": "error", "message": "backend.project.cancelled_uac_denied"}
             
             if hasattr(self, 'sync_apache_vhosts'): self.sync_apache_vhosts()
             
-            # ---> FIX: Jangan langsung restart server, cek dulu apakah Apache sedang hidup <---
-            if hasattr(self.api, 'apache') and hasattr(self.api.apache, 'restart_server'): 
+            if hasattr(self.api, 'apache') and hasattr(self.api.apache, 'restart_server'):
                 if self.api.apache.check_is_running():
-                    self.api.apache.restart_server()
-                
-            if delete_files and project_to_delete.get('path'):
+                    self.api.apache.restart_server() 
+            
+            if delete_files and 'path' in project_to_delete:
                 import shutil
                 base_path = project_to_delete['path'].replace('/public', '').replace('\\public', '')
                 if os.path.exists(base_path): shutil.rmtree(base_path, ignore_errors=True)
                 
-            self.api.emit_log(f"Proyek {project_to_delete['domain']} dihapus.", "info")
-            return {"status": "success", "message": f"Virtual Host {project_to_delete['domain']} telah dihapus."}
+            self._log(f"Proyek {project_to_delete['domain']} dihapus.", "info")
+            return {"status": "success", "message": "backend.project.project_deleted"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
@@ -446,7 +466,7 @@ class ProjectManager:
             if new_php and project.get('php_version') != new_php:
                 project['php_version'] = new_php
                 project['php_port'] = self._get_php_port_from_system(new_php)
-                self.api.emit_log(f"Versi PHP diubah ke {new_php}", "info")
+                self._log(f"Versi PHP diubah ke {new_php}", "info")
 
             self._save_projects(projects)
             if hasattr(self, 'sync_apache_vhosts'): self.sync_apache_vhosts()

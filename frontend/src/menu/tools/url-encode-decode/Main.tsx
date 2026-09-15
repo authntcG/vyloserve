@@ -59,8 +59,8 @@ export default function UrlMain() {
             />
 
             <div className="flex gap-1 overflow-x-auto no-scrollbar mb-6 border-b border-slate-200 dark:border-slate-800">
-                <button onClick={() => { setMode('encode'); setInput(''); }} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${mode === 'encode' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>{t('tools.url.encode_url')}</button>
-                <button onClick={() => { setMode('decode'); setInput(''); }} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${mode === 'decode' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>{t('tools.url.decode_url')}</button>
+                <button type="button" onClick={() => { setMode('encode'); setInput(''); }} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${mode === 'encode' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>{t('tools.url.encode_url')}</button>
+                <button type="button" onClick={() => { setMode('decode'); setInput(''); }} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${mode === 'decode' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>{t('tools.url.decode_url')}</button>
             </div>
 
             {/* Layout responsif menggunakan proporsi 7:5 (12 Grid) */}
@@ -88,7 +88,7 @@ export default function UrlMain() {
                                 className="w-full h-36 bg-slate-100 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-lg p-3 text-sm outline-none text-slate-900 dark:text-white resize-none break-all"
                                 spellCheck="false"
                             ></textarea>
-                            <button onClick={handleCopy} disabled={!output || output.startsWith('Error')} className="absolute bottom-3 right-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium py-1.5 px-3 rounded shadow-sm transition-all flex items-center gap-1 disabled:opacity-50">
+                            <button type="button" onClick={handleCopy} disabled={!output || output.startsWith('Error')} className="absolute bottom-3 right-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium py-1.5 px-3 rounded shadow-sm transition-all flex items-center gap-1 disabled:opacity-50">
                                 <span className="material-symbols-outlined text-[16px]">content_copy</span> {t('tools.url.copy')}
                             </button>
                         </div>
@@ -108,7 +108,7 @@ export default function UrlMain() {
                                 <div className="flex flex-col gap-1 border-b border-slate-100 dark:border-slate-800 pb-3 w-full min-w-0">
                                     <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{t('tools.url.protocol_origin')}</span>
                                     <div className="flex items-center gap-2 mt-1 w-full min-w-0">
-                                        <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded text-xs font-mono font-bold shrink-0">{parsedUrl.protocol.replace(':', '')}</span>
+                                        <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded text-xs font-mono font-bold shrink-0">{parsedUrl.protocol.replaceAll(':', '')}</span>
                                         <span className="font-mono text-sm text-slate-900 dark:text-slate-200 truncate">{parsedUrl.host}</span>
                                     </div>
                                 </div>

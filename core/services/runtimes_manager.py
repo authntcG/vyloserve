@@ -1,5 +1,6 @@
 import os
 import sys
+from typing import Optional
 import urllib.request
 import json
 import zipfile

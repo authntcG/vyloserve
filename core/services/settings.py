@@ -54,7 +54,7 @@ class SettingsManager:
             if success:
                 return {"status": "success"}
             else:
-                raise Exception("Proses penulisan pengaturan diblokir oleh OS.")
+                raise RuntimeError("Proses penulisan pengaturan diblokir oleh OS.")
                 
         except Exception as e:
             if hasattr(self, 'api'):

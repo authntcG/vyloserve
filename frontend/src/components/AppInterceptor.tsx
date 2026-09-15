@@ -90,7 +90,7 @@ export default function GlobalAppInterceptor() {
             className="fixed z-[9999] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-2xl overflow-hidden py-1 min-w-[160px] animate-in fade-in zoom-in-95 duration-100"
             style={{ top: safeY, left: safeX }}
         >
-            <button
+            <button type="button"
                 onClick={handleCopy}
                 disabled={!menuState.textToCopy}
                 className="w-full text-left px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"

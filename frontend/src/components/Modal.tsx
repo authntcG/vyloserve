@@ -79,7 +79,7 @@ export default function Modal({
                             <span className={`material-symbols-outlined ${isDanger || isDestructive ? 'text-red-500' : 'text-slate-700 dark:text-slate-300'}`}>{icon}</span>
                             <h3 className="text-lg font-semibold text-slate-900 dark:text-white">{title}</h3>
                         </div>
-                        <button
+                        <button type="button"
                             onClick={onClose}
                             disabled={isLoading}
                             className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
@@ -96,7 +96,7 @@ export default function Modal({
 
                 {customFooter ? customFooter : (
                     <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 rounded-b-xl">
-                        <button
+                        <button type="button"
                             onClick={onClose}
                             disabled={isLoading}
                             className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -104,7 +104,7 @@ export default function Modal({
                             {t('common.close', 'Close')}
                         </button>
                         {onApply && (
-                            <button
+                            <button type="button"
                                 onClick={onApply}
                                 disabled={isApplyDisabled || isLoading}
                                 className={applyButtonClass}

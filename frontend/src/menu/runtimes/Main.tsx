@@ -227,7 +227,7 @@ export default function RuntimesMain() {
                 title={t('runtimes.runtimes_engines')}
                 subtitle={<><span className="material-symbols-outlined text-[14px]">info</span>{isLoading ? t('runtimes.loading_data') : `${activeEnginesCount}${t('runtimes.engines_detected')}`}</>}
                 actions={
-                    <button
+                    <button type="button"
                         onClick={handleOpenInstall}
                         disabled={runtimeData[activeTab].installed || isLoading}
                         className="bg-primary hover:bg-blue-600 disabled:bg-slate-400 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center gap-2 shadow-sm whitespace-nowrap shrink-0"
@@ -240,16 +240,16 @@ export default function RuntimesMain() {
 
             <div className="w-full max-w-full overflow-hidden mb-6">
                 <div className="flex w-full gap-1 overflow-x-auto no-scrollbar border-b border-slate-200 dark:border-slate-800">
-                    <button onClick={() => setActiveTab('node')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'node' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
+                    <button type="button" onClick={() => setActiveTab('node')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'node' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
                         Node.js {(runtimeData.node.installed || runtimeData.node.external?.exists) && <span className={`w-2 h-2 rounded-full shrink-0 ${runtimeData.node.installed ? 'bg-emerald-500' : 'bg-amber-400'}`}></span>}
                     </button>
-                    <button onClick={() => setActiveTab('python')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'python' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
+                    <button type="button" onClick={() => setActiveTab('python')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'python' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
                         Python {(runtimeData.python.installed || runtimeData.python.external?.exists) && <span className={`w-2 h-2 rounded-full shrink-0 ${runtimeData.python.installed ? 'bg-emerald-500' : 'bg-amber-400'}`}></span>}
                     </button>
-                    <button onClick={() => setActiveTab('java')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'java' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
+                    <button type="button" onClick={() => setActiveTab('java')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'java' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
                         Java JDK {(runtimeData.java.installed || runtimeData.java.external?.exists) && <span className={`w-2 h-2 rounded-full shrink-0 ${runtimeData.java.installed ? 'bg-emerald-500' : 'bg-amber-400'}`}></span>}
                     </button>
-                    <button onClick={() => setActiveTab('go')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'go' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
+                    <button type="button" onClick={() => setActiveTab('go')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'go' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
                         Go Compiler {(runtimeData.go.installed || runtimeData.go.external?.exists) && <span className={`w-2 h-2 rounded-full shrink-0 ${runtimeData.go.installed ? 'bg-emerald-500' : 'bg-amber-400'}`}></span>}
                     </button>
                 </div>
@@ -267,7 +267,7 @@ export default function RuntimesMain() {
                                 status={runtimeData.node.in_path ? t('runtimes.path_active') : t('runtimes.isolated')}
                                 gridCols="grid-cols-1 md:grid-cols-2"
                                 dropdownActions={
-                                    <button onClick={() => setEngineToUninstall('node')} disabled={isProcessing} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 transition-colors">
+                                    <button type="button" onClick={() => setEngineToUninstall('node')} disabled={isProcessing} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 transition-colors">
                                         {t('runtimes.uninstall_node')}
                                     </button>
                                 }
@@ -305,7 +305,7 @@ export default function RuntimesMain() {
                         {renderExternalCard('python', 'Python')}
                         {runtimeData.python.installed && (
                             <Card title="Python (VyloServe)" status={runtimeData.python.in_path ? t('runtimes.path_active') : t('runtimes.isolated')} gridCols="grid-cols-1 md:grid-cols-2" dropdownActions={
-                                <button onClick={() => setEngineToUninstall('python')} disabled={isProcessing} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 transition-colors">
+                                <button type="button" onClick={() => setEngineToUninstall('python')} disabled={isProcessing} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 transition-colors">
                                     {t('runtimes.uninstall_python')}
                                 </button>
                             }>
@@ -342,7 +342,7 @@ export default function RuntimesMain() {
                         {renderExternalCard('java', 'Java JDK')}
                         {runtimeData.java.installed && (
                             <Card title="Java JDK (VyloServe)" status={runtimeData.java.in_path ? t('runtimes.path_active') : t('runtimes.isolated')} gridCols="grid-cols-1 md:grid-cols-2" dropdownActions={
-                                <button onClick={() => setEngineToUninstall('java')} disabled={isProcessing} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 transition-colors">
+                                <button type="button" onClick={() => setEngineToUninstall('java')} disabled={isProcessing} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 transition-colors">
                                     {t('runtimes.uninstall_java')}
                                 </button>
                             }>
@@ -379,7 +379,7 @@ export default function RuntimesMain() {
                         {renderExternalCard('go', 'Go Compiler')}
                         {runtimeData.go.installed && (
                             <Card title="Go Compiler (VyloServe)" status={runtimeData.go.in_path ? t('runtimes.path_active') : t('runtimes.isolated')} gridCols="grid-cols-1 md:grid-cols-2" dropdownActions={
-                                <button onClick={() => setEngineToUninstall('go')} disabled={isProcessing} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 transition-colors">
+                                <button type="button" onClick={() => setEngineToUninstall('go')} disabled={isProcessing} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 transition-colors">
                                     {t('runtimes.uninstall_go')}
                                 </button>
                             }>

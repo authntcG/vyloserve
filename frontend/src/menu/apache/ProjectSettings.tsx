@@ -61,12 +61,12 @@ const ProjectSettings = forwardRef<ProjectSettingsRef, Props>(({ project }, ref)
                     const res = await api.update_project(payload);
 
                     if (res.status === 'success') {
-                        showToast(res.message, 'success');
+                        showToast(t(res.message || '', res.args || {}) as string, 'success');
                         // Beri sinyal ke Main.tsx agar daftar project dimuat ulang
                         window.dispatchEvent(new CustomEvent('project_list_updated'));
                         return true;
                     } else {
-                        showToast(res.message, 'error');
+                        showToast(t(res.message || '', res.args || {}) as string, 'error');
                         return false;
                     }
                 }

@@ -116,14 +116,14 @@ export default function Base64Main() {
             />
 
             <div className="flex gap-1 overflow-x-auto no-scrollbar mb-6 border-b border-slate-200 dark:border-slate-800">
-                <button onClick={() => { setMode('encode'); clearAll(); }} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${mode === 'encode' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>Encode Base64</button>
-                <button onClick={() => { setMode('decode'); setInputType('text'); clearAll(); }} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${mode === 'decode' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>Decode Base64</button>
+                <button type="button" onClick={() => { setMode('encode'); clearAll(); }} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${mode === 'encode' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>Encode Base64</button>
+                <button type="button" onClick={() => { setMode('decode'); setInputType('text'); clearAll(); }} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${mode === 'decode' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>Decode Base64</button>
             </div>
 
             {mode === 'encode' && (
                 <div className="flex gap-2 mb-6">
-                    <button onClick={() => { setInputType('text'); clearAll(); }} className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors border ${inputType === 'text' ? 'bg-primary border-primary text-white' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>{t('tools.base64.text_input')}</button>
-                    <button onClick={() => { setInputType('file'); clearAll(); }} className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors border flex items-center gap-1 ${inputType === 'file' ? 'bg-primary border-primary text-white' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
+                    <button type="button" onClick={() => { setInputType('text'); clearAll(); }} className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors border ${inputType === 'text' ? 'bg-primary border-primary text-white' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>{t('tools.base64.text_input')}</button>
+                    <button type="button" onClick={() => { setInputType('file'); clearAll(); }} className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors border flex items-center gap-1 ${inputType === 'file' ? 'bg-primary border-primary text-white' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
                         <span className="material-symbols-outlined text-[14px]">upload_file</span> {t('tools.base64.file_input')}
                     </button>
                 </div>
@@ -162,7 +162,7 @@ export default function Base64Main() {
                                 className="w-full h-36 bg-slate-100 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-lg p-3 text-sm outline-none text-slate-900 dark:text-white resize-none break-all"
                                 spellCheck="false"
                             ></textarea>
-                            <button onClick={handleCopy} disabled={!outputText || outputText.startsWith('Error')} className="absolute bottom-3 right-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium py-1.5 px-3 rounded shadow-sm transition-all flex items-center gap-1 disabled:opacity-50">
+                            <button type="button" onClick={handleCopy} disabled={!outputText || outputText.startsWith('Error')} className="absolute bottom-3 right-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium py-1.5 px-3 rounded shadow-sm transition-all flex items-center gap-1 disabled:opacity-50">
                                 <span className="material-symbols-outlined text-[16px]">content_copy</span> {t('tools.base64.copy')}
                             </button>
                         </div>

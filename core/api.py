@@ -37,47 +37,47 @@ class Api:
     # ==========================================
     # EVENT EMITTERS (UI SYNC)
     # ==========================================
-    def emit_log(self, message: str, level: str = "info"):
+    def emit_log(self, message: str, level: str = "info", args: dict = None):
         """ Menembakkan log real-time ke LogsPanel React """
         if self._window:
-            detail = json.dumps({"message": message, "level": level})
+            detail = json.dumps({"message": message, "level": level, "args": args or {}})
             script = f"window.dispatchEvent(new CustomEvent('vylo_log', {{detail: {detail} }}));"
             self._window.evaluate_js(script)
 
-    def emit_progress(self, percent: int, text: str = ""):
+    def emit_progress(self, percent: int, text: str = "", args: dict = None):
         """ Menembakkan progress bar real-time ke Modal Instalasi React """
         if self._window:
-            detail = json.dumps({"percent": percent, "text": text})
+            detail = json.dumps({"percent": percent, "text": text, "args": args or {}})
             script = f"window.dispatchEvent(new CustomEvent('vylo_progress', {{detail: {detail} }}));"
             self._window.evaluate_js(script)
 
     def test_connection(self, data: str) -> Dict[str, str]:
         self.emit_log(f"Menerima ping dari UI: {data}", "info")
-        return {"status": "success", "message": "Koneksi Python dan React berhasil!"}
+        return {"status": "success", "message": "backend.api.connection_success"}
 
     # ==========================================
     # SIDEBAR & GLOBAL CONTROLLER SECTIONS
     # ==========================================
     def start_service(self, service_id: str) -> Dict[str, str]:
         if service_id == 'apache':
-            self.emit_log("Memulai Apache...", "info")
+            self.emit_log("backend.apache.starting_service", "info")
             return self.apache.start_server()
         elif service_id == 'php':
-            self.emit_log("Memulai Servis PHP...", "info")
+            self.emit_log("backend.php.starting_service", "info")
             return self.php.start_all()
         elif service_id == 'database':
-            self.emit_log("Memulai Servis Database...", "info")
+            self.emit_log("backend.database.starting_service", "info")
             return self.database.start_all()
 
     def stop_service(self, service_id: str) -> Dict[str, str]:
         if service_id == 'apache':
-            self.emit_log("Menghentikan Apache...", "warn")
+            self.emit_log("backend.apache.stopping_service", "warn")
             return self.apache.stop_server()
         elif service_id == 'php':
-            self.emit_log("Menghentikan Servis PHP...", "warn")
+            self.emit_log("backend.php.stopping_service", "warn")
             return self.php.stop_all()
         elif service_id == 'database':
-            self.emit_log("Menghentikan Servis Database...", "warn")
+            self.emit_log("backend.database.stopping_service", "warn")
             return self.database.stop_all()
     
     def get_all_services_status(self) -> Dict[str, Any]:
@@ -97,7 +97,7 @@ class Api:
     # PHP SECTIONS
     # ==========================================
     def get_php_versions(self):
-        self.emit_log("Mengambil daftar versi PHP terbaru dari server...", "info")
+        self.emit_log("backend.php.fetching_versions", "info")
         return self.php.get_versions()
 
     def install_php(self, version: str, filename: str, port: int):
@@ -133,8 +133,8 @@ class Api:
     def get_available_apache(self):
         return self.apache.get_available_versions()
 
-    def install_apache(self, version: str, url: str, http_port: int, https_port: int):
-        return self.apache.install_version(version, url, http_port, https_port)
+    def install_apache(self, version: str, url: str, http_port: int):
+        return self.apache.install_version(version, url, http_port)
     
     def get_apache_status(self):
         return self.apache.get_status()
@@ -179,7 +179,16 @@ class Api:
             webbrowser.open(url)
             return {"status": "success"}
         except Exception as e:
-            return {"status": "error", "message": f"Gagal membuka browser: {str(e)}"}
+            return {"status": "error", "message": "backend.api.browser_failed", "args": {"e": str(e)}}
+
+    def close_app(self):
+        """ Menutup aplikasi sepenuhnya lewat request frontend """
+        self.emit_log("backend.api.closing_app", "warn")
+        if hasattr(self, 'quit_callback') and self.quit_callback:
+            self.quit_callback()
+        else:
+            import os
+            os._exit(0)
 
     def detect_framework(self, directory: str):
         return self.project.detect_framework(directory)
@@ -191,27 +200,27 @@ class Api:
     def get_projects(self):
         if hasattr(self, 'project') and self.project:
             return self.project.get_projects()
-        return {"status": "error", "message": "Modul Project tidak dimuat."}
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
 
     def delete_project(self, project_id: str, delete_files: bool = False):
         if hasattr(self, 'project') and self.project:
             return self.project.delete_project(project_id, delete_files)
-        return {"status": "error", "message": "Modul Project tidak dimuat."}
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
 
     def retry_sync_host(self, project_id: str):
         if hasattr(self, 'project') and self.project:
             return self.project.retry_sync_host(project_id)
-        return {"status": "error", "message": "Modul Project tidak dimuat."}
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
 
     def open_in_explorer(self, path: str):
         if hasattr(self, 'project') and self.project:
             return self.project.open_in_explorer(path)
-        return {"status": "error", "message": "Modul Project tidak dimuat."}
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
     
     def update_project(self, payload: dict):
         if hasattr(self, 'project') and self.project:
             return self.project.update_project(payload)
-        return {"status": "error", "message": "Modul Project tidak dimuat."}
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
     
     # ==========================================
     # DASHBOARD SECTIONS

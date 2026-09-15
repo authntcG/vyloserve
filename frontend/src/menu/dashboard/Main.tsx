@@ -25,8 +25,8 @@ export default function DashboardMain() {
     const [projects, setProjects] = useState<ProjectData[]>([]);
     const [status, setStatus] = useState<ServiceStatus>({ apache: false, php: false, database: false, cpu_load: 0, ram_usage: 0 });
 
-    const [cpuHistory, setCpuHistory] = useState<number[]>(Array(20).fill(0));
-    const [ramHistory, setRamHistory] = useState<number[]>(Array(20).fill(0));
+    const [cpuHistory, setCpuHistory] = useState<number[]>(new Array(20).fill(0));
+    const [ramHistory, setRamHistory] = useState<number[]>(new Array(20).fill(0));
 
     const [apacheVersions, setApacheVersions] = useState<string[]>([]);
     const [selectedApache, setSelectedApache] = useState<string>('');
@@ -445,7 +445,7 @@ export default function DashboardMain() {
                             <span className="text-xs text-slate-500">{t('dashboard.global_control_panel_desc')}</span>
                         </div>
                         <div className="flex flex-wrap gap-2 shrink-0">
-                            <button
+                            <button type="button"
                                 onClick={() => handleToggleAll('start')}
                                 disabled={isGlobalLoading || isTogglingAll !== null || !canStart}
                                 className="bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-300 dark:disabled:bg-slate-800 disabled:text-slate-500 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm flex-1 sm:flex-none"
@@ -457,7 +457,7 @@ export default function DashboardMain() {
                                 )}
                             </button>
 
-                            <button
+                            <button type="button"
                                 onClick={() => handleToggleAll('stop')}
                                 disabled={isGlobalLoading || isTogglingAll !== null || !canStop}
                                 className="bg-amber-500 hover:bg-amber-600 disabled:bg-slate-300 dark:disabled:bg-slate-800 disabled:text-slate-500 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm flex-1 sm:flex-none"
@@ -560,7 +560,7 @@ export default function DashboardMain() {
                                             {phpInstances.length > 0 ? phpInstances.map(php => {
                                                 const isSelected = selectedPhp.includes(php.version);
                                                 return (
-                                                    <button
+                                                    <button type="button"
                                                         key={php.id}
                                                         onClick={() => togglePhpSelection(php.version)}
                                                         className={`text-[11px] font-medium px-2 py-1 rounded transition-colors border ${isSelected ? 'bg-blue-50 dark:bg-blue-900/30 border-primary/50 text-primary dark:text-blue-400 shadow-sm' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500 hover:border-slate-400'}`}
@@ -605,9 +605,9 @@ export default function DashboardMain() {
                                             {dbInstances.length > 0 ? dbInstances.map(db => {
                                                 const isSelected = selectedDb.includes(db.id);
                                                 // Ekstrak nama singkat agar chip tidak terlalu panjang
-                                                const shortName = db.name.replace('MariaDB', 'MDB').replace('PostgreSQL', 'PG');
+                                                const shortName = db.name.replaceAll('MariaDB', 'MDB').replaceAll('PostgreSQL', 'PG');
                                                 return (
-                                                    <button
+                                                    <button type="button"
                                                         key={db.id}
                                                         onClick={() => toggleDbSelection(db.id)}
                                                         title={db.name}
@@ -724,13 +724,13 @@ export default function DashboardMain() {
                                 </div>
 
                                 <div className="flex gap-2 mt-auto pt-2 border-t border-slate-100 dark:border-slate-800">
-                                    <button
+                                    <button type="button"
                                         onClick={() => handleOpenBrowser(proj.domain)}
                                         className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-xs font-medium py-1.5 px-3 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm outline-none"
                                     >
                                         <span className="material-symbols-outlined text-[16px]">public</span> {t('dashboard.open')}
                                     </button>
-                                    <button
+                                    <button type="button"
                                         onClick={() => handleOpenDir(proj.path)}
                                         className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-xs font-medium py-1.5 px-3 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm outline-none"
                                     >

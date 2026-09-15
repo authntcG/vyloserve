@@ -14,7 +14,7 @@ ssl._create_default_https_context = lambda: ssl.create_default_context(cafile=ce
 
 # --- KONFIGURASI ENVIRONMENT ---
 # Ubah menjadi True jika ingin melakukan build (.exe) atau Alpha Testing
-IS_PRODUCTION = True
+IS_PRODUCTION = False
 
 # Flag global untuk membedakan antara "Hide" dan "Benar-benar Exit"
 is_real_exit = False
@@ -36,7 +36,10 @@ def get_entrypoint():
         return 'http://localhost:5173'
 
 # --- FUNGSI SYSTEM TRAY (TASKBAR) ---
+global_tray_icon = None
+
 def setup_systray(window, icon_path):
+    global global_tray_icon
     try:
         print(f"[DEBUG] Mencoba memuat ikon dari: {icon_path}")
         
@@ -68,6 +71,7 @@ def setup_systray(window, icon_path):
 
         # 5. Eksekusi Pystray
         tray_icon = pystray.Icon("VyloServe", image, "VyloServe Background Engine", menu)
+        global_tray_icon = tray_icon
         
         def run_tray():
             try:
@@ -102,6 +106,23 @@ if __name__ == '__main__':
             background_color='#0f172a'
         )
         api.set_window(window)
+
+        def perform_exit():
+            global is_real_exit, global_tray_icon
+            is_real_exit = True
+            if 'global_tray_icon' in globals() and global_tray_icon:
+                try:
+                    global_tray_icon.stop()
+                except Exception:
+                    pass
+            try:
+                window.destroy()
+            except Exception:
+                pass
+            os._exit(0)
+        
+        api.quit_callback = perform_exit
+
 
         # --- CEGAT EVENT TOMBOL CLOSE (X) ---
         def on_closing():
