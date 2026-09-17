@@ -18,6 +18,49 @@ interface ServiceStatus {
     ram_usage?: number;
 }
 
+
+const PhpChips = ({ phpInstances, selectedPhp, togglePhpSelection, t }: any) => {
+    if (phpInstances.length === 0) return <span className="text-xs text-slate-400 italic mt-1">{t('dashboard.no_php_installed')}</span>;
+    return (
+        <>
+            {phpInstances.map((php: any) => {
+                const isSelected = selectedPhp.includes(php.version);
+                return (
+                    <button type="button"
+                        key={php.id}
+                        onClick={() => togglePhpSelection(php.version)}
+                        className={`text-[11px] font-medium px-2 py-1 rounded transition-colors border ${isSelected ? 'bg-blue-50 dark:bg-blue-900/30 border-primary/50 text-primary dark:text-blue-400 shadow-sm' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500 hover:border-slate-400'}`}
+                    >
+                        PHP {php.version}
+                    </button>
+                )
+            })}
+        </>
+    );
+};
+
+const DbChips = ({ dbInstances, selectedDb, toggleDbSelection, t }: any) => {
+    if (dbInstances.length === 0) return <span className="text-xs text-slate-400 italic mt-1">{t('dashboard.no_db_installed')}</span>;
+    return (
+        <>
+            {dbInstances.map((db: any) => {
+                const isSelected = selectedDb.includes(db.id);
+                const shortName = db.name.replaceAll('MariaDB', 'MDB').replaceAll('PostgreSQL', 'PG');
+                return (
+                    <button type="button"
+                        key={db.id}
+                        onClick={() => toggleDbSelection(db.id)}
+                        title={db.name}
+                        className={`text-[11px] font-medium px-2 py-1 rounded transition-colors border ${isSelected ? 'bg-blue-50 dark:bg-blue-900/30 border-primary/50 text-primary dark:text-blue-400 shadow-sm' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500 hover:border-slate-400'}`}
+                    >
+                        {shortName}
+                    </button>
+                )
+            })}
+        </>
+    );
+};
+
 export default function DashboardMain() {
     const { t } = useTranslation();
     const { showToast } = useToast();
@@ -71,7 +114,7 @@ export default function DashboardMain() {
                     }
                 }
             }
-        } catch (error) { console.error("Gagal memuat config dashboard:", error); }
+        } catch (error){ console.error(error); console.error("Gagal memuat config dashboard:", error); }
         finally { isConfigLoaded.current = true; }
     };
 
@@ -89,7 +132,7 @@ export default function DashboardMain() {
                     };
                     await api.save_dashboard_config(payload);
                 }
-            } catch (e) { console.error("Gagal menyimpan config:", e); }
+            } catch (e){ console.error(e); console.error("Gagal menyimpan config:", e); }
         };
         saveConfig();
     }, [includedServices, selectedPhp, selectedDb]);
@@ -105,7 +148,7 @@ export default function DashboardMain() {
                     setProjects(reversed.slice(0, 4));
                 }
             }
-        } catch (error) { console.error(error); }
+        } catch (error){ console.error(error); }
         finally { setIsLoadingProjects(false); }
     };
 
@@ -178,8 +221,7 @@ export default function DashboardMain() {
                     });
                 }
             }
-        } catch (error) {
-            console.error(error);
+        } catch (error){ console.error(error);
         } finally {
             setIsGlobalLoading(false);
         }
@@ -211,62 +253,37 @@ export default function DashboardMain() {
             if (!api) return;
 
             if (action === 'start') {
-                if (includedServices.apache && selectedApache) {
-                    await api.set_apache_active_version(selectedApache);
-                }
-                // Eksekusi PHP
+                if (includedServices.apache && selectedApache) await api.set_apache_active_version(selectedApache);
                 if (includedServices.php) {
                     for (const v of selectedPhp) {
-                        const inst = phpInstances.find(p => p.version === v);
-                        if (inst && inst.status !== 'running') {
-                            await api.start_php(v);
-                        }
+                        if (phpInstances.find(p => p.version === v)?.status !== 'running') await api.start_php(v);
                     }
                 }
-                // ---> EKSEKUSI DATABASE START <---
                 if (includedServices.database) {
                     for (const id of selectedDb) {
-                        const inst = dbInstances.find(p => p.id === id);
-                        if (inst && inst.status !== 'running') {
-                            await api.start_database(id);
-                        }
+                        if (dbInstances.find(p => p.id === id)?.status !== 'running') await api.start_database(id);
                     }
                 }
-
-                if (includedServices.apache) {
-                    await api.start_apache_server();
-                }
+                if (includedServices.apache) await api.start_apache_server();
                 showToast("Proses Start servis berhasil dieksekusi!", "success");
             } else {
-                if (includedServices.apache) {
-                    await api.stop_apache_server();
-                }
-                // Eksekusi PHP Stop
+                if (includedServices.apache) await api.stop_apache_server();
                 if (includedServices.php) {
                     for (const v of selectedPhp) {
-                        const inst = phpInstances.find(p => p.version === v);
-                        if (inst && inst.status === 'running') {
-                            await api.stop_php(v);
-                        }
+                        if (phpInstances.find(p => p.version === v)?.status === 'running') await api.stop_php(v);
                     }
                 }
-                // ---> EKSEKUSI DATABASE STOP <---
                 if (includedServices.database) {
                     for (const id of selectedDb) {
-                        const inst = dbInstances.find(p => p.id === id);
-                        if (inst && inst.status === 'running') {
-                            await api.stop_database(id);
-                        }
+                        if (dbInstances.find(p => p.id === id)?.status === 'running') await api.stop_database(id);
                     }
                 }
                 showToast(t('dashboard.stop_success'), "success");
             }
 
             fetchServicesStatus();
-            // Emit Event Selesai agar Sidebar ikut terefresh
             window.dispatchEvent(new Event('service_status_changed'));
-
-        } catch (error) {
+        } catch (error){ console.error(error);
             console.error("Dashboard Toggle Error:", error);
             showToast(t('dashboard.toggle_error'), "error");
         } finally {
@@ -306,13 +323,13 @@ export default function DashboardMain() {
         try {
             if (window.pywebview?.api?.open_browser) window.pywebview.api.open_browser(url);
             else window.open(url, '_blank');
-        } catch (e) { console.error(e); }
+        } catch (e){ console.error(e); }
     };
 
     const handleOpenDir = (path: string) => {
         try {
             if (window.pywebview?.api?.open_in_explorer) window.pywebview.api.open_in_explorer(path);
-        } catch (e) { console.error(e); }
+        } catch (e){ console.error(e); }
     };
 
     let canStart = false;
@@ -422,8 +439,8 @@ export default function DashboardMain() {
             />
 
             <div className="flex flex-col gap-3">
-                {getSuggestions().map((sugg, idx) => (
-                    <div key={idx} className={`flex items-center gap-3 p-4 rounded-xl border ${sugg.border} ${sugg.bg}`}>
+                {getSuggestions().map((sugg) => (
+                    <div key={sugg.text} className={`flex items-center gap-3 p-4 rounded-xl border ${sugg.border} ${sugg.bg}`}>
                         <span className={`material-symbols-outlined ${sugg.color} text-[24px]`}>{sugg.icon}</span>
                         <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{sugg.text}</span>
                     </div>
@@ -557,18 +574,7 @@ export default function DashboardMain() {
                                             <span className={`w-2 h-2 shrink-0 rounded-full ${phpInstances.some(p => p.status === 'running') ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300 dark:bg-slate-600'}`}></span>
                                         </div>
                                         <div className="flex flex-wrap gap-1.5 max-h-[56px] overflow-y-auto custom-scrollbar pr-1 mt-0.5">
-                                            {phpInstances.length > 0 ? phpInstances.map(php => {
-                                                const isSelected = selectedPhp.includes(php.version);
-                                                return (
-                                                    <button type="button"
-                                                        key={php.id}
-                                                        onClick={() => togglePhpSelection(php.version)}
-                                                        className={`text-[11px] font-medium px-2 py-1 rounded transition-colors border ${isSelected ? 'bg-blue-50 dark:bg-blue-900/30 border-primary/50 text-primary dark:text-blue-400 shadow-sm' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500 hover:border-slate-400'}`}
-                                                    >
-                                                        {php.version}
-                                                    </button>
-                                                )
-                                            }) : <span className="text-xs text-slate-400 italic mt-1">{t('dashboard.no_php_installed')}</span>}
+                                            <PhpChips phpInstances={phpInstances} selectedPhp={selectedPhp} togglePhpSelection={togglePhpSelection} t={t} />
                                         </div>
                                     </div>
                                 </div>
@@ -580,7 +586,7 @@ export default function DashboardMain() {
                                             <span className={`material-symbols-outlined shrink-0 transition-colors ${includedServices.database ? 'text-primary' : 'text-slate-400'}`}>database</span>
                                             <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 truncate">{t('sidebar.menu_database')}</span>
                                         </div>
-                                        <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                                        <label aria-label={t('sidebar.menu_database')} className="relative inline-flex items-center cursor-pointer shrink-0">
                                             <input
                                                 type="checkbox"
                                                 checked={includedServices.database}
@@ -602,21 +608,7 @@ export default function DashboardMain() {
                                             <span className={`w-2 h-2 shrink-0 rounded-full ${dbInstances.some(p => p.status === 'running') ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300 dark:bg-slate-600'}`}></span>
                                         </div>
                                         <div className="flex flex-wrap gap-1.5 max-h-[56px] overflow-y-auto custom-scrollbar pr-1 mt-0.5">
-                                            {dbInstances.length > 0 ? dbInstances.map(db => {
-                                                const isSelected = selectedDb.includes(db.id);
-                                                // Ekstrak nama singkat agar chip tidak terlalu panjang
-                                                const shortName = db.name.replaceAll('MariaDB', 'MDB').replaceAll('PostgreSQL', 'PG');
-                                                return (
-                                                    <button type="button"
-                                                        key={db.id}
-                                                        onClick={() => toggleDbSelection(db.id)}
-                                                        title={db.name}
-                                                        className={`text-[11px] font-medium px-2 py-1 rounded transition-colors border ${isSelected ? 'bg-blue-50 dark:bg-blue-900/30 border-primary/50 text-primary dark:text-blue-400 shadow-sm' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500 hover:border-slate-400'}`}
-                                                    >
-                                                        {shortName}
-                                                    </button>
-                                                )
-                                            }) : <span className="text-xs text-slate-400 italic mt-1">{t('dashboard.no_db_installed')}</span>}
+                                            <DbChips dbInstances={dbInstances} selectedDb={selectedDb} toggleDbSelection={toggleDbSelection} t={t} />
                                         </div>
                                     </div>
                                 </div>

@@ -27,7 +27,7 @@ export default function ApacheSettings() {
                         showToast(response.message, 'error');
                     }
                 }
-            } catch (error) {
+            } catch (error){ console.error(error);
                 showToast(t('apache.fetch_version_local_error'), "error");
             } finally {
                 setIsLoading(false);
@@ -52,7 +52,7 @@ export default function ApacheSettings() {
                         showToast(response.message, 'error');
                 }
             }
-        } catch (error) {
+        } catch (error){ console.error(error);
             showToast(t('apache.save_version_settings_error'), "error");
         }
     };
@@ -66,7 +66,7 @@ export default function ApacheSettings() {
                     showToast(response.message, 'error');
                 }
             }
-        } catch (error) {
+        } catch (error){ console.error(error);
             showToast(t('apache.open_file_error'), "error");
         }
     };

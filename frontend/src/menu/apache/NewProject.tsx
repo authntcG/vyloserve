@@ -46,6 +46,9 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
     useEffect(() => {
         const handleProgress = (e: Event) => {
             const customEvent = e as CustomEvent;
+            // Filter berdasarkan source agar progress instalasi service lain (mis. PHP/Database)
+            // yang kebetulan berjalan bersamaan tidak ikut ter-render di sini (lihat docs/known_bugs.md #7).
+            if (customEvent.detail?.source && customEvent.detail.source !== 'ProjectManager') return;
             if (customEvent.detail) {
                 setProgress({ percent: customEvent.detail.percent || 0, text: customEvent.detail.text || t('apache.processing') });
             }
@@ -72,7 +75,7 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
                     setPhpVersions(versions);
                     if (versions.length > 0) setSelectedVersion(versions[versions.length - 1].version);
                 }
-            } catch (error) { console.error(error); }
+            } catch (error){ console.error(error); }
             finally { setIsLoadingVersions(false); }
         };
         fetchPhpVersions();
@@ -159,7 +162,7 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
                     showToast(response?.message || 'Error', 'error');
                     return false;
                 }
-            } catch (error) {
+            } catch (error){ console.error(error);
                 showToast(t('apache.new_project_backend_error'), "error");
                 return false;
             } finally {

@@ -5,6 +5,9 @@ import urllib.request
 import re
 import shutil
 import time
+import subprocess
+
+HTTPD_CONF_NAME = "httpd.conf"
 
 # ---> IMPORT UTILITIES (DRY PRINCIPLE) <---
 from core.utils.system_utils import get_project_root, run_silent_command, start_silent_process
@@ -34,10 +37,13 @@ class ApacheManager:
             try:
                 with open(txt_file, 'rb') as f:
                     ver = f.read().decode('utf-8', errors='ignore').replace('\x00', '').strip(' \t\n\r\x0b\x0c\ufeff"\'')
-                    if ver:
-                        self._set_active_version_silent(ver)
-                        os.remove(txt_file) 
-                        return ver
+                # os.remove() dipanggil SETELAH file ditutup (di luar 'with') -- di Windows,
+                # menghapus file yang masih terbuka melempar PermissionError sehingga migrasi
+                # legacy ini sebelumnya selalu gagal diam-diam (tertelan except di bawah).
+                if ver:
+                    self._set_active_version_silent(ver)
+                    os.remove(txt_file)
+                    return ver
             except Exception: pass
         return None
 
@@ -59,27 +65,28 @@ class ApacheManager:
         except Exception:
             return False
 
+    def _get_installed_folders(self) -> dict:
+        if not os.path.exists(self.base_dir):
+            return {}
+        return {str(item).strip(): item for item in os.listdir(self.base_dir) 
+                if os.path.isdir(os.path.join(self.base_dir, item)) and not item.startswith("temp_")}
+
     def get_status(self):
         try:
             is_running = self.check_is_running()
-            if not os.path.exists(self.base_dir):
-                return {"status": "success", "installed": False, "version": None, "path": None, "running": is_running}
+            folder_map = self._get_installed_folders()
             
-            folder_map = {str(item).strip(): item for item in os.listdir(self.base_dir) if os.path.isdir(os.path.join(self.base_dir, item)) and not item.startswith("temp_")}
             if not folder_map:
                 return {"status": "success", "installed": False, "version": None, "path": None, "running": is_running}
                 
             clean_folders = sorted(folder_map.keys(), key=lambda v: [int(x) for x in re.findall(r'\d+', v)] if re.findall(r'\d+', v) else [0], reverse=True)
             active_version = self._get_active_version()
             
-            if active_version and active_version in folder_map:
-                installed_version = active_version
-            else:
-                installed_version = clean_folders[0]
+            installed_version = active_version if (active_version and active_version in folder_map) else clean_folders[0]
+            if installed_version != active_version:
                 self._set_active_version_silent(installed_version)
 
             installed_path = os.path.join(self.base_dir, folder_map[installed_version])
-
             return {"status": "success", "installed": True, "version": installed_version, "path": installed_path, "running": is_running}
         except Exception as e:
             return {"status": "error", "message": "backend.apache.status_check_failed", "args": {"e": str(e)}}
@@ -108,7 +115,7 @@ class ApacheManager:
     def _patch_httpd_content(self, content: str) -> tuple[str, bool]:
         modified = False
         for mod in ["proxy_module", "proxy_fcgi_module", "rewrite_module", "vhost_alias_module", "dir_module", "setenvif_module", "ssl_module", "socache_shmcb_module"]:
-            pattern = re.compile(r"^[ \t]*#[ \t]*(LoadModule\s+" + mod + r"\b.*)$", re.MULTILINE)
+            pattern = re.compile(r"^[ \t]*#[ \t]*(LoadModule\s+" + mod + r"\b[^\r\n]*)$", re.MULTILINE)
             if pattern.search(content):
                 content = pattern.sub(r"\1", content); modified = True
 
@@ -142,7 +149,7 @@ class ApacheManager:
             if not status.get("installed"): return
             
             apache_dir = status["path"]
-            conf_path = os.path.join(apache_dir, "conf", "httpd.conf")
+            conf_path = os.path.join(apache_dir, "conf", HTTPD_CONF_NAME)
             if not os.path.exists(conf_path): return
             
             with open(conf_path, 'r', encoding='utf-8') as f: content = f.read()
@@ -165,7 +172,7 @@ class ApacheManager:
             if hasattr(self, 'api'): self.api.emit_log("backend.apache.preflight_failed", "error", {"e": str(e)})
             
     def _configure_httpd(self, target_dir, port):
-        conf_path = os.path.join(target_dir, "conf", "httpd.conf")
+        conf_path = os.path.join(target_dir, "conf", HTTPD_CONF_NAME)
         with open(conf_path, 'r', encoding='utf-8') as f: content = f.read()
 
         content = re.sub(r'Define\s+SRVROOT\s+"[^"]+"', f'Define SRVROOT "{target_dir.replace(chr(92), "/")}"', content, flags=re.IGNORECASE)
@@ -261,17 +268,19 @@ class ApacheManager:
 
     def _parse_apache_versions_html(self, html: str) -> list:
         versions = []
-        for match in re.findall(r'href="([^"]*?httpd-2\.4\.(\d+)[^"]*?win64[^"]*?\.zip)"', html, re.IGNORECASE):
-            raw_url = match[0]
-            if raw_url.startswith("http"):
-                dl_url = raw_url
-            elif raw_url.startswith("/"):
-                dl_url = f"https://www.apachelounge.com{raw_url}"
-            else:
-                dl_url = f"https://www.apachelounge.com/download/{raw_url}"
-                
-            if not any(v['version'] == f"2.4.{match[1]}" for v in versions):
-                versions.append({"version": f"2.4.{match[1]}", "filename": dl_url.split('/')[-1], "url": dl_url})
+        for match in re.findall(r'href="([^"]+\.zip)"', html, re.IGNORECASE):
+            raw_url = match
+            version_match = re.search(r'httpd-2\.4\.(\d+)', raw_url, re.IGNORECASE)
+            if version_match and 'win64' in raw_url.lower():
+                if raw_url.startswith("http"):
+                    dl_url = raw_url
+                elif raw_url.startswith("/"):
+                    dl_url = f"https://www.apachelounge.com{raw_url}"
+                else:
+                    dl_url = f"https://www.apachelounge.com/download/{raw_url}"
+                    
+                if not any(v['version'] == f"2.4.{version_match.group(1)}" for v in versions):
+                    versions.append({"version": f"2.4.{version_match.group(1)}", "filename": dl_url.split('/')[-1], "url": dl_url})
         versions.sort(key=lambda x: int(x['version'].split('.')[2]), reverse=True)
         return versions
 
@@ -367,26 +376,26 @@ class ApacheManager:
             elif sys.platform == 'darwin': subprocess.Popen(['open', target])
             else: subprocess.Popen(['xdg-open', target])
             return {"status": "success"}
-        except Exception: return {"status": "error", "message": str(e)}
+        except Exception as e: return {"status": "error", "message": str(e)}
             
     def open_config(self):
         try:
             status = self.get_status()
             if status.get("installed"):
-                conf_path = os.path.join(status["path"], "conf", "httpd.conf")
+                conf_path = os.path.join(status["path"], "conf", HTTPD_CONF_NAME)
                 if os.path.exists(conf_path):
                     if sys.platform == 'win32': os.startfile(conf_path)
                     elif sys.platform == 'darwin': subprocess.Popen(['open', conf_path])
                     else: subprocess.Popen(['xdg-open', conf_path])
                     return {"status": "success"}
             return {"status": "error", "message": "backend.apache.httpd_not_found"}
-        except Exception: return {"status": "error", "message": str(e)}
+        except Exception as e: return {"status": "error", "message": str(e)}
 
     def open_apache_file(self, file_type):
         try:
             status = self.get_status()
             if not status.get("installed"): return {"status": "error", "message": ERR_NOT_INSTALLED}
-            paths = {'httpd': os.path.join(status["path"], 'conf', 'httpd.conf'), 'vhosts': os.path.join(status["path"], 'conf', 'extra', 'vyloserve-vhosts.conf'), 'error': os.path.join(status["path"], 'logs', 'error.log')}
+            paths = {'httpd': os.path.join(status["path"], 'conf', HTTPD_CONF_NAME), 'vhosts': os.path.join(status["path"], 'conf', 'extra', 'vyloserve-vhosts.conf'), 'error': os.path.join(status["path"], 'logs', 'error.log')}
             
             target = paths.get(file_type)
             if not target: return {"status": "error", "message": "backend.apache.invalid_type"}
@@ -400,7 +409,7 @@ class ApacheManager:
             elif sys.platform == 'darwin': subprocess.Popen(['open', target])
             else: subprocess.Popen(['xdg-open', target])
             return {"status": "success"}
-        except Exception: return {"status": "error", "message": str(e)}
+        except Exception as e: return {"status": "error", "message": str(e)}
 
     def start_server(self):
         if hasattr(self, 'api'): self.api.emit_log("backend.apache.starting", "info")
@@ -421,7 +430,7 @@ class ApacheManager:
                 
             if hasattr(self, 'api'): self.api.emit_log("backend.apache.started_with_pid", "success", {"pid": proc.pid})
             return {"status": "success", "message": "backend.apache.start_success"}
-        except Exception: return {"status": "error", "message": str(e)}
+        except Exception as e: return {"status": "error", "message": str(e)}
             
     def stop_server(self):
         try:
@@ -431,7 +440,7 @@ class ApacheManager:
                 
             if hasattr(self, 'api'): self.api.emit_log("backend.apache.stopped", "success")
             return {"status": "success", "message": "backend.apache.stopped_success"}
-        except Exception: return {"status": "error", "message": str(e)}
+        except Exception as e: return {"status": "error", "message": str(e)}
         
     def restart_server(self):
         try:
@@ -439,4 +448,4 @@ class ApacheManager:
                 self.stop_server()
                 time.sleep(1)
             return self.start_server()
-        except Exception: return {"status": "error", "message": str(e)}
+        except Exception as e: return {"status": "error", "message": str(e)}

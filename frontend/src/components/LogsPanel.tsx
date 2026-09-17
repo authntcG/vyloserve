@@ -102,7 +102,7 @@ export default function LogsPanel() {
             }
             setIsCopied(true);
             setTimeout(() => setIsCopied(false), 2000);
-        } catch (err) {
+        } catch (err){ console.error(err);
             console.error("Gagal menyalin log:", err);
         }
     };

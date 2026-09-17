@@ -11,10 +11,12 @@ Dokumen ini berisi daftar kendala, limitasi arsitektur, dan bug spesifik OS yang
 **Deskripsi:** Pembuatan *Virtual Host* otomatis memerlukan modifikasi file rahasia OS `C:\Windows\System32\drivers\etc\hosts`. Ini membutuhkan akses Administrator. Jika Python dijalankan biasa tanpa "Run as Administrator", perubahan ditolak OS.
 **Solusi (Fixed):** Pada `project.py`, diterapkan sebuah fungsi fallback `_write_hosts_with_uac`. Aplikasi tidak akan error (crash), namun ia akan membangkitkan popup izin administrator bawaan OS Windows secara parsial (dengan perintah `ctypes.windll.shell32.ShellExecuteW`). Jika diiyakan (return kode > 32), data `hosts` akan disalin.
 
-## 3. Typo *Path* Ekstraksi Apache (`con` vs `conf`)
+## 3. ✅ Typo *Path* Ekstraksi Apache (`con` vs `conf`) — SUDAH DIPERBAIKI (ulang)
 **Deskripsi:** Instalasi Apache pernah gagal karena tidak menemukan file konfigurasi `/con/httpd.con`.
 **Penyebab:** Kesalahan fatal substitusi teks (Find/Replace) pada Regex saat fase refactoring massal, mengubah kata `conf` menjadi `con`.
-**Solusi (Fixed):** Semua string referensi telah dikembalikan ke standar direktori Apache yang benar (yakni folder `conf/`). Modul `ssl_manager.py` juga telah diperbaiki (*openssl.cnf*).
+**Riwayat:** `core/services/apache.py` dan `core/services/ssl_manager.py` sudah benar menggunakan `conf/`. Namun audit ulang menemukan `core/services/project.py` fungsi `sync_apache_vhosts()` **masih** menulis ke folder `con/extra` (typo yang sama, regresi yang lolos dari perbaikan sebelumnya).
+**Solusi (Fixed — dikonfirmasi ulang):** `os.path.join(status["path"], 'con', 'extra')` telah diganti menjadi `os.path.join(status["path"], 'conf', 'extra')` di `project.py`. Virtual host yang dibuat lewat Project Manager sekarang ter-*load* dengan benar oleh Apache.
+**Catatan pencegahan regresi:** Tambahkan unit test yang memvalidasi path `conf/extra` secara eksplisit (assert pada path yang dipakai, bukan hanya hasil akhir) agar typo serupa tidak lolos lagi di masa depan tanpa terdeteksi CI.
 
 ## 4. Limitasi `pywebview` dan Komponen React Absolute Z-Index
 **Deskripsi:** `pywebview` membatasi fitur-fitur manipulasi *Browser Native* tingkat lanjut. Terkadang menggunakan React *Portal* atau *Z-Index* absolut untuk `Modal` atau `Dropdown` yang terlalu di luar batas layar dapat menyebabkan elemen tersebut terpotong, karena jendela VyloServe bersifat "Frameless Desktop App" (bukan Full Browser).
@@ -22,3 +24,51 @@ Dokumen ini berisi daftar kendala, limitasi arsitektur, dan bug spesifik OS yang
 
 ## 5. Menghindari `git checkout -- <file>` Sembarangan
 **Limitasi AI/Developer:** Ketika melakukan refactoring (terutama oleh Agen AI), hindari penggunaan *command terminal* `git checkout -- <file>` untuk melakukan undo jika direktori kerja belum di-*commit*. Itu akan menghapus total pekerjaan yang tidak ter-*track*. **Utamakan** merevisi langsung menggunakan alat baca-tulis file secara manual.
+
+## 6. ✅ Proses Child (`httpd.exe`/`php-cgi.exe`/`mysqld.exe`) Tidak Dimatikan Saat Quit — SUDAH DIPERBAIKI
+**Deskripsi:** Dokumentasi arsitektur sebelumnya mengklaim bahwa `api.close_app()` mematikan semua manager (`php.stop_all()`, `apache.stop_server()`, dst.) sebelum aplikasi benar-benar keluar, mencegah *zombie process*.
+**Status yang ditemukan saat audit:** Fungsi `perform_exit()` di `main.py` ternyata **tidak memanggil fungsi stop manapun** — ia hanya menghentikan ikon System Tray dan men-destroy window, lalu langsung `os._exit(0)`, berpotensi meninggalkan `httpd.exe`/`php-cgi.exe`/`mysqld.exe` tetap berjalan di Task Manager setelah aplikasi ditutup.
+**Solusi (Fixed):** `perform_exit()` sekarang memanggil `api.apache.stop_server()`, `api.php.stop_all()`, dan `api.database.stop_all()` (masing-masing dibungkus try/except sendiri agar satu kegagalan tidak menghentikan proses cleanup lainnya) sebelum tray/window dihentikan dan `os._exit(0)` dipanggil.
+
+## 7. ✅ Event `vylo_progress` Berpotensi "Bocor" Antar Modul Frontend — SUDAH DIPERBAIKI
+**Deskripsi:** Karena seluruh halaman modul (Apache/PHP/Database/Runtimes/Git) selalu ter-*mount* bersamaan di `App.tsx` (disembunyikan lewat CSS, bukan *unmount*), dan setiap halaman memasang listener `window.addEventListener('vylo_progress', ...)` sendiri tanpa memfilter sumber event, progress bar milik satu modul (misal instalasi Apache) berpotensi ikut ter-update di modal modul lain (misal Settings PHP) jika kebetulan sedang terbuka bersamaan.
+**Solusi (Fixed):**
+- **Backend** (`core/api.py`): `emit_log()`/`emit_progress()` sekarang otomatis mendeteksi nama class Manager pemanggil (via `inspect`) dan menyertakannya sebagai field `source` di payload event (mis. `"source": "ApacheManager"`) — tanpa perlu mengubah satu-per-satu titik panggilan di tiap service.
+- **Frontend**: setiap listener `vylo_progress` (Apache, PHP × 2, Database, Runtimes, Git) kini memfilter `e.detail.source` dan mengabaikan event yang bukan miliknya sebelum meng-update state progress.
+- Sebagai bagian dari perbaikan ini, 4 titik di `core/services/project.py` yang sebelumnya memanggil `window.evaluate_js()` secara manual (bypass `emit_progress`, dengan escaping string manual yang rawan) diubah untuk memakai `self._progress()` (→ `emit_progress`) sehingga otomatis ikut mendapat `source` yang benar dan escaping JSON yang aman.
+Lihat `docs/frontend_ui.md` §3.3 untuk diagram lengkap.
+
+## 8. Tidak Ada Verifikasi Checksum/Signature pada Binary yang Diunduh (belum diperbaiki — limitasi diterima)
+**Deskripsi:** Semua alur instalasi (Apache, PHP, Node, Python, Java, Go, Git, MariaDB/PostgreSQL) mengunduh binary langsung dari URL vendor tanpa memverifikasi checksum (SHA256) atau signature sebelum mengekstrak/mengeksekusinya.
+**Mitigasi saat ini:** Risiko dianggap rendah karena seluruh URL sumber di-*hardcode* ke domain resmi vendor (ApacheLounge, php.net, nodejs.org, Adoptium, go.dev, GitHub Releases, archive.mariadb.org) — bukan input bebas dari user.
+**Kenapa belum diotomasi-perbaiki:** Setiap vendor mempublikasikan checksum dengan format/lokasi URL yang berbeda-beda dan tidak selalu konsisten antar versi — menambahkan verifikasi otomatis berisiko membuat instalasi gagal jika format checksum vendor berubah, dan perlu pengujian menyeluruh per-vendor sebelum diaktifkan.
+**Tindak lanjut (opsional, hardening — perlu keputusan eksplisit sebelum dikerjakan):** Pertimbangkan menambahkan verifikasi checksum SHA256 secara bertahap per-vendor, dimulai dari yang paling berisiko (PortableGit, karena file `.7z.exe` dieksekusi langsung).
+
+## 9. ✅ Klaim "Zip Slip Protection" yang Tidak Akurat — SUDAH DIPERBAIKI
+**Deskripsi:** Dokumentasi sebelumnya mengklaim `extract_archive()` "mencegah zip slip vulnerability", padahal audit kode menunjukkan tidak ada validasi path traversal sama sekali di `_extract_zip`/`_extract_tar_gz`.
+**Solusi (Fixed):** Ditambahkan fungsi `_is_safe_extract_path()` di `core/utils/file_utils.py` yang memvalidasi setiap member arsip (baik `.zip` maupun `.tar.gz`) memakai `os.path.realpath()` sebelum diekstrak — member dengan path yang keluar dari direktori tujuan (mis. `../../evil.exe` atau path absolut) akan menggagalkan seluruh proses ekstraksi dengan `RuntimeError` yang jelas, bukan diam-diam dieksekusi.
+
+## 10. ✅ `NameError` Tersembunyi di 3 Error Handler — SUDAH DIPERBAIKI
+**Deskripsi:** Tiga tempat memakai pola `except Exception: return {..., "message": str(e)}` — variabel `e` tidak pernah terikat (`except Exception:` tanpa `as e`), sehingga saat error path benar-benar terpicu, kode melempar `NameError` baru yang menutupi pesan error asli.
+**Lokasi:** `core/services/php.py` (`get_versions()`), `core/services/database.py` (`_fetch_mariadb_versions()` dan `open_path()`).
+**Solusi (Fixed):** Ketiganya diganti menjadi `except Exception as e:` sehingga pesan error asli (mis. kegagalan koneksi internet) benar-benar sampai ke pengguna, bukan tertutup `NameError`.
+
+## 11. ✅ `PROJECT_NOT_LOADED_MSG` Tidak Terdefinisi — SUDAH DIPERBAIKI
+**Deskripsi:** Beberapa fallback branch di `core/api.py` (`get_projects`, `delete_project`, `retry_sync_host`, `open_in_explorer`, `update_project`) mereferensikan konstanta `PROJECT_NOT_LOADED_MSG` yang tidak pernah didefinisikan — `NameError` laten jika `self.project` pernah tidak ter-set.
+**Solusi (Fixed):** Konstanta `PROJECT_NOT_LOADED_MSG = "backend.error.project_module_not_loaded"` didefinisikan di level modul `core/api.py`.
+
+## 12. ✅ Migrasi Legacy `apache_active_version.txt` Selalu Gagal Diam-diam di Windows — SUDAH DIPERBAIKI
+**Deskripsi:** Ditemukan saat menulis unit test baru untuk `_get_active_version()`: kode memanggil `os.remove(txt_file)` **di dalam** blok `with open(txt_file, 'rb') as f:` yang masih membuka file tersebut. Di Windows, menghapus file yang masih terbuka melempar `PermissionError`, yang kemudian tertelan oleh `except Exception: pass` di baris berikutnya — akibatnya migrasi dari format lama (`apache_active_version.txt`) ke format baru (`apache.json`) **selalu gagal secara diam-diam** tanpa pernah terdeteksi (fungsi selalu mengembalikan `None` alih-alih versi hasil migrasi).
+**Solusi (Fixed):** `os.remove(txt_file)` dipindahkan ke luar blok `with`, dijalankan setelah file handle ditutup. Regression test ditambahkan di `tests/test_services/test_apache.py::test_get_active_version_migrates_legacy_txt_file` yang menulis file `.txt` sungguhan ke disk dan memverifikasi migrasi benar-benar berhasil serta file lama terhapus.
+
+## 13. ✅ `uninstall_go()` Tidak Punya `return` Statement — SUDAH DIPERBAIKI
+**Deskripsi:** Ditemukan saat menulis unit test untuk `RuntimesManager`: `uninstall_go()` (berbeda dari `uninstall_node`/`uninstall_python`/`uninstall_java` yang semuanya mengembalikan `{"status": "success"}`) tidak memiliki `return` sama sekali di akhir fungsi, sehingga implisit mengembalikan `None`. Frontend yang mengecek `res.status === 'success'` akan gagal (menampilkan toast error) walau proses uninstall Go sebenarnya berhasil.
+**Solusi (Fixed):** Ditambahkan `return {"status": "success"}` di akhir `uninstall_go()`, konsisten dengan 3 fungsi uninstall runtime lainnya.
+
+## 14. ✅ `install_java()`/`install_go()` Hanya Menangkap `OSError`, Melewatkan `RuntimeError` — SUDAH DIPERBAIKI
+**Deskripsi:** Ditemukan saat menulis unit test untuk skenario "folder JDK tidak ditemukan setelah ekstraksi": `install_java()` melempar `RuntimeError("Folder biner JDK tidak ditemukan...")`, namun blok `except` di sekitarnya hanya menangkap `except OSError as e:` — `RuntimeError` **tidak tertangkap** dan crash keluar dari fungsi tanpa pernah dikembalikan sebagai `{"status": "error", ...}` yang rapi ke frontend. `install_go()` memakai pola except yang sama (`except OSError`), berpotensi rawan masalah serupa di masa depan meski belum ada `raise` non-OSError di dalamnya saat ini.
+**Solusi (Fixed):** Kedua fungsi diubah menjadi `except Exception as e:`, konsisten dengan `install_node()`/`install_python()` yang sudah menangkap `Exception` secara umum.
+
+## 15. ✅ Tombol Tray "Exit Engine" Melewatkan Cleanup Engine — SUDAH DIPERBAIKI
+**Deskripsi:** Ditemukan saat me-refactor `main.py` agar testable: aplikasi punya **dua jalur keluar terpisah** — tombol "Quit" di UI (lewat `api.close_app()` → `perform_exit()`, yang sudah memanggil `apache.stop_server()`/`php.stop_all()`/`database.stop_all()` sejak perbaikan #6) dan menu "Exit Engine" di System Tray (`on_exit_clicked` di `setup_systray()`). Jalur kedua ini punya logic exit-nya sendiri (`is_real_exit=True; icon.stop(); window.destroy(); os._exit(0)`) yang **tidak pernah memanggil cleanup engine sama sekali** — sehingga bug zombie-process #6 sebenarnya masih bisa terjadi lewat jalur tray ini walau sudah "diperbaiki" untuk tombol Quit di UI.
+**Solusi (Fixed):** `on_exit_clicked` sekarang memanggil `lifecycle.perform_exit()` yang sama persis dengan tombol Quit UI, menghilangkan jalur pintas terpisah. Sekaligus bagian dari refactor `main.py` menjadi class `AppLifecycle` (lihat §11 `docs/backend_services.md`) agar seluruh logic exit hanya ada di satu tempat dan bisa diuji lewat unit test.

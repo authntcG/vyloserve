@@ -1,6 +1,7 @@
 import webview
 import psutil
 import json
+import inspect
 from typing import Dict, Any, Optional
 
 # Import Modul-modul Manager
@@ -13,6 +14,8 @@ from core.services.database import DatabaseManager
 from core.services.runtimes_manager import RuntimesManager
 from core.services.git_manager import GitManager
 from core.services.settings import SettingsManager
+
+PROJECT_NOT_LOADED_MSG = "backend.error.project_module_not_loaded"
 
 class Api:
     """
@@ -37,17 +40,38 @@ class Api:
     # ==========================================
     # EVENT EMITTERS (UI SYNC)
     # ==========================================
+    def _resolve_event_source(self) -> Optional[str]:
+        """
+        Deteksi otomatis nama class Manager yang memanggil emit_log/emit_progress
+        (mis. "ApacheManager", "PhpManager"), tanpa perlu mengubah setiap call site.
+        Dipakai frontend untuk memfilter event 'vylo_progress'/'vylo_log' agar tidak
+        "bocor" ke halaman modul lain yang kebetulan sedang ter-mount bersamaan
+        (lihat docs/known_bugs.md #7).
+        """
+        frame = inspect.currentframe()
+        try:
+            # frame -> _resolve_event_source, f_back -> emit_log/emit_progress, f_back.f_back -> pemanggil asli
+            caller_frame = frame.f_back.f_back
+            caller_self = caller_frame.f_locals.get('self') if caller_frame else None
+            return caller_self.__class__.__name__ if caller_self is not None else None
+        except Exception:
+            return None
+        finally:
+            del frame
+
     def emit_log(self, message: str, level: str = "info", args: dict = None):
         """ Menembakkan log real-time ke LogsPanel React """
         if self._window:
-            detail = json.dumps({"message": message, "level": level, "args": args or {}})
+            source = self._resolve_event_source()
+            detail = json.dumps({"message": message, "level": level, "args": args or {}, "source": source})
             script = f"window.dispatchEvent(new CustomEvent('vylo_log', {{detail: {detail} }}));"
             self._window.evaluate_js(script)
 
     def emit_progress(self, percent: int, text: str = "", args: dict = None):
         """ Menembakkan progress bar real-time ke Modal Instalasi React """
         if self._window:
-            detail = json.dumps({"percent": percent, "text": text, "args": args or {}})
+            source = self._resolve_event_source()
+            detail = json.dumps({"percent": percent, "text": text, "args": args or {}, "source": source})
             script = f"window.dispatchEvent(new CustomEvent('vylo_progress', {{detail: {detail} }}));"
             self._window.evaluate_js(script)
 

@@ -32,7 +32,7 @@ const ProjectSettings = forwardRef<ProjectSettingsRef, Props>(({ project }, ref)
                     const res = await api.get_installed_php();
                     setPhpVersions(res || []);
                 }
-            } catch (error) {
+            } catch (error){ console.error(error);
                 console.error("Gagal memuat versi PHP:", error);
             } finally {
                 setIsLoading(false);
@@ -71,8 +71,7 @@ const ProjectSettings = forwardRef<ProjectSettingsRef, Props>(({ project }, ref)
                     }
                 }
                 return false;
-            } catch (error) {
-                console.error(error);
+            } catch (error){ console.error(error);
                 showToast(t('apache.update_settings_error'), "error");
                 return false;
             }

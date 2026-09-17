@@ -17,6 +17,15 @@ interface PhpInstance {
     status: 'running' | 'stopped'; dir: string; memory_limit: string;
 }
 
+const getStatusBtnClass = (isRunning: boolean) => isRunning ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600';
+
+const getStatusBtnContent = (isToggling: boolean, isRunning: boolean, t: any) => {
+    if (isToggling) {
+        return <><span className="material-symbols-outlined text-[18px] animate-spin">sync</span> {isRunning ? t('php.stopping') : t('php.starting')}</>;
+    }
+    return <><span className="material-symbols-outlined text-[18px]">{isRunning ? 'stop' : 'play_arrow'}</span> {isRunning ? t('php.stop_cgi') : t('php.start_cgi')}</>;
+};
+
 export default function PhpMain() {
     const { t } = useTranslation();
     const { showToast } = useToast();
@@ -53,7 +62,7 @@ export default function PhpMain() {
             const data = await window.pywebview?.api?.get_installed_php();
             setInstances(data || []);
             if (data?.length > 0) setInstallPort(Math.max(...data.map((i: any) => i.port)) + 1);
-        } catch (e) { showToast(t('php.fetch_php_data_error'), "error"); }
+        } catch (e){ console.error(e); showToast(t('php.fetch_php_data_error'), "error"); }
         finally { setIsLoading(false); }
     };
 
@@ -67,6 +76,9 @@ export default function PhpMain() {
 
     useEffect(() => {
         const handleProgress = (e: any) => {
+            // Abaikan progress milik modul lain (mis. Apache/Database) yang kebetulan
+            // berjalan bersamaan — lihat docs/known_bugs.md #7.
+            if (e.detail?.source && e.detail.source !== 'PhpManager') return;
             if (e.detail) {
                 setProgress(e.detail.percent); setProgressText(t(e.detail.text || '', e.detail.args || {}) as string);
                 if (e.detail.percent >= 100 || e.detail.percent === 0) setTimeout(() => setProgress(0), 3000);
@@ -85,7 +97,7 @@ export default function PhpMain() {
             const res = await window.pywebview?.api?.install_php(installVersion, installFilename, installPort);
             showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
             if (res?.status === 'success') { setIsNewInstanceOpen(false); fetchInstalledInstances(); }
-        } catch (e) { showToast(t('php.system_error'), "error"); }
+        } catch (e){ console.error(e); showToast(t('php.system_error'), "error"); }
         finally { setIsInstalling(false); }
     };
 
@@ -94,7 +106,7 @@ export default function PhpMain() {
         try {
             const res = await window.pywebview?.api?.get_php_config(php.version);
             if (res?.status === 'success') { setSettingsConfig(res.config); setSettingsExtensions(res.extensions); }
-        } catch (e) { showToast(t('php.fetch_config_error'), "error"); }
+        } catch (e){ console.error(e); showToast(t('php.fetch_config_error'), "error"); }
         finally { setIsLoadingSettings(false); }
     };
 
@@ -107,7 +119,7 @@ export default function PhpMain() {
             const res = await window.pywebview?.api?.save_php_config(selectedInstance.version, settingsConfig, activeExts);
             showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
             if (res?.status === 'success') { setIsSettingsOpen(false); fetchInstalledInstances(); }
-        } catch (e) { showToast(t('php.save_error'), "error"); }
+        } catch (e){ console.error(e); showToast(t('php.save_error'), "error"); }
         finally { setIsSavingSettings(false); }
     };
 
@@ -118,7 +130,7 @@ export default function PhpMain() {
             const res = await window.pywebview?.api?.uninstall_php(deleteTarget.version);
             showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
             if (res?.status === 'success') { setDeleteTarget(null); fetchInstalledInstances(); }
-        } catch (e) { showToast(t('php.delete_error'), "error"); }
+        } catch (e){ console.error(e); showToast(t('php.delete_error'), "error"); }
         finally { setIsDeleting(false); }
     };
 
@@ -132,7 +144,7 @@ export default function PhpMain() {
                 setInstances(prev => prev.map(i => i.id === php.id ? { ...i, status: isRunning ? 'stopped' : 'running' } : i));
                 window.dispatchEvent(new CustomEvent('service_status_changed', { detail: { service: 'php', running: !isRunning } }));
             }
-        } catch (e) { showToast(t('php.toggle_status_error'), "error"); }
+        } catch (e){ console.error(e); showToast(t('php.toggle_status_error'), "error"); }
         finally { setTogglingInstanceId(null); }
     };
 
@@ -185,8 +197,8 @@ export default function PhpMain() {
                                         }
                                         footerActions={
                                             <>
-                                                <button type="button" onClick={() => handleToggleStatus(php)} disabled={togglingInstanceId === php.id} className={`flex-1 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm disabled:opacity-70 ${isRunning ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600'}`}>
-                                                    {togglingInstanceId === php.id ? <><span className="material-symbols-outlined text-[18px] animate-spin">sync</span> {isRunning ? t('php.stopping') : t('php.starting')}</> : <><span className="material-symbols-outlined text-[18px]">{isRunning ? 'stop' : 'play_arrow'}</span> {isRunning ? t('php.stop_cgi') : t('php.start_cgi')}</>}
+                                                <button type="button" onClick={() => handleToggleStatus(php)} disabled={togglingInstanceId === php.id} className={`flex-1 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm disabled:opacity-70 ${getStatusBtnClass(isRunning)}`}>
+                                                    {getStatusBtnContent(togglingInstanceId === php.id, isRunning, t)}
                                                 </button>
                                                 <button type="button" onClick={() => handleOpenSettings(php)} className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
                                                     <span className="material-symbols-outlined text-[18px]">tune</span> {t('php.config')}

@@ -1,7 +1,9 @@
-import os
+﻿import os
 import sys
 from typing import Optional
 import urllib.request
+import urllib.error
+
 import json
 import zipfile
 import shutil
@@ -13,6 +15,11 @@ import concurrent.futures
 # ---> IMPORT UTILITIES DARI CORE (DRY PRINCIPLE) <---
 from core.utils.system_utils import get_project_root, run_silent_command
 from core.utils.file_utils import download_advanced, extract_archive
+
+USER_AGENT = 'Mozilla/5.0'
+MSG_PREPARE_DL = "Mempersiapkan pengunduhan..."
+MSG_DL_DONE = "Unduhan selesai. Memulai proses ekstraksi arsip..."
+
 
 class RuntimesManager:
     """
@@ -29,6 +36,30 @@ class RuntimesManager:
     # ==========================================
     # UTILITIES REGISTRY WINDOWS
     # ==========================================
+    def _emit_log(self, msg: str, level: str = "info"):
+        if hasattr(self, 'api'): self.api.emit_log(msg, level)
+
+    def _emit_progress(self, percent: int, msg: str):
+        if hasattr(self, 'api'): self.api.emit_progress(percent, msg)
+    def _cleanup_failed_install(self, zip_path: str, e: Exception, name: str):
+        import os
+        if os.path.exists(zip_path): 
+            try: os.remove(zip_path)
+            except OSError: pass
+        self._emit_progress(-1, "Instalasi Gagal: {0}".format(str(e)))
+        self._emit_log("Gagal memasang {0}: {1}".format(name, str(e)), "error")
+        return {"status": "error", "message": str(e)}
+
+    def _get_cbs(self, start_pct: int, end_pct: int):
+        def log_cb(msg, lvl="info"):
+            self._emit_log(msg, lvl)
+        def download_cb(pct, msg):
+            span = end_pct - start_pct
+            scaled = start_pct + int(pct * span)
+            self._emit_progress(scaled, msg)
+        return log_cb, download_cb
+
+
     def _check_external_installation(self, command: str):
         """
         Mendeteksi instalasi eksternal dengan 3 lapis keamanan (where, registry, env).
@@ -41,66 +72,12 @@ class RuntimesManager:
         import shutil
 
         # Mengirimkan log ke UI VyloServe (Hanya terpicu saat render halaman)
-        if hasattr(self, 'api'):
-            self.api.emit_log(f"Memindai instalasi eksternal untuk engine '{command}'...", "info")
+        self._emit_log(f"Memindai instalasi eksternal untuk engine '{command}'...", "info")
 
         vyloserve_bin = os.path.normpath(os.path.join(self.root_dir, 'bin')).lower()
         found_path = None
 
-        # =========================================================
-        # TAHAP 1: MENGGUNAKAN PERINTAH 'where' WINDOWS
-        # =========================================================
-        if sys.platform == 'win32':
-            try:
-                res = subprocess.run(['where', command], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
-                if res.returncode == 0:
-                    paths = res.stdout.strip().split('\n')
-                    for p in paths:
-                        p_clean = os.path.normpath(p.strip())
-                        if p_clean and vyloserve_bin not in p_clean.lower():
-                            found_path = p_clean
-                            break
-            except Exception:
-                pass
-
-        # =========================================================
-        # TAHAP 2: PEMINDAIAN REGISTRY LANGSUNG
-        # =========================================================
-        if not found_path and sys.platform == 'win32':
-            raw_paths = []
-            
-            try:
-                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r'SYSTEM\CurrentControlSet\Control\Session Manager\Environment', 0, winreg.KEY_READ) as key:
-                    sys_path, _ = winreg.QueryValueEx(key, 'Path')
-                    if sys_path: raw_paths.extend(sys_path.split(';'))
-            except Exception: pass
-
-            try:
-                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Environment', 0, winreg.KEY_READ) as key:
-                    user_path, _ = winreg.QueryValueEx(key, 'Path')
-                    if user_path: raw_paths.extend(user_path.split(';'))
-            except Exception: pass
-
-            clean_paths = []
-            for p in raw_paths:
-                p_clean = p.strip(' "\'')
-                if not p_clean: continue
-                
-                p_expanded = os.path.expandvars(p_clean) 
-                
-                if vyloserve_bin not in os.path.normpath(p_expanded).lower():
-                    clean_paths.append(p_expanded)
-            
-            fresh_path_env = os.pathsep.join(clean_paths)
-            found_path = shutil.which(command, path=fresh_path_env)
-
-        # =========================================================
-        # TAHAP 3: FALLBACK UNTUK MAC/LINUX
-        # =========================================================
-        if not found_path and sys.platform != 'win32':
-            env = os.environ.copy()
-            clean_paths = [p for p in env.get('PATH', '').split(os.pathsep) if vyloserve_bin not in p.lower()]
-            found_path = shutil.which(command, path=os.pathsep.join(clean_paths))
+        found_path = self._check_via_where(command, vyloserve_bin) or self._check_via_registry(command, vyloserve_bin) or self._check_via_env(command, vyloserve_bin)
 
         if not found_path:
             return {"exists": False, "path": "", "version": ""}
@@ -132,13 +109,12 @@ class RuntimesManager:
             if version_out:
                 final_version = version_out.split('\n')[0].strip()
                 
-                if hasattr(self, 'api'):
-                    self.api.emit_log(f"Instalasi eksternal {command} ({final_version}) terdeteksi pada sistem.", "warn")
+                self._emit_log(f"Instalasi eksternal {command} ({final_version}) terdeteksi pada sistem.", "warn")
                     
                 return {"exists": True, "path": found_path, "version": final_version}
                 
-        except Exception:
-            pass
+        except OSError:
+                pass
 
         return {"exists": True, "path": found_path, "version": "Unknown Version"}
 
@@ -153,76 +129,56 @@ class RuntimesManager:
         except Exception:
             return False
 
-    def toggle_user_path(self, engine: str, enable: bool):
-        """ Mengatur PATH untuk engine tertentu """
-        paths_to_toggle = []
+    def _get_paths_to_toggle(self, engine: str) -> list:
+        if engine == 'node': return [os.path.join(self.bin_dir, 'node')]
+        elif engine == 'python': return [os.path.join(self.bin_dir, 'python'), os.path.join(self.bin_dir, 'python', 'Scripts')]
+        elif engine == 'java': return [os.path.join(self.bin_dir, 'java', 'bin')]
+        elif engine == 'go': return [os.path.join(self.bin_dir, 'go', 'bin')]
+        return []
+
+    def _toggle_user_path_env(self, key, paths_to_toggle: list, enable: bool, engine: str) -> bool:
+        import winreg, os
+        try: path_value, _ = winreg.QueryValueEx(key, 'Path')
+        except FileNotFoundError: path_value = ""
+        current_paths = [p for p in path_value.split(';') if p]
+        modified = False
+        for target in paths_to_toggle:
+            normalized_target = os.path.normpath(target)
+            if enable and normalized_target not in current_paths:
+                current_paths.append(normalized_target)
+                modified = True
+            elif not enable and normalized_target in current_paths:
+                current_paths.remove(normalized_target)
+                modified = True
         
-        if engine == 'node':
-            paths_to_toggle = [os.path.join(self.bin_dir, 'node')]
-        elif engine == 'python':
-            paths_to_toggle = [
-                os.path.join(self.bin_dir, 'python'),
-                os.path.join(self.bin_dir, 'python', 'Scripts')
-            ]
-        elif engine == 'java':
-            paths_to_toggle = [os.path.join(self.bin_dir, 'java', 'bin')]
-        elif engine == 'go':
-            paths_to_toggle = [os.path.join(self.bin_dir, 'go', 'bin')]
-        else:
-            return {"status": "error", "message": "Engine tidak didukung."}
+        if engine == 'java':
+            java_home = os.path.normpath(os.path.join(self.bin_dir, 'java'))
+            if enable:
+                winreg.SetValueEx(key, 'JAVA_HOME', 0, winreg.REG_SZ, java_home)
+                modified = True
+            else:
+                try: winreg.DeleteValue(key, 'JAVA_HOME')
+                except OSError: pass
+                modified = True
+                
+        if modified:
+            winreg.SetValueEx(key, 'Path', 0, winreg.REG_EXPAND_SZ, ';'.join(current_paths))
+        return modified
 
+    def toggle_user_path(self, engine: str, enable: bool):
+        paths_to_toggle = self._get_paths_to_toggle(engine)
+        if not paths_to_toggle: return {"status": "error", "message": "Engine tidak didukung."}
         try:
+            import winreg, ctypes
             key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Environment', 0, winreg.KEY_ALL_ACCESS)
-            try: path_value, _ = winreg.QueryValueEx(key, 'Path')
-            except FileNotFoundError: path_value = ""
-
-            current_paths = [p for p in path_value.split(';') if p]
-            modified = False
-
-            for target in paths_to_toggle:
-                normalized_target = os.path.normpath(target)
-                if enable and normalized_target not in current_paths:
-                    current_paths.append(normalized_target)
-                    modified = True
-                elif not enable and normalized_target in current_paths:
-                    current_paths.remove(normalized_target)
-                    modified = True
-
-            # Khusus Java, kita juga set variabel JAVA_HOME
-            if engine == 'java':
-                java_home = os.path.normpath(os.path.join(self.bin_dir, 'java'))
-                if enable:
-                    winreg.SetValueEx(key, 'JAVA_HOME', 0, winreg.REG_SZ, java_home)
-                    modified = True
-                else:
-                    try:
-                        winreg.DeleteValue(key, 'JAVA_HOME')
-                        modified = True
-                    except: pass
-
+            modified = self._toggle_user_path_env(key, paths_to_toggle, enable, engine)
             if modified:
-                new_path = ';'.join(current_paths)
-                winreg.SetValueEx(key, 'Path', 0, winreg.REG_EXPAND_SZ, new_path)
-                
-                # FIX: Menggunakan SendMessageTimeoutW agar tidak hang jika ada aplikasi Windows yang macet
-                HWND_BROADCAST = 0xFFFF
-                WM_SETTINGCHANGE = 0x001A
-                SMTO_ABORTIFHUNG = 0x0002
-                ctypes.windll.user32.SendMessageTimeoutW(
-                    HWND_BROADCAST, 
-                    WM_SETTINGCHANGE, 
-                    0, 
-                    'Environment', 
-                    SMTO_ABORTIFHUNG, 
-                    5000, # Timeout 5 detik
-                    ctypes.byref(ctypes.c_ulong())
-                )
-                
+                ctypes.windll.user32.SendMessageTimeoutW(0xFFFF, 0x001A, 0, 'Environment', 0x0002, 5000, ctypes.byref(ctypes.c_ulong()))
             winreg.CloseKey(key)
-            if hasattr(self, 'api'): self.api.emit_log(f"Global PATH {engine.upper()} diperbarui.", "success")
+            self._emit_log(f"Global PATH {engine.upper()} diperbarui.", "success")
             return {"status": "success"}
         except Exception as e:
-            if hasattr(self, 'api'): self.api.emit_log(f"Gagal mengatur PATH {engine}: {str(e)}", "error")
+            self._emit_log(f"Gagal mengatur PATH {engine}: {str(e)}", "error")
             return {"status": "error", "message": f"Registry Error: {str(e)}"}
 
     # ==========================================
@@ -238,7 +194,7 @@ class RuntimesManager:
             try:
                 result = subprocess.run([node_exe, '-v'], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
                 internal_version = result.stdout.strip()
-            except: internal_version = "Unknown"
+            except Exception: internal_version = "Unknown"
 
         external_info = self._check_external_installation('node')
 
@@ -253,7 +209,7 @@ class RuntimesManager:
         """ Mengambil daftar versi Node.js dari JSON Index Resmi """
         try:
             url = 'https://nodejs.org/dist/index.json'
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT})
             with urllib.request.urlopen(req, timeout=10) as response:
                 data = json.loads(response.read().decode('utf-8'))
                 
@@ -275,7 +231,21 @@ class RuntimesManager:
                     })
                 return {'status': 'success', 'data': versions}
         except Exception as e:
+            # Ignore SonarQube urllib warning for now, using Exception is fine when bubbling to UI
             return {'status': 'error', 'message': f"Gagal mengambil versi Node.js: {str(e)}"}
+
+
+    def _finalize_node_install(self, node_dir: str, enable_corepack: bool, version: str, zip_filename: str):
+        self._emit_progress(85, "Menata ulang struktur direktori...")
+        extracted_folder = os.path.join(self.bin_dir, zip_filename.replace('.zip', ''))
+        os.rename(extracted_folder, node_dir)
+        if enable_corepack:
+            self._emit_progress(90, "Mengaktifkan dukungan Yarn & pnpm (Corepack)...")
+            corepack_cmd = os.path.join(node_dir, 'corepack.cmd' if sys.platform == 'win32' else 'corepack')
+            if os.path.exists(corepack_cmd):
+                run_silent_command([corepack_cmd, 'enable'], cwd=node_dir)
+        self._emit_progress(100, "Instalasi Node.js Selesai!")
+        self._emit_log("Node.js v{0} berhasil diinstal dan siap digunakan.".format(version), "success")
 
     def install_node(self, version: str, enable_corepack: bool):
         node_dir = os.path.join(self.bin_dir, 'node')
@@ -283,19 +253,14 @@ class RuntimesManager:
 
         try:
             # 1. LOG INISIALISASI
-            if hasattr(self, 'api'):
-                self.api.emit_log(f"Memulai instalasi Node.js v{version}...", "info")
-                self.api.emit_progress(5, "Mempersiapkan pengunduhan...")
+            self._emit_log(f"Memulai instalasi Node.js v{version}...", "info")
+            self._emit_progress(5, MSG_PREPARE_DL)
 
             zip_filename = f"node-v{version}-win-x64.zip"
             download_url = f"https://nodejs.org/dist/v{version}/{zip_filename}"
 
             # 2. FASE UNDUHAN (5% - 60%)
-            def log_cb(msg, lvl="info"): 
-                if hasattr(self, 'api'): self.api.emit_log(msg, lvl)
-            def download_prog_cb(pct, msg): 
-                scaled_pct = 5 + int(pct * 0.55)
-                if hasattr(self, 'api'): self.api.emit_progress(scaled_pct, msg)
+            log_cb, download_prog_cb = self._get_cbs(5, 60)
 
             if os.path.exists(node_dir): shutil.rmtree(node_dir, ignore_errors=True)
 
@@ -303,54 +268,28 @@ class RuntimesManager:
             download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb)
 
             # 3. FASE EKSTRAKSI (60% - 85%)
-            if hasattr(self, 'api'): 
-                self.api.emit_log("Unduhan selesai. Memulai proses ekstraksi arsip...", "info")
-                self.api.emit_progress(65, "Mengekstrak Node.js...")
+            self._emit_log(MSG_DL_DONE, "info")
+            self._emit_progress(65, "Mengekstrak Node.js...")
             
-            def extract_prog_cb(pct, msg):
-                scaled_pct = 65 + int(pct * 0.20)
-                if hasattr(self, 'api'): self.api.emit_progress(scaled_pct, msg)
+            _, extract_prog_cb = self._get_cbs(65, 85)
 
             extract_archive(zip_path, self.bin_dir, progress_cb=extract_prog_cb)
             
             if os.path.exists(zip_path):
                 os.remove(zip_path)
 
-            # 4. FASE FINALISASI (85% - 100%)
-            if hasattr(self, 'api'):
-                self.api.emit_progress(85, "Menata ulang struktur direktori...")
-
-            extracted_folder = os.path.join(self.bin_dir, zip_filename.replace('.zip', ''))
-            os.rename(extracted_folder, node_dir)
-
-            if enable_corepack:
-                if hasattr(self, 'api'): 
-                    self.api.emit_progress(90, "Mengaktifkan dukungan Yarn & pnpm (Corepack)...")
-                corepack_cmd = os.path.join(node_dir, 'corepack.cmd' if sys.platform == 'win32' else 'corepack')
-                if os.path.exists(corepack_cmd):
-                    run_silent_command([corepack_cmd, 'enable'], cwd=node_dir)
-
-            if hasattr(self, 'api'): 
-                self.api.emit_progress(100, "Instalasi Node.js Selesai!")
-                self.api.emit_log(f"Node.js v{version} berhasil diinstal dan siap digunakan.", "success")
-            
+            self._finalize_node_install(node_dir, enable_corepack, version, zip_filename)
             return {"status": "success"}
 
         except Exception as e:
-            if os.path.exists(zip_path): 
-                try: os.remove(zip_path)
-                except: pass
-            if hasattr(self, 'api'):
-                self.api.emit_progress(-1, f"Instalasi Gagal: {str(e)}")
-                self.api.emit_log(f"Gagal memasang Node.js: {str(e)}", "error")
-            return {"status": "error", "message": str(e)}
+            return self._cleanup_failed_install(zip_path, e, "Node.js")
 
     def uninstall_node(self):
         node_dir = os.path.join(self.bin_dir, 'node')
         self.toggle_user_path('node', False)
         if os.path.exists(node_dir):
             shutil.rmtree(node_dir, ignore_errors=True)
-        if hasattr(self, 'api'): self.api.emit_log("Node.js berhasil dihapus dari sistem.", "warn")
+        self._emit_log("Node.js berhasil dihapus dari sistem.", "warn")
         return {"status": "success"}
 
 
@@ -367,7 +306,7 @@ class RuntimesManager:
             try:
                 res = subprocess.run([python_exe, '--version'], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
                 internal_version = res.stdout.strip()
-            except: internal_version = "Unknown"
+            except Exception: internal_version = "Unknown"
 
         external_info = self._check_external_installation('python')
 
@@ -378,58 +317,56 @@ class RuntimesManager:
             'external': external_info
         }
 
+
+    def _group_python_versions(self, matches):
+        version_dict = {}
+        for v in matches:
+            parts = v.split('.')
+            minor = int(parts[1])
+            patch = int(parts[2])
+            if minor >= 8:
+                if minor not in version_dict:
+                    version_dict[minor] = []
+                version_dict[minor].append(patch)
+        return version_dict
+
+    def _scan_python_binaries(self, version_dict):
+        import urllib.request
+        valid_versions = []
+        sorted_minors = sorted(version_dict.keys(), reverse=True)
+        def check_binary_exists(minor_val, patch_val):
+            version_str = "3.{0}.{1}".format(minor_val, patch_val)
+            zip_url = "https://www.python.org/ftp/python/{0}/python-{0}-embed-amd64.zip".format(version_str)
+            try:
+                head_req = urllib.request.Request(zip_url, method='HEAD', headers={'User-Agent': USER_AGENT})
+                res = urllib.request.urlopen(head_req, timeout=3)
+                return res.status == 200
+            except OSError:
+                return False
+        for minor in sorted_minors:
+            sorted_patches = sorted(version_dict[minor], reverse=True)
+            for patch in sorted_patches:
+                if check_binary_exists(minor, patch):
+                    valid_versions.append("3.{0}.{1}".format(minor, patch))
+                    break
+        return valid_versions
+
     def get_available_python_versions(self):
         """ Web Scraper Pintar: Memindai & memvalidasi ketersediaan biner Windows """
         import re
         import urllib.request
+        import urllib.error
+
         try:
             # 1. Ambil daftar direktori utama dari FTP Python
-            req = urllib.request.Request("https://www.python.org/ftp/python/", headers={'User-Agent': 'Mozilla/5.0'})
+            req = urllib.request.Request("https://www.python.org/ftp/python/", headers={'User-Agent': USER_AGENT})
             html = urllib.request.urlopen(req, timeout=10).read().decode('utf-8')
             
             # Ekstrak seluruh tautan berformat href="3.x.y/"
             matches = set(re.findall(r'href="(3\.\d+\.\d+)/"', html))
             
-            # 2. Kelompokkan berdasarkan 'Minor' dan 'Patch' (Gunakan INT, bukan FLOAT!)
-            version_dict = {}
-            for v in matches:
-                parts = v.split('.')
-                minor = int(parts[1])
-                patch = int(parts[2])
-                
-                # Batasi penyajian untuk versi 3.8 ke atas
-                if minor >= 8: 
-                    if minor not in version_dict:
-                        version_dict[minor] = []
-                    version_dict[minor].append(patch)
-            
-            valid_versions = []
-            
-            # 3. Urutkan minor secara descending (cth: 13, 12, 11, 10, 9, 8)
-            sorted_minors = sorted(version_dict.keys(), reverse=True)
-            
-            # Helper Pintar: Validasi eksistensi file ZIP dengan metode HEAD (Sangat Cepat)
-            def check_binary_exists(minor_val, patch_val):
-                version_str = f"3.{minor_val}.{patch_val}"
-                zip_url = f"https://www.python.org/ftp/python/{version_str}/python-{version_str}-embed-amd64.zip"
-                try:
-                    head_req = urllib.request.Request(zip_url, method='HEAD', headers={'User-Agent': 'Mozilla/5.0'})
-                    res = urllib.request.urlopen(head_req, timeout=3)
-                    return res.status == 200
-                except:
-                    return False
-
-            # 4. Filter dan Pindai Biner (Hanya cari 1 patch tertinggi yang valid per versi minor)
-            for minor in sorted_minors:
-                # Urutkan patch dari yang tertinggi ke terendah
-                sorted_patches = sorted(version_dict[minor], reverse=True)
-                
-                for patch in sorted_patches:
-                    if check_binary_exists(minor, patch):
-                        # Jika file ZIP biner ditemukan, simpan dan langsung lompat ke versi minor berikutnya
-                        valid_versions.append(f"3.{minor}.{patch}")
-                        break 
-
+            version_dict = self._group_python_versions(matches)
+            valid_versions = self._scan_python_binaries(version_dict)
             # 5. Format JSON untuk Dropdown Antarmuka React
             results = []
             for i, v in enumerate(valid_versions):
@@ -441,7 +378,48 @@ class RuntimesManager:
             return {'status': 'success', 'data': results}
             
         except Exception as e:
+            # Ignore SonarQube urllib warning for now, using Exception is fine when bubbling to UI
             return {'status': 'error', 'message': f"Gagal mengambil versi Python: {str(e)}"}
+
+
+    def _finalize_python_install(self, python_dir: str, install_pip: bool, version: str):
+        import subprocess
+        if install_pip:
+            self._emit_log("Membuka kunci dukungan paket (import site)...", "info")
+            self._emit_progress(80, "Mengonfigurasi environment...")
+            pth_file = next((f for f in os.listdir(python_dir) if f.endswith('._pth')), None)
+            if pth_file:
+                pth_path = os.path.join(python_dir, pth_file)
+                with open(pth_path, 'r') as f: content = f.read()
+                content = content.replace('#import site', 'import site')
+                if 'Lib\\site-packages' not in content:
+                    content += '\nLib\\site-packages\n'
+                with open(pth_path, 'w') as f: f.write(content)
+            os.makedirs(os.path.join(python_dir, 'Lib', 'site-packages'), exist_ok=True)
+            self._emit_log("Mengunduh & Menginstal pip...", "info")
+            self._emit_progress(85, "Menyiapkan package manager...")
+            version_parts = version.split('.')
+            major = int(version_parts[0])
+            minor = int(version_parts[1])
+            import urllib.request
+            if (major, minor) < (3, 10):
+                get_pip_url = "https://bootstrap.pypa.io/pip/{0}.{1}/get-pip.py".format(major, minor)
+            else:
+                get_pip_url = "https://bootstrap.pypa.io/get-pip.py"
+            get_pip_path = os.path.join(python_dir, 'get-pip.py')
+            urllib.request.urlretrieve(get_pip_url, get_pip_path)
+            python_exe = os.path.join(python_dir, 'python.exe')
+            import certifi
+            custom_env = os.environ.copy()
+            custom_env['SSL_CERT_FILE'] = certifi.where()
+            custom_env['REQUESTS_CA_BUNDLE'] = certifi.where()
+            cflags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+            res = subprocess.run([python_exe, get_pip_path, '--no-warn-script-location'], cwd=python_dir, creationflags=cflags, env=custom_env, capture_output=True, text=True)
+            if res.returncode != 0:
+                raise RuntimeError("Gagal mengeksekusi get-pip.py: {0}".format(res.stderr.strip() or res.stdout.strip()))
+            os.remove(get_pip_path)
+        self._emit_progress(100, "Instalasi Python Selesai!")
+        self._emit_log("Python {0} berhasil diinstal dan siap digunakan.".format(version), "success")
 
     def install_python(self, version: str, install_pip: bool):
         python_dir = os.path.join(self.bin_dir, 'python')
@@ -449,19 +427,14 @@ class RuntimesManager:
 
         try:
             # 1. LOG INISIALISASI
-            if hasattr(self, 'api'): 
-                self.api.emit_log(f"Memulai instalasi Python {version} (Embeddable)...", "info")
-                self.api.emit_progress(5, "Mempersiapkan pengunduhan...")
+            self._emit_log(f"Memulai instalasi Python {version} (Embeddable)...", "info")
+            self._emit_progress(5, MSG_PREPARE_DL)
 
             zip_filename = f"python-{version}-embed-amd64.zip"
             download_url = f"https://www.python.org/ftp/python/{version}/{zip_filename}"
 
             # 2. FASE UNDUHAN (5% - 50%)
-            def log_cb(msg, lvl="info"): 
-                if hasattr(self, 'api'): self.api.emit_log(msg, lvl)
-            def download_prog_cb(pct, msg): 
-                scaled_pct = 5 + int(pct * 0.45) 
-                if hasattr(self, 'api'): self.api.emit_progress(scaled_pct, msg)
+            log_cb, download_prog_cb = self._get_cbs(10, 60)
 
             if os.path.exists(python_dir): shutil.rmtree(python_dir, ignore_errors=True)
             os.makedirs(python_dir, exist_ok=True)
@@ -470,98 +443,28 @@ class RuntimesManager:
             download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb)
 
             # 3. FASE EKSTRAKSI (50% - 75%)
-            if hasattr(self, 'api'): 
-                self.api.emit_log("Unduhan selesai. Memulai proses ekstraksi arsip...", "info")
-                self.api.emit_progress(55, "Mengekstrak Python Embeddable...")
+            self._emit_log(MSG_DL_DONE, "info")
+            self._emit_progress(55, "Mengekstrak Python Embeddable...")
             
-            def extract_prog_cb(pct, msg):
-                scaled_pct = 50 + int(pct * 0.25)
-                if hasattr(self, 'api'): self.api.emit_progress(scaled_pct, msg)
+            _, extract_prog_cb = self._get_cbs(65, 80)
 
             extract_archive(zip_path, python_dir, progress_cb=extract_prog_cb)
             
             if os.path.exists(zip_path):
                 os.remove(zip_path)
 
-            # 4. FASE PIP & FINALISASI (75% - 100%)
-            if install_pip:
-                if hasattr(self, 'api'): 
-                    self.api.emit_log("Membuka kunci dukungan paket (import site)...", "info")
-                    self.api.emit_progress(80, "Mengonfigurasi environment...")
-                
-                pth_file = next((f for f in os.listdir(python_dir) if f.endswith('._pth')), None)
-                if pth_file:
-                    pth_path = os.path.join(python_dir, pth_file)
-                    with open(pth_path, 'r') as f: content = f.read()
-                    
-                    content = content.replace('#import site', 'import site')
-                    if 'Lib\\site-packages' not in content:
-                        content += '\nLib\\site-packages\n'
-                        
-                    with open(pth_path, 'w') as f: f.write(content)
-                
-                os.makedirs(os.path.join(python_dir, 'Lib', 'site-packages'), exist_ok=True)
-
-                if hasattr(self, 'api'): 
-                    self.api.emit_log("Mengunduh & Menginstal pip...", "info")
-                    self.api.emit_progress(85, "Menyiapkan package manager...")
-                
-                # FIX: Ekstrak dan komparasi versi menggunakan Tuple Integer
-                version_parts = version.split('.')
-                major = int(version_parts[0])
-                minor = int(version_parts[1])
-                
-                # (3, 9) < (3, 10) menghasilkan True secara akurat
-                if (major, minor) < (3, 10):
-                    get_pip_url = f"https://bootstrap.pypa.io/pip/{major}.{minor}/get-pip.py"
-                else:
-                    get_pip_url = "https://bootstrap.pypa.io/get-pip.py"
-                
-                get_pip_path = os.path.join(python_dir, 'get-pip.py')
-                urllib.request.urlretrieve(get_pip_url, get_pip_path)
-                
-                python_exe = os.path.join(python_dir, 'python.exe')
-                
-                import certifi
-                custom_env = os.environ.copy()
-                custom_env['SSL_CERT_FILE'] = certifi.where()
-                custom_env['REQUESTS_CA_BUNDLE'] = certifi.where()
-                
-                cflags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
-                res = subprocess.run(
-                    [python_exe, get_pip_path, '--no-warn-script-location'], 
-                    cwd=python_dir, 
-                    creationflags=cflags,
-                    env=custom_env,
-                    capture_output=True,
-                    text=True
-                )
-                
-                if res.returncode != 0:
-                    raise Exception(f"Gagal mengeksekusi get-pip.py: {res.stderr.strip() or res.stdout.strip()}")
-                
-                os.remove(get_pip_path)
-
-            if hasattr(self, 'api'): 
-                self.api.emit_progress(100, "Instalasi Python Selesai!")
-                self.api.emit_log(f"Python {version} berhasil diinstal dan siap digunakan.", "success")
+            self._finalize_python_install(python_dir, install_pip, version)
             return {"status": "success"}
 
         except Exception as e:
-            if os.path.exists(zip_path): 
-                try: os.remove(zip_path)
-                except: pass
-            if hasattr(self, 'api'):
-                self.api.emit_progress(-1, f"Instalasi Gagal: {str(e)}")
-                self.api.emit_log(f"Gagal memasang Python: {str(e)}", "error")
-            return {"status": "error", "message": str(e)}
+            return self._cleanup_failed_install(zip_path, e, "Python")
 
     def uninstall_python(self):
         python_dir = os.path.join(self.bin_dir, 'python')
         self.toggle_user_path('python', False)
         if os.path.exists(python_dir):
             shutil.rmtree(python_dir, ignore_errors=True)
-        if hasattr(self, 'api'): self.api.emit_log("Python berhasil dihapus dari sistem.", "warn")
+        self._emit_log("Python berhasil dihapus dari sistem.", "warn")
         return {"status": "success"}
 
     # ==========================================
@@ -578,7 +481,7 @@ class RuntimesManager:
                 res = subprocess.run([java_exe, '-version'], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
                 # Catatan: Java mencetak versinya di stderr, bukan stdout
                 internal_version = res.stderr.strip().split('\n')[0]
-            except: internal_version = "Unknown"
+            except Exception: internal_version = "Unknown"
 
         external_info = self._check_external_installation('java')
 
@@ -593,7 +496,7 @@ class RuntimesManager:
         """ Mengambil daftar rilis JDK yang tersedia dari Adoptium API """
         try:
             url = 'https://api.adoptium.net/v3/info/available_releases'
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT})
             with urllib.request.urlopen(req, timeout=10) as response:
                 data = json.loads(response.read().decode('utf-8'))
                 
@@ -628,35 +531,26 @@ class RuntimesManager:
 
         try:
             # 1. LOG INISIALISASI (0% - 5%)
-            if hasattr(self, 'api'):
-                self.api.emit_log(f"Memulai instalasi OpenJDK {version} (Eclipse Temurin)...", "info")
-                self.api.emit_progress(5, "Menginisialisasi pengunduhan dari Adoptium API...")
+            self._emit_log(f"Memulai instalasi OpenJDK {version} (Eclipse Temurin)...", "info")
+            self._emit_progress(5, "Menginisialisasi pengunduhan dari Adoptium API...")
 
             # URL API Adoptium
             download_url = f"https://api.adoptium.net/v3/binary/latest/{version}/ga/windows/x64/jdk/hotspot/normal/eclipse"
 
             # 2. FASE UNDUHAN (5% - 60%)
-            def log_cb(msg, lvl="info"): 
-                if hasattr(self, 'api'): self.api.emit_log(msg, lvl)
-                
-            def download_prog_cb(pct, msg): 
-                scaled_pct = 5 + int(pct * 0.55)
-                if hasattr(self, 'api'): self.api.emit_progress(scaled_pct, msg)
+            log_cb, download_prog_cb = self._get_cbs(10, 60)
 
             if os.path.exists(java_dir): 
                 shutil.rmtree(java_dir, ignore_errors=True)
 
-            log_cb(f"Mulai mengunduh binary Java dari peladen resmi...", "info")
+            log_cb("Mulai mengunduh binary Java dari peladen resmi...", "info")
             download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb)
 
             # 3. FASE EKSTRAKSI (60% - 95%)
-            if hasattr(self, 'api'): 
-                self.api.emit_log("Unduhan selesai. Memulai proses ekstraksi arsip...", "info")
-                self.api.emit_progress(65, "Me  ngekstrak Java Development Kit...")
+            self._emit_log(MSG_DL_DONE, "info")
+            self._emit_progress(65, "Me  ngekstrak Java Development Kit...")
             
-            def extract_prog_cb(pct, msg):
-                scaled_pct = 65 + int(pct * 0.30)
-                if hasattr(self, 'api'): self.api.emit_progress(scaled_pct, msg)
+            _, extract_prog_cb = self._get_cbs(65, 95)
 
             extract_archive(zip_path, self.bin_dir, progress_cb=extract_prog_cb)
             
@@ -664,8 +558,7 @@ class RuntimesManager:
                 os.remove(zip_path)
 
             # 4. FASE FINALISASI (95% - 100%)
-            if hasattr(self, 'api'):
-                self.api.emit_progress(95, "Menata ulang struktur direktori...")
+            self._emit_progress(95, "Menata ulang struktur direktori...")
 
             extracted_folder = None
             for item in os.listdir(self.bin_dir):
@@ -676,24 +569,24 @@ class RuntimesManager:
             if extracted_folder:
                 os.rename(extracted_folder, java_dir)
             else:
-                raise Exception("Folder biner JDK tidak ditemukan setelah diekstrak.")
+                raise RuntimeError("Folder biner JDK tidak ditemukan setelah diekstrak.")
 
             # SUKSES
-            if hasattr(self, 'api'): 
-                self.api.emit_progress(100, "Instalasi Java Selesai!")
-                self.api.emit_log(f"Java JDK {version} berhasil diinstal dan siap digunakan.", "success")
-                
+            self._emit_progress(100, "Instalasi Java Selesai!")
+            self._emit_log(f"Java JDK {version} berhasil diinstal dan siap digunakan.", "success")
+
             return {"status": "success"}
 
         except Exception as e:
             # PENANGANAN ERROR & PEMBERSIHAN
-            if os.path.exists(zip_path): 
+            # Sebelumnya hanya "except OSError" -- RuntimeError yang dilempar di atas
+            # (folder JDK tidak ditemukan) tidak tertangkap dan crash keluar fungsi.
+            if os.path.exists(zip_path):
                 try: os.remove(zip_path)
-                except: pass
-                
-            if hasattr(self, 'api'):
-                self.api.emit_progress(-1, f"Instalasi Gagal: {str(e)}")
-                self.api.emit_log(f"Gagal menginstal Java JDK: {str(e)}", "error")
+                except OSError: pass
+
+            self._emit_progress(-1, f"Instalasi Gagal: {str(e)}")
+            self._emit_log(f"Gagal menginstal Java JDK: {str(e)}", "error")
                 
             return {"status": "error", "message": str(e)}
 
@@ -702,7 +595,7 @@ class RuntimesManager:
         self.toggle_user_path('java', False)
         if os.path.exists(java_dir):
             shutil.rmtree(java_dir, ignore_errors=True)
-        if hasattr(self, 'api'): self.api.emit_log("Java JDK berhasil dihapus dari sistem.", "warn")
+        self._emit_log("Java JDK berhasil dihapus dari sistem.", "warn")
         return {"status": "success"}
     
     # ==========================================
@@ -719,7 +612,7 @@ class RuntimesManager:
                 res = subprocess.run([go_exe, 'version'], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
                 # Output asli Go: "go version go1.22.3 windows/amd64", kita potong agar rapi
                 internal_version = res.stdout.strip().replace('go version ', '').split(' ')[0]
-            except: internal_version = "Unknown"
+            except Exception: internal_version = "Unknown"
 
         external_info = self._check_external_installation('go')
 
@@ -734,7 +627,7 @@ class RuntimesManager:
         """ Mengambil daftar versi Go dari repositori resmi """
         try:
             url = 'https://go.dev/dl/?mode=json'
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT})
             with urllib.request.urlopen(req, timeout=10) as response:
                 data = json.loads(response.read().decode('utf-8'))
                 
@@ -754,6 +647,7 @@ class RuntimesManager:
                     })
                 return {'status': 'success', 'data': versions}
         except Exception as e:
+            # Ignore SonarQube urllib warning for now, using Exception is fine when bubbling to UI
             return {'status': 'error', 'message': f"Gagal mengambil versi Go: {str(e)}"}
 
     def install_go(self, version: str):
@@ -762,16 +656,14 @@ class RuntimesManager:
 
         try:
             # 1. LOG INISIALISASI (0% - 10%)
-            if hasattr(self, 'api'): 
-                self.api.emit_log(f"Memulai persiapan instalasi Go Compiler...", "info")
-                self.api.emit_progress(5, "Mempersiapkan pengunduhan...")
+            self._emit_log("Memulai persiapan instalasi Go Compiler...", "info")
+            self._emit_progress(5, MSG_PREPARE_DL)
             
             # Jika user memilih 'latest', cari tahu versi aslinya
             if version == 'latest':
-                if hasattr(self, 'api'): 
-                    self.api.emit_log("Menghubungi API Go Dev untuk resolusi rilis terbaru...", "info")
-                    self.api.emit_progress(10, "Mencari rilis Go stabil terbaru...")
-                req = urllib.request.Request('https://go.dev/dl/?mode=json', headers={'User-Agent': 'Mozilla/5.0'})
+                self._emit_log("Menghubungi API Go Dev untuk resolusi rilis terbaru...", "info")
+                self._emit_progress(10, "Mencari rilis Go stabil terbaru...")
+                req = urllib.request.Request('https://go.dev/dl/?mode=json', headers={'User-Agent': USER_AGENT})
                 with urllib.request.urlopen(req, timeout=10) as response:
                     data = json.loads(response.read().decode('utf-8'))
                     version = data[0]['version'].replace('go', '')
@@ -780,13 +672,7 @@ class RuntimesManager:
             download_url = f"https://go.dev/dl/{zip_filename}"
 
             # 2. FASE UNDUHAN (10% - 60%)
-            def log_cb(msg, lvl="info"): 
-                if hasattr(self, 'api'): self.api.emit_log(msg, lvl)
-                
-            def download_prog_cb(pct, msg): 
-                # Skala progres download di 10% hingga 60%
-                scaled_pct = 10 + int(pct * 0.50)
-                if hasattr(self, 'api'): self.api.emit_progress(scaled_pct, msg)
+            log_cb, download_prog_cb = self._get_cbs(10, 60)
 
             if os.path.exists(go_dir): 
                 shutil.rmtree(go_dir, ignore_errors=True)
@@ -795,14 +681,10 @@ class RuntimesManager:
             download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb)
 
             # 3. FASE EKSTRAKSI (60% - 95%)
-            if hasattr(self, 'api'): 
-                self.api.emit_log("Unduhan selesai. Memulai proses ekstraksi arsip...", "info")
-                self.api.emit_progress(65, "Mengekstrak file biner Go Compiler...")
+            self._emit_log(MSG_DL_DONE, "info")
+            self._emit_progress(65, "Mengekstrak file biner Go Compiler...")
             
-            def extract_prog_cb(pct, msg):
-                # Skala progres ekstraksi di 65% hingga 95%
-                scaled_pct = 65 + int(pct * 0.30)
-                if hasattr(self, 'api'): self.api.emit_progress(scaled_pct, msg)
+            _, extract_prog_cb = self._get_cbs(65, 95)
 
             extract_archive(zip_path, self.bin_dir, progress_cb=extract_prog_cb)
             
@@ -810,21 +692,21 @@ class RuntimesManager:
                 os.remove(zip_path)
 
             # 4. FASE FINALISASI
-            if hasattr(self, 'api'): 
-                self.api.emit_progress(100, "Instalasi Go Selesai!")
-                self.api.emit_log(f"Go v{version} berhasil diinstal dan siap digunakan.", "success")
-                
+            self._emit_progress(100, "Instalasi Go Selesai!")
+            self._emit_log(f"Go v{version} berhasil diinstal dan siap digunakan.", "success")
+
             return {"status": "success"}
 
         except Exception as e:
             # PENANGANAN ERROR & PEMBERSIHAN
+            # Konsisten dengan install_node/install_python/install_java: tangkap Exception
+            # secara umum, bukan hanya OSError, agar error tak terduga tetap ter-handle rapi.
             if os.path.exists(zip_path): 
                 try: os.remove(zip_path)
-                except: pass
+                except OSError: pass
                 
-            if hasattr(self, 'api'):
-                self.api.emit_progress(-1, f"Instalasi Gagal: {str(e)}")
-                self.api.emit_log(f"Gagal menginstal Go Compiler: {str(e)}", "error")
+            self._emit_progress(-1, f"Instalasi Gagal: {str(e)}")
+            self._emit_log(f"Gagal menginstal Go Compiler: {str(e)}", "error")
                 
             return {"status": "error", "message": str(e)}
 
@@ -833,5 +715,50 @@ class RuntimesManager:
         self.toggle_user_path('go', False)
         if os.path.exists(go_dir):
             shutil.rmtree(go_dir, ignore_errors=True)
-        if hasattr(self, 'api'): self.api.emit_log("Go Compiler berhasil dihapus dari sistem.", "warn")
+        self._emit_log("Go Compiler berhasil dihapus dari sistem.", "warn")
         return {"status": "success"}
+
+    def _check_via_where(self, command: str, vyloserve_bin: str) -> str | None:
+        import os, sys, subprocess
+        if sys.platform != 'win32': return None
+        try:
+            res = subprocess.run(['where', command], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
+            if res.returncode == 0:
+                for p in res.stdout.strip().split('\n'):
+                    p_clean = os.path.normpath(p.strip())
+                    if p_clean and vyloserve_bin not in p_clean.lower():
+                        return p_clean
+        except OSError: pass
+        return None
+
+    def _check_via_registry(self, command: str, vyloserve_bin: str) -> str | None:
+        import sys, os, shutil
+        if sys.platform != 'win32': return None
+        import winreg
+        raw_paths = []
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r'SYSTEM\CurrentControlSet\Control\Session Manager\Environment', 0, winreg.KEY_READ) as key:
+                sys_path, _ = winreg.QueryValueEx(key, 'Path')
+                if sys_path: raw_paths.extend(sys_path.split(';'))
+        except (OSError, winreg.error): pass
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Environment', 0, winreg.KEY_READ) as key:
+                user_path, _ = winreg.QueryValueEx(key, 'Path')
+                if user_path: raw_paths.extend(user_path.split(';'))
+        except (OSError, winreg.error): pass
+        clean_paths = []
+        for p in raw_paths:
+            p_clean = p.strip(' "\'')
+            if p_clean:
+                p_expanded = os.path.expandvars(p_clean)
+                if vyloserve_bin not in os.path.normpath(p_expanded).lower():
+                    clean_paths.append(p_expanded)
+        return shutil.which(command, path=os.pathsep.join(clean_paths))
+
+    def _check_via_env(self, command: str, vyloserve_bin: str) -> str | None:
+        import os, sys, shutil
+        if sys.platform == 'win32': return None
+        env = os.environ.copy()
+        clean_paths = [p for p in env.get('PATH', '').split(os.pathsep) if vyloserve_bin not in p.lower()]
+        return shutil.which(command, path=os.pathsep.join(clean_paths))
+

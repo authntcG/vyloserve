@@ -61,7 +61,7 @@ export default function DatabaseMain() {
         try {
             const res = await window.pywebview?.api?.get_installed_databases();
             if (res?.status === 'success') setDbInstances(res.data || []);
-        } catch (e) { showToast(t('database.fetch_db_error'), "error"); }
+        } catch (e){ console.error(e); showToast(t('database.fetch_db_error'), "error"); }
         finally { setIsLoading(false); }
     };
 
@@ -75,6 +75,9 @@ export default function DatabaseMain() {
 
     useEffect(() => {
         const handleProg = (e: any) => {
+            // Abaikan progress milik modul lain (mis. Apache/PHP) yang kebetulan
+            // berjalan bersamaan — lihat docs/known_bugs.md #7.
+            if (e.detail?.source && e.detail.source !== 'DatabaseManager') return;
             if (e.detail) {
                 const p = e.detail.percent;
                 if (p < 0) { setIsInstalling(false); setProgress(0); return; }
@@ -98,7 +101,7 @@ export default function DatabaseMain() {
                 fetchDatabases();
                 window.dispatchEvent(new CustomEvent('service_status_changed', { detail: { service: 'database' } }));
             }
-        } catch (e) { showToast(t('database.toggle_status_error'), "error"); }
+        } catch (e){ console.error(e); showToast(t('database.toggle_status_error'), "error"); }
         finally { setTogglingDbId(null); }
     };
 
@@ -114,7 +117,7 @@ export default function DatabaseMain() {
             setIsInstalling(true); setProgressText(t('database.preparing_engine'));
             const res = await window.pywebview?.api?.install_database(formData.engine, formData.version, formData.url, formData.port, formData.rootPass);
             if (res?.status === 'error') { showToast(t(res.message || '', res.args || {}) as string, "error"); setIsInstalling(false); setProgress(0); }
-        } catch (e) { showToast(t('database.install_error'), "error"); setIsInstalling(false); setProgress(0); }
+        } catch (e){ console.error(e); showToast(t('database.install_error'), "error"); setIsInstalling(false); setProgress(0); }
     };
 
     const handleConfirmUninstall = async () => {
@@ -124,7 +127,7 @@ export default function DatabaseMain() {
             const res = await window.pywebview?.api?.uninstall_database(selectedDbId, deleteData);
             showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
             if (res?.status === 'success') { setIsDeleteConfirmOpen(false); setSelectedDbId(null); setDeleteData(false); fetchDatabases(); }
-        } catch (e) { showToast(t('database.delete_error'), "error"); }
+        } catch (e){ console.error(e); showToast(t('database.delete_error'), "error"); }
         finally { setIsDeleting(false); }
     };
 
@@ -134,7 +137,7 @@ export default function DatabaseMain() {
             const res = await window.pywebview?.api?.get_db_config(db.id);
             if (res?.status === 'success') setSettingsConfig(res.config);
             else showToast(t(res?.message || '', res?.args || {}) as string, "error");
-        } catch (e) { showToast(t('database.fetch_config_error'), "error"); }
+        } catch (e){ console.error(e); showToast(t('database.fetch_config_error'), "error"); }
         finally { setIsLoadingSettings(false); }
     };
 
@@ -146,7 +149,7 @@ export default function DatabaseMain() {
             const res = await window.pywebview?.api?.save_db_config(selectedDb.id, settingsConfig);
             showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
             if (res?.status === 'success') { setIsSettingsOpen(false); fetchDatabases(); }
-        } catch (e) { showToast(t('database.save_error'), "error"); }
+        } catch (e){ console.error(e); showToast(t('database.save_error'), "error"); }
         finally { setIsSavingSettings(false); }
     };
 

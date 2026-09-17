@@ -29,36 +29,282 @@ IS_PRODUCTION = False
 ## 2. Pengujian Unit (Unit Testing dengan Pytest)
 VyloServe terintegrasi sangat dalam dengan sistem operasi Windows (membongkar registry, mengatur system PATH, membuat subprocess OS). Menjalankan unit test **TIDAK BOLEH** sampai merusak instalasi pengguna! 
 
-**Prinsip Testing:**
+### Prinsip & Kewajiban Testing
 - Semua command OS (Subprocess), pengunduhan file (urllib), dan Registry edit (winreg) wajib dilakukan **Patching/Mocking**. 
 - Tidak ada file dummy sembarangan yang diturunkan ke disk selain di folder `tmp_path` bawaan pytest.
 - Gunakan *Fixture Mock API* (`mock_api` dalam file `tests/conftest.py`) saat menginisiasi Manager agar aplikasi tidak error mencari referensi *Pywebview bridge*.
+- **Setiap fitur atau fungsi publik baru WAJIB disertai unit test.** Tidak ada pengecualian.
 
-**Cara Menjalankan Pengujian:**
-```powershell
-# Menjalankan seluruh test
-python -m pytest tests/
+### Skenario Test yang Wajib Dicover per Fungsi
+Setiap test suite untuk sebuah fungsi *setidaknya* harus mencakup:
 
-# Menjalankan spesifik file dengan log verbosity
-python -m pytest tests/test_services/test_apache_parser.py -v
+| Skenario | Keterangan |
+|----------|------------|
+| ✅ **Happy Path** | Input valid → output/return sesuai ekspektasi |
+| ✅ **Edge Case** | Input kosong `""`, `None`, nilai di batas minimum/maksimum |
+| ✅ **Error Path** | Simulasi kegagalan OS: file tidak ditemukan, port ditolak, subprocess crash |
+| ✅ **Security Path** | Input mengandung karakter berbahaya (`../`, `;`, `&&`), validasi ditolak |
+
+### Struktur & Penamaan Test
+```
+tests/
+├── conftest.py                           # Fixture global (mock_api, dll)
+├── test_services/
+│   ├── test_apache.py                    # Unit test untuk core/services/apache.py
+│   ├── test_api.py                       # Unit test untuk core/api.py (Facade/Router)
+│   ├── test_database.py                  # Unit test untuk core/services/database.py
+│   ├── test_database_parser.py           # Unit test parsing config (my.ini/postgresql.conf)
+│   ├── test_php.py                       # Unit test untuk core/services/php.py
+│   ├── test_php_parser.py                # Unit test parsing php.ini
+│   ├── test_project_logic.py             # Unit test untuk core/services/project.py
+│   ├── test_project_uac.py               # Unit test UAC hosts injection
+│   ├── test_git_manager.py               # Unit test untuk core/services/git_manager.py
+│   ├── test_ssl_manager.py               # Unit test untuk core/services/ssl_manager.py
+│   ├── test_dashboard.py                 # Unit test untuk core/services/dashboard.py
+│   ├── test_settings.py                  # Unit test untuk core/services/settings.py
+│   ├── test_runtimes_manager.py          # Unit test untuk core/services/runtimes_manager.py
+│   ├── test_service_lifecycles.py        # Unit test orkestrasi start/stop antar service
+│   └── test_<nama_service>.py            # Pola: test_<nama_file_source>.py
+└── test_utils/
+    ├── test_file_utils.py                # Unit test untuk core/utils/file_utils.py
+    └── test_system_utils.py              # Unit test untuk core/utils/system_utils.py
 ```
 
-## 3. Analisis Kualitas Kode (SonarQube Scan)
+**Konvensi Penamaan Fungsi Test (Wajib Deskriptif):**
+```python
+# BENAR — jelas skenario apa yang diuji
+def test_start_server_success_returns_correct_status():
+def test_start_server_port_already_in_use_returns_error():
+def test_install_version_path_traversal_rejected():
+def test_read_json_file_not_found_returns_empty_dict():
+
+# SALAH — terlalu generik
+def test_start():
+def test_install():
+```
+
+**Template Dasar Unit Test (Wajib Diikuti):**
+```python
+import pytest
+from unittest.mock import MagicMock, patch
+
+@pytest.fixture
+def mock_api():
+    return MagicMock()
+
+class TestApacheManagerStartServer:
+    """Menguji skenario ApacheManager.start_server()"""
+
+    def test_start_server_success(self, mock_api):
+        """Happy path: server berhasil dijalankan, return status success."""
+        with patch('core.utils.system_utils.start_silent_process') as mock_proc, \
+             patch('core.utils.file_utils.read_json', return_value={'active_version': '2.4.62'}):
+            mock_proc.return_value = MagicMock()
+            manager = ApacheManager(mock_api)
+            result = manager.start_server(port=80)
+        assert result['status'] == 'success'
+
+    def test_start_server_port_in_use_returns_error(self, mock_api):
+        """Error path: port sudah dipakai, return status error."""
+        with patch('core.utils.system_utils.check_port_in_use', return_value=True):
+            manager = ApacheManager(mock_api)
+            result = manager.start_server(port=80)
+        assert result['status'] == 'error'
+```
+
+### Cara Menjalankan Pengujian
+```powershell
+# Menjalankan seluruh test dengan coverage report (XML untuk SonarQube)
+python -m pytest tests/ --cov=. --cov-report=xml
+
+# Menjalankan spesifik file dengan log verbosity
+python -m pytest tests/test_services/test_apache.py -v
+
+# Menjalankan test dengan filter nama fungsi tertentu
+python -m pytest tests/ -k "test_start_server" -v
+```
+
+### Praktik Wajib Tambahan (Pelajaran dari Audit Coverage Backend)
+
+Bagian ini berisi pelajaran konkret dari sesi audit coverage backend besar-besaran (coverage `core/` naik dari 82% → 98%, menemukan & memperbaiki 6 bug nyata di produksi). Ikuti praktik ini agar hasil kerja test berikutnya berkualitas tinggi, bukan sekadar mengejar angka.
+
+**1. Patch target HARUS presisi — ini penyebab bug paling berbahaya lolos ke production.**
+```python
+# SALAH — mem-patch os.path.exists secara global tanpa memastikan
+# ini benar-benar attribute yang dipakai oleh modul yang ditest
+@patch('os.path.exists', return_value=True)
+def test_sesuatu(mock_exists, manager): ...
+
+# BENAR — patch persis di namespace modul yang mengimpor & memakainya
+@patch('core.services.project.os.path.exists', return_value=True)
+def test_sesuatu(mock_exists, manager): ...
+```
+Kasus nyata: unit test lama untuk `sync_apache_vhosts()` mem-mock `os.makedirs` tanpa pernah mengecek **path** yang dikirim ke situ. Akibatnya, typo `conf` → `con` di kode produksi lolos tanpa terdeteksi selama berbulan-bulan (lihat `docs/known_bugs.md` #3). Test yang "hijau" tidak berarti test itu benar-benar menguji sesuatu.
+
+**2. Assert perilaku nyata (argumen persis, return value, state akhir) — bukan hanya `assert_called()`.**
+```python
+# LEMAH — cuma tahu fungsinya "dipanggil", tidak tahu dengan argumen benar atau tidak
+mock_makedirs.assert_called_once()
+
+# KUAT — memvalidasi path/argumen yang SEBENARNYA dikirim
+mock_makedirs.assert_called_once_with(os.path.join('apache_path', 'conf', 'extra'))
+```
+
+**3. Validasi regression test dengan sengaja merusak kode dulu.**
+Untuk test yang dibuat khusus menjaga sebuah bug fix, jangan berhenti setelah test itu lulus sekali. Wajib:
+1. Sengaja kembalikan baris kode ke versi buggy.
+2. Jalankan test → **harus gagal**.
+3. Kembalikan lagi ke versi fix.
+4. Jalankan test → **harus lulus**.
+
+Ini satu-satunya cara memastikan test benar-benar mendeteksi regresi, bukan cuma "lulus karena tidak menguji apa-apa yang relevan".
+
+**4. Jangan mengejar coverage 100% secara buta.**
+Blok `except Exception: pass` yang sifatnya *best-effort swallow* murni (tanpa cabang perilaku yang bisa diverifikasi berbeda) boleh dibiarkan tidak ter-cover. Menulis test untuk itu hanya menaikkan angka tanpa nilai regresi — prioritaskan logika bercabang nyata, alur error dengan pesan/state berbeda, dan kode yang baru diperbaiki bug-nya.
+
+**5. Entrypoint aplikasi (`main.py`) harus tetap testable.**
+Jangan taruh logika penting sebagai closure di dalam `if __name__ == '__main__':` — blok itu tidak pernah jalan saat `pytest` mengimpor modulnya (karena `__name__` saat itu adalah `"main"`, bukan `"__main__"`). Ekstrak ke class/fungsi level-modul yang menerima dependency lewat parameter (lihat class `AppLifecycle` di `main.py` sebagai contoh).
+
+**6. Selesai menambah test bukan berarti selesai — verifikasi ke SonarQube.**
+Setelah menambah/mengubah test: jalankan ulang suite penuh + coverage, lalu pastikan hasil scan SonarQube menunjukkan **0 temuan baru** (bug/code smell) akibat test yang baru ditulis, sebelum menyerahkan pekerjaan sebagai selesai.
+
+## 3. Standar Clean Code & DRY
+
+Setiap kontribusi kode (backend maupun frontend) wajib memenuhi standar berikut sebelum diserahkan.
+
+### Backend (Python)
+
+**Single Responsibility — Satu Fungsi, Satu Tujuan:**
+- Fungsi yang melebihi **40 baris** atau memiliki *nesting* lebih dari **2 level** harus dipecah menjadi *private helper method* (prefix `_`).
+- Konstanta atau nilai yang diulang lebih dari sekali wajib diekstrak:
+  ```python
+  # SALAH
+  def install(self):
+      for _ in range(5):  # magic number
+          ...
+
+  # BENAR
+  MAX_INSTALL_RETRY = 5
+  def install(self):
+      for _ in range(MAX_INSTALL_RETRY):
+          ...
+  ```
+
+**DRY — Jangan Duplikasi Logika:**
+- Jika blok logika yang sama muncul di dua tempat atau lebih, ekstrak ke fungsi utilitas di `core/utils/`.
+- Sebelum menulis fungsi baru, cek apakah sudah ada di `system_utils.py` atau `file_utils.py`.
+
+**Naming Convention:**
+| Konteks | Konvensi | Contoh |
+|---------|----------|--------|
+| Variabel & fungsi | `snake_case` | `get_active_version()`, `base_dir` |
+| Kelas | `PascalCase` | `ApacheManager`, `DatabaseManager` |
+| Konstanta module | `UPPER_SNAKE_CASE` | `DEFAULT_PORT = 80` |
+| Private method | prefix `_` | `_parse_config()`, `_validate_path()` |
+
+### Frontend (TypeScript / React)
+
+**Pemisahan Logika & Presentasi:**
+- Logika bisnis (pemanggilan API, transformasi data) harus dipisah ke dalam *custom hook* (`useXxx`) dan **tidak** ditulis langsung di dalam JSX.
+- Komponen harus menerima data via `props`, bukan mengambil data sendiri (kecuali pada komponen halaman utama).
+
+**DRY di Komponen:**
+- Sebelum membuat komponen baru, cek `frontend/src/components/` terlebih dahulu.
+- Gunakan `<PageHeader>`, `<Modal>`, `<Badge>`, `<BackgroundProgressWidget>` yang sudah ada.
+
+**Naming Convention:**
+| Konteks | Konvensi | Contoh |
+|---------|----------|--------|
+| Variabel & fungsi | `camelCase` | `isLoading`, `handleInstall()` |
+| Komponen React | `PascalCase` | `ApacheMain`, `DatabaseSettings` |
+| Tipe / Interface | `PascalCase` | `ApiResponse`, `ProjectConfig` |
+| Custom Hook | prefix `use` | `useApacheStatus()` |
+
+## 4. Standar Security
+
+Setiap pengembangan fitur baru **WAJIB** mempertimbangkan aspek keamanan berikut:
+
+### Backend Security
+
+**1. Validasi Input (Wajib di `core/api.py`):**
+Seluruh argumen yang berasal dari frontend harus divalidasi sebelum diteruskan ke service:
+```python
+def install_apache(self, version: str, port: int) -> dict:
+    # Validasi tipe
+    if not isinstance(version, str) or not isinstance(port, int):
+        return {"status": "error", "message": "backend.error.invalid_input"}
+    # Validasi nilai
+    if not version.strip() or port < 1 or port > 65535:
+        return {"status": "error", "message": "backend.error.invalid_input"}
+    return self.apache.install_version(version, port)
+```
+
+**2. Proteksi Path Traversal (Wajib untuk semua path dari user):**
+```python
+def _validate_safe_path(self, user_input: str, base_dir: str) -> str | None:
+    """Validasi bahwa path tidak keluar dari direktori yang diizinkan."""
+    safe_root = os.path.realpath(base_dir)
+    target = os.path.realpath(os.path.join(base_dir, user_input))
+    if not target.startswith(safe_root + os.sep):
+        return None  # Path traversal terdeteksi
+    return target
+```
+
+**3. Subprocess — Selalu Gunakan List, Bukan String:**
+```python
+# SALAH — rentan Command Injection
+subprocess.run(f"httpd -k start -p {port}", shell=True)
+
+# BENAR — argumen dipisah, tidak ada shell interpolation
+subprocess.run(["httpd.exe", "-k", "start", "-p", str(port)], ...)
+```
+
+**4. Sanitasi Output ke JavaScript (XSS Prevention):**
+```python
+import json
+
+# SALAH — raw string bisa berisi karakter berbahaya
+self.window.evaluate_js(f"notify('{message}')")
+
+# BENAR — json.dumps otomatis meng-escape quote & karakter khusus
+safe = json.dumps(message)
+self.window.evaluate_js(f"notify({safe})")
+```
+
+**5. Kredensial Tidak Boleh di Kode:**
+- Password database, token API, atau kunci SSL **DILARANG** ditulis hardcode.
+- Simpan di `data/settings.json` (yang ada di `.gitignore`).
+
+### Frontend Security
+
+**1. Hindari `dangerouslySetInnerHTML`:**
+Jangan pernah merender konten HTML mentah yang berasal dari backend atau input pengguna.
+
+**2. Validasi Sisi Client untuk UX, Bukan untuk Security:**
+Validasi di frontend hanya untuk pengalaman pengguna (tampilkan pesan error cepat). Validasi sesungguhnya **wajib** ada di backend.
+
+**3. Jangan Expose Token/Secret di Environment Frontend:**
+File `.env` di `frontend/` tidak boleh berisi data sensitif karena akan di-bundle ke dalam JS yang dapat dibaca siapapun.
+
+## 5. Analisis Kualitas Kode (SonarQube Scan)
 Untuk memonitor *Cognitive Complexity*, *Code Smells*, dan *Bugs*, kita menggunakan SonarQube Scanner.
 Jalankan perintah ini di root direktori proyek. Pastikan SonarQube berjalan di `http://127.0.0.1:9000`.
 
+
+> **Keamanan Token:** JANGAN PERNAH menuliskan token SonarQube asli di dalam dokumen ini atau file manapun yang ter-*commit* ke Git. Simpan token di *environment variable* lokal (misal `SONAR_TOKEN`) dan referensikan lewat `%SONAR_TOKEN%` (PowerShell: `$env:SONAR_TOKEN`), atau di file `.env` yang sudah masuk `.gitignore`. Jika token pernah ter-*commit* (seperti riwayat sebelumnya di file ini), token tersebut **wajib di-revoke/regenerate** di dashboard SonarQube karena dianggap bocor secara permanen di histori Git.
+
 **Frontend Sonar Scan:**
 ```powershell
-sonar-scanner.bat -D"sonar.projectKey=vyloserve-fe" -D"sonar.sources=." -D"sonar.host.url=http://127.0.0.1:9000" -D"sonar.token=sqp_65f4d78c54f3eee34fa0f9d56aedefd62d5da905"
+sonar-scanner.bat -D"sonar.projectKey=vyloserve-fe" -D"sonar.sources=." -D"sonar.host.url=http://127.0.0.1:9000" -D"sonar.token=%SONAR_TOKEN_FE%"
 ```
 
 **Backend Sonar Scan:**
 *(Memiliki exclusions agar tidak meng-scan frontend, bin, file cache, dan library yang digenerate).*
 ```powershell
-sonar-scanner.bat -D"sonar.projectKey=vyloserve-be" -D"sonar.sources=." -D"sonar.host.url=http://127.0.0.1:9000" -D"sonar.token=sqp_18072373145f806561605e83343e7f5c7310c886" -D"sonar.exclusions=frontend/**,bin/**,build/**,data/**,dist/**,docs/**,www/**,core/services/__pycache__/**,core/utils/__pycache__/**,core/__pycache__/**" -D"sonar.python.version=3.10" -D"sonar.scm.disabled=true"
+sonar-scanner.bat -D"sonar.projectKey=vyloserve-be" -D"sonar.sources=core,main.py" -D"sonar.tests=tests" -D"sonar.host.url=http://127.0.0.1:9000" -D"sonar.token=%SONAR_TOKEN_BE%" -D"sonar.exclusions=frontend/**,bin/**,build/**,data/**,dist/**,docs/**,www/**,**/__pycache__/**,**/*.pyc,.coverage" -D"sonar.test.exclusions=**/__pycache__/**,**/*.pyc" -D"sonar.python.version=3.10" -D"sonar.scm.disabled=true" -D"sonar.python.coverage.reportPaths=coverage.xml"
 ```
 
-## 4. Proses Kompilasi Produksi (Build Project)
+## 6. Proses Kompilasi Produksi (Build Project)
 Untuk membuat aplikasi mandiri (Standalone Windows Executable `.exe`) yang bisa didistribusikan ke pengguna akhir:
 
 > **PERINGATAN (REMEMBER):**

@@ -54,8 +54,7 @@ const ChangePassword = forwardRef<ChangePasswordRef, Props>(({ instance }, ref) 
                     }
                 }
                 return false;
-            } catch (error) {
-                console.error(error);
+            } catch (error){ console.error(error);
                 showToast(t('database.fetch_cred_error'), "error");
                 return false;
             }

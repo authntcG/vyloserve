@@ -89,12 +89,12 @@ def check_port_in_use(port: int, host: str = '127.0.0.1', timeout: float = 0.05)
     try:
         with socket.create_connection((host, int(port)), timeout=timeout):
             return True
-    except (socket.timeout, ConnectionRefusedError, OSError):
+    except OSError:
         # Fallback manual ke IPv6 murni jika socket.create_connection gagal di localhost
         if host == '127.0.0.1' or host == 'localhost':
             try:
                 with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as s:
                     s.settimeout(timeout)
                     return s.connect_ex(('::1', int(port))) == 0
-            except: pass
+            except Exception: pass
         return False

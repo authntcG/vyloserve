@@ -6,3 +6,7 @@ dist
 build
 .scannerwork
 gemini.md
+.env
+.coverage
+gitleaks.json
+coverage.xml

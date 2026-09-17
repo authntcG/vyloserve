@@ -29,7 +29,7 @@ export default function Base64Main() {
                     const bytes = new TextEncoder().encode(inputText);
                     const binString = Array.from(bytes, byte => String.fromCodePoint(byte)).join("");
                     setOutputText(btoa(binString));
-                } catch (e) {
+                } catch (e){ console.error(e);
                     setOutputText(t('tools.base64.encode_error'));
                 }
             } else {
@@ -62,7 +62,7 @@ export default function Base64Main() {
                 const binString = atob(base64String);
                 const bytes = Uint8Array.from(binString, m => m.codePointAt(0) as number);
                 setOutputText(new TextDecoder().decode(bytes));
-            } catch (e) {
+            } catch (e){ console.error(e);
                 setOutputText(t('tools.base64.decode_error'));
                 setPreviewImage(null);
             }

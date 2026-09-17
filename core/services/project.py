@@ -54,7 +54,7 @@ class ProjectManager:
             self._log(f"Gagal membaca port asli PHP: {str(e)}", "warn")
         return 9000
 
-    def _ensure_composer_exists(self) -> str:
+    def _ensure_composer_exists(self) -> Optional[str]:
         composer_dir = os.path.join(self.bin_dir, 'composer')
         os.makedirs(composer_dir, exist_ok=True)
         composer_path = os.path.join(composer_dir, 'composer.phar')
@@ -72,8 +72,7 @@ class ProjectManager:
     def _rollback_dir(self, target_dir: str):
         import shutil
         if os.path.exists(target_dir):
-            if hasattr(self.api, "_window") and self.api._window:
-                self.api._window.evaluate_js(f"window.dispatchEvent(new CustomEvent('vylo_progress', {{ detail: {{ percent: 100, text: 'Melakukan rollback instalasi...' }} }}))")
+            self._progress(100, "Melakukan rollback instalasi...")
             self._log(f"Instalasi gagal! Melakukan rollback ({target_dir})...", "warn")
             shutil.rmtree(target_dir, ignore_errors=True)
 
@@ -90,6 +89,17 @@ class ProjectManager:
             return "codeigniter/framework", True
         return "", False
 
+    def _stream_composer_output(self, process, current_percent: float, max_percent: float, prefix: str, ansi_escape: re.Pattern) -> tuple[float, str]:
+        error_log = ""
+        for line in process.stdout:
+            clean_line = ansi_escape.sub('', line.strip())
+            if clean_line:
+                error_log += clean_line + " "
+                self._log(f"[Composer] {clean_line}", "info")
+                if current_percent < max_percent: current_percent += 0.5
+                self._progress(int(current_percent), f"{prefix}: {clean_line[:62]}")
+        return current_percent, error_log
+
     def _run_composer_update_with_retries(self, php_exe: str, php_ini_path: str, composer_phar: str, target_dir: str, custom_env: dict, cflags: int, current_percent: float, ansi_escape: re.Pattern) -> bool:
         self._log("Menyesuaikan dependensi framework dengan versi PHP lokal...", "info")
         for attempt in range(3):
@@ -103,20 +113,126 @@ class ProjectManager:
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=custom_env, cwd=target_dir, creationflags=cflags
             )
             
-            for line in process_update.stdout:
-                clean_line = ansi_escape.sub('', line.strip())
-                if clean_line:
-                    self._log(f"[Composer] {clean_line}", "info")
-                    if current_percent < 95.0: current_percent += 0.5
-                    if hasattr(self.api, "_window"):
-                        safe_text = clean_line.replace("'", "\\'").replace('"', '\\"').replace('\n', '')[:62]
-                        self.api._window.evaluate_js(f"window.dispatchEvent(new CustomEvent('vylo_progress', {{ detail: {{ percent: {int(current_percent)}, text: 'Instalasi Vendor: {safe_text}' }} }}))")
+            current_percent, _ = self._stream_composer_output(process_update, current_percent, 95.0, 'Instalasi Vendor', ansi_escape)
 
             process_update.wait()
             if process_update.returncode == 0:
                 return True
             self._log(f"Percobaan update ke-{attempt+1} gagal. Mencoba lagi...", "warn")
         return False
+
+    def _run_composer_create_project(self, php_exe: str, php_ini_path: str, composer_phar: str, package: str, target_dir: str, custom_env: dict, cflags: int, current_percent: float, ansi_escape: re.Pattern) -> tuple[bool, str]:
+        # Hapus Folder Jika Sudah Ada (Mencegah Error "Directory is not empty")
+        if os.path.exists(target_dir):
+            import shutil
+            shutil.rmtree(target_dir, ignore_errors=True)
+
+        self._log("Mengunduh struktur dasar framework...", "info")
+        process_create = subprocess.Popen(
+            [php_exe, "-c", php_ini_path, composer_phar, "create-project", package, target_dir, "--prefer-dist", "--no-interaction", "--no-install", "--no-scripts"], 
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=custom_env, creationflags=cflags
+        )
+        
+        current_percent, error_log = self._stream_composer_output(process_create, current_percent, 60.0, 'Composer', ansi_escape)
+        
+        process_create.wait()
+        return process_create.returncode == 0, error_log
+
+
+    def _run_framework_post_install(self, framework: str, target_dir: str, php_exe: str, php_ini_path: str, custom_env: dict, cflags: int, is_ci3: bool):
+        self._log("Menjalankan post-installation script framework...", "info")
+        import shutil
+        if framework == 'laravel':
+            if os.path.exists(os.path.join(target_dir, '.env.example')) and not os.path.exists(os.path.join(target_dir, '.env')):
+                shutil.copy(os.path.join(target_dir, '.env.example'), os.path.join(target_dir, '.env'))
+            try: subprocess.run([php_exe, "-c", php_ini_path, "artisan", "key:generate"], cwd=target_dir, env=custom_env, creationflags=cflags)
+            except Exception: pass
+        elif framework == 'codeigniter' and not is_ci3:
+            if os.path.exists(os.path.join(target_dir, 'env')) and not os.path.exists(os.path.join(target_dir, '.env')):
+                shutil.copy(os.path.join(target_dir, 'env'), os.path.join(target_dir, '.env'))
+                try:
+                    with open(os.path.join(target_dir, '.env'), 'r', encoding='utf-8') as f: env_content = f.read()
+                    with open(os.path.join(target_dir, '.env'), 'w', encoding='utf-8') as f: f.write(env_content.replace('# CI_ENVIRONMENT = production', 'CI_ENVIRONMENT = development'))
+                except Exception: pass
+
+    def _install_wordpress(self, target_dir: str) -> dict:
+        import zipfile
+        self._log("Memulai instalasi WordPress...", "info")
+        os.makedirs(target_dir, exist_ok=True)
+        zip_path = os.path.join(target_dir, "latest.zip")
+        try:
+            urllib.request.urlretrieve("https://wordpress.org/latest.zip", zip_path)
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref: zip_ref.extractall(target_dir)
+
+            wp_extracted_dir = os.path.join(target_dir, "wordpress")
+            if os.path.exists(wp_extracted_dir):
+                import shutil
+                for item in os.listdir(wp_extracted_dir): shutil.move(os.path.join(wp_extracted_dir, item), os.path.join(target_dir, item))
+                os.rmdir(wp_extracted_dir)
+
+            if os.path.exists(zip_path): os.remove(zip_path)
+            self._log("Instalasi WordPress berhasil!", "success")
+            return {"status": "success", "document_root": target_dir.replace('\\', '/')}
+        except Exception as e:
+            self._rollback_dir(target_dir)
+            return {"status": "error", "message": f"Gagal menginstal WordPress: {str(e)}"}
+
+    def _install_raw_project(self, target_dir: str) -> dict:
+        self._log("Membuat proyek PHP murni (Raw)...", "info")
+        try:
+            os.makedirs(target_dir, exist_ok=True)
+            with open(os.path.join(target_dir, "index.php"), "w", encoding="utf-8") as f:
+                f.write("<?php\n\necho '<h1>Welcome to VyloServe</h1>';\n\n// phpinfo();\n")
+            self._log("Proyek PHP berhasil disiapkan!", "success")
+            return {"status": "success", "document_root": target_dir.replace('\\', '/')}
+        except Exception as e:
+            self._rollback_dir(target_dir)
+            return {"status": "error", "message": f"Gagal membuat proyek Raw: {str(e)}"}
+
+    def _install_composer_framework(self, framework: str, target_dir: str, php_version: str, specific_version: str, php_exe: str) -> dict:
+        self._progress(20, "Mengonfigurasi PHP...")
+
+        composer_phar = self._ensure_composer_exists()
+        if not composer_phar: return {"status": "error", "message": "Composer gagal disiapkan."}
+
+        package, is_ci3 = self._determine_framework_package(framework, specific_version, php_version)
+        self._log(f"Instalasi {package} menggunakan PHP {php_version}...", "info")
+        
+        try:
+            php_ini_path = os.path.join(self.bin_dir, 'php', php_version, 'php.ini')
+            custom_env = os.environ.copy()
+            custom_env.update({"COMPOSER_PROCESS_TIMEOUT": "2000", "COMPOSER_MAX_PARALLEL_HTTP": "1"})
+            cflags = get_silent_flags()
+
+            try: subprocess.run([php_exe, "-c", php_ini_path, composer_phar, "clear-cache"], env=custom_env, creationflags=cflags)
+            except Exception: pass
+
+            ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+            current_percent = 40.0 
+
+            success_create, error_log = self._run_composer_create_project(php_exe, php_ini_path, composer_phar, package, target_dir, custom_env, cflags, current_percent, ansi_escape)
+            
+            if not success_create:
+                self._rollback_dir(target_dir)
+                return {"status": "error", "message": f"Gagal mengunduh struktur dasar: {error_log[:150]}"}
+
+            try: subprocess.run([php_exe, "-c", php_ini_path, composer_phar, "config", "policy.advisories.block", "false"], env=custom_env, cwd=target_dir, creationflags=cflags)
+            except Exception: pass
+
+            update_success = self._run_composer_update_with_retries(php_exe, php_ini_path, composer_phar, target_dir, custom_env, cflags, current_percent, ansi_escape) 
+                    
+            if not update_success:
+                self._rollback_dir(target_dir)
+                return {"status": "error", "message": "Gagal meracik dependensi (Vendor). OS/Antivirus mungkin mengunci file."}
+
+            self._run_framework_post_install(framework, target_dir, php_exe, php_ini_path, custom_env, cflags, is_ci3)
+
+            self._progress(100, "Instalasi selesai sempurna!")
+            self._log(f"Instalasi {framework.capitalize()} berhasil!", "success")
+            return {"status": "success", "document_root": target_dir.replace('\\', '/') if is_ci3 else os.path.join(target_dir, "public").replace('\\', '/')}
+            
+        except Exception as e:
+            return {"status": "error", "message": f"Gagal menjalankan Composer: {str(e)}"}
 
     def _install_new_framework(self, payload: dict):
         framework = payload.get('framework')
@@ -129,122 +245,11 @@ class ProjectManager:
             return {"status": "error", "message": f"File php.exe untuk versi {php_version} tidak ditemukan."}
 
         if framework in ['laravel', 'codeigniter']:
-            if hasattr(self.api, "_window"): self.api._window.evaluate_js(f"window.dispatchEvent(new CustomEvent('vylo_progress', {{ detail: {{ percent: 20, text: 'Mengonfigurasi PHP...' }} }}))")
-            
-            composer_phar = self._ensure_composer_exists()
-            if not composer_phar: return {"status": "error", "message": "Composer gagal disiapkan."}
-
-            package, is_ci3 = self._determine_framework_package(framework, specific_version, php_version)
-
-            self._log(f"Instalasi {package} menggunakan PHP {php_version}...", "info")
-            
-            try:
-                php_ini_path = os.path.join(self.bin_dir, 'php', php_version, 'php.ini')
-                custom_env = os.environ.copy()
-                custom_env.update({"COMPOSER_PROCESS_TIMEOUT": "2000", "COMPOSER_MAX_PARALLEL_HTTP": "1"})
-                cflags = get_silent_flags()
-
-                try: subprocess.run([php_exe, "-c", php_ini_path, composer_phar, "clear-cache"], env=custom_env, creationflags=cflags)
-                except: pass
-
-                ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-                current_percent = 40.0 
-
-                # ---> FIX: Hapus Folder Jika Sudah Ada (Mencegah Error "Directory is not empty") <---
-                if os.path.exists(target_dir):
-                    import shutil
-                    shutil.rmtree(target_dir, ignore_errors=True)
-
-                self._log("Mengunduh struktur dasar framework...", "info")
-                process_create = subprocess.Popen(
-                    [php_exe, "-c", php_ini_path, composer_phar, "create-project", package, target_dir, "--prefer-dist", "--no-interaction", "--no-install", "--no-scripts"], 
-                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=custom_env, creationflags=cflags
-                )
-                
-                # ---> FIX: Rekam Log Kegagalan Composer <---
-                error_log = ""
-                for line in process_create.stdout:
-                    clean_line = ansi_escape.sub('', line.strip())
-                    if clean_line:
-                        error_log += clean_line + " "
-                        self._log(f"[Composer] {clean_line}", "info")
-                        if current_percent < 60.0: current_percent += 0.5
-                        if hasattr(self.api, "_window"):
-                            safe_text = clean_line.replace("'", "\\'").replace('"', '\\"').replace('\n', '')[:62]
-                            self.api._window.evaluate_js(f"window.dispatchEvent(new CustomEvent('vylo_progress', {{ detail: {{ percent: {int(current_percent)}, text: 'Composer: {safe_text}' }} }}))")
-                
-                process_create.wait()
-                if process_create.returncode != 0:
-                    self._rollback_dir(target_dir)
-                    # Kembalikan potongan log error ke UI
-                    return {"status": "error", "message": f"Gagal mengunduh struktur dasar: {error_log[:150]}"}
-
-                try: subprocess.run([php_exe, "-c", php_ini_path, composer_phar, "config", "policy.advisories.block", "false"], env=custom_env, cwd=target_dir, creationflags=cflags)
-                except: pass
-
-                update_success = self._run_composer_update_with_retries(php_exe, php_ini_path, composer_phar, target_dir, custom_env, cflags, current_percent, ansi_escape) 
-                        
-                if not update_success:
-                    self._rollback_dir(target_dir)
-                    return {"status": "error", "message": "Gagal meracik dependensi (Vendor). OS/Antivirus mungkin mengunci file."}
-
-                self._log("Menjalankan post-installation script framework...", "info")
-                if framework == 'laravel':
-                    if os.path.exists(os.path.join(target_dir, '.env.example')) and not os.path.exists(os.path.join(target_dir, '.env')):
-                        import shutil
-                        shutil.copy(os.path.join(target_dir, '.env.example'), os.path.join(target_dir, '.env'))
-                    try: subprocess.run([php_exe, "-c", php_ini_path, "artisan", "key:generate"], cwd=target_dir, env=custom_env, creationflags=cflags)
-                    except: pass
-                elif framework == 'codeigniter' and not is_ci3:
-                    if os.path.exists(os.path.join(target_dir, 'env')) and not os.path.exists(os.path.join(target_dir, '.env')):
-                        import shutil
-                        shutil.copy(os.path.join(target_dir, 'env'), os.path.join(target_dir, '.env'))
-                        try:
-                            with open(os.path.join(target_dir, '.env'), 'r', encoding='utf-8') as f: env_content = f.read()
-                            with open(os.path.join(target_dir, '.env'), 'w', encoding='utf-8') as f: f.write(env_content.replace('# CI_ENVIRONMENT = production', 'CI_ENVIRONMENT = development'))
-                        except: pass
-
-                if hasattr(self.api, "_window"): self.api._window.evaluate_js(f"window.dispatchEvent(new CustomEvent('vylo_progress', {{ detail: {{ percent: 100, text: 'Instalasi selesai sempurna!' }} }}))")
-                self._log(f"Instalasi {framework.capitalize()} berhasil!", "success")
-                return {"status": "success", "document_root": target_dir.replace('\\', '/') if is_ci3 else os.path.join(target_dir, "public").replace('\\', '/')}
-                
-            except Exception as e:
-                return {"status": "error", "message": f"Gagal menjalankan Composer: {str(e)}"}
-        
+            return self._install_composer_framework(framework, target_dir, php_version, specific_version, php_exe)
         elif framework == 'wordpress':
-            import zipfile
-            self._log("Memulai instalasi WordPress...", "info")
-            os.makedirs(target_dir, exist_ok=True)
-            zip_path = os.path.join(target_dir, "latest.zip")
-
-            try:
-                urllib.request.urlretrieve("https://wordpress.org/latest.zip", zip_path)
-                with zipfile.ZipFile(zip_path, 'r') as zip_ref: zip_ref.extractall(target_dir)
-
-                wp_extracted_dir = os.path.join(target_dir, "wordpress")
-                if os.path.exists(wp_extracted_dir):
-                    import shutil
-                    for item in os.listdir(wp_extracted_dir): shutil.move(os.path.join(wp_extracted_dir, item), os.path.join(target_dir, item))
-                    os.rmdir(wp_extracted_dir)
-
-                if os.path.exists(zip_path): os.remove(zip_path)
-                self._log("Instalasi WordPress berhasil!", "success")
-                return {"status": "success", "document_root": target_dir.replace('\\', '/')}
-            except Exception as e:
-                self._rollback_dir(target_dir)
-                return {"status": "error", "message": f"Gagal menginstal WordPress: {str(e)}"}
-
+            return self._install_wordpress(target_dir)
         elif framework == 'raw':
-            self._log("Membuat proyek PHP murni (Raw)...", "info")
-            try:
-                os.makedirs(target_dir, exist_ok=True)
-                with open(os.path.join(target_dir, "index.php"), "w", encoding="utf-8") as f:
-                    f.write("<?php\n\necho '<h1>Welcome to VyloServe</h1>';\n\n// phpinfo();\n")
-                self._log("Proyek PHP berhasil disiapkan!", "success")
-                return {"status": "success", "document_root": target_dir.replace('\\', '/')}
-            except Exception as e:
-                self._rollback_dir(target_dir)
-                return {"status": "error", "message": f"Gagal membuat proyek Raw: {str(e)}"}
+            return self._install_raw_project(target_dir)
 
     def _sync_hosts_for_project(self, projects: list, project_id: str) -> Optional[str]:
         if not hasattr(self, 'sync_windows_hosts'): return None
