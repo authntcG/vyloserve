@@ -106,10 +106,23 @@ def test_check_port_in_use_fallback_ipv6(mock_create_conn, mock_socket):
 def test_check_port_in_use_all_fail(mock_create_conn, mock_socket):
     """Test check_port_in_use when all connections fail."""
     mock_create_conn.side_effect = ConnectionRefusedError()
-    
+
     mock_sock_instance = MagicMock()
     mock_sock_instance.connect_ex.return_value = 10061 # Connection refused
     mock_sock_instance.__enter__.return_value = mock_sock_instance
     mock_socket.return_value = mock_sock_instance
-    
+
     assert check_port_in_use(3306) is False
+
+@patch('socket.socket')
+@patch('socket.create_connection')
+def test_check_port_in_use_ipv6_fallback_itself_unsupported(mock_create_conn, mock_socket):
+    """
+    Edge case: jika IPv4 gagal DAN pembuatan socket IPv6 fallback itu sendiri melempar
+    exception (mis. address family tidak didukung OS), harus tetap return False dengan
+    aman, bukan crash.
+    """
+    mock_create_conn.side_effect = OSError("IPv4 connection refused")
+    mock_socket.side_effect = OSError("AF_INET6 not supported on this system")
+
+    assert check_port_in_use(5432, 'localhost') is False

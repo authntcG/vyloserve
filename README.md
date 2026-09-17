@@ -19,7 +19,7 @@
 
 VyloServe is a meticulously crafted local server manager designed for modern web developers. Moving away from the clunky, outdated interfaces of traditional local environments, VyloServe provides a sleek, enterprise-grade Dashboard to manage your Apache Virtual Hosts, Multi-Version PHP (FastCGI), and Local Databases seamlessly.
 
-Built on top of **PyWebView**[cite: 7], VyloServe offers a 100% native desktop application feel—complete with custom context menus, blocked browser shortcuts, and hardware-accelerated UI rendering, all powered by **React**, **Vite**, and **Tailwind CSS**[cite: 7].
+Built on top of **PyWebView**, VyloServe offers a 100% native desktop application feel—complete with custom context menus, blocked browser shortcuts, and hardware-accelerated UI rendering, all powered by **React**, **Vite**, and **Tailwind CSS**.
 
 ## ✨ Key Features (So Far)
 
@@ -27,7 +27,7 @@ Built on top of **PyWebView**[cite: 7], VyloServe offers a 100% native desktop a
 
 * **The Big Switch:** Start or stop all your configured services (Apache & PHP) with a single click. VyloServe intelligently orchestrates the execution order (PHP FastCGI first, then Apache) to prevent gateway crashes.
 * **Zero-CPU Sparkline Monitors:** Real-time CPU and Memory usage tracking utilizing native SVG cubic-bezier sparklines. It delivers a fluid, Datadog-like monitoring experience with dynamic vertical gradients without consuming hardware resources.
-* **Persistent Workspace:** Your selections, from the active Apache version to multiple running PHP versions, are saved securely in `data/dashboard.json`[cite: 7] and restored exactly as you left them.
+* **Persistent Workspace:** Your selections, from the active Apache version to multiple running PHP versions, are saved securely in `data/dashboard.json` and restored exactly as you left them.
 
 ### 🌐 Apache Web Server Automation
 
@@ -48,10 +48,10 @@ Built on top of **PyWebView**[cite: 7], VyloServe offers a 100% native desktop a
 
 ## 🏗️ Architecture & Tech Stack
 
-VyloServe separates the heavy lifting from the presentation layer to ensure maximum performance and maintainability[cite: 7]:
+VyloServe separates the heavy lifting from the presentation layer to ensure maximum performance and maintainability:
 
-* **Backend (`/core`):** Pure Python[cite: 7]. Handles OS-level operations, process management (`psutil`), binary downloads, and configuration patching (`httpd.conf`, `php.ini`).
-* **Frontend (`/frontend`):** React 18 + TypeScript + Vite[cite: 7]. Styled with Tailwind CSS for a dark-mode-first, responsive, and gorgeous UI.
+* **Backend (`/core`):** Pure Python. Handles OS-level operations, process management (`psutil`), binary downloads, and configuration patching (`httpd.conf`, `php.ini`).
+* **Frontend (`/frontend`):** React 18 + TypeScript + Vite. Styled with Tailwind CSS for a dark-mode-first, responsive, and gorgeous UI.
 * **Bridge:** `pywebview` establishes a fast, bidirectional, native window bridge between Python and React.
 
 ## 🚀 Roadmap & Future Features
@@ -62,9 +62,9 @@ VyloServe is actively in development. Here is what we have built and what is com
 * [x] **Apache Module:** Virtual host generator, version management, directory linking.
 * [x] **PHP Module:** FastCGI integration, extension toggling, multi-port collision detection.
 * [x] **Dashboard:** Global control panel, smart suggestions, and real-time resource polling.
-* [x] **Database Module (MariaDB/MySQL):** Installation, port management, and service toggling[cite: 7].
-* [x] **SSL Manager:** Auto-generate local trusted SSL certificates for `https://` access[cite: 7].
-* [x] **Developer Utilities:** Built-in QR Code Generator, Base64 Encoder, and URL Decoder[cite: 7].
+* [x] **Database Module (MariaDB/MySQL):** Installation, port management, and service toggling.
+* [x] **SSL Manager:** Auto-generate local trusted SSL certificates for `https://` access.
+* [x] **Developer Utilities:** Built-in QR Code Generator, Base64 Encoder, and URL Decoder.
 * [x] **Node.js / NVM Integration:** Manage Node versions and local PM2/NPM processes.
 * [ ] **Redis / Memcached:** In-memory data structure store management.
 
@@ -74,27 +74,22 @@ Want to contribute or run VyloServe from the source?
 
 1. **Clone the repository:**
 ```bash
-git clone [https://github.com/yourusername/vyloserve.git](https://github.com/yourusername/vyloserve.git)
+git clone https://github.com/yourusername/vyloserve.git
 cd vyloserve
-
 ```
-
 
 2. **Setup Frontend:**
 ```bash
 cd frontend
 npm install
 npm run dev
-
 ```
-
 
 3. **Setup Backend:**
 Open a new terminal in the root directory.
 ```bash
 pip install -r requirements.txt
 python main.py
-
 ```
 
 

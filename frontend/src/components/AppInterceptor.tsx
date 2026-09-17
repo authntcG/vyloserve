@@ -73,7 +73,7 @@ export default function GlobalAppInterceptor() {
             try {
                 await navigator.clipboard.writeText(menuState.textToCopy);
                 showToast(t('components.interceptor.copy_success'), "success");
-            } catch (err) {
+            } catch (err){ console.error(err);
                 showToast(t('components.interceptor.copy_error'), "error");
             }
         }

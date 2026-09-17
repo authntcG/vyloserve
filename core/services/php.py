@@ -3,6 +3,7 @@ import sys
 import re
 import shutil
 import time
+import subprocess
 from typing import Optional
 
 # ---> IMPORT UTILITIES (DRY PRINCIPLE) <---
@@ -119,7 +120,7 @@ class PhpManager:
 
             self._log("backend.php.release_load_success", "success")
             return {"status": "success", "data": result}
-        except Exception: return {"status": "error", "message": str(e)}
+        except Exception as e: return {"status": "error", "message": str(e)}
     
     def _install_composer(self, target_dir: str):
         self._progress(95, "backend.php.installing_composer")

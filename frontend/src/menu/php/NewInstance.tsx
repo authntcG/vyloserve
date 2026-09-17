@@ -90,6 +90,8 @@ export default function NewPhpInstance({
     useEffect(() => {
         const handleProgress = (e: Event) => {
             const customEvent = e as CustomEvent;
+            // Abaikan progress milik modul lain — lihat docs/known_bugs.md #7.
+            if (customEvent.detail?.source && customEvent.detail.source !== 'PhpManager') return;
             setProgress({ percent: customEvent.detail.percent, text: customEvent.detail.text || '' });
         };
         window.addEventListener('vylo_progress', handleProgress);

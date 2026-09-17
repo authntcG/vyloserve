@@ -132,10 +132,14 @@ export default function ApacheMain() {
     useEffect(() => {
         const handleStatus = (e: any) => { if (e.detail.service === 'apache') setIsApacheRunning(e.detail.running); };
         const handleProg = (e: any) => {
+            // Halaman ini menampilkan progress utk 2 sumber: instalasi Apache sendiri (ApacheManager)
+            // dan pembuatan project baru (ProjectManager). Filter sumber lain agar tidak "bocor"
+            // dari modul lain yang kebetulan mounted bersamaan (lihat docs/known_bugs.md #7).
+            if (e.detail?.source && !['ApacheManager', 'ProjectManager'].includes(e.detail.source)) return;
             if (e.detail) {
                 const text = e.detail.text || '';
                 const args = e.detail.args || {};
-                setProgress(e.detail.percent); 
+                setProgress(e.detail.percent);
                 setProgressText(t(text, args) as string);
                 if (e.detail.percent >= 100 || e.detail.percent === 0) setTimeout(() => { setProgress(0); setIsCreatingProject(false); }, 3000);
             }

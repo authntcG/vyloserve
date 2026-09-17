@@ -606,6 +606,9 @@
         }
     },
     "backend": {
+        "error": {
+            "project_module_not_loaded": "Modul Project tidak termuat. Silakan restart aplikasi."
+        },
         "apache": {
             "status_check_failed": "Gagal mengecek status Apache: {{e}}",
             "dir_read_failed": "Gagal membaca direktori: {{e}}",

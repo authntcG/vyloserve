@@ -29,7 +29,7 @@ export default function UrlMain() {
                 currentOutput = decodeURIComponent(input);
                 setOutput(currentOutput);
             }
-        } catch (e) {
+        } catch (e){ console.error(e);
             setOutput(t('tools.url.error_malformed'));
             setParsedUrl(null);
             return;

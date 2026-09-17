@@ -65,7 +65,7 @@ export default function Sidebar({
             const status = await api.get_all_services_status();
             setServiceStatus(status);
             if (status.cpu_load !== undefined) setSystemLoad(status.cpu_load);
-        } catch (error) {
+        } catch (error){ console.error(error);
             console.error("Gagal sinkronisasi status:", error);
         }
     };
@@ -116,13 +116,20 @@ export default function Sidebar({
             window.dispatchEvent(new CustomEvent('service_status_changed', {
                 detail: { service: id, running: !isRunning }
             }));
-        } catch (error) {
+        } catch (error){ console.error(error);
             console.error(`Gagal mengubah status ${id}:`, error);
         }
     };
 
     const sidebarWidthClass = isDesktopCollapsed ? 'w-20' : 'w-sidebar-width';
     const mobileTranslateClass = isMobileOpen ? 'translate-x-0' : '-translate-x-full';
+
+
+    const getSystemLoadColor = () => {
+        if (systemLoad > 80) return 'text-red-500';
+        if (systemLoad > 50) return 'text-amber-500';
+        return 'text-emerald-500';
+    };
 
     const filterQuery = (item: { id: string; name: string }) => {
         // Fallback to name if key doesn't exist, though we defined all keys
@@ -263,7 +270,7 @@ export default function Sidebar({
                 {/* Footer System Load */}
                 <div className="p-4 border-t border-slate-200 dark:border-slate-800 mt-auto flex justify-between items-center relative" ref={settingsRef}>
                     <div className={`flex items-center gap-2 text-slate-500 dark:text-slate-400 ${isDesktopCollapsed ? 'w-full justify-center' : ''}`}>
-                        <span className={`material-symbols-outlined text-[20px] ${systemLoad > 80 ? 'text-red-500' : systemLoad > 50 ? 'text-amber-500' : 'text-emerald-500'}`}>memory</span>
+                        <span className={`material-symbols-outlined text-[20px] ${getSystemLoadColor()}`}>memory</span>
                         <span className={`text-xs font-medium uppercase tracking-wider transition-all duration-300 overflow-hidden whitespace-nowrap ${isDesktopCollapsed ? 'max-w-0 opacity-0 hidden' : 'max-w-[150px] opacity-100'}`}>
                             {t('sidebar.system_load')} <span className={systemLoad > 80 ? 'text-red-500 font-bold' : ''}>{systemLoad}%</span>
                         </span>

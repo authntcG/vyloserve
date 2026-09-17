@@ -21,10 +21,12 @@ vyloserve/
 │       └── settings.py         # Menyimpan Preferensi Aplikasi (Bahasa, Tema)
 ├── frontend/                   # Repositori UI berbasis React (Vite + TS)
 │   ├── src/
-│   │   ├── components/         # Komponen UI Reusable (Modal, ProgressBar, Card, dll)
+│   │   ├── components/         # Komponen UI Reusable, struktur FLAT (Modal, Card, PageHeader, dll — TIDAK ada subfolder ui/)
 │   │   ├── locales/            # Berkas i18n JSON untuk bahasa (en, id)
-│   │   ├── menu/               # Halaman utama aplikasi (Apache, PHP, Database, Project, dll)
-│   │   └── App.tsx             # Entrypoint Routing (React Router)
+│   │   ├── menu/                # Halaman utama aplikasi: apache/ (termasuk CRUD Project & Virtual Host,
+│   │   │                        # TIDAK ada folder project/ terpisah), php/, database/, dashboard/, runtimes/, tools/
+│   │   ├── i18n.ts             # Konfigurasi react-i18next (TIDAK ada folder contexts/)
+│   │   └── App.tsx             # Routing MANUAL via useState (BUKAN React Router) — lihat docs/frontend_ui.md §2
 │   ├── package.json            # Daftar dependensi Frontend (React, Tailwind, i18next)
 │   └── vite.config.ts          # Konfigurasi bundler Vite
 ├── tests/                      # Folder Unit Test (Pytest)

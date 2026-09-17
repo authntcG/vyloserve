@@ -65,6 +65,34 @@ class DatabaseManager:
     # ==========================================
     # START / STOP CONTROLLER (SILENT SUBPROCESS)
     # ==========================================
+    def _wait_for_startup(self, db_obj: dict, log_f) -> dict:
+        db_id = db_obj['id']
+        log_path = os.path.join(db_obj['dataDir'], "db_startup.log")
+        
+        for _ in range(150):
+            if check_port_in_use(db_obj['port']):
+                self._log("backend.database.engine_running", "success", {"name": db_obj["name"], "port": db_obj["port"]})
+                try: log_f.close()
+                except Exception: pass
+                return {"status": "success", "message": "backend.database.started_success", "args": {"name": db_obj["name"]}}
+            
+            if self.processes[db_id].poll() is not None:
+                log_f.close()
+                try:
+                    with open(log_path, 'r', encoding='utf-8') as rf:
+                        err_msg = rf.read().strip()[-250:]
+                except Exception: 
+                    err_msg = "Unknown error (log unreadable)"
+                
+                self._log(f"Database process crashed. Log: {err_msg}", "error")
+                return {"status": "error", "message": f"Database crashed on startup: {err_msg}"}
+            
+            time.sleep(0.1)
+
+        try: log_f.close()
+        except Exception: pass
+        return {"status": "error", "message": "backend.database.timeout_starting"}
+
     def start_database(self, db_id: str):
         data = read_json(self.config_path)
         db_obj = next((db for db in data if db['id'] == db_id), None)
@@ -73,56 +101,37 @@ class DatabaseManager:
         if check_port_in_use(db_obj['port']):
             return {"status": "error", "message": "backend.database.port_in_use", "args": {"port": db_obj["port"]}}
 
-        engine = db_obj['engine']
-        install_dir = db_obj['installDir']
-        data_dir = db_obj['dataDir']
-
         try:
-            if engine == 'mysql':
-                exe = os.path.join(install_dir, 'bin', 'mysqld.exe' if sys.platform == 'win32' else 'mysqld')
-                cmd = [exe, f"--datadir={data_dir}", f"--port={db_obj['port']}"]
-            else:
-                exe = os.path.join(install_dir, 'bin', 'postgres.exe' if sys.platform == 'win32' else 'postgres')
-                cmd = [exe, "-D", data_dir, "-p", str(db_obj['port'])]
-
-            log_path = os.path.join(data_dir, "db_startup.log")
+            _, cmd = self._build_startup_cmd(db_obj)
+            log_path = os.path.join(db_obj['dataDir'], "db_startup.log")
             log_f = open(log_path, 'w', encoding='utf-8')
             
             import subprocess
             from core.utils.system_utils import get_silent_flags
             self.processes[db_id] = subprocess.Popen(
-                cmd,
-                creationflags=get_silent_flags(),
-                stdout=log_f,
-                stderr=log_f
+                cmd, creationflags=get_silent_flags(), stdout=log_f, stderr=log_f
             )
 
-            for _ in range(150):
-                if check_port_in_use(db_obj['port']):
-                    self._log("backend.database.engine_running", "success", {"name": db_obj["name"], "port": db_obj["port"]})
-                    try: log_f.close()
-                    except: pass
-                    return {"status": "success", "message": "backend.database.started_success", "args": {"name": db_obj["name"]}}
-                
-                if self.processes[db_id].poll() is not None:
-                    log_f.close()
-                    try:
-                        with open(log_path, 'r', encoding='utf-8') as rf:
-                            err_msg = rf.read().strip()[-250:]
-                    except: err_msg = "Unknown error (log unreadable)"
-                    
-                    self._log(f"Database process crashed. Log: {err_msg}", "error")
-                    return {"status": "error", "message": f"Database crashed on startup: {err_msg}"}
-                
-                time.sleep(0.1)
-
-            try: log_f.close()
-            except: pass
-            return {"status": "error", "message": "backend.database.timeout_starting"}
+            return self._wait_for_startup(db_obj, log_f)
+            
         except Exception as e:
             try: log_f.close()
-            except: pass
-            return {"status": "error", "message": str(e)}
+            except Exception: pass
+            return {"status": "error", "message": "backend.database.start_failed", "args": {"e": str(e)}}
+
+    def _build_startup_cmd(self, db_obj: dict) -> tuple:
+        engine = db_obj['engine']
+        install_dir = db_obj['installDir']
+        data_dir = db_obj['dataDir']
+        
+        if engine == 'mysql':
+            exe = os.path.join(install_dir, 'bin', 'mysqld.exe' if sys.platform == 'win32' else 'mysqld')
+            cmd = [exe, f"--datadir={data_dir}", f"--port={db_obj['port']}"]
+        else:
+            exe = os.path.join(install_dir, 'bin', 'postgres.exe' if sys.platform == 'win32' else 'postgres')
+            cmd = [exe, "-D", data_dir, "-p", str(db_obj['port'])]
+            
+        return exe, cmd
 
     def _kill_process(self, db_id: str):
         if db_id in self.processes:
@@ -198,7 +207,7 @@ class DatabaseManager:
     def _fetch_mariadb_versions(self):
         req = urllib.request.Request("https://archive.mariadb.org/", headers={'User-Agent': USER_AGENT_MOZILLA})
         try: html = urllib.request.urlopen(req, timeout=10).read().decode('utf-8')
-        except Exception: return {"status": "error", "message": str(e)}
+        except Exception as e: return {"status": "error", "message": str(e)}
         
         raw_versions = list(set(re.findall(r'href="mariadb-(\d+\.\d+\.\d+)/"', html)))
         latest_versions_dict = {}
@@ -391,7 +400,7 @@ class DatabaseManager:
             elif sys.platform == 'darwin': subprocess.Popen(['open', target])
             else: subprocess.Popen(['xdg-open', target])
             return {"status": "success", "message": "backend.database.opened_success"}
-        except Exception: return {"status": "error", "message": str(e)}
+        except Exception as e: return {"status": "error", "message": str(e)}
 
     def _parse_mysql_config(self, conf_file: str, config: dict):
         if not os.path.exists(conf_file): return

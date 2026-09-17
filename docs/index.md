@@ -24,10 +24,19 @@ Target spesifikasi untuk menjalankan aplikasi VyloServe secara optimal:
 5. [Frontend & Antarmuka (Frontend UI)](frontend_ui.md)
    Panduan mengenai komponen React, integrasi i18n (multi-bahasa), dan struktur presentasi visual.
 6. [Pengujian & Pengembangan (Development & Testing)](development_testing.md)
-   Panduan mengenai cara melakukan setup proyek, unit testing menggunakan Pytest, dan proses build executable.
+   Panduan mengenai cara melakukan setup proyek, unit testing menggunakan Pytest (beserta **standar wajib test per fitur baru**), panduan Clean Code & DRY, standar Security (validasi input, path traversal, XSS prevention), dan proses build executable.
 7. [Bugs & Limitasi Diketahui (Known Bugs)](known_bugs.md)
    Daftar *bug* yang pernah ditemukan (beserta resolusinya) dan batasan-batasan teknis dari aplikasi (misal: IPv6 localhost, masalah UAC).
+8. [🤖 Panduan Pengembangan untuk AI (AI Development Guide)](ai_development_guide.md)
+   **Bacaan wajib untuk Asisten AI.** Berisi: Peta lengkap semua endpoint API Backend↔Frontend, lokasi & format data JSON, pola debugging step-by-step, template implementasi fitur baru, panduan troubleshooting frontend, dependency antar service, dan checklist *Definition of Done*.
 
 ---
 > **Catatan AI:** 
 > Referensi dasar untuk asisten AI telah dikonfigurasi di file `GEMINI.md` pada root direktori. `GEMINI.md` berfungsi sebagai gerbang masuk (*entrypoint*) instruksi yang mengarahkan AI untuk membaca dokumentasi di folder `docs/` ini.
+> 
+> **Urutan Bacaan yang Direkomendasikan untuk AI:**
+> 1. `GEMINI.md` (aturan & arsitektur dasar)
+> 2. `docs/ai_development_guide.md` (peta API + pola kerja)
+> 3. `docs/development_testing.md` (standar test + security)
+> 4. Dokumen spesifik sesuai modul yang dikerjakan
+

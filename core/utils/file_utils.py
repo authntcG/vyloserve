@@ -51,15 +51,30 @@ def write_json(file_path: str, data: Any) -> bool:
     except Exception:
         return False
 
+def _is_safe_extract_path(base_dir: str, member_name: str) -> bool:
+    """
+    Validasi bahwa path hasil ekstraksi sebuah member arsip tidak keluar dari
+    direktori tujuan (mencegah 'zip slip' path traversal, mis. member bernama
+    '../../evil.exe' atau path absolut). Lihat docs/known_bugs.md #4.
+    """
+    target_path = os.path.realpath(os.path.join(base_dir, member_name))
+    base_dir_real = os.path.realpath(base_dir)
+    return target_path == base_dir_real or target_path.startswith(base_dir_real + os.sep)
+
 def _extract_zip(file_path: str, extract_to: str, progress_cb: Optional[Callable[[int, str], None]]):
     with zipfile.ZipFile(file_path, 'r') as zip_ref:
         members = zip_ref.infolist()
+
+        for member in members:
+            if not _is_safe_extract_path(extract_to, member.filename):
+                raise RuntimeError(f"Arsip mengandung path tidak aman (path traversal): {member.filename}")
+
         total_files = len(members)
         last_percent = -1
-        
+
         for index, member in enumerate(members):
             zip_ref.extract(member, extract_to)
-            
+
             if progress_cb and (index % 50 == 0 or index == total_files - 1):
                 extract_percent = 65 + int((index / total_files) * 15)
                 if extract_percent != last_percent:
@@ -68,7 +83,13 @@ def _extract_zip(file_path: str, extract_to: str, progress_cb: Optional[Callable
 
 def _extract_tar_gz(file_path: str, extract_to: str, progress_cb: Optional[Callable[[int, str], None]]):
     with tarfile.open(file_path, 'r:gz') as tar_ref:
-        tar_ref.extractall(extract_to)
+        members = tar_ref.getmembers()
+
+        for member in members:
+            if not _is_safe_extract_path(extract_to, member.name):
+                raise RuntimeError(f"Arsip mengandung path tidak aman (path traversal): {member.name}")
+
+        tar_ref.extractall(extract_to, members=members)
         if progress_cb: progress_cb(80, "Selesai mengekstrak TAR.GZ...")
 
 def extract_archive(file_path: str, extract_to: str, progress_cb: Optional[Callable[[int, str], None]] = None) -> bool:

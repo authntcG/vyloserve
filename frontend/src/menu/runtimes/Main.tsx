@@ -48,6 +48,8 @@ export default function RuntimesMain() {
 
     useEffect(() => {
         const handleProgress = (event: any) => {
+            // Abaikan progress milik modul lain — lihat docs/known_bugs.md #7.
+            if (event.detail?.source && event.detail.source !== 'RuntimesManager') return;
             const { percent, text } = event.detail;
             setProgress(percent < 0 ? 0 : percent);
             setProgressText(text);
@@ -76,7 +78,7 @@ export default function RuntimesMain() {
                     go: { ...prev.go, ...goStatus }
                 }));
             }
-        } catch (error) {
+        } catch (error){ console.error(error);
             console.error(t('runtimes.load_status_error'), error);
         } finally {
             setIsLoading(false);
@@ -107,7 +109,7 @@ export default function RuntimesMain() {
             } else {
                 showToast(res?.message || t('runtimes.path_change_error'), "error");
             }
-        } catch (error) {
+        } catch (error){ console.error(error);
             showToast(t('runtimes.path_change_sys_error'), "error");
         } finally {
             setIsProcessing(false);
@@ -135,7 +137,7 @@ export default function RuntimesMain() {
             } else {
                 showToast(res?.message || t('runtimes.uninstall_error', { engine: engineToUninstall }), "error");
             }
-        } catch (error) {
+        } catch (error){ console.error(error);
             showToast(t('runtimes.uninstall_sys_error'), "error");
         } finally {
             setIsProcessing(false);

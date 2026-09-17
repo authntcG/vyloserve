@@ -91,8 +91,8 @@ const NewDbInstance = forwardRef<NewDbInstanceRef, Props>(({ activeTab, usedPort
                     if (res.data.length > 0) setSelectedVersion(res.data[0].version);
                 } else setAvailableVersions([]);
             }
-        } catch (error) {
-            console.error("Gagal menarik versi DB online");
+        } catch (error){ console.error(error);
+            console.error("Gagal menarik versi DB online", error);
         } finally {
             setIsFetchingVersions(false);
         }
@@ -177,7 +177,8 @@ const NewDbInstance = forwardRef<NewDbInstanceRef, Props>(({ activeTab, usedPort
                             <span className="text-sm text-slate-500">{t('database.retrieving_versions')}</span>
                         </div>
                     ) : (
-                        <div
+                        <button
+                            type="button"
                             onClick={() => {
                                 if (availableVersions.length > 0 && !isInstalling) setIsDropdownOpen(!isDropdownOpen);
                             }}
@@ -189,7 +190,7 @@ const NewDbInstance = forwardRef<NewDbInstanceRef, Props>(({ activeTab, usedPort
                             <span className={`material-symbols-outlined text-[20px] text-slate-500 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180 text-primary' : ''}`}>
                                 expand_more
                             </span>
-                        </div>
+                        </button>
                     )}
 
                     {isDropdownOpen && !isInstalling && (

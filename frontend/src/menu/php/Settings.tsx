@@ -84,8 +84,9 @@ export default function PhpSettings({ config, setConfig, extensions, setExtensio
                         )}
                     </div>
                     <div className="flex flex-col gap-2">
-                        <label className="text-xs font-medium text-slate-700 dark:text-slate-300">memory_limit</label>
+                        <label htmlFor="php_memory_limit" className="text-xs font-medium text-slate-700 dark:text-slate-300">memory_limit</label>
                         <input
+                            id="php_memory_limit"
                             type="text"
                             value={config.memory_limit}
                             onChange={(e) => handleConfigChange(e, 'memory_limit')}
@@ -93,8 +94,9 @@ export default function PhpSettings({ config, setConfig, extensions, setExtensio
                         />
                     </div>
                     <div className="flex flex-col gap-2">
-                        <label className="text-xs font-medium text-slate-700 dark:text-slate-300">max_execution_time (sec)</label>
+                        <label htmlFor="php_max_execution_time" className="text-xs font-medium text-slate-700 dark:text-slate-300">max_execution_time (sec)</label>
                         <input
+                            id="php_max_execution_time"
                             type="text"
                             value={config.max_execution_time}
                             onChange={(e) => handleConfigChange(e, 'max_execution_time')}
@@ -102,8 +104,9 @@ export default function PhpSettings({ config, setConfig, extensions, setExtensio
                         />
                     </div>
                     <div className="flex flex-col gap-2">
-                        <label className="text-xs font-medium text-slate-700 dark:text-slate-300">upload_max_filesize</label>
+                        <label htmlFor="php_upload_max_filesize" className="text-xs font-medium text-slate-700 dark:text-slate-300">upload_max_filesize</label>
                         <input
+                            id="php_upload_max_filesize"
                             type="text"
                             value={config.upload_max_filesize}
                             onChange={(e) => handleConfigChange(e, 'upload_max_filesize')}
@@ -143,7 +146,8 @@ export default function PhpSettings({ config, setConfig, extensions, setExtensio
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-h-[200px] overflow-y-auto pr-2 custom-scrollbar">
                     {filteredExtensions.length > 0 ? (
                         filteredExtensions.map(ext => (
-                            <div
+                            <button
+                                type="button"
                                 key={ext.name}
                                 onClick={() => toggleExtension(ext.name)}
                                 className={`flex items-center justify-between p-2 rounded border cursor-pointer select-none transition-all ${ext.active
@@ -155,11 +159,11 @@ export default function PhpSettings({ config, setConfig, extensions, setExtensio
                                     {ext.name}
                                 </span>
 
-                                <label className="relative inline-flex items-center cursor-pointer pointer-events-none">
+                                <label aria-label={ext.name} className="relative inline-flex items-center cursor-pointer pointer-events-none">
                                     <input type="checkbox" className="sr-only peer" checked={ext.active} readOnly />
                                     <div className="w-7 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all dark:border-slate-600 peer-checked:bg-primary"></div>
                                 </label>
-                            </div>
+                            </button>
                         ))
                     ) : (
                         <div className="col-span-2 md:col-span-3 text-center py-6 text-sm text-slate-500">

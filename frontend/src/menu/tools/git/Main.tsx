@@ -25,7 +25,7 @@ const InstallGitForm = forwardRef<InstallGitRef, any>((_, ref) => {
                 } else {
                     setVersionsList([]);
                 }
-            } catch (error) {
+            } catch (error){ console.error(error);
                 setVersionsList([]);
                 showToast(t('tools.git.fetch_error'), "error");
             } finally {
@@ -195,6 +195,8 @@ export default function GitMain() {
 
     useEffect(() => {
         const handleProgress = (event: any) => {
+            // Abaikan progress milik modul lain — lihat docs/known_bugs.md #7.
+            if (event.detail?.source && event.detail.source !== 'GitManager') return;
             const { percent, text } = event.detail;
             setProgress(Math.max(0, percent));
             setProgressText(text);
@@ -217,7 +219,7 @@ export default function GitMain() {
                     setConfigData({ userName: conf.data.name || '', userEmail: conf.data.email || '' });
                 }
             }
-        } catch (error) {
+        } catch (error){ console.error(error);
             console.error(t('tools.git.load_error'), error);
         } finally {
             setIsLoading(false);

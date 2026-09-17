@@ -606,6 +606,9 @@
         }
     },
     "backend": {
+        "error": {
+            "project_module_not_loaded": "Project module is not loaded. Please restart the application."
+        },
         "apache": {
             "status_check_failed": "Failed to check Apache status: {{e}}",
             "dir_read_failed": "Failed to read directory: {{e}}",
