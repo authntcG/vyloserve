@@ -24,7 +24,7 @@ export default function ApacheSettings() {
                         // Memicu trigger untuk main.tsx agar judul ikut terganti
                         window.dispatchEvent(new Event('apache_version_changed'));
                     } else {
-                        showToast(response.message, 'error');
+                        showToast(t(response.message, response.args || {}), 'error');
                     }
                 }
             } catch (error){ console.error(error);
@@ -46,10 +46,10 @@ export default function ApacheSettings() {
             if (api && typeof api.set_apache_active_version === 'function') {
                 const response = await api.set_apache_active_version(newVersion);
                 if (response.status === 'success') {
-                    showToast(response.message, 'success');
+                    showToast(t(response.message, response.args || {}), 'success');
                     window.dispatchEvent(new Event('apache_version_changed'));
                 } else {
-                        showToast(response.message, 'error');
+                        showToast(t(response.message, response.args || {}), 'error');
                 }
             }
         } catch (error){ console.error(error);
@@ -63,7 +63,7 @@ export default function ApacheSettings() {
             if (api && typeof api.open_apache_file === 'function') {
                 const response = await api.open_apache_file(fileType);
                 if (response.status === 'error') {
-                    showToast(response.message, 'error');
+                    showToast(t(response.message, response.args || {}), 'error');
                 }
             }
         } catch (error){ console.error(error);
@@ -92,7 +92,7 @@ export default function ApacheSettings() {
                     >
                         {installedVersions.length > 0 ? (
                             installedVersions.map(ver => (
-                                <option key={ver} value={ver}>Apache {ver}</option>
+                                <option key={ver} value={ver}>{t('common.apache_version', { version: ver })}</option>
                             ))
                         ) : (
                             <option>{t('apache.no_apache_installation_found')}</option>

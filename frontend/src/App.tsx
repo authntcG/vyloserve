@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import HeaderMobile from './components/HeaderMobile';
 import Sidebar from './components/Sidebar';
 import ApacheMain from './menu/apache/Main';
@@ -21,6 +22,7 @@ declare global {
 }
 
 function AppContent() {
+  const { t } = useTranslation();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isDesktopCollapsed, setIsDesktopCollapsed] = useState(false);
   const [activeMenu, setActiveMenu] = useState('dashboard');
@@ -71,7 +73,7 @@ function AppContent() {
       <div className="h-screen w-screen bg-slate-50 dark:bg-slate-900 flex flex-col items-center justify-center gap-4">
         <span className="material-symbols-outlined animate-spin text-4xl text-primary">sync</span>
         <p className="text-sm font-medium text-slate-500 dark:text-slate-400 animate-pulse">
-          Connecting to VyloServe Engine...
+          {t('common.connecting_engine')}
         </p>
       </div>
     );

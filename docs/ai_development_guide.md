@@ -287,7 +287,9 @@ class YourManager:
             # ... logika
             return {"status": "success", "message": "backend.your_service.done"}
         except RuntimeError as e:
-            return {"status": "error", "message": str(e)}
+            # JANGAN "message": str(e) — itu string mentah, tidak diterjemahkan.
+            # Selalu key + args, gunakan key generik jika belum ada key spesifik.
+            return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
 
 # Langkah 2: Daftarkan di core/api.py
 def your_new_endpoint(self, param: str) -> dict:
@@ -349,7 +351,8 @@ def install_something(self, version: str) -> dict:
         self.api.emit_progress(100, "backend.common.done")
         return {"status": "success", "message": "backend.x.installed"}
     except RuntimeError as e:
-        return {"status": "error", "message": str(e)}
+        # Sama seperti §5.1: key + args, bukan str(e) mentah.
+        return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
 ```
 
 ```typescript
@@ -386,7 +389,7 @@ ERROR: "Rendered more hooks than during the previous render"
 PENYEBAB:
 - Hook dipanggil di dalam conditional atau setelah early return
 
-SOLUSI (Aturan #4 GEMINI.md):
+SOLUSI (Aturan #4 AGENTS.md):
 - SELALU deklarasikan SEMUA hooks di bagian paling atas fungsi komponen
 - Baru kemudian lakukan conditional check
 
@@ -402,14 +405,28 @@ if (!isReady) return <Loading />;
 ### 6.3 Translation Key Tidak Ditemukan (Tampil sebagai Key)
 
 ```
-GEJALA: UI menampilkan "backend.apache.started" bukan teks terjemahan
+GEJALA: UI/Log Panel menampilkan "backend.apache.started" bukan teks terjemahan,
+        atau menampilkan teks Bahasa Indonesia mentah walau bahasa aplikasi = English.
 
 LANGKAH:
-1. Cek apakah key sudah ada di en/translation.json dan id/translation.json
-2. Verifikasi namespace: pastikan key tidak salah prefix
+1. Jalankan `python -m pytest tests/test_i18n_keys.py -v` — test ini otomatis
+   memindai semua literal "backend.xxx.yyy" di core/ dan menandai key yang
+   tidak terdaftar di salah satu/kedua file locale (typo, atau lupa ditambahkan).
+2. Jika testnya LULUS tapi bug tetap muncul: kemungkinan besar kode masih
+   mengirim STRING MENTAH (bukan key sama sekali), bukan key yang salah nama —
+   test di atas hanya menangkap key yang SUDAH berupa string "backend.*", bukan
+   f-string/literal biasa. Grep manual: cari `self._log(f"`, `self._emit_log(f"`,
+   `self._progress(`, `self.api.emit_log(f"` di service terkait — semua argumen
+   msg/text WAJIB "backend.xxx.yyy", tidak boleh f-string atau .format().
+3. Cek apakah key sudah ada di en/translation.json dan id/translation.json
+4. Verifikasi namespace: pastikan key tidak salah prefix
    - "backend.xxx" = key yang dikembalikan backend → diterjemahkan di frontend
    - "ui.xxx" = key UI yang digunakan langsung di komponen TSX
-3. Pastikan i18n sudah diinisialisasi di main.tsx sebelum render
+5. Pastikan i18n sudah diinisialisasi di main.tsx sebelum render
+6. Jika wrapper `_log()`/`_progress()` service tersebut baru dibuat, pastikan
+   signature-nya menerima & meneruskan `args` (lihat `docs/backend_services.md` §2.2)
+   — wrapper yang membuang `args` sering jadi alasan developer menyerah dan
+   menulis f-string mentah alih-alih key + args.
 ```
 
 ### 6.4 `pywebview.api` Undefined
@@ -475,10 +492,17 @@ Sebelum menyerahkan perubahan, pastikan seluruh checklist ini terpenuhi:
 - [ ] Semua input dari frontend divalidasi tipe dan nilainya di `api.py`
 - [ ] Return value selalu `{"status": "success/error", "message": "translation.key"}`
 - [ ] Tidak ada hardcoded path (gunakan `get_project_root()`)
-- [ ] Tidak ada hardcoded pesan string (gunakan translation key)
+- [ ] Tidak ada hardcoded pesan string — **berlaku juga untuk log/progress internal**
+      (`self._log(...)`, `self._progress(...)`, `self.api.emit_log(...)`,
+      `self.api.emit_progress(...)`), bukan cuma field `"message"` return value
+- [ ] `except Exception as e: return {"message": str(e)}` **DILARANG** — pakai
+      `"message": "backend.error.unexpected", "args": {"e": str(e)}` atau key spesifik
+- [ ] Jika membuat/mengubah wrapper `_log()`/`_progress()` di service, signature-nya
+      menerima & meneruskan `args: dict = None` ke `self.api.emit_log/emit_progress`
 - [ ] Subprocess menggunakan list argument, bukan string
 - [ ] Unit test tersedia dan cover: happy path, edge case, error path
 - [ ] `python -m pytest tests/ --cov=. --cov-report=xml` lulus tanpa error
+- [ ] `python -m pytest tests/test_i18n_keys.py` lulus (key `backend.*` baru terdaftar di KEDUA locale)
 
 ### Frontend
 - [ ] Semua hooks dideklarasikan di bagian paling atas komponen

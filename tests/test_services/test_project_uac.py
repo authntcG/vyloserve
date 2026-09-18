@@ -108,8 +108,7 @@ def test_sync_hosts_for_project_marks_unsynced_on_uac_failure(project_manager):
         with patch.object(project_manager, '_save_projects') as mock_save:
             warning = project_manager._sync_hosts_for_project(projects, "p1")
 
-    assert warning is not None
-    assert "Administrator" in warning
+    assert warning == "backend.project.hosts_uac_warning"
     assert projects[0]['host_synced'] is False
     mock_save.assert_called_once_with(projects)
 

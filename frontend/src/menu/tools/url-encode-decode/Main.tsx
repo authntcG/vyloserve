@@ -68,19 +68,19 @@ export default function UrlMain() {
                 
                 {/* Editor Section (Col 7) */}
                 <div className="col-span-1 xl:col-span-7 flex flex-col gap-6 w-full min-w-0">
-                    <Card title={`Input Text (${mode === 'encode' ? 'Raw' : 'Encoded'})`} status={t('tools.url.status_active')} gridCols="grid-cols-1">
+                    <Card title={t('tools.url.input_card_title', { mode: mode === 'encode' ? t('tools.url.mode_raw') : t('tools.url.mode_encoded') })} status={t('tools.url.status_active')} gridCols="grid-cols-1">
                         <div className="w-full min-w-0 flex flex-col">
                             <textarea
                                 value={input}
                                 onChange={(e) => setInput(e.target.value)}
-                                placeholder={mode === 'encode' ? "https://example.com/api?search=hello world" : "https%3A%2F%2Fexample.com%2Fapi%3Fsearch%3Dhello%20world"}
+                                placeholder={mode === 'encode' ? t('tools.url.placeholder_encode') : t('tools.url.placeholder_decode')}
                                 className="w-full h-36 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg p-3 text-sm outline-none focus:border-primary text-slate-900 dark:text-white resize-none break-all"
                                 spellCheck="false"
                             ></textarea>
                         </div>
                     </Card>
 
-                    <Card title={`Output Text (${mode === 'encode' ? 'Encoded' : 'Decoded'})`} status={t('tools.url.status_result')} gridCols="grid-cols-1">
+                    <Card title={t('tools.url.output_card_title', { mode: mode === 'encode' ? t('tools.url.mode_encoded') : t('tools.url.mode_decoded') })} status={t('tools.url.status_result')} gridCols="grid-cols-1">
                         <div className="relative w-full min-w-0 flex flex-col">
                             <textarea
                                 value={output}
@@ -118,7 +118,7 @@ export default function UrlMain() {
                                     <div className="flex flex-wrap items-center gap-2 mt-2 w-full">
                                         <span className="material-symbols-outlined text-slate-300 dark:text-slate-600 text-[18px] shrink-0">home</span>
                                         {parsedUrl.pathname === '/' ? (
-                                            <span className="text-sm text-slate-500 italic">/ (Root)</span>
+                                            <span className="text-sm text-slate-500 italic">{t('tools.url.root')}</span>
                                         ) : (
                                             parsedUrl.pathname.split('/').filter(Boolean).map((segment, index) => (
                                                 <div key={`${segment}-${index}`} className="flex items-center gap-2 max-w-full">

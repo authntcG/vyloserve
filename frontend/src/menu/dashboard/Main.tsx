@@ -31,7 +31,7 @@ const PhpChips = ({ phpInstances, selectedPhp, togglePhpSelection, t }: any) => 
                         onClick={() => togglePhpSelection(php.version)}
                         className={`text-[11px] font-medium px-2 py-1 rounded transition-colors border ${isSelected ? 'bg-blue-50 dark:bg-blue-900/30 border-primary/50 text-primary dark:text-blue-400 shadow-sm' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500 hover:border-slate-400'}`}
                     >
-                        PHP {php.version}
+                        {t('common.php_version', { version: php.version })}
                     </button>
                 )
             })}
@@ -291,7 +291,7 @@ function ApacheServiceCard({ included, onToggleIncluded, isRunning, selectedApac
                     className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs rounded-md p-1.5 outline-none focus:border-primary transition-colors cursor-pointer"
                 >
                     {apacheVersions.length > 0 ? apacheVersions.map(v => (
-                        <option key={v} value={v}>Apache {v}</option>
+                        <option key={v} value={v}>{t('common.apache_version', { version: v })}</option>
                     )) : <option>{t('dashboard.no_version_installed')}</option>}
                 </select>
             </div>
@@ -598,7 +598,7 @@ export default function DashboardMain() {
                 await startSelectedPhpInstances(api, includedServices.php, selectedPhp, phpInstances);
                 await startSelectedDbInstances(api, includedServices.database, selectedDb, dbInstances);
                 if (includedServices.apache) await api.start_apache_server();
-                showToast("Proses Start servis berhasil dieksekusi!", "success");
+                showToast(t('dashboard.start_success'), "success");
             } else {
                 if (includedServices.apache) await api.stop_apache_server();
                 await stopSelectedPhpInstances(api, includedServices.php, selectedPhp, phpInstances);

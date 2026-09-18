@@ -152,7 +152,7 @@ const ExternalCard = ({ gitData, t }: any) => {
     if (!gitData.external?.exists || gitData.installed) return null;
     return (
         <div className="mt-6">
-            <Card title="Git (Native OS)" status={t('tools.git.native_os')} gridCols="grid-cols-1">
+            <Card title={t('tools.git.native_os_card_title')} status={t('tools.git.native_os')} gridCols="grid-cols-1">
                 <div className="flex flex-col gap-1 w-full min-w-0">
                     <span className="text-xs font-medium text-slate-500 uppercase">{t('tools.git.installed_version')}</span>
                     <span className="font-mono text-sm font-semibold text-slate-900 dark:text-slate-200 truncate">{gitData.external.version}</span>

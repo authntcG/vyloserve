@@ -47,7 +47,7 @@ function ApacheStatusSection({ isFetching, isInstalled, installedVersion, isRunn
     return (
         <div className="mb-8">
             <Card
-                title={`Apache ${installedVersion || 'Unknown'} (Win64)`}
+                title={`Apache ${installedVersion || t('common.unknown')} (Win64)`}
                 status={isRunning ? 'running' : 'stopped'}
                 gridCols="grid-cols-2 md:grid-cols-3"
                 dropdownActions={
@@ -98,7 +98,7 @@ interface ApacheProjectCardProps {
 
 function ApacheProjectCard({ project, onOpenDocumentRoot, onOpenSettings, onSyncHost, onDeleteClick, onOpenBrowser, t }: ApacheProjectCardProps) {
     return (
-        <Card title={project.name || 'Untitled Project'} gridCols="grid-cols-1"
+        <Card title={project.name || t('apache.untitled_project')} gridCols="grid-cols-1"
             dropdownActions={
                 <>
                     <button type="button" onClick={() => onOpenDocumentRoot(project.path)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">{t('apache.open_document_root')}</button>
@@ -125,11 +125,11 @@ function ApacheProjectCard({ project, onOpenDocumentRoot, onOpenSettings, onSync
                 <div className="grid grid-cols-2 gap-y-4 gap-x-3 w-full">
                     <div className="flex flex-col gap-1">
                         <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('apache.framework')}</span>
-                        <span className="text-sm font-medium text-slate-900 dark:text-slate-200 capitalize">{project.framework || 'Unknown'}</span>
+                        <span className="text-sm font-medium text-slate-900 dark:text-slate-200 capitalize">{project.framework || t('common.unknown')}</span>
                     </div>
                     <div className="flex flex-col gap-1">
                         <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('apache.php_engine')}</span>
-                        <span className="text-sm font-medium text-primary dark:text-blue-400 font-mono">{project.php_version || 'Unknown'} <span className="text-slate-400 text-xs">(Port {project.php_port || 'N/A'})</span></span>
+                        <span className="text-sm font-medium text-primary dark:text-blue-400 font-mono">{project.php_version || t('common.unknown')} <span className="text-slate-400 text-xs">(Port {project.php_port || t('common.not_available')})</span></span>
                     </div>
                     <div className="flex flex-col gap-1 col-span-2">
                         <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('apache.local_domain')}</span>
@@ -203,7 +203,7 @@ export default function ApacheMain() {
     const [isFetchingApacheStatus, setIsFetchingApacheStatus] = useState(true);
     const [isApacheInstalled, setIsApacheInstalled] = useState(false);
     const [installedApacheVersion, setInstalledApacheVersion] = useState<string | null>(null);
-    const [apachePath, setApachePath] = useState<string>('Not Installed');
+    const [apachePath, setApachePath] = useState<string>(t('apache.not_installed'));
     const [isApacheRunning, setIsApacheRunning] = useState(false);
     const [isUninstalling, setIsUninstalling] = useState(false);
     const [isTogglingServer, setIsTogglingServer] = useState(false);
@@ -346,7 +346,7 @@ export default function ApacheMain() {
             const res = await window.pywebview?.api?.get_apache_status();
             if (res?.status === 'success') {
                 setIsApacheInstalled(res.installed);
-                setApachePath(res.path || 'Not Installed');
+                setApachePath(res.path || t('apache.not_installed'));
                 setIsApacheRunning(res.running || false);
             }
             const ver = await window.pywebview?.api?.get_apache_installed_versions();

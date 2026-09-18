@@ -76,7 +76,7 @@ class Api:
             self._window.evaluate_js(script)
 
     def test_connection(self, data: str) -> Dict[str, str]:
-        self.emit_log(f"Menerima ping dari UI: {data}", "info")
+        self.emit_log("backend.api.ping_received", "info", {"data": data})
         return {"status": "success", "message": "backend.api.connection_success"}
 
     # ==========================================
@@ -218,7 +218,7 @@ class Api:
         return self.project.detect_framework(directory)
 
     def create_project(self, payload: dict):
-        self.emit_log(f"Memulai setup project untuk {payload.get('domain')}...", "info")
+        self.emit_log("backend.project.starting_setup", "info", {"domain": payload.get('domain')})
         return self.project.create_project(payload)
     
     def get_projects(self):

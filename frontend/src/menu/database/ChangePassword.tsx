@@ -46,10 +46,10 @@ const ChangePassword = forwardRef<ChangePasswordRef, Props>(({ instance }, ref) 
                 if (api && typeof api.change_db_credentials === 'function') {
                     const response = await api.change_db_credentials(instance.id, credUser, credOld, credNew);
                     if (response.status === 'success') {
-                        showToast(response.message, 'success');
+                        showToast(t(response.message, response.args || {}), 'success');
                         return true;
                     } else {
-                        showToast(response.message, 'error');
+                        showToast(t(response.message, response.args || {}), 'error');
                         return false;
                     }
                 }

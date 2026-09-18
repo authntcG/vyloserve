@@ -22,6 +22,7 @@
 12. [Modul: Runtimes & Tools](#12-modul-runtimes--tools)
 13. [Sistem i18n (Terjemahan)](#13-sistem-i18n-terjemahan)
 14. [Known Issues — Ketidaksesuaian dengan Dokumentasi Lama](#14-known-issues--ketidaksesuaian-dengan-dokumentasi-lama)
+15. [Styling: Tailwind CSS v4, Cascade Layers & Ikon Material Symbols](#15-styling-tailwind-css-v4-cascade-layers--ikon-material-symbols)
 
 ---
 
@@ -131,6 +132,12 @@ sequenceDiagram
 - **Toggle switch di tiap Service card** memanggil endpoint generik `api.start_service(id)`/`api.stop_service(id)` (bukan `start_apache_server()` spesifik) → sukses → `dispatchEvent('service_status_changed', {detail: {service, running}})` agar Dashboard & halaman modul lain ikut sinkron tanpa saling mengimpor state.
 - Polling mandiri tiap 2 detik: `api.get_all_services_status()` → isi badge status tiap service + CPU% di footer sidebar.
 - Search bar filter live berdasarkan nama menu ter-translate.
+- **Mode collapsed (`isDesktopCollapsed`, ikon-rail 80px)** — konvensi yang harus diikuti kalau menambah item nav baru:
+  - Elemen yang cuma perlu "disembunyikan visual saat collapsed" (label teks, dsb) boleh pakai class Tailwind (`max-w-0 opacity-0`/`hidden`) karena animasinya butuh transisi width/opacity.
+  - Elemen indikator interaktif (mis. panah dropdown "Tools") **WAJIB** di-conditional-render (`{!isDesktopCollapsed && (...)}`), **BUKAN** cuma diberi class `hidden` — pernah ada bug nyata di mana class `hidden` tampak benar di kode tapi elemennya masih terlihat karena tertimpa bug CSS lain (lihat `docs/known_bugs.md` #20) sehingga sulit dibedakan mana yang benar-benar bug dan mana efek samping; conditional-render menghapus elemen dari DOM sepenuhnya, jadi tidak ambigu.
+  - Item nav yang punya flyout submenu (pola "Tools") menandai keberadaan submenu lewat **ikon `chevron_right` di sebelah ikon utama, ukuran SAMA** (kedua ikon `style={{ fontSize: '18px' }}`, `ml-0.5` di antaranya, `gap-0` pada container supaya total lebar `18+2+18=38px` muat dalam ~40px ruang konten rail) — **bukan** badge kecil menumpuk di sudut ikon (pola lama, terlihat seperti "ikon kecil nyasar di bawah", sudah diganti karena sulit dibaca sebagai penanda submenu).
+  - Header collapsed **hanya menampilkan tombol toggle** (`menu_open`, di-mirror `scale-x-[-1]` supaya panahnya mengarah ke kanan/"expand"), logo aplikasi **disembunyikan total** saat collapsed (bukan diganti versi icon-only). Keputusan desain (lihat diskusi UI/UX terkait): logo tidak clickable/tidak fungsional saat collapsed, sementara tombol toggle adalah satu-satunya kontrol untuk kembali ke expanded — di ruang rail 80px yang sempit, prioritaskan elemen fungsional (Fitts's Law) daripada elemen dekoratif; efek sampingnya, dengan cuma 1 elemen tersisa, ikon toggle otomatis center tanpa perlu extra layout trick.
+  - Item nav yang **tidak punya kontrol start/stop yang valid** di backend (mis. `runtimes` — tidak ada endpoint `start_service`/`stop_service('runtimes')` di `core/api.py`, jadi toggle switch di baris itu dulu selalu gagal diam-diam) **WAJIB** ditandai `hasToggle: false` di array `SERVICES`, bukan tetap menampilkan toggle yang tidak pernah berfungsi. Toggle switch di render dibungkus `{service.hasToggle && (...)}`.
 
 ### 2.5 `HeaderMobile.tsx`
 Header untuk layar mobile (`md:hidden`) — tombol hamburger memicu `onMenuClick` dari `App.tsx` untuk membuka overlay sidebar.
@@ -472,3 +479,32 @@ Struktur sama seperti Runtimes (deteksi eksternal/native, PATH toggle terkunci j
 | 10 | File-file berikut tidak disebut sama sekali di dokumentasi lama | `NewProject.tsx`, `ProjectSettings.tsx`, `InstallWizard.tsx`, `NewInstance.tsx` (PHP/Database), `ChangePassword.tsx`, `InstallNode/Python/Java/Go.tsx`, `RuntimeVersionSelect.tsx`, `SettingsModals.tsx`, `qr-generator/Main.tsx` | 🟡 Cakupan dokumentasi lama terlalu sempit |
 
 > Lihat juga `docs/project_structure.md` yang sudah dikoreksi agar konsisten dengan struktur folder nyata di atas.
+
+---
+
+## 15. Styling: Tailwind CSS v4, Cascade Layers & Ikon Material Symbols
+
+### 15.1 🚨 WAJIB: Import CSS Pihak Ketiga Global Harus Pakai `layer()`
+
+Proyek ini pakai Tailwind v4 (`@import "tailwindcss";` di `src/index.css`), yang membungkus seluruh utility class-nya (termasuk `text-[Npx]`, `bg-[...]`, dsb) di dalam **CSS Cascade Layer** (`@layer theme, base, components, utilities;`). Menurut spesifikasi CSS Cascade Layers, **rule yang TIDAK berada di dalam layer manapun selalu menang atas rule yang berada di dalam layer manapun** — berapa pun urutan importnya secara fisik di kode, dan meskipun spesifisitas selector-nya sama. Ini bertentangan dengan asumsi umum "yang diimport belakangan yang menang".
+
+**Bug nyata yang pernah terjadi** (lihat `docs/known_bugs.md` #20): `material-symbols/outlined.css` diimport polos lewat `import 'material-symbols/outlined.css'` di `main.tsx` (bukan lewat CSS `@import`, jadi tidak pernah ikut sistem layer Tailwind). Rule bawaannya, `.material-symbols-outlined { font-size: 24px; }`, selalu menang atas **SELURUH** utility `text-[Npx]` yang dipasang di elemen ikon manapun di seluruh aplikasi — ikon selalu tampil 24px, tidak peduli class ukurannya apa. Bug ini nyaris tidak terlihat lewat review kode biasa karena class-nya ADA dan BENAR di JSX; masalahnya murni di urutan resolusi CSS, cuma kelihatan lewat `getComputedStyle()` di browser.
+
+**Aturan wajib untuk import CSS baru dari `node_modules` (font, icon set, library CSS pihak ketiga apa pun) yang dipakai global:**
+1. **JANGAN** `import 'package/file.css'` langsung di `main.tsx` (atau file `.tsx` mana pun) kalau CSS tersebut mendefinisikan class yang juga di-override oleh utility Tailwind (mis. `font-size`, `color`, `padding` lewat class serupa).
+2. **WAJIB** import lewat CSS `@import` di `src/index.css`, diberi layer eksplisit dengan prioritas **lebih rendah** dari `utilities`:
+   ```css
+   @import "tailwindcss";
+   @import "package/file.css" layer(base); /* atau layer(components) */
+   ```
+   Ini membuat CSS pihak ketiga ikut sistem cascade layer Tailwind (layer `base`/`components` selalu kalah dari layer `utilities`), sehingga utility Tailwind (termasuk `text-[Npx]`) bisa benar-benar menindihnya sesuai ekspektasi developer.
+3. Kalau butuh override inline satu elemen saja (bukan aturan global), **inline style `style={{ fontSize: 'Npx' }}` tetap aman dipakai** — inline style selalu menang atas layer manapun tanpa perlu utak-atik cascade, jadi valid sebagai override lokal per-elemen (lihat contoh pasangan ikon "Tools" di sidebar collapsed, §2.4, yang sengaja dikecilkan sama-sama ke 18px lewat inline style supaya muat berdampingan di rail 80px).
+
+### 15.2 Cara Verifikasi Cepat (Sebelum Menyalahkan "Class Tidak Jalan")
+
+Kalau sebuah utility Tailwind (apa pun, bukan cuma ikon) sepertinya "tidak berpengaruh" padahal class-nya sudah benar di JSX, JANGAN langsung asumsikan class-nya salah atau typo. Cek dulu apakah ini masalah cascade layer:
+```js
+// Jalankan di DevTools console / lewat automation (mis. Playwright evaluate)
+getComputedStyle(document.querySelector('SELECTOR_ELEMEN')).PROPERTY_YANG_DICURIGAI
+```
+Kalau hasilnya berbeda dari yang diharapkan class Tailwind tersebut, curigai ada CSS lain (biasanya library pihak ketiga yang diimport global) yang mendefinisikan selector sama tapi tidak ikut sistem layer — cek urutan `<style>`/`<link>` di `<head>` browser DAN apakah masing-masing dibungkus `@layer` atau tidak, jangan cuma cek urutan import di kode sumber (urutan source TIDAK menentukan pemenang kalau salah satu unlayered).

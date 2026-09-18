@@ -37,8 +37,8 @@ class SettingsManager:
             
         except Exception as e:
             if hasattr(self, 'api'):
-                self.api.emit_log(f"Gagal membaca pengaturan aplikasi: {str(e)}", "error")
-            return {"status": "error", "message": str(e)}
+                self.api.emit_log("backend.error.unexpected", "error", {"e": str(e)})
+            return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
 
     def save_settings(self, data: dict) -> Dict[str, str]:
         """
@@ -58,5 +58,5 @@ class SettingsManager:
                 
         except Exception as e:
             if hasattr(self, 'api'):
-                self.api.emit_log(f"Gagal menyimpan pengaturan aplikasi: {str(e)}", "error")
-            return {"status": "error", "message": str(e)}
+                self.api.emit_log("backend.error.unexpected", "error", {"e": str(e)})
+            return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}

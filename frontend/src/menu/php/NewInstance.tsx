@@ -74,7 +74,7 @@ export default function NewPhpInstance({
                             setFilename('');
                         }
                     } else {
-                        setFetchError(response.message);
+                        setFetchError(t(response.message, response.args || {}));
                         setAvailableVersions([]);
                     }
                 } catch (error) {
@@ -154,7 +154,7 @@ export default function NewPhpInstance({
                             className={`w-full bg-white dark:bg-slate-950 border ${fetchError ? 'border-red-400 focus:border-red-500 text-red-500' : 'border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100'} text-sm rounded-lg focus:ring-primary block p-2.5 outline-none transition-colors disabled:opacity-70`}
                         >
                             {(() => {
-                                if (fetchError) return <option>Error: {fetchError}</option>;
+                                if (fetchError) return <option>{t('php.version_fetch_error_prefix')}{fetchError}</option>;
                                 if (availableVersions.length > 0) return availableVersions.map((v, index) => (
                                     <option key={v.version} value={v.version}>
                                         PHP {v.version} {index === 0 ? t('php.latest_release') : ''}

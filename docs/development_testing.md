@@ -50,6 +50,11 @@ Setiap test suite untuk sebuah fungsi *setidaknya* harus mencakup:
 ```
 tests/
 ├── conftest.py                           # Fixture global (mock_api, dll)
+├── test_i18n_keys.py                     # Regresi: setiap key "backend.*" di core/ WAJIB
+│                                          #   terdaftar di locales/en DAN locales/id (lihat
+│                                          #   docs/known_bugs.md #19) — jalankan sebelum
+│                                          #   serah terima fitur apa pun yang menambah/
+│                                          #   mengubah pesan backend (message/log/progress)
 ├── test_services/
 │   ├── test_apache.py                    # Unit test untuk core/services/apache.py
 │   ├── test_api.py                       # Unit test untuk core/api.py (Facade/Router)

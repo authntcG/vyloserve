@@ -88,7 +88,7 @@ export default function Modal({
                             onClick={onClose}
                             disabled={isLoading}
                             className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                            title="Close"
+                            title={t('common.close', 'Close')}
                         >
                             <span className="material-symbols-outlined">close</span>
                         </button>

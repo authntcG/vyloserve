@@ -21,10 +21,13 @@ const MAIN_MENU = [
 ];
 
 const SERVICES = [
-    { id: 'apache', name: 'Apache', icon: 'dns' },
-    { id: 'php', name: 'PHP', icon: 'code' },
-    { id: 'database', name: 'Database', icon: 'database' },
-    { id: 'runtimes', name: 'Runtimes', icon: 'terminal' }
+    { id: 'apache', name: 'Apache', icon: 'dns', hasToggle: true },
+    { id: 'php', name: 'PHP', icon: 'code', hasToggle: true },
+    { id: 'database', name: 'Database', icon: 'database', hasToggle: true },
+    // Runtimes bukan service yang bisa di-start/stop secara tunggal (tidak ada
+    // endpoint start_service/stop_service('runtimes') di backend) -- toggle switch
+    // di sini tidak pernah berfungsi, jadi tidak ditampilkan.
+    { id: 'runtimes', name: 'Runtimes', icon: 'terminal', hasToggle: false }
 ];
 
 const TOOLS = [
@@ -156,15 +159,15 @@ export default function Sidebar({
             <nav className={`bg-surface dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col h-[calc(100vh-64px)] md:h-screen fixed left-0 top-[64px] md:top-0 z-50 transition-all duration-300 ease-in-out md:translate-x-0 ${sidebarWidthClass} ${mobileTranslateClass}`}>
 
                 {/* Header Logo */}
-                <div className="flex items-center justify-between px-4 py-4 border-b border-slate-200 dark:border-slate-800 h-[72px]">
-                    <div className={`transition-all duration-300 overflow-hidden flex items-center shrink-0 ${isDesktopCollapsed ? 'max-w-0 opacity-0 ml-0' : 'max-w-[150px] opacity-100 ml-1'}`}>
+                <div className={`flex items-center border-b border-slate-200 dark:border-slate-800 h-[72px] ${isDesktopCollapsed ? 'justify-center px-1 py-2' : 'justify-between px-4 py-4'}`}>
+                    <div className={`transition-all duration-300 overflow-hidden flex items-center shrink-0 ${isDesktopCollapsed ? 'max-w-0 opacity-0 h-0 ml-0 hidden' : 'max-w-[150px] opacity-100 ml-1'}`}>
                         <img src={brandNavLight} alt="VyloServe" className="h-7 w-auto object-contain block dark:hidden" draggable="false" />
                         <img src={brandNavDark} alt="VyloServe" className="h-7 w-auto object-contain hidden dark:block" draggable="false" />
                     </div>
 
-                    <div className="flex items-center gap-2 mx-auto md:mx-0 shrink-0">
+                    <div className={`flex items-center shrink-0 ${isDesktopCollapsed ? '' : 'gap-2 mx-auto md:mx-0'}`}>
                         <button type="button" onClick={onToggleDesktop} className="p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors hidden md:flex items-center justify-center outline-none">
-                            <span className="material-symbols-outlined">{isDesktopCollapsed ? 'menu' : 'menu_open'}</span>
+                            <span className={`material-symbols-outlined transition-transform duration-300 ${isDesktopCollapsed ? 'scale-x-[-1]' : ''}`}>menu_open</span>
                         </button>
                         <button type="button" onClick={onCloseMobile} className="p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors md:hidden flex items-center justify-center outline-none">
                             <span className="material-symbols-outlined">close</span>
@@ -222,19 +225,21 @@ export default function Sidebar({
                                     <span className={`font-medium text-sm truncate transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[150px] opacity-100'}`}>{t(`sidebar.menu_${service.id}`, service.name)}</span>
                                 </button>
 
-                                <label
-                                    className={`relative inline-flex items-center cursor-pointer transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[40px] opacity-100'}`}
-                                    aria-label={t('sidebar.toggle_service', 'Toggle {{service}}', { service: t(`sidebar.menu_${service.id}`, service.name) })}
-                                >
-                                    <input
-                                        type="checkbox"
-                                        checked={serviceStatus[service.id] || false}
-                                        onClick={(e) => handleToggleClick(service.id, e)}
-                                        onChange={() => {}}
-                                        className="sr-only peer"
-                                    />
-                                    <div className="w-8 h-4 bg-slate-300 dark:bg-slate-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
-                                </label>
+                                {service.hasToggle && (
+                                    <label
+                                        className={`relative inline-flex items-center cursor-pointer transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[40px] opacity-100'}`}
+                                        aria-label={t('sidebar.toggle_service', 'Toggle {{service}}', { service: t(`sidebar.menu_${service.id}`, service.name) })}
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            checked={serviceStatus[service.id] || false}
+                                            onClick={(e) => handleToggleClick(service.id, e)}
+                                            onChange={() => {}}
+                                            className="sr-only peer"
+                                        />
+                                        <div className="w-8 h-4 bg-slate-300 dark:bg-slate-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                                    </label>
+                                )}
                             </div>
                         );
                     })}
@@ -248,11 +253,21 @@ export default function Sidebar({
                                 onClick={() => !isDesktopCollapsed && setIsToolsOpen(!isToolsOpen)}
                                 aria-expanded={showToolsDropdown}
                             >
-                                <div className="flex items-center gap-3">
-                                    <span className="material-symbols-outlined shrink-0">construction</span>
+                                <div className={`flex items-center ${isDesktopCollapsed ? 'gap-0' : 'gap-3'}`}>
+                                    <span className="material-symbols-outlined shrink-0" style={isDesktopCollapsed ? { fontSize: '18px' } : undefined}>construction</span>
+                                    {isDesktopCollapsed && (
+                                        <span
+                                            className="material-symbols-outlined shrink-0 ml-0.5 text-slate-400 group-hover:text-primary transition-colors"
+                                            style={{ fontSize: '18px' }}
+                                        >
+                                            chevron_right
+                                        </span>
+                                    )}
                                     <span className={`font-medium text-sm whitespace-nowrap overflow-hidden transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[150px] opacity-100'}`}>{t('sidebar.tools')}</span>
                                 </div>
-                                <span className={`material-symbols-outlined text-[20px] transition-transform duration-300 ${isDesktopCollapsed ? 'hidden' : ''}`} style={{ transform: showToolsDropdown ? 'rotate(180deg)' : 'rotate(0deg)' }}>expand_more</span>
+                                {!isDesktopCollapsed && (
+                                    <span className="material-symbols-outlined text-[20px] transition-transform duration-300" style={{ transform: showToolsDropdown ? 'rotate(180deg)' : 'rotate(0deg)' }}>expand_more</span>
+                                )}
                             </button>
 
                             {/* Dropdown Menu */}
@@ -295,11 +310,15 @@ export default function Sidebar({
 
                 {/* Footer System Load */}
                 <div className="p-4 border-t border-slate-200 dark:border-slate-800 mt-auto flex justify-between items-center relative" ref={settingsRef}>
-                    <div className={`flex items-center gap-2 text-slate-500 dark:text-slate-400 ${isDesktopCollapsed ? 'w-full justify-center' : ''}`}>
+                    <div className={`flex items-center text-slate-500 dark:text-slate-400 ${isDesktopCollapsed ? 'w-full flex-col justify-center gap-0.5' : 'gap-2'}`}>
                         <span className={`material-symbols-outlined text-[20px] ${getSystemLoadColor()}`}>memory</span>
-                        <span className={`text-xs font-medium uppercase tracking-wider transition-all duration-300 overflow-hidden whitespace-nowrap ${isDesktopCollapsed ? 'max-w-0 opacity-0 hidden' : 'max-w-[150px] opacity-100'}`}>
-                            {t('sidebar.system_load')} <span className={systemLoad > 80 ? 'text-red-500 font-bold' : ''}>{systemLoad}%</span>
-                        </span>
+                        {isDesktopCollapsed ? (
+                            <span className={`text-[10px] font-bold leading-none ${getSystemLoadColor()}`}>{systemLoad}%</span>
+                        ) : (
+                            <span className="text-xs font-medium uppercase tracking-wider transition-all duration-300 overflow-hidden whitespace-nowrap max-w-[150px] opacity-100">
+                                {t('sidebar.system_load')} <span className={systemLoad > 80 ? 'text-red-500 font-bold' : ''}>{systemLoad}%</span>
+                            </span>
+                        )}
                     </div>
 
                     {!isDesktopCollapsed && (

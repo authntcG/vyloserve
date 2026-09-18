@@ -32,10 +32,10 @@ Target spesifikasi untuk menjalankan aplikasi VyloServe secara optimal:
 
 ---
 > **Catatan AI:** 
-> Referensi dasar untuk asisten AI telah dikonfigurasi di file `GEMINI.md` pada root direktori. `GEMINI.md` berfungsi sebagai gerbang masuk (*entrypoint*) instruksi yang mengarahkan AI untuk membaca dokumentasi di folder `docs/` ini.
+> Referensi dasar untuk asisten AI telah dikonfigurasi di file `AGENTS.md` pada root direktori. `AGENTS.md` mengikuti standar terbuka [agents.md](https://agents.md) yang didukung lintas-vendor (Claude Code, OpenAI Codex CLI, Cursor, Amp, Jules, dll), sehingga otomatis terbaca lebih dulu oleh model AI apa pun yang membuka proyek ini — berfungsi sebagai gerbang masuk (*entrypoint*) instruksi yang mengarahkan AI untuk membaca seluruh dokumentasi di folder `docs/` ini.
 > 
 > **Urutan Bacaan yang Direkomendasikan untuk AI:**
-> 1. `GEMINI.md` (aturan & arsitektur dasar)
+> 1. `AGENTS.md` (aturan & arsitektur dasar)
 > 2. `docs/ai_development_guide.md` (peta API + pola kerja)
 > 3. `docs/development_testing.md` (standar test + security)
 > 4. Dokumen spesifik sesuai modul yang dikerjakan
