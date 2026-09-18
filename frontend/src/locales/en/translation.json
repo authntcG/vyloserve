@@ -22,7 +22,9 @@
         "menu_qr": "QR Generator",
         "menu_base64": "Base64 Encoder",
         "menu_url-encode-decode": "URL Encode/Decode",
-        "menu_git": "Git Manager"
+        "menu_git": "Git Manager",
+        "close_menu": "Close menu",
+        "toggle_service": "Toggle {{service}}"
     },
     "apache": {
         "fetch_projects_error": "Failed to load projects.",
@@ -593,7 +595,8 @@
             "auto": "Auto",
             "paused": "Paused",
             "clear": "Clear",
-            "empty": "No logs available..."
+            "empty": "No logs available...",
+            "resize_panel": "Drag or use arrow keys to resize panel"
         },
         "progress": {
             "installing": "Installing...",

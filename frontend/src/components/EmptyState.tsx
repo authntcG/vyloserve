@@ -1,9 +1,9 @@
 interface EmptyStateProps {
-    icon: string;
-    title: string;
-    description: string;
-    actionText?: string;
-    onAction?: () => void;
+    readonly icon: string;
+    readonly title: string;
+    readonly description: string;
+    readonly actionText?: string;
+    readonly onAction?: () => void;
 }
 
 export default function EmptyState({ icon, title, description, actionText, onAction }: EmptyStateProps) {

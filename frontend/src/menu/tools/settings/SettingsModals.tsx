@@ -5,8 +5,8 @@ import Modal from '../../../components/Modal';
 export type SettingsModalType = 'language' | 'about' | 'quit' | null;
 
 interface SettingsModalsProps {
-    activeModal: SettingsModalType;
-    onClose: () => void;
+    readonly activeModal: SettingsModalType;
+    readonly onClose: () => void;
 }
 
 export default function SettingsModals({ activeModal, onClose }: SettingsModalsProps) {

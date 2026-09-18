@@ -344,7 +344,7 @@ export default function GitMain() {
                                 <span className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 break-words leading-relaxed">{t('tools.git.register_path_desc')}</span>
                             </div>
                             <label className={`relative inline-flex items-center shrink-0 ml-4 ${gitData.external?.exists ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
-                                <input type="checkbox" checked={gitData.in_path} onChange={handleTogglePath} disabled={gitData.external?.exists || isProcessing} className="sr-only peer" />
+                                <input type="checkbox" checked={gitData.in_path} onChange={handleTogglePath} disabled={gitData.external?.exists || isProcessing} aria-label={t('tools.git.register_path')} className="sr-only peer" />
                                 <div className="w-11 h-6 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary opacity-90 peer-disabled:opacity-40 peer-disabled:grayscale"></div>
                             </label>
                         </div>

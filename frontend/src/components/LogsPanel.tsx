@@ -90,6 +90,9 @@ export default function LogsPanel() {
             if (navigator.clipboard && window.isSecureContext) {
                 navigator.clipboard.writeText(logText);
             } else {
+                // execCommand('copy') sudah deprecated, tapi ini satu-satunya fallback clipboard yang
+                // berfungsi di non-secure context (mis. window pywebview tanpa HTTPS). Tidak ada
+                // pengganti aman; dipertahankan dengan sengaja (lihat docs/known_bugs.md).
                 const textArea = document.createElement("textarea");
                 textArea.value = logText;
                 textArea.style.position = "fixed";
@@ -97,7 +100,7 @@ export default function LogsPanel() {
                 document.body.appendChild(textArea);
                 textArea.focus();
                 textArea.select();
-                document.execCommand('copy');
+                document.execCommand('copy'); // NOSONAR typescript:S1874
                 textArea.remove();
             }
             setIsCopied(true);
@@ -120,9 +123,15 @@ export default function LogsPanel() {
     return (
         <div className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 p-4 flex flex-col gap-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] w-full relative z-10">
             {isExpanded && (
-                <div
+                <button
+                    type="button"
                     onMouseDown={handleMouseDown}
-                    className="absolute top-0 left-0 w-full h-1.5 cursor-ns-resize hover:bg-primary/50 transition-colors z-20"
+                    onKeyDown={(e) => {
+                        if (e.key === 'ArrowUp') setPanelHeight(h => Math.min(Math.max(h + 20, 100), window.innerHeight * 0.8));
+                        if (e.key === 'ArrowDown') setPanelHeight(h => Math.min(Math.max(h - 20, 100), window.innerHeight * 0.8));
+                    }}
+                    aria-label={t('components.logs.resize_panel', 'Drag or use arrow keys to resize panel')}
+                    className="absolute top-0 left-0 w-full h-1.5 cursor-ns-resize hover:bg-primary/50 transition-colors z-20 outline-none"
                     title="Drag to resize panel"
                 />
             )}

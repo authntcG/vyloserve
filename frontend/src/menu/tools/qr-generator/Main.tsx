@@ -81,7 +81,7 @@ export default function QrMain() {
     // --- HANDLER: DOWNLOAD ---
     const handleDownload = () => {
         if (qrCode.current) {
-            qrCode.current.download({ name: `vyloserve_qr_${new Date().getTime()}`, extension: downloadExt });
+            qrCode.current.download({ name: `vyloserve_qr_${Date.now()}`, extension: downloadExt });
             showToast(`${t('tools.qr.download_success')} ${downloadExt.toUpperCase()}!`, "success");
         }
     };

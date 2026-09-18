@@ -22,7 +22,9 @@
         "menu_qr": "Pembuat QR",
         "menu_base64": "Enkripsi Base64",
         "menu_url-encode-decode": "URL Enkode/Dekode",
-        "menu_git": "Manajer Git"
+        "menu_git": "Manajer Git",
+        "close_menu": "Tutup menu",
+        "toggle_service": "Aktifkan/matikan {{service}}"
     },
     "apache": {
         "fetch_projects_error": "Gagal memuat daftar proyek.",
@@ -593,7 +595,8 @@
             "auto": "Otomatis",
             "paused": "Jeda",
             "clear": "Bersihkan",
-            "empty": "Tidak ada log..."
+            "empty": "Tidak ada log...",
+            "resize_panel": "Seret atau gunakan tombol panah untuk mengubah ukuran panel"
         },
         "progress": {
             "installing": "Menginstal...",

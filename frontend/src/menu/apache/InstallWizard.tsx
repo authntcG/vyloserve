@@ -9,18 +9,18 @@ export interface ApacheVersionData {
 }
 
 interface ApacheInstallWizardProps {
-    versions: ApacheVersionData[];
-    version: string;
-    setVersion: React.Dispatch<React.SetStateAction<string>>;
-    setUrl: React.Dispatch<React.SetStateAction<string>>;
-    httpPort: number;
-    setHttpPort: React.Dispatch<React.SetStateAction<number>>;
-    httpsPort: number;
-    setHttpsPort: React.Dispatch<React.SetStateAction<number>>;
-    isInstalling: boolean;
-    isFetchingVersions: boolean;
-    progress: number;
-    progressText: string;
+    readonly versions: ApacheVersionData[];
+    readonly version: string;
+    readonly setVersion: React.Dispatch<React.SetStateAction<string>>;
+    readonly setUrl: React.Dispatch<React.SetStateAction<string>>;
+    readonly httpPort: number;
+    readonly setHttpPort: React.Dispatch<React.SetStateAction<number>>;
+    readonly httpsPort: number;
+    readonly setHttpsPort: React.Dispatch<React.SetStateAction<number>>;
+    readonly isInstalling: boolean;
+    readonly isFetchingVersions: boolean;
+    readonly progress: number;
+    readonly progressText: string;
 }
 
 export default function ApacheInstallWizard({

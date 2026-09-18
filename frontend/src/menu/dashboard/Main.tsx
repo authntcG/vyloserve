@@ -61,6 +61,402 @@ const DbChips = ({ dbInstances, selectedDb, toggleDbSelection, t }: any) => {
     );
 };
 
+function resolveInitialPhpSelection(prev: string[], instances: any[]): string[] {
+    if (prev.length !== 0 || instances.length === 0) return prev;
+    const running = instances.filter((p: any) => p.status === 'running').map((p: any) => p.version);
+    return running.length > 0 ? running : [instances[0].version];
+}
+
+function resolveInitialDbSelection(prev: string[], instances: any[]): string[] {
+    if (prev.length !== 0 || instances.length === 0) return prev;
+    const running = instances.filter((p: any) => p.status === 'running').map((p: any) => p.id);
+    return running.length > 0 ? running : [instances[0].id];
+}
+
+async function refreshOverallStatus(api: any, setStatus: (s: ServiceStatus) => void, appendCpuHistory: (v: number) => void, appendRamHistory: (v: number) => void) {
+    if (typeof api.get_all_services_status !== 'function') return;
+    const resStatus = await api.get_all_services_status();
+    setStatus({
+        apache: resStatus.apache,
+        php: resStatus.php,
+        database: resStatus.database,
+        cpu_load: resStatus.cpu_load || 0,
+        ram_usage: resStatus.ram_usage || 0
+    });
+    appendCpuHistory(resStatus.cpu_load || 0);
+    appendRamHistory(resStatus.ram_usage || 0);
+}
+
+async function refreshApacheStatus(api: any, isApacheInitializedRef: { current: boolean }, setApacheVersions: (v: string[]) => void, setSelectedApache: (updater: (prev: string) => string) => void) {
+    if (typeof api.get_apache_installed_versions !== 'function') return;
+    const resAp = await api.get_apache_installed_versions();
+    if (resAp.status !== 'success') return;
+    setApacheVersions(resAp.data);
+    setSelectedApache(prev => {
+        if (isApacheInitializedRef.current) return prev;
+        isApacheInitializedRef.current = true;
+        return resAp.active || resAp.data[0] || '';
+    });
+}
+
+async function refreshPhpStatus(api: any, isPhpInitializedRef: { current: boolean }, setPhpInstances: (v: any[]) => void, setSelectedPhp: (updater: (prev: string[]) => string[]) => void) {
+    if (typeof api.get_installed_php !== 'function') return;
+    const resPhp = await api.get_installed_php();
+    setPhpInstances(resPhp);
+    setSelectedPhp(prev => {
+        if (isPhpInitializedRef.current) return prev;
+        isPhpInitializedRef.current = true;
+        return resolveInitialPhpSelection(prev, resPhp);
+    });
+}
+
+async function refreshDatabaseStatus(api: any, isDbInitializedRef: { current: boolean }, setDbInstances: (v: any[]) => void, setSelectedDb: (updater: (prev: string[]) => string[]) => void) {
+    if (typeof api.get_installed_databases !== 'function') return;
+    const resDb = await api.get_installed_databases();
+    if (resDb.status !== 'success') return;
+    setDbInstances(resDb.data);
+    setSelectedDb(prev => {
+        if (isDbInitializedRef.current) return prev;
+        isDbInitializedRef.current = true;
+        return resolveInitialDbSelection(prev, resDb.data);
+    });
+}
+
+async function startApacheIfIncluded(api: any, included: boolean, selectedApache: string) {
+    if (included && selectedApache) await api.set_apache_active_version(selectedApache);
+}
+
+async function startSelectedPhpInstances(api: any, included: boolean, selectedPhp: string[], phpInstances: any[]) {
+    if (!included) return;
+    for (const v of selectedPhp) {
+        if (phpInstances.find(p => p.version === v)?.status !== 'running') await api.start_php(v);
+    }
+}
+
+async function startSelectedDbInstances(api: any, included: boolean, selectedDb: string[], dbInstances: any[]) {
+    if (!included) return;
+    for (const id of selectedDb) {
+        if (dbInstances.find(p => p.id === id)?.status !== 'running') await api.start_database(id);
+    }
+}
+
+async function stopSelectedPhpInstances(api: any, included: boolean, selectedPhp: string[], phpInstances: any[]) {
+    if (!included) return;
+    for (const v of selectedPhp) {
+        if (phpInstances.find(p => p.version === v)?.status === 'running') await api.stop_php(v);
+    }
+}
+
+async function stopSelectedDbInstances(api: any, included: boolean, selectedDb: string[], dbInstances: any[]) {
+    if (!included) return;
+    for (const id of selectedDb) {
+        if (dbInstances.find(p => p.id === id)?.status === 'running') await api.stop_database(id);
+    }
+}
+
+function anyCanStart(ids: string[], instances: any[], matchKey: string): boolean {
+    return ids.some(id => {
+        const inst = instances.find((item: any) => item[matchKey] === id);
+        return !!inst && inst.status !== 'running';
+    });
+}
+
+function anyCanStop(ids: string[], instances: any[], matchKey: string): boolean {
+    return ids.some(id => {
+        const inst = instances.find((item: any) => item[matchKey] === id);
+        return !!inst && inst.status === 'running';
+    });
+}
+
+function computeCanStartStop(includedServices: { apache: boolean; php: boolean; database: boolean }, selectedApache: string, status: ServiceStatus, selectedPhp: string[], phpInstances: any[], selectedDb: string[], dbInstances: any[]) {
+    const apacheCanStart = includedServices.apache && !!selectedApache && !status.apache;
+    const apacheCanStop = includedServices.apache && !!selectedApache && status.apache;
+    const phpCanStart = includedServices.php && selectedPhp.length > 0 && anyCanStart(selectedPhp, phpInstances, 'version');
+    const phpCanStop = includedServices.php && selectedPhp.length > 0 && anyCanStop(selectedPhp, phpInstances, 'version');
+    const dbCanStart = includedServices.database && selectedDb.length > 0 && anyCanStart(selectedDb, dbInstances, 'id');
+    const dbCanStop = includedServices.database && selectedDb.length > 0 && anyCanStop(selectedDb, dbInstances, 'id');
+
+    return {
+        canStart: apacheCanStart || phpCanStart || dbCanStart,
+        canStop: apacheCanStop || phpCanStop || dbCanStop
+    };
+}
+
+function getDashboardSuggestions(status: ServiceStatus, projects: ProjectData[], isLoadingProjects: boolean, t: any) {
+    const suggestions = [];
+    if (!status.apache && !status.php && !status.database) {
+        suggestions.push({
+            icon: 'power_settings_new', color: 'text-amber-500', bg: 'bg-amber-50 dark:bg-amber-900/20', border: 'border-amber-200 dark:border-amber-800/50',
+            text: t('dashboard.suggestion_stopped')
+        });
+    }
+    if (projects.length === 0 && !isLoadingProjects) {
+        suggestions.push({
+            icon: 'add_box', color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-900/20', border: 'border-blue-200 dark:border-blue-800/50',
+            text: t('dashboard.suggestion_no_project')
+        });
+    }
+    if (suggestions.length === 0) {
+        suggestions.push({
+            icon: 'check_circle', color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-900/20', border: 'border-emerald-200 dark:border-emerald-800/50',
+            text: t('dashboard.suggestion_optimal')
+        });
+    }
+    return suggestions;
+}
+
+function renderSparkline(data: number[], id: string) {
+    const maxPoints = 20;
+    const width = 100;
+    const height = 35;
+    const xStep = width / (maxPoints - 1);
+
+    const points = data.map((val, idx) => ({
+        x: idx * xStep,
+        y: height - (val / 100) * height
+    }));
+
+    if (points.length === 0) return null;
+
+    let linePath = `M ${points[0].x},${points[0].y}`;
+    for (let i = 0; i < points.length - 1; i++) {
+        const p1 = points[i];
+        const p2 = points[i + 1];
+        const midX = (p1.x + p2.x) / 2;
+        linePath += ` C ${midX},${p1.y} ${midX},${p2.y} ${p2.x},${p2.y}`;
+    }
+
+    const fillPath = `${linePath} L ${width},${height} L 0,${height} Z`;
+
+    return (
+        <div className="w-full h-12 mt-2 relative rounded overflow-hidden">
+            <svg viewBox={`0 -2 ${width} ${height + 4}`} className="w-full h-full overflow-visible" preserveAspectRatio="none">
+                <defs>
+                    <linearGradient id={`grad-fill-${id}`} x1="0" x2="0" y1="0" y2="1">
+                        <stop offset="0%" stopColor="#ef4444" stopOpacity="0.4" />
+                        <stop offset="50%" stopColor="#f59e0b" stopOpacity="0.2" />
+                        <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
+                    </linearGradient>
+                    <linearGradient id={`grad-stroke-${id}`} x1="0" x2="0" y1="0" y2="1">
+                        <stop offset="0%" stopColor="#ef4444" />
+                        <stop offset="50%" stopColor="#f59e0b" />
+                        <stop offset="100%" stopColor="#10b981" />
+                    </linearGradient>
+                </defs>
+                <path d={fillPath} fill={`url(#grad-fill-${id})`} stroke="none" />
+                <path d={linePath} stroke={`url(#grad-stroke-${id})`} strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+        </div>
+    );
+}
+
+interface ApacheServiceCardProps {
+    readonly included: boolean;
+    readonly onToggleIncluded: (checked: boolean) => void;
+    readonly isRunning: boolean;
+    readonly selectedApache: string;
+    readonly onSelectApache: (v: string) => void;
+    readonly apacheVersions: string[];
+    readonly t: any;
+}
+
+function ApacheServiceCard({ included, onToggleIncluded, isRunning, selectedApache, onSelectApache, apacheVersions, t }: ApacheServiceCardProps) {
+    return (
+        <div className={`flex flex-col gap-3 p-4 bg-slate-50 dark:bg-slate-950 border ${included ? 'border-primary/30 shadow-sm' : 'border-slate-200 dark:border-slate-800/60 opacity-60'} rounded-lg transition-all`}>
+            <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                    <span className={`material-symbols-outlined shrink-0 transition-colors ${included ? 'text-primary' : 'text-slate-400'}`}>dns</span>
+                    <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 truncate">{t('sidebar.menu_apache')}</span>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                        type="checkbox"
+                        checked={included}
+                        onChange={(e) => onToggleIncluded(e.target.checked)}
+                        aria-label={t('sidebar.toggle_service', 'Toggle {{service}}', { service: t('sidebar.menu_apache') })}
+                        className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+                </label>
+            </div>
+
+            <div className={`flex flex-col gap-1 mt-1 transition-all ${included ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                <div className="flex justify-between items-center">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">{t('dashboard.default_version')}</span>
+                    <span className={`w-2 h-2 shrink-0 rounded-full ${isRunning ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300 dark:bg-slate-600'}`}></span>
+                </div>
+                <select
+                    value={selectedApache}
+                    onChange={(e) => onSelectApache(e.target.value)}
+                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs rounded-md p-1.5 outline-none focus:border-primary transition-colors cursor-pointer"
+                >
+                    {apacheVersions.length > 0 ? apacheVersions.map(v => (
+                        <option key={v} value={v}>Apache {v}</option>
+                    )) : <option>{t('dashboard.no_version_installed')}</option>}
+                </select>
+            </div>
+        </div>
+    );
+}
+
+interface PhpServiceCardProps {
+    readonly included: boolean;
+    readonly onToggleIncluded: (checked: boolean) => void;
+    readonly phpInstances: any[];
+    readonly selectedPhp: string[];
+    readonly togglePhpSelection: (version: string) => void;
+    readonly t: any;
+}
+
+function PhpServiceCard({ included, onToggleIncluded, phpInstances, selectedPhp, togglePhpSelection, t }: PhpServiceCardProps) {
+    return (
+        <div className={`flex flex-col gap-3 p-4 bg-slate-50 dark:bg-slate-950 border ${included ? 'border-primary/30 shadow-sm' : 'border-slate-200 dark:border-slate-800/60 opacity-60'} rounded-lg transition-all`}>
+            <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                    <span className={`material-symbols-outlined shrink-0 transition-colors ${included ? 'text-primary' : 'text-slate-400'}`}>php</span>
+                    <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 truncate">{t('sidebar.menu_php')}</span>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                        type="checkbox"
+                        checked={included}
+                        onChange={(e) => onToggleIncluded(e.target.checked)}
+                        aria-label={t('sidebar.toggle_service', 'Toggle {{service}}', { service: t('sidebar.menu_php') })}
+                        className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+                </label>
+            </div>
+
+            <div className={`flex flex-col gap-1 mt-1 transition-all ${included ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                <div className="flex justify-between items-center">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">{t('dashboard.select_versions')}</span>
+                    <span className={`w-2 h-2 shrink-0 rounded-full ${phpInstances.some(p => p.status === 'running') ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300 dark:bg-slate-600'}`}></span>
+                </div>
+                <div className="flex flex-wrap gap-1.5 max-h-[56px] overflow-y-auto custom-scrollbar pr-1 mt-0.5">
+                    <PhpChips phpInstances={phpInstances} selectedPhp={selectedPhp} togglePhpSelection={togglePhpSelection} t={t} />
+                </div>
+            </div>
+        </div>
+    );
+}
+
+interface DatabaseServiceCardProps {
+    readonly included: boolean;
+    readonly onToggleIncluded: (checked: boolean) => void;
+    readonly dbInstances: any[];
+    readonly selectedDb: string[];
+    readonly toggleDbSelection: (id: string) => void;
+    readonly t: any;
+}
+
+function DatabaseServiceCard({ included, onToggleIncluded, dbInstances, selectedDb, toggleDbSelection, t }: DatabaseServiceCardProps) {
+    return (
+        <div className={`flex flex-col gap-3 p-4 bg-slate-50 dark:bg-slate-950 border ${included ? 'border-primary/30 shadow-sm' : 'border-slate-200 dark:border-slate-800/60 opacity-60'} rounded-lg transition-all`}>
+            <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                    <span className={`material-symbols-outlined shrink-0 transition-colors ${included ? 'text-primary' : 'text-slate-400'}`}>database</span>
+                    <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 truncate">{t('sidebar.menu_database')}</span>
+                </div>
+                <label aria-label={t('sidebar.menu_database')} className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                        type="checkbox"
+                        checked={included}
+                        onChange={(e) => onToggleIncluded(e.target.checked)}
+                        className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+                </label>
+            </div>
+
+            <div className={`flex flex-col gap-1 mt-1 transition-all ${included ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                <div className="flex justify-between items-center">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">{t('dashboard.select_engines')}</span>
+                    <span className={`w-2 h-2 shrink-0 rounded-full ${dbInstances.some(p => p.status === 'running') ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300 dark:bg-slate-600'}`}></span>
+                </div>
+                <div className="flex flex-wrap gap-1.5 max-h-[56px] overflow-y-auto custom-scrollbar pr-1 mt-0.5">
+                    <DbChips dbInstances={dbInstances} selectedDb={selectedDb} toggleDbSelection={toggleDbSelection} t={t} />
+                </div>
+            </div>
+        </div>
+    );
+}
+
+interface RecentProjectsSectionProps {
+    readonly isLoading: boolean;
+    readonly projects: ProjectData[];
+    readonly onOpenBrowser: (domain: string) => void;
+    readonly onOpenDir: (path: string) => void;
+    readonly t: any;
+}
+
+function RecentProjectsSection({ isLoading, projects, onOpenBrowser, onOpenDir, t }: RecentProjectsSectionProps) {
+    if (isLoading) {
+        return (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                {[1, 2, 3, 4].map((item) => (
+                    <div key={item} className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/60 rounded-xl p-4 shadow-sm flex flex-col gap-4 animate-pulse">
+                        <div className="flex items-start justify-between">
+                            <div className="flex flex-col gap-2 w-full">
+                                <div className="h-4 bg-slate-200 dark:bg-slate-700/50 rounded w-3/4"></div>
+                                <div className="h-3 bg-slate-100 dark:bg-slate-800/80 rounded w-1/2"></div>
+                            </div>
+                        </div>
+                        <div className="flex gap-2 mt-auto pt-2 border-t border-slate-100 dark:border-slate-800">
+                            <div className="h-7 bg-slate-200 dark:bg-slate-700/50 rounded-lg flex-1"></div>
+                            <div className="h-7 bg-slate-200 dark:bg-slate-700/50 rounded-lg flex-1"></div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        );
+    }
+
+    if (projects.length === 0) {
+        return (
+            <div className="flex flex-col items-center justify-center py-10 bg-slate-50/50 dark:bg-slate-900/20 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+                <span className="material-symbols-outlined text-slate-400 text-4xl mb-2">folder_open</span>
+                <span className="text-sm font-medium text-slate-600 dark:text-slate-400">{t('dashboard.no_projects_found')}</span>
+            </div>
+        );
+    }
+
+    return (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            {projects.map(proj => (
+                <div key={proj.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm flex flex-col gap-4 hover:border-primary/50 transition-colors group">
+                    <div className="flex items-start justify-between">
+                        <div className="flex flex-col overflow-hidden">
+                            <h4 className="text-base font-semibold text-slate-900 dark:text-white truncate">{proj.name}</h4>
+                            <span className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">{proj.domain}</span>
+                        </div>
+                        {proj.framework && (
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-primary bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 rounded ml-2 shrink-0">
+                                {proj.framework}
+                            </span>
+                        )}
+                    </div>
+
+                    <div className="flex gap-2 mt-auto pt-2 border-t border-slate-100 dark:border-slate-800">
+                        <button type="button"
+                            onClick={() => onOpenBrowser(proj.domain)}
+                            className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-xs font-medium py-1.5 px-3 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm outline-none"
+                        >
+                            <span className="material-symbols-outlined text-[16px]">public</span> {t('dashboard.open')}
+                        </button>
+                        <button type="button"
+                            onClick={() => onOpenDir(proj.path)}
+                            className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-xs font-medium py-1.5 px-3 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm outline-none"
+                        >
+                            <span className="material-symbols-outlined text-[16px]">folder</span> {t('dashboard.folder')}
+                        </button>
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+}
+
 export default function DashboardMain() {
     const { t } = useTranslation();
     const { showToast } = useToast();
@@ -157,70 +553,15 @@ export default function DashboardMain() {
             const api = window.pywebview?.api;
             if (!api) return;
 
-            // Status Keseluruhan
-            if (typeof api.get_all_services_status === 'function') {
-                const resStatus = await api.get_all_services_status();
-                setStatus({
-                    apache: resStatus.apache,
-                    php: resStatus.php,
-                    database: resStatus.database,
-                    cpu_load: resStatus.cpu_load || 0,
-                    ram_usage: resStatus.ram_usage || 0
-                });
-
-                setCpuHistory(prev => [...prev, resStatus.cpu_load || 0].slice(-20));
-                setRamHistory(prev => [...prev, resStatus.ram_usage || 0].slice(-20));
-            }
-
-            // Status Apache
-            if (typeof api.get_apache_installed_versions === 'function') {
-                const resAp = await api.get_apache_installed_versions();
-                if (resAp.status === 'success') {
-                    setApacheVersions(resAp.data);
-                    setSelectedApache(prev => {
-                        if (!isApacheInitialized.current) {
-                            isApacheInitialized.current = true;
-                            return resAp.active || resAp.data[0] || '';
-                        }
-                        return prev;
-                    });
-                }
-            }
-
-            // Status PHP
-            if (typeof api.get_installed_php === 'function') {
-                const resPhp = await api.get_installed_php();
-                setPhpInstances(resPhp);
-                setSelectedPhp(prev => {
-                    if (!isPhpInitialized.current) {
-                        isPhpInitialized.current = true;
-                        if (prev.length === 0 && resPhp.length > 0) {
-                            const running = resPhp.filter((p: any) => p.status === 'running').map((p: any) => p.version);
-                            return running.length > 0 ? running : [resPhp[0].version];
-                        }
-                    }
-                    return prev;
-                });
-            }
-
-            // ---> MENGAMBIL STATUS INSTALASI DATABASE (BARU) <---
-            if (typeof api.get_installed_databases === 'function') {
-                const resDb = await api.get_installed_databases();
-                if (resDb.status === 'success') {
-                    setDbInstances(resDb.data);
-                    setSelectedDb(prev => {
-                        if (!isDbInitialized.current) {
-                            isDbInitialized.current = true;
-                            if (prev.length === 0 && resDb.data.length > 0) {
-                                // Default select yang sedang running, atau index pertama
-                                const running = resDb.data.filter((p: any) => p.status === 'running').map((p: any) => p.id);
-                                return running.length > 0 ? running : [resDb.data[0].id];
-                            }
-                        }
-                        return prev;
-                    });
-                }
-            }
+            await refreshOverallStatus(
+                api,
+                setStatus,
+                (v) => setCpuHistory(prev => [...prev, v].slice(-20)),
+                (v) => setRamHistory(prev => [...prev, v].slice(-20))
+            );
+            await refreshApacheStatus(api, isApacheInitialized, setApacheVersions, setSelectedApache);
+            await refreshPhpStatus(api, isPhpInitialized, setPhpInstances, setSelectedPhp);
+            await refreshDatabaseStatus(api, isDbInitialized, setDbInstances, setSelectedDb);
         } catch (error){ console.error(error);
         } finally {
             setIsGlobalLoading(false);
@@ -253,31 +594,15 @@ export default function DashboardMain() {
             if (!api) return;
 
             if (action === 'start') {
-                if (includedServices.apache && selectedApache) await api.set_apache_active_version(selectedApache);
-                if (includedServices.php) {
-                    for (const v of selectedPhp) {
-                        if (phpInstances.find(p => p.version === v)?.status !== 'running') await api.start_php(v);
-                    }
-                }
-                if (includedServices.database) {
-                    for (const id of selectedDb) {
-                        if (dbInstances.find(p => p.id === id)?.status !== 'running') await api.start_database(id);
-                    }
-                }
+                await startApacheIfIncluded(api, includedServices.apache, selectedApache);
+                await startSelectedPhpInstances(api, includedServices.php, selectedPhp, phpInstances);
+                await startSelectedDbInstances(api, includedServices.database, selectedDb, dbInstances);
                 if (includedServices.apache) await api.start_apache_server();
                 showToast("Proses Start servis berhasil dieksekusi!", "success");
             } else {
                 if (includedServices.apache) await api.stop_apache_server();
-                if (includedServices.php) {
-                    for (const v of selectedPhp) {
-                        if (phpInstances.find(p => p.version === v)?.status === 'running') await api.stop_php(v);
-                    }
-                }
-                if (includedServices.database) {
-                    for (const id of selectedDb) {
-                        if (dbInstances.find(p => p.id === id)?.status === 'running') await api.stop_database(id);
-                    }
-                }
+                await stopSelectedPhpInstances(api, includedServices.php, selectedPhp, phpInstances);
+                await stopSelectedDbInstances(api, includedServices.database, selectedDb, dbInstances);
                 showToast(t('dashboard.stop_success'), "success");
             }
 
@@ -318,6 +643,20 @@ export default function DashboardMain() {
         });
     };
 
+    const handleTogglePhpIncluded = (checked: boolean) => {
+        if (checked && selectedPhp.length === 0 && phpInstances.length > 0) {
+            setSelectedPhp([phpInstances[0].version]);
+        }
+        setIncludedServices(p => ({ ...p, php: checked }));
+    };
+
+    const handleToggleDbIncluded = (checked: boolean) => {
+        if (checked && selectedDb.length === 0 && dbInstances.length > 0) {
+            setSelectedDb([dbInstances[0].id]);
+        }
+        setIncludedServices(p => ({ ...p, database: checked }));
+    };
+
     const handleOpenBrowser = (domain: string) => {
         const url = `https://${domain}`;
         try {
@@ -332,114 +671,19 @@ export default function DashboardMain() {
         } catch (e){ console.error(e); }
     };
 
-    let canStart = false;
-    let canStop = false;
-
-    if (includedServices.apache && selectedApache) {
-        if (!status.apache) canStart = true;
-        if (status.apache) canStop = true;
-    }
-
-    if (includedServices.php && selectedPhp.length > 0) {
-        selectedPhp.forEach(v => {
-            const inst = phpInstances.find(p => p.version === v);
-            if (inst) {
-                if (inst.status !== 'running') canStart = true;
-                if (inst.status === 'running') canStop = true;
-            }
-        });
-    }
-
-    // Validasi Izin Tombol Start/Stop dari State Database
-    if (includedServices.database && selectedDb.length > 0) {
-        selectedDb.forEach(id => {
-            const inst = dbInstances.find(p => p.id === id);
-            if (inst) {
-                if (inst.status !== 'running') canStart = true;
-                if (inst.status === 'running') canStop = true;
-            }
-        });
-    }
-
-    const getSuggestions = () => {
-        const suggestions = [];
-        if (!status.apache && !status.php && !status.database) {
-            suggestions.push({
-                icon: 'power_settings_new', color: 'text-amber-500', bg: 'bg-amber-50 dark:bg-amber-900/20', border: 'border-amber-200 dark:border-amber-800/50',
-                text: t('dashboard.suggestion_stopped')
-            });
-        }
-        if (projects.length === 0 && !isLoadingProjects) {
-            suggestions.push({
-                icon: 'add_box', color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-900/20', border: 'border-blue-200 dark:border-blue-800/50',
-                text: t('dashboard.suggestion_no_project')
-            });
-        }
-        if (suggestions.length === 0) {
-            suggestions.push({
-                icon: 'check_circle', color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-900/20', border: 'border-emerald-200 dark:border-emerald-800/50',
-                text: t('dashboard.suggestion_optimal')
-            });
-        }
-        return suggestions;
-    };
-
-    const renderSparkline = (data: number[], id: string) => {
-        const maxPoints = 20;
-        const width = 100;
-        const height = 35;
-        const xStep = width / (maxPoints - 1);
-
-        const points = data.map((val, idx) => ({
-            x: idx * xStep,
-            y: height - (val / 100) * height
-        }));
-
-        if (points.length === 0) return null;
-
-        let linePath = `M ${points[0].x},${points[0].y}`;
-        for (let i = 0; i < points.length - 1; i++) {
-            const p1 = points[i];
-            const p2 = points[i + 1];
-            const midX = (p1.x + p2.x) / 2;
-            linePath += ` C ${midX},${p1.y} ${midX},${p2.y} ${p2.x},${p2.y}`;
-        }
-
-        const fillPath = `${linePath} L ${width},${height} L 0,${height} Z`;
-
-        return (
-            <div className="w-full h-12 mt-2 relative rounded overflow-hidden">
-                <svg viewBox={`0 -2 ${width} ${height + 4}`} className="w-full h-full overflow-visible" preserveAspectRatio="none">
-                    <defs>
-                        <linearGradient id={`grad-fill-${id}`} x1="0" x2="0" y1="0" y2="1">
-                            <stop offset="0%" stopColor="#ef4444" stopOpacity="0.4" />
-                            <stop offset="50%" stopColor="#f59e0b" stopOpacity="0.2" />
-                            <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
-                        </linearGradient>
-                        <linearGradient id={`grad-stroke-${id}`} x1="0" x2="0" y1="0" y2="1">
-                            <stop offset="0%" stopColor="#ef4444" />
-                            <stop offset="50%" stopColor="#f59e0b" />
-                            <stop offset="100%" stopColor="#10b981" />
-                        </linearGradient>
-                    </defs>
-                    <path d={fillPath} fill={`url(#grad-fill-${id})`} stroke="none" />
-                    <path d={linePath} stroke={`url(#grad-stroke-${id})`} strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-            </div>
-        );
-    };
+    const { canStart, canStop } = computeCanStartStop(includedServices, selectedApache, status, selectedPhp, phpInstances, selectedDb, dbInstances);
 
     return (
         <div className="flex flex-col w-full gap-6 pb-10 animate-in fade-in duration-300">
 
-            <PageHeader 
-                icon="space_dashboard" 
-                title={t('dashboard.title')} 
-                subtitle={t('dashboard.subtitle')} 
+            <PageHeader
+                icon="space_dashboard"
+                title={t('dashboard.title')}
+                subtitle={t('dashboard.subtitle')}
             />
 
             <div className="flex flex-col gap-3">
-                {getSuggestions().map((sugg) => (
+                {getDashboardSuggestions(status, projects, isLoadingProjects, t).map((sugg) => (
                     <div key={sugg.text} className={`flex items-center gap-3 p-4 rounded-xl border ${sugg.border} ${sugg.bg}`}>
                         <span className={`material-symbols-outlined ${sugg.color} text-[24px]`}>{sugg.icon}</span>
                         <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{sugg.text}</span>
@@ -510,109 +754,31 @@ export default function DashboardMain() {
                             ))
                         ) : (
                             <>
-                                {/* --- APACHE CARD --- */}
-                                <div className={`flex flex-col gap-3 p-4 bg-slate-50 dark:bg-slate-950 border ${includedServices.apache ? 'border-primary/30 shadow-sm' : 'border-slate-200 dark:border-slate-800/60 opacity-60'} rounded-lg transition-all`}>
-                                    <div className="flex items-center justify-between gap-2">
-                                        <div className="flex items-center gap-2 min-w-0">
-                                            <span className={`material-symbols-outlined shrink-0 transition-colors ${includedServices.apache ? 'text-primary' : 'text-slate-400'}`}>dns</span>
-                                            <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 truncate">{t('sidebar.menu_apache')}</span>
-                                        </div>
-                                        <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                                            <input
-                                                type="checkbox"
-                                                checked={includedServices.apache}
-                                                onChange={(e) => setIncludedServices(p => ({ ...p, apache: e.target.checked }))}
-                                                className="sr-only peer"
-                                            />
-                                            <div className="w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
-                                        </label>
-                                    </div>
-
-                                    <div className={`flex flex-col gap-1 mt-1 transition-all ${includedServices.apache ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">{t('dashboard.default_version')}</span>
-                                            <span className={`w-2 h-2 shrink-0 rounded-full ${status.apache ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300 dark:bg-slate-600'}`}></span>
-                                        </div>
-                                        <select
-                                            value={selectedApache}
-                                            onChange={(e) => setSelectedApache(e.target.value)}
-                                            className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs rounded-md p-1.5 outline-none focus:border-primary transition-colors cursor-pointer"
-                                        >
-                                            {apacheVersions.length > 0 ? apacheVersions.map(v => (
-                                                <option key={v} value={v}>Apache {v}</option>
-                                            )) : <option>{t('dashboard.no_version_installed')}</option>}
-                                        </select>
-                                    </div>
-                                </div>
-
-                                {/* --- PHP CARD --- */}
-                                <div className={`flex flex-col gap-3 p-4 bg-slate-50 dark:bg-slate-950 border ${includedServices.php ? 'border-primary/30 shadow-sm' : 'border-slate-200 dark:border-slate-800/60 opacity-60'} rounded-lg transition-all`}>
-                                    <div className="flex items-center justify-between gap-2">
-                                        <div className="flex items-center gap-2 min-w-0">
-                                            <span className={`material-symbols-outlined shrink-0 transition-colors ${includedServices.php ? 'text-primary' : 'text-slate-400'}`}>php</span>
-                                            <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 truncate">{t('sidebar.menu_php')}</span>
-                                        </div>
-                                        <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                                            <input
-                                                type="checkbox"
-                                                checked={includedServices.php}
-                                                onChange={(e) => {
-                                                    if (e.target.checked && selectedPhp.length === 0 && phpInstances.length > 0) {
-                                                        setSelectedPhp([phpInstances[0].version]);
-                                                    }
-                                                    setIncludedServices(p => ({ ...p, php: e.target.checked }));
-                                                }}
-                                                className="sr-only peer"
-                                            />
-                                            <div className="w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
-                                        </label>
-                                    </div>
-
-                                    <div className={`flex flex-col gap-1 mt-1 transition-all ${includedServices.php ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">{t('dashboard.select_versions')}</span>
-                                            <span className={`w-2 h-2 shrink-0 rounded-full ${phpInstances.some(p => p.status === 'running') ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300 dark:bg-slate-600'}`}></span>
-                                        </div>
-                                        <div className="flex flex-wrap gap-1.5 max-h-[56px] overflow-y-auto custom-scrollbar pr-1 mt-0.5">
-                                            <PhpChips phpInstances={phpInstances} selectedPhp={selectedPhp} togglePhpSelection={togglePhpSelection} t={t} />
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* --- DATABASE CARD (KINI AKTIF & INTERAKTIF) --- */}
-                                <div className={`flex flex-col gap-3 p-4 bg-slate-50 dark:bg-slate-950 border ${includedServices.database ? 'border-primary/30 shadow-sm' : 'border-slate-200 dark:border-slate-800/60 opacity-60'} rounded-lg transition-all`}>
-                                    <div className="flex items-center justify-between gap-2">
-                                        <div className="flex items-center gap-2 min-w-0">
-                                            <span className={`material-symbols-outlined shrink-0 transition-colors ${includedServices.database ? 'text-primary' : 'text-slate-400'}`}>database</span>
-                                            <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 truncate">{t('sidebar.menu_database')}</span>
-                                        </div>
-                                        <label aria-label={t('sidebar.menu_database')} className="relative inline-flex items-center cursor-pointer shrink-0">
-                                            <input
-                                                type="checkbox"
-                                                checked={includedServices.database}
-                                                onChange={(e) => {
-                                                    if (e.target.checked && selectedDb.length === 0 && dbInstances.length > 0) {
-                                                        setSelectedDb([dbInstances[0].id]);
-                                                    }
-                                                    setIncludedServices(p => ({ ...p, database: e.target.checked }));
-                                                }}
-                                                className="sr-only peer"
-                                            />
-                                            <div className="w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
-                                        </label>
-                                    </div>
-
-                                    <div className={`flex flex-col gap-1 mt-1 transition-all ${includedServices.database ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">{t('dashboard.select_engines')}</span>
-                                            <span className={`w-2 h-2 shrink-0 rounded-full ${dbInstances.some(p => p.status === 'running') ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300 dark:bg-slate-600'}`}></span>
-                                        </div>
-                                        <div className="flex flex-wrap gap-1.5 max-h-[56px] overflow-y-auto custom-scrollbar pr-1 mt-0.5">
-                                            <DbChips dbInstances={dbInstances} selectedDb={selectedDb} toggleDbSelection={toggleDbSelection} t={t} />
-                                        </div>
-                                    </div>
-                                </div>
-
+                                <ApacheServiceCard
+                                    included={includedServices.apache}
+                                    onToggleIncluded={(checked) => setIncludedServices(p => ({ ...p, apache: checked }))}
+                                    isRunning={status.apache}
+                                    selectedApache={selectedApache}
+                                    onSelectApache={setSelectedApache}
+                                    apacheVersions={apacheVersions}
+                                    t={t}
+                                />
+                                <PhpServiceCard
+                                    included={includedServices.php}
+                                    onToggleIncluded={handleTogglePhpIncluded}
+                                    phpInstances={phpInstances}
+                                    selectedPhp={selectedPhp}
+                                    togglePhpSelection={togglePhpSelection}
+                                    t={t}
+                                />
+                                <DatabaseServiceCard
+                                    included={includedServices.database}
+                                    onToggleIncluded={handleToggleDbIncluded}
+                                    dbInstances={dbInstances}
+                                    selectedDb={selectedDb}
+                                    toggleDbSelection={toggleDbSelection}
+                                    t={t}
+                                />
                             </>
                         )}
                     </div>
@@ -677,62 +843,13 @@ export default function DashboardMain() {
                     </div>
                 </div>
 
-                {isLoadingProjects ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                        {[1, 2, 3, 4].map((item) => (
-                            <div key={item} className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/60 rounded-xl p-4 shadow-sm flex flex-col gap-4 animate-pulse">
-                                <div className="flex items-start justify-between">
-                                    <div className="flex flex-col gap-2 w-full">
-                                        <div className="h-4 bg-slate-200 dark:bg-slate-700/50 rounded w-3/4"></div>
-                                        <div className="h-3 bg-slate-100 dark:bg-slate-800/80 rounded w-1/2"></div>
-                                    </div>
-                                </div>
-                                <div className="flex gap-2 mt-auto pt-2 border-t border-slate-100 dark:border-slate-800">
-                                    <div className="h-7 bg-slate-200 dark:bg-slate-700/50 rounded-lg flex-1"></div>
-                                    <div className="h-7 bg-slate-200 dark:bg-slate-700/50 rounded-lg flex-1"></div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                ) : projects.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-10 bg-slate-50/50 dark:bg-slate-900/20 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
-                        <span className="material-symbols-outlined text-slate-400 text-4xl mb-2">folder_open</span>
-                        <span className="text-sm font-medium text-slate-600 dark:text-slate-400">{t('dashboard.no_projects_found')}</span>
-                    </div>
-                ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                        {projects.map(proj => (
-                            <div key={proj.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm flex flex-col gap-4 hover:border-primary/50 transition-colors group">
-                                <div className="flex items-start justify-between">
-                                    <div className="flex flex-col overflow-hidden">
-                                        <h4 className="text-base font-semibold text-slate-900 dark:text-white truncate">{proj.name}</h4>
-                                        <span className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">{proj.domain}</span>
-                                    </div>
-                                    {proj.framework && (
-                                        <span className="text-[10px] font-bold uppercase tracking-wider text-primary bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 rounded ml-2 shrink-0">
-                                            {proj.framework}
-                                        </span>
-                                    )}
-                                </div>
-
-                                <div className="flex gap-2 mt-auto pt-2 border-t border-slate-100 dark:border-slate-800">
-                                    <button type="button"
-                                        onClick={() => handleOpenBrowser(proj.domain)}
-                                        className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-xs font-medium py-1.5 px-3 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm outline-none"
-                                    >
-                                        <span className="material-symbols-outlined text-[16px]">public</span> {t('dashboard.open')}
-                                    </button>
-                                    <button type="button"
-                                        onClick={() => handleOpenDir(proj.path)}
-                                        className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-xs font-medium py-1.5 px-3 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm outline-none"
-                                    >
-                                        <span className="material-symbols-outlined text-[16px]">folder</span> {t('dashboard.folder')}
-                                    </button>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
+                <RecentProjectsSection
+                    isLoading={isLoadingProjects}
+                    projects={projects}
+                    onOpenBrowser={handleOpenBrowser}
+                    onOpenDir={handleOpenDir}
+                    t={t}
+                />
             </div>
 
         </div>

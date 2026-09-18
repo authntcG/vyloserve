@@ -168,11 +168,13 @@ export default function PhpMain() {
                 />
 
                 <div className="mt-6">
-                    {isLoading ? (
+                    {(() => {
+                        if (isLoading) return (
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
                             {[1, 2].map((item) => <SkeletonCard key={item} />)}
                         </div>
-                    ) : instances.length === 0 ? (
+                        );
+                        if (instances.length === 0) return (
                         <EmptyState
                             icon="terminal"
                             title={t('php.no_php_versions_installed')}
@@ -180,7 +182,8 @@ export default function PhpMain() {
                             actionText={t('php.download_now')}
                             onAction={() => setIsNewInstanceOpen(true)}
                         />
-                    ) : (
+                        );
+                        return (
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
                             {instances.map(php => {
                                 const isRunning = php.status === 'running';
@@ -213,7 +216,8 @@ export default function PhpMain() {
                                 )
                             })}
                         </div>
-                    )}
+                        );
+                    })()}
                 </div>
             </div>
 

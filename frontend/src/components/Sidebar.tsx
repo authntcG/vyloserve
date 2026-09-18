@@ -8,12 +8,12 @@ import brandNavLight from '../assets/brand-nav.png';
 import brandNavDark from '../assets/brand-nav-dark.png';
 
 interface SidebarProps {
-    isMobileOpen: boolean;
-    isDesktopCollapsed: boolean;
-    onCloseMobile: () => void;
-    onToggleDesktop: () => void;
-    activeMenu: string;
-    onSelectMenu: (id: string) => void;
+    readonly isMobileOpen: boolean;
+    readonly isDesktopCollapsed: boolean;
+    readonly onCloseMobile: () => void;
+    readonly onToggleDesktop: () => void;
+    readonly activeMenu: string;
+    readonly onSelectMenu: (id: string) => void;
 }
 
 const MAIN_MENU = [
@@ -145,7 +145,12 @@ export default function Sidebar({
     return (
         <>
             {isMobileOpen && (
-                <div onClick={onCloseMobile} className="fixed inset-0 bg-slate-900/50 z-40 md:hidden transition-opacity" />
+                <button
+                    type="button"
+                    onClick={onCloseMobile}
+                    aria-label={t('sidebar.close_menu', 'Close menu')}
+                    className="fixed inset-0 bg-slate-900/50 z-40 md:hidden transition-opacity outline-none"
+                />
             )}
 
             <nav className={`bg-surface dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col h-[calc(100vh-64px)] md:h-screen fixed left-0 top-[64px] md:top-0 z-50 transition-all duration-300 ease-in-out md:translate-x-0 ${sidebarWidthClass} ${mobileTranslateClass}`}>
@@ -188,14 +193,15 @@ export default function Sidebar({
 
                     {/* Overview */}
                     {filteredMain.map(menu => (
-                        <div
+                        <button
+                            type="button"
                             key={menu.id}
                             onClick={() => onSelectMenu(menu.id)}
-                            className={`flex items-center gap-3 rounded-md px-3 py-2.5 cursor-pointer transition-colors ${activeMenu === menu.id ? 'bg-slate-100 dark:bg-slate-800 text-primary' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                            className={`w-full text-left flex items-center gap-3 rounded-md px-3 py-2.5 cursor-pointer transition-colors ${activeMenu === menu.id ? 'bg-slate-100 dark:bg-slate-800 text-primary' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
                         >
                             <span className="material-symbols-outlined shrink-0" style={{ fontVariationSettings: activeMenu === menu.id ? "'FILL' 1" : "'FILL' 0" }}>{menu.icon}</span>
                             <span className={`font-medium text-sm whitespace-nowrap overflow-hidden transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[150px] opacity-100'}`}>{t(`sidebar.menu_${menu.id}`, menu.name)}</span>
-                        </div>
+                        </button>
                     ))}
 
                     {/* Services */}
@@ -209,16 +215,24 @@ export default function Sidebar({
                         return (
                             <div
                                 key={service.id}
-                                onClick={() => onSelectMenu(service.id)}
-                                className={`flex items-center justify-between gap-3 rounded-md px-3 py-2.5 cursor-pointer transition-colors ${isSelected ? 'bg-slate-100 dark:bg-slate-800 text-primary' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                                className={`flex items-center justify-between gap-3 rounded-md px-3 py-2.5 transition-colors ${isSelected ? 'bg-slate-100 dark:bg-slate-800 text-primary' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
                             >
-                                <div className="flex items-center gap-3 min-w-0">
+                                <button type="button" onClick={() => onSelectMenu(service.id)} className="flex items-center gap-3 min-w-0 flex-1 text-left cursor-pointer">
                                     <span className="material-symbols-outlined shrink-0" style={{ fontVariationSettings: isSelected ? "'FILL' 1" : "'FILL' 0" }}>{service.icon}</span>
                                     <span className={`font-medium text-sm truncate transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[150px] opacity-100'}`}>{t(`sidebar.menu_${service.id}`, service.name)}</span>
-                                </div>
+                                </button>
 
-                                <label className={`relative inline-flex items-center cursor-pointer transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[40px] opacity-100'}`} onClick={(e) => handleToggleClick(service.id, e)}>
-                                    <input type="checkbox" checked={serviceStatus[service.id] || false} readOnly className="sr-only peer" />
+                                <label
+                                    className={`relative inline-flex items-center cursor-pointer transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[40px] opacity-100'}`}
+                                    aria-label={t('sidebar.toggle_service', 'Toggle {{service}}', { service: t(`sidebar.menu_${service.id}`, service.name) })}
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={serviceStatus[service.id] || false}
+                                        onClick={(e) => handleToggleClick(service.id, e)}
+                                        onChange={() => {}}
+                                        className="sr-only peer"
+                                    />
                                     <div className="w-8 h-4 bg-slate-300 dark:bg-slate-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
                                 </label>
                             </div>
@@ -228,25 +242,32 @@ export default function Sidebar({
                     {/* Utilities Tools */}
                     {filteredTools.length > 0 && (
                         <div className="relative group mt-2 pt-2 border-t border-slate-200 dark:border-slate-800">
-                            <div
-                                className="flex items-center justify-between gap-3 rounded-md px-3 py-2.5 cursor-pointer text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                            <button
+                                type="button"
+                                className="w-full text-left flex items-center justify-between gap-3 rounded-md px-3 py-2.5 cursor-pointer text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                                 onClick={() => !isDesktopCollapsed && setIsToolsOpen(!isToolsOpen)}
+                                aria-expanded={showToolsDropdown}
                             >
                                 <div className="flex items-center gap-3">
                                     <span className="material-symbols-outlined shrink-0">construction</span>
                                     <span className={`font-medium text-sm whitespace-nowrap overflow-hidden transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[150px] opacity-100'}`}>{t('sidebar.tools')}</span>
                                 </div>
                                 <span className={`material-symbols-outlined text-[20px] transition-transform duration-300 ${isDesktopCollapsed ? 'hidden' : ''}`} style={{ transform: showToolsDropdown ? 'rotate(180deg)' : 'rotate(0deg)' }}>expand_more</span>
-                            </div>
+                            </button>
 
                             {/* Dropdown Menu */}
                             {!isDesktopCollapsed && showToolsDropdown && (
                                 <div className="flex flex-col gap-1 ml-4 pl-2 border-l border-slate-200 dark:border-slate-700 my-1">
                                     {filteredTools.map(tool => (
-                                        <div key={tool.id} onClick={() => onSelectMenu(tool.id)} className={`flex items-center gap-3 rounded-md px-3 py-2 cursor-pointer transition-colors ${activeMenu === tool.id ? 'text-primary bg-slate-50 dark:bg-slate-800/50' : 'text-slate-500 dark:text-slate-400 hover:text-primary'}`}>
+                                        <button
+                                            type="button"
+                                            key={tool.id}
+                                            onClick={() => onSelectMenu(tool.id)}
+                                            className={`w-full text-left flex items-center gap-3 rounded-md px-3 py-2 cursor-pointer transition-colors ${activeMenu === tool.id ? 'text-primary bg-slate-50 dark:bg-slate-800/50' : 'text-slate-500 dark:text-slate-400 hover:text-primary'}`}
+                                        >
                                             <span className="material-symbols-outlined text-[18px] shrink-0">{tool.icon}</span>
                                             <span className="font-medium text-sm">{t(`sidebar.menu_${tool.id}`, tool.name)}</span>
-                                        </div>
+                                        </button>
                                     ))}
                                 </div>
                             )}
@@ -256,10 +277,15 @@ export default function Sidebar({
                                 <div className="absolute left-[calc(100%+4px)] top-0 w-48 flex-col gap-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl p-2 z-[60] opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
                                     <div className="px-3 pt-1 pb-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 mb-1">{t('sidebar.tools')}</div>
                                     {filteredTools.map(tool => (
-                                        <div key={tool.id} onClick={() => onSelectMenu(tool.id)} className={`flex items-center gap-3 rounded-md px-3 py-2 cursor-pointer ${activeMenu === tool.id ? 'text-primary bg-slate-50 dark:bg-slate-800' : 'text-slate-600 dark:text-slate-300'}`}>
+                                        <button
+                                            type="button"
+                                            key={tool.id}
+                                            onClick={() => onSelectMenu(tool.id)}
+                                            className={`w-full text-left flex items-center gap-3 rounded-md px-3 py-2 cursor-pointer ${activeMenu === tool.id ? 'text-primary bg-slate-50 dark:bg-slate-800' : 'text-slate-600 dark:text-slate-300'}`}
+                                        >
                                             <span className="material-symbols-outlined text-[18px]">{tool.icon}</span>
                                             <span className="font-medium text-sm truncate">{t(`sidebar.menu_${tool.id}`, tool.name)}</span>
-                                        </div>
+                                        </button>
                                     ))}
                                 </div>
                             )}

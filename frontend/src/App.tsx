@@ -29,7 +29,7 @@ function AppContent() {
 
   useEffect(() => {
     const checkApi = () => {
-      if (window.pywebview && window.pywebview.api && window.pywebview.api.test_connection) {
+      if (window.pywebview?.api?.test_connection) {
         setIsApiReady(true);
         
         // --- LOAD GLOBAL SETTINGS ---
