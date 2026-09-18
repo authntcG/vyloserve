@@ -32,7 +32,7 @@ class ProjectManager:
     
     def _save_projects(self, projects):
         if not write_json(self.projects_file, projects) and hasattr(self, 'api'):
-            self._log("Gagal menyimpan ke projects.json", "error")
+            self._log("backend.project.save_json_failed", "error")
 
     def detect_framework(self, directory: str) -> str:
         if not os.path.isdir(directory): return "raw"
@@ -51,7 +51,7 @@ class ProjectManager:
                     if php.get('version') == php_version:
                         return int(php.get('port', php.get('fastcgi_port', 9000)))
         except Exception as e:
-            self._log(f"Gagal membaca port asli PHP: {str(e)}", "warn")
+            self._log("backend.project.read_php_port_failed", "warn", {"e": str(e)})
         return 9000
 
     def _ensure_composer_exists(self) -> Optional[str]:
@@ -60,20 +60,20 @@ class ProjectManager:
         composer_path = os.path.join(composer_dir, 'composer.phar')
         
         if not os.path.exists(composer_path):
-            self._log("Mengunduh composer.phar...", "warn")
+            self._log("backend.project.downloading_composer", "warn")
             try:
                 urllib.request.urlretrieve("https://getcomposer.org/download/latest-stable/composer.phar", composer_path)
-                self._log("Composer berhasil diunduh.", "success")
+                self._log("backend.project.composer_download_success", "success")
             except Exception as e:
-                self._log(f"Gagal mengunduh Composer: {str(e)}", "error")
+                self._log("backend.project.composer_download_failed", "error", {"e": str(e)})
                 return None
         return composer_path
 
     def _rollback_dir(self, target_dir: str):
         import shutil
         if os.path.exists(target_dir):
-            self._progress(100, "Melakukan rollback instalasi...")
-            self._log(f"Instalasi gagal! Melakukan rollback ({target_dir})...", "warn")
+            self._progress(100, "backend.project.rolling_back")
+            self._log("backend.project.install_failed_rollback", "warn", {"target_dir": target_dir})
             shutil.rmtree(target_dir, ignore_errors=True)
 
     def _determine_framework_package(self, framework: str, specific_version: str, php_version: str) -> tuple[str, bool]:
@@ -95,13 +95,13 @@ class ProjectManager:
             clean_line = ansi_escape.sub('', line.strip())
             if clean_line:
                 error_log += clean_line + " "
-                self._log(f"[Composer] {clean_line}", "info")
+                self._log("backend.project.composer_log", "info", {"line": clean_line})
                 if current_percent < max_percent: current_percent += 0.5
                 self._progress(int(current_percent), f"{prefix}: {clean_line[:62]}")
         return current_percent, error_log
 
     def _run_composer_update_with_retries(self, php_exe: str, php_ini_path: str, composer_phar: str, target_dir: str, custom_env: dict, cflags: int, current_percent: float, ansi_escape: re.Pattern) -> bool:
-        self._log("Menyesuaikan dependensi framework dengan versi PHP lokal...", "info")
+        self._log("backend.project.adjusting_dependencies", "info")
         for attempt in range(3):
             lock_file = os.path.join(target_dir, "composer.lock")
             if os.path.exists(lock_file): os.remove(lock_file)
@@ -118,7 +118,7 @@ class ProjectManager:
             process_update.wait()
             if process_update.returncode == 0:
                 return True
-            self._log(f"Percobaan update ke-{attempt+1} gagal. Mencoba lagi...", "warn")
+            self._log("backend.project.retry_update", "warn", {"attempt": attempt + 1})
         return False
 
     def _run_composer_create_project(self, php_exe: str, php_ini_path: str, composer_phar: str, package: str, target_dir: str, custom_env: dict, cflags: int, current_percent: float, ansi_escape: re.Pattern) -> tuple[bool, str]:
@@ -127,7 +127,7 @@ class ProjectManager:
             import shutil
             shutil.rmtree(target_dir, ignore_errors=True)
 
-        self._log("Mengunduh struktur dasar framework...", "info")
+        self._log("backend.project.downloading_framework", "info")
         process_create = subprocess.Popen(
             [php_exe, "-c", php_ini_path, composer_phar, "create-project", package, target_dir, "--prefer-dist", "--no-interaction", "--no-install", "--no-scripts"], 
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=custom_env, creationflags=cflags
@@ -140,7 +140,7 @@ class ProjectManager:
 
 
     def _run_framework_post_install(self, framework: str, target_dir: str, php_exe: str, php_ini_path: str, custom_env: dict, cflags: int, is_ci3: bool):
-        self._log("Menjalankan post-installation script framework...", "info")
+        self._log("backend.project.running_post_install", "info")
         import shutil
         if framework == 'laravel':
             if os.path.exists(os.path.join(target_dir, '.env.example')) and not os.path.exists(os.path.join(target_dir, '.env')):
@@ -157,7 +157,7 @@ class ProjectManager:
 
     def _install_wordpress(self, target_dir: str) -> dict:
         import zipfile
-        self._log("Memulai instalasi WordPress...", "info")
+        self._log("backend.project.installing_wp", "info")
         os.makedirs(target_dir, exist_ok=True)
         zip_path = os.path.join(target_dir, "latest.zip")
         try:
@@ -171,32 +171,32 @@ class ProjectManager:
                 os.rmdir(wp_extracted_dir)
 
             if os.path.exists(zip_path): os.remove(zip_path)
-            self._log("Instalasi WordPress berhasil!", "success")
+            self._log("backend.project.wp_install_success", "success")
             return {"status": "success", "document_root": target_dir.replace('\\', '/')}
         except Exception as e:
             self._rollback_dir(target_dir)
-            return {"status": "error", "message": f"Gagal menginstal WordPress: {str(e)}"}
+            return {"status": "error", "message": "backend.project.wp_install_failed", "args": {"e": str(e)}}
 
     def _install_raw_project(self, target_dir: str) -> dict:
-        self._log("Membuat proyek PHP murni (Raw)...", "info")
+        self._log("backend.project.creating_raw_php", "info")
         try:
             os.makedirs(target_dir, exist_ok=True)
             with open(os.path.join(target_dir, "index.php"), "w", encoding="utf-8") as f:
                 f.write("<?php\n\necho '<h1>Welcome to VyloServe</h1>';\n\n// phpinfo();\n")
-            self._log("Proyek PHP berhasil disiapkan!", "success")
+            self._log("backend.project.raw_php_success", "success")
             return {"status": "success", "document_root": target_dir.replace('\\', '/')}
         except Exception as e:
             self._rollback_dir(target_dir)
-            return {"status": "error", "message": f"Gagal membuat proyek Raw: {str(e)}"}
+            return {"status": "error", "message": "backend.project.raw_php_failed", "args": {"e": str(e)}}
 
     def _install_composer_framework(self, framework: str, target_dir: str, php_version: str, specific_version: str, php_exe: str) -> dict:
-        self._progress(20, "Mengonfigurasi PHP...")
+        self._progress(20, "backend.project.configuring_php")
 
         composer_phar = self._ensure_composer_exists()
-        if not composer_phar: return {"status": "error", "message": "Composer gagal disiapkan."}
+        if not composer_phar: return {"status": "error", "message": "backend.project.composer_failed"}
 
         package, is_ci3 = self._determine_framework_package(framework, specific_version, php_version)
-        self._log(f"Instalasi {package} menggunakan PHP {php_version}...", "info")
+        self._log("backend.project.installing_package", "info", {"package": package, "php_version": php_version})
         
         try:
             php_ini_path = os.path.join(self.bin_dir, 'php', php_version, 'php.ini')
@@ -214,7 +214,7 @@ class ProjectManager:
             
             if not success_create:
                 self._rollback_dir(target_dir)
-                return {"status": "error", "message": f"Gagal mengunduh struktur dasar: {error_log[:150]}"}
+                return {"status": "error", "message": "backend.project.framework_download_failed", "args": {"error": error_log[:150]}}
 
             try: subprocess.run([php_exe, "-c", php_ini_path, composer_phar, "config", "policy.advisories.block", "false"], env=custom_env, cwd=target_dir, creationflags=cflags)
             except Exception: pass
@@ -223,16 +223,16 @@ class ProjectManager:
                     
             if not update_success:
                 self._rollback_dir(target_dir)
-                return {"status": "error", "message": "Gagal meracik dependensi (Vendor). OS/Antivirus mungkin mengunci file."}
+                return {"status": "error", "message": "backend.project.dependency_failed"}
 
             self._run_framework_post_install(framework, target_dir, php_exe, php_ini_path, custom_env, cflags, is_ci3)
 
-            self._progress(100, "Instalasi selesai sempurna!")
-            self._log(f"Instalasi {framework.capitalize()} berhasil!", "success")
+            self._progress(100, "backend.project.install_complete_perfect")
+            self._log("backend.project.framework_install_success", "success", {"framework": framework.capitalize()})
             return {"status": "success", "document_root": target_dir.replace('\\', '/') if is_ci3 else os.path.join(target_dir, "public").replace('\\', '/')}
             
         except Exception as e:
-            return {"status": "error", "message": f"Gagal menjalankan Composer: {str(e)}"}
+            return {"status": "error", "message": "backend.project.composer_run_failed", "args": {"e": str(e)}}
 
     def _install_new_framework(self, payload: dict):
         framework = payload.get('framework')
@@ -242,7 +242,7 @@ class ProjectManager:
         
         php_exe = os.path.join(self.bin_dir, 'php', php_version, 'php.exe')
         if not os.path.exists(php_exe):
-            return {"status": "error", "message": f"File php.exe untuk versi {php_version} tidak ditemukan."}
+            return {"status": "error", "message": "backend.project.php_exe_not_found", "args": {"php_version": php_version}}
 
         if framework in ['laravel', 'codeigniter']:
             return self._install_composer_framework(framework, target_dir, php_version, specific_version, php_exe)
@@ -260,7 +260,7 @@ class ProjectManager:
                     p['host_synced'] = False
                     break
             self._save_projects(projects)
-            return "Proyek diinstal, namun gagal memodifikasi file Hosts Windows. Harap restart aplikasi sebagai Administrator."
+            return "backend.project.hosts_uac_warning"
         return None
 
     def _write_hosts_with_uac(self, hosts_path: str, final_content: str, temp_file: str):
@@ -279,7 +279,7 @@ class ProjectManager:
             projects = self._read_projects()
             
             if any(p['domain'] == domain_full for p in projects):
-                return {"status": "error", "message": f"Domain {domain_full} sudah digunakan."}
+                return {"status": "error", "message": "backend.project.domain_used", "args": {"domain": domain_full}}
                 
             if payload.get('is_existing'):
                 final_doc_root = payload.get('document_root')
@@ -305,11 +305,13 @@ class ProjectManager:
                 if self.api.apache.check_is_running():
                     self.api.apache.restart_server() 
                 
-            return {"status": "success", "message": warning_msg or {"message": "backend.project.project_ready", "args": {"domain": domain_full}}}
+            if warning_msg:
+                return {"status": "success", "message": warning_msg}
+            return {"status": "success", "message": "backend.project.project_ready", "args": {"domain": domain_full}}
 
         except Exception as e:
             self._log("backend.project.critical_error", "error", {"e": str(e)})
-            return {"status": "error", "message": str(e)}
+            return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
 
     def sync_windows_hosts(self):
         hosts_path = r"C:\Windows\System32\drivers\etc\hosts"
@@ -375,10 +377,10 @@ class ProjectManager:
     def sync_apache_vhosts(self):
         try:
             projects = self._read_projects()
-            if not hasattr(self.api, 'apache'): return {"status": "error", "message": "Modul Apache tidak termuat."}
-                
+            if not hasattr(self.api, 'apache'): return {"status": "error", "message": "backend.project.apache_not_loaded"}
+
             status = self.api.apache.get_status()
-            if not status.get("installed"): return {"status": "error", "message": "Apache belum terinstal."}
+            if not status.get("installed"): return {"status": "error", "message": "backend.project.apache_not_installed"}
                 
             extra_dir = os.path.join(status["path"], 'conf', 'extra')
             os.makedirs(extra_dir, exist_ok=True)
@@ -390,7 +392,7 @@ class ProjectManager:
 
             with open(vhosts_file, 'w', encoding='utf-8') as f: f.write(vhost_content)
             return {"status": "success", "message": "backend.project.vhosts_written"}
-        except Exception as e: return {"status": "error", "message": str(e)}
+        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
     
     def get_projects(self):
         try:
@@ -398,7 +400,7 @@ class ProjectManager:
             for p in projects:
                 if 'pretty_url_synced' not in p: p['pretty_url_synced'] = p.get('framework', 'raw') == 'raw'
             return {"status": "success", "data": projects}
-        except Exception as e: return {"status": "error", "message": str(e)}
+        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
 
     def _delete_ssl_cert(self, domain: str):
         if hasattr(self.api, 'ssl'):
@@ -432,10 +434,10 @@ class ProjectManager:
                 base_path = project_to_delete['path'].replace('/public', '').replace('\\public', '')
                 if os.path.exists(base_path): shutil.rmtree(base_path, ignore_errors=True)
                 
-            self._log(f"Proyek {project_to_delete['domain']} dihapus.", "info")
+            self._log("backend.project.project_deleted", "info", {"domain": project_to_delete['domain']})
             return {"status": "success", "message": "backend.project.project_deleted"}
         except Exception as e:
-            return {"status": "error", "message": str(e)}
+            return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
 
     def retry_sync_host(self, project_id: str):
         try:
@@ -448,8 +450,8 @@ class ProjectManager:
                 if p['id'] == project_id: p['host_synced'] = True; break
             self._save_projects(projects)
             
-            return {"status": "success", "message": "Berhasil menyinkronkan domain!"}
-        except Exception as e: return {"status": "error", "message": str(e)}
+            return {"status": "success", "message": "backend.project.domain_synced"}
+        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
 
     def open_in_explorer(self, path: str):
         try:
@@ -457,21 +459,21 @@ class ProjectManager:
             if os.path.exists(norm_path):
                 os.startfile(norm_path)
                 return {"status": "success"}
-            return {"status": "error", "message": "Direktori tidak ditemukan."}
-        except Exception as e: return {"status": "error", "message": str(e)}
-    
+            return {"status": "error", "message": "backend.project.dir_not_found"}
+        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+
     def update_project(self, payload: dict):
         try:
             project_id, new_name, new_php = payload.get('id'), payload.get('name'), payload.get('php_version')
             projects = self._read_projects()
             project = next((p for p in projects if p['id'] == project_id), None)
-            if not project: return {"status": "error", "message": "Proyek tidak ditemukan."}
+            if not project: return {"status": "error", "message": "backend.project.project_not_found"}
 
             if new_name: project['name'] = new_name
             if new_php and project.get('php_version') != new_php:
                 project['php_version'] = new_php
                 project['php_port'] = self._get_php_port_from_system(new_php)
-                self._log(f"Versi PHP diubah ke {new_php}", "info")
+                self._log("backend.project.php_version_changed", "info", {"new_php": new_php})
 
             self._save_projects(projects)
             if hasattr(self, 'sync_apache_vhosts'): self.sync_apache_vhosts()
@@ -481,5 +483,5 @@ class ProjectManager:
                 if self.api.apache.check_is_running():
                     self.api.apache.restart_server()
 
-            return {"status": "success", "message": "Pengaturan disimpan!"}
-        except Exception as e: return {"status": "error", "message": str(e)}
+            return {"status": "success", "message": "backend.project.settings_saved"}
+        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}

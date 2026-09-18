@@ -39,10 +39,10 @@ const InstallJava = forwardRef<InstallJavaRef, any>((_, ref) => {
             try {
                 const res = await window.pywebview?.api?.install_java(version);
                 if (res?.status === 'success') {
-                    showToast(res.message || t('runtimes.java_install_success'), 'success');
+                    showToast(res.message ? t(res.message, res.args || {}) : t('runtimes.java_install_success'), 'success');
                     return true;
                 } else {
-                    showToast(res?.message || t('runtimes.java_install_error'), 'error');
+                    showToast(res?.message ? t(res.message, res.args || {}) : t('runtimes.java_install_error'), 'error');
                     return false;
                 }
             } catch {

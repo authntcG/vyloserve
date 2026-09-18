@@ -201,7 +201,8 @@ def test_db_fetch_mariadb_versions_network_error_returns_real_message(db_mgr):
     with patch('core.services.database.urllib.request.urlopen', side_effect=OSError("connection refused")):
         res = db_mgr._fetch_mariadb_versions()
         assert res['status'] == 'error'
-        assert res['message'] == 'connection refused'
+        assert res['message'] == 'backend.error.unexpected'
+        assert res['args']['e'] == 'connection refused'
 
 def test_db_uninstall_database(db_mgr):
     with patch('core.services.database.read_json', return_value=[{"id": "db_1", "port": 3306, "installDir": "C:\\db", "dataDir": "C:\\data", "name": "MySQL"}]):
@@ -268,7 +269,8 @@ def test_db_open_path_os_error_returns_real_message(db_mgr):
                 with patch('core.services.database.os.startfile', side_effect=OSError("access denied")):
                     res = db_mgr.open_path("db_1")
                     assert res['status'] == 'error'
-                    assert res['message'] == 'access denied'
+                    assert res['message'] == 'backend.error.unexpected'
+                    assert res['args']['e'] == 'access denied'
 
 def test_db_get_db_config(db_mgr):
     with patch('core.services.database.read_json', return_value=[{"id": "db_1", "engine": "mysql", "installDir": "C:\\db", "dataDir": "C:\\data"}]):
@@ -375,7 +377,7 @@ def test_db_update_config_lines(db_mgr):
 def test_db_get_installed_handles_exception(db_mgr):
     with patch('core.services.database.read_json', side_effect=RuntimeError("json corrupt")):
         res = db_mgr.get_installed()
-    assert res == {"status": "error", "message": "json corrupt"}
+    assert res == {"status": "error", "message": "backend.error.unexpected", "args": {"e": "json corrupt"}}
 
 # ==========================================
 # _wait_for_startup — deteksi crash proses
@@ -396,7 +398,8 @@ def test_db_wait_for_startup_detects_process_crash(db_mgr, tmp_path):
         res = db_mgr._wait_for_startup({"id": "db_1", "port": 3306, "dataDir": str(data_dir), "name": "MySQL"}, mock_log)
 
     assert res['status'] == 'error'
-    assert 'could not bind to port 3306' in res['message']
+    assert res['message'] == 'backend.database.crashed_on_startup'
+    assert 'could not bind to port 3306' in res['args']['err']
     mock_log.close.assert_called_once()
 
 # ==========================================
@@ -408,7 +411,7 @@ def test_db_start_database_not_found(mock_read_json, db_mgr):
     mock_read_json.return_value = []
     res = db_mgr.start_database("missing")
     assert res['status'] == 'error'
-    assert res['message'] == 'backend.database.db_not_found'
+    assert res['message'] == 'backend.database.not_found'
 
 @patch('core.services.database.read_json')
 @patch('core.services.database.check_port_in_use', return_value=True)
@@ -517,7 +520,7 @@ def test_fetch_mariadb_versions_skips_version_when_resolve_fails(db_mgr):
 def test_fetch_postgres_versions_handles_network_error(db_mgr):
     with patch('core.services.database.urllib.request.urlopen', side_effect=OSError("timeout")):
         res = db_mgr._fetch_postgres_versions()
-    assert res == {"status": "error", "message": "timeout"}
+    assert res == {"status": "error", "message": "backend.error.unexpected", "args": {"e": "timeout"}}
 
 def test_fetch_postgres_versions_uses_linux_os_target(db_mgr):
     mock_resp = MagicMock()
@@ -605,7 +608,8 @@ def test_install_database_rolls_back_on_download_failure(mock_download, db_mgr):
                 res = db_mgr.install_database("mysql", "8.0", "http://x", 3306, "pass")
 
     assert res['status'] == 'error'
-    assert res['message'] == 'network down'
+    assert res['message'] == 'backend.error.unexpected'
+    assert res['args']['e'] == 'network down'
     mock_cleanup.assert_called_once()
     db_mgr.api.emit_progress.assert_any_call(-1, "network down")
 
@@ -616,7 +620,7 @@ def test_install_database_rolls_back_on_download_failure(mock_download, db_mgr):
 def test_db_uninstall_database_handles_unexpected_exception(db_mgr):
     with patch('core.services.database.read_json', side_effect=RuntimeError("disk error")):
         res = db_mgr.uninstall_database("db_1")
-    assert res == {"status": "error", "message": "disk error"}
+    assert res == {"status": "error", "message": "backend.error.unexpected", "args": {"e": "disk error"}}
 
 # ==========================================
 # open_path — cabang is_file & auto-create my.ini
@@ -669,7 +673,7 @@ def test_save_db_config_postgres_builds_correct_keys(mock_read_json, mock_write_
             with patch('builtins.open', mock_open()):
                 res = db_mgr.save_db_config("db_1", {"port": 5432, "shared_buffers": "256MB", "timezone": "UTC"})
     assert res['status'] == 'success'
-    assert 'Silakan Start DB' in res['message']
+    assert res['message'] == 'backend.database.config_saved_pending'
 
 @patch('core.services.database.write_json')
 @patch('core.services.database.read_json')
@@ -684,7 +688,7 @@ def test_save_db_config_restarts_when_was_running(mock_read_json, mock_write_jso
                             res = db_mgr.save_db_config("db_1", {"port": 3306})
     mock_stop.assert_called_once_with("db_1")
     mock_start.assert_called_once_with("db_1")
-    assert 'direstart' in res['message']
+    assert res['message'] == 'backend.database.config_saved_restarted'
 
 @patch('core.services.database.write_json')
 @patch('core.services.database.read_json')
@@ -697,7 +701,7 @@ def test_save_db_config_reports_restart_failure(mock_read_json, mock_write_json,
                     with patch.object(db_mgr, 'start_database', return_value={"status": "error"}):
                         with patch('time.sleep'):
                             res = db_mgr.save_db_config("db_1", {"port": 3306})
-    assert 'gagal start ulang' in res['message']
+    assert res['message'] == 'backend.database.config_saved_restart_failed'
 
 # ==========================================
 # change_db_credentials — cabang postgres & error
@@ -736,7 +740,7 @@ def test_change_db_credentials_handles_unexpected_exception(mock_check_port, moc
 def test_change_db_credentials_not_found(mock_read_json, db_mgr):
     res = db_mgr.change_db_credentials("missing", "root", "old", "new")
     assert res['status'] == 'error'
-    assert res['message'] == 'backend.database.db_not_found'
+    assert res['message'] == 'backend.database.not_found'
 
 @patch('core.services.database.read_json')
 @patch('core.services.database.check_port_in_use', return_value=False)

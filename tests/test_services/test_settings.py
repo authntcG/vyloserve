@@ -38,11 +38,13 @@ def test_save_settings_error(mock_write_json, settings_manager, mock_api):
     
     res = settings_manager.save_settings({"language": "fr"})
     assert res['status'] == 'error'
-    assert "diblokir oleh OS" in res['message']
+    assert res['message'] == 'backend.error.unexpected'
+    assert "diblokir oleh OS" in res['args']['e']
     
     # Verify that the API emitted an error log
     mock_api.emit_log.assert_called_once()
-    assert "Gagal menyimpan pengaturan aplikasi" in mock_api.emit_log.call_args[0][0]
+    assert mock_api.emit_log.call_args[0][0] == 'backend.error.unexpected'
+    assert "diblokir oleh OS" in mock_api.emit_log.call_args[0][2]['e']
 
 @patch('core.services.settings.read_json')
 def test_get_settings_exception(mock_read_json, settings_manager, mock_api):
@@ -51,7 +53,9 @@ def test_get_settings_exception(mock_read_json, settings_manager, mock_api):
     
     res = settings_manager.get_settings()
     assert res['status'] == 'error'
-    assert res['message'] == 'Disk failure'
+    assert res['message'] == 'backend.error.unexpected'
+    assert res['args']['e'] == 'Disk failure'
     
     mock_api.emit_log.assert_called_once()
-    assert "Gagal membaca pengaturan aplikasi" in mock_api.emit_log.call_args[0][0]
+    assert mock_api.emit_log.call_args[0][0] == 'backend.error.unexpected'
+    assert mock_api.emit_log.call_args[0][2]['e'] == 'Disk failure'

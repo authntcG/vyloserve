@@ -211,7 +211,7 @@ def test_rollback_dir_removes_directory_and_reports_progress(mock_exists, mock_r
     project_manager._rollback_dir("C:\\target_dir")
 
     mock_rmtree.assert_called_once_with("C:\\target_dir", ignore_errors=True)
-    project_manager.api.emit_progress.assert_called_once_with(100, "Melakukan rollback instalasi...")
+    project_manager.api.emit_progress.assert_called_once_with(100, "backend.project.rolling_back")
 
 @patch('os.path.exists', return_value=False)
 def test_rollback_dir_noop_when_directory_missing(mock_exists, project_manager):
@@ -324,7 +324,7 @@ def test_install_composer_framework(mock_run, mock_post, mock_update, mock_creat
 def test_install_composer_framework_no_composer(mock_ens, project_manager):
     res = project_manager._install_composer_framework("laravel", "C:\\test_dir", "8.1.10", "", "C:\\php.exe")
     assert res['status'] == 'error'
-    assert 'Composer gagal disiapkan' in res['message']
+    assert res['message'] == 'backend.project.composer_failed'
 
 @patch('core.services.project.subprocess.Popen')
 @patch('core.services.project.ProjectManager._stream_composer_output', return_value=(60.0, ""))
@@ -400,7 +400,8 @@ def test_install_new_framework_php_exe_missing_returns_error(mock_exists, projec
     payload = {"framework": "laravel", "install_location": "C:\\www", "domain": "app.local", "php_version": "9.9"}
     res = project_manager._install_new_framework(payload)
     assert res['status'] == 'error'
-    assert '9.9' in res['message']
+    assert res['message'] == 'backend.project.php_exe_not_found'
+    assert res['args']['php_version'] == '9.9'
 
 # ==========================================
 # _run_framework_post_install — Laravel & CodeIgniter
@@ -473,12 +474,12 @@ def test_open_in_explorer_success(mock_exists, mock_startfile, project_manager):
 def test_open_in_explorer_directory_not_found(mock_exists, project_manager):
     res = project_manager.open_in_explorer("C:/does/not/exist")
     assert res['status'] == 'error'
-    assert res['message'] == 'Direktori tidak ditemukan.'
+    assert res['message'] == 'backend.project.dir_not_found'
 
 @patch('os.path.normpath', side_effect=RuntimeError("bad path"))
 def test_open_in_explorer_handles_unexpected_exception(mock_normpath, project_manager):
     res = project_manager.open_in_explorer("C:/whatever")
-    assert res == {"status": "error", "message": "bad path"}
+    assert res == {"status": "error", "message": "backend.error.unexpected", "args": {"e": "bad path"}}
 
 # ==========================================
 # _get_php_port_from_system — error path
@@ -511,7 +512,8 @@ def test_create_project_domain_already_used(mock_read_json, project_manager):
     mock_read_json.return_value = [{"domain": "app.local"}]
     res = project_manager.create_project({"domain": "app", "domain_extension": ".local"})
     assert res['status'] == 'error'
-    assert 'sudah digunakan' in res['message']
+    assert res['message'] == 'backend.project.domain_used'
+    assert res['args']['domain'] == 'app.local'
 
 @patch('core.services.project.read_json', return_value=[])
 def test_create_project_propagates_framework_install_error(mock_read_json, project_manager):
@@ -523,7 +525,8 @@ def test_create_project_propagates_framework_install_error(mock_read_json, proje
 def test_create_project_handles_unexpected_exception(mock_read_json, project_manager):
     res = project_manager.create_project({"domain": "app", "domain_extension": ".local"})
     assert res['status'] == 'error'
-    assert res['message'] == 'disk corrupt'
+    assert res['message'] == 'backend.error.unexpected'
+    assert res['args']['e'] == 'disk corrupt'
     project_manager.api.emit_log.assert_called_once()
 
 # ==========================================
@@ -547,7 +550,7 @@ def test_delete_project_rolls_back_when_uac_denied(mock_read_json, mock_write_js
 @patch('core.services.project.read_json', side_effect=RuntimeError("disk error"))
 def test_delete_project_handles_unexpected_exception(mock_read_json, project_manager):
     res = project_manager.delete_project("1")
-    assert res == {"status": "error", "message": "disk error"}
+    assert res == {"status": "error", "message": "backend.error.unexpected", "args": {"e": "disk error"}}
 
 # ==========================================
 # update_project — cabang tambahan
@@ -557,12 +560,12 @@ def test_delete_project_handles_unexpected_exception(mock_read_json, project_man
 def test_update_project_not_found(mock_read_json, project_manager):
     res = project_manager.update_project({"id": "missing"})
     assert res['status'] == 'error'
-    assert res['message'] == 'Proyek tidak ditemukan.'
+    assert res['message'] == 'backend.project.project_not_found'
 
 @patch('core.services.project.read_json', side_effect=RuntimeError("disk error"))
 def test_update_project_handles_unexpected_exception(mock_read_json, project_manager):
     res = project_manager.update_project({"id": "1", "name": "x"})
-    assert res == {"status": "error", "message": "disk error"}
+    assert res == {"status": "error", "message": "backend.error.unexpected", "args": {"e": "disk error"}}
 
 # ==========================================
 # Cabang & error-path tersisa (menutup gap kecil menuju coverage tinggi)
@@ -587,7 +590,7 @@ def test_install_wordpress_download_failure_rolls_back(mock_urlretrieve, mock_ma
     with patch.object(project_manager, '_rollback_dir') as mock_rollback:
         res = project_manager._install_wordpress("C:\\wp_dir")
     assert res['status'] == 'error'
-    assert 'Gagal menginstal WordPress' in res['message']
+    assert res['message'] == 'backend.project.wp_install_failed'
     mock_rollback.assert_called_once_with("C:\\wp_dir")
 
 @patch('os.makedirs')
@@ -596,7 +599,7 @@ def test_install_raw_project_write_failure_rolls_back(mock_makedirs, project_man
         with patch.object(project_manager, '_rollback_dir') as mock_rollback:
             res = project_manager._install_raw_project("C:\\raw_dir")
     assert res['status'] == 'error'
-    assert 'Gagal membuat proyek Raw' in res['message']
+    assert res['message'] == 'backend.project.raw_php_failed'
     mock_rollback.assert_called_once_with("C:\\raw_dir")
 
 @patch('core.services.project.ProjectManager._ensure_composer_exists', return_value="C:\\composer.phar")
@@ -607,7 +610,8 @@ def test_install_composer_framework_rollback_on_create_project_failure(mock_run,
     with patch.object(project_manager, '_rollback_dir') as mock_rollback:
         res = project_manager._install_composer_framework("laravel", "C:\\test_dir", "8.1.10", "", "C:\\php.exe")
     assert res['status'] == 'error'
-    assert 'composer error output' in res['message']
+    assert res['message'] == 'backend.project.framework_download_failed'
+    assert 'composer error output' in res['args']['error']
     mock_rollback.assert_called_once_with("C:\\test_dir")
 
 @patch('core.services.project.ProjectManager._ensure_composer_exists', return_value="C:\\composer.phar")
@@ -619,7 +623,7 @@ def test_install_composer_framework_rollback_on_update_failure(mock_run, mock_up
     with patch.object(project_manager, '_rollback_dir') as mock_rollback:
         res = project_manager._install_composer_framework("laravel", "C:\\test_dir", "8.1.10", "", "C:\\php.exe")
     assert res['status'] == 'error'
-    assert 'Antivirus' in res['message']
+    assert res['message'] == 'backend.project.dependency_failed'
     mock_rollback.assert_called_once_with("C:\\test_dir")
 
 @patch('core.services.project.read_json', return_value=[])
@@ -640,14 +644,14 @@ def test_sync_apache_vhosts_handles_unexpected_exception(project_manager):
     with patch('core.services.project.read_json', side_effect=RuntimeError("json corrupt")):
         project_manager.api.apache = MagicMock()
         res = project_manager.sync_apache_vhosts()
-    assert res == {"status": "error", "message": "json corrupt"}
+    assert res == {"status": "error", "message": "backend.error.unexpected", "args": {"e": "json corrupt"}}
 
 @patch('core.services.project.read_json', side_effect=RuntimeError("json corrupt"))
 def test_get_projects_handles_unexpected_exception(mock_read_json, project_manager):
     res = project_manager.get_projects()
-    assert res == {"status": "error", "message": "json corrupt"}
+    assert res == {"status": "error", "message": "backend.error.unexpected", "args": {"e": "json corrupt"}}
 
 def test_retry_sync_host_handles_unexpected_exception(project_manager):
     with patch.object(project_manager, 'sync_windows_hosts', side_effect=RuntimeError("unexpected")):
         res = project_manager.retry_sync_host("p1")
-    assert res == {"status": "error", "message": "unexpected"}
+    assert res == {"status": "error", "message": "backend.error.unexpected", "args": {"e": "unexpected"}}

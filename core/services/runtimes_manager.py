@@ -17,8 +17,8 @@ from core.utils.system_utils import get_project_root, run_silent_command
 from core.utils.file_utils import download_advanced, extract_archive
 
 USER_AGENT = 'Mozilla/5.0'
-MSG_PREPARE_DL = "Mempersiapkan pengunduhan..."
-MSG_DL_DONE = "Unduhan selesai. Memulai proses ekstraksi arsip..."
+MSG_PREPARE_DL = "backend.runtimes.preparing_download"
+MSG_DL_DONE = "backend.runtimes.download_complete_extracting"
 
 
 class RuntimesManager:
@@ -36,19 +36,19 @@ class RuntimesManager:
     # ==========================================
     # UTILITIES REGISTRY WINDOWS
     # ==========================================
-    def _emit_log(self, msg: str, level: str = "info"):
-        if hasattr(self, 'api'): self.api.emit_log(msg, level)
+    def _emit_log(self, msg: str, level: str = "info", args: dict = None):
+        if hasattr(self, 'api'): self.api.emit_log(msg, level, args)
 
-    def _emit_progress(self, percent: int, msg: str):
-        if hasattr(self, 'api'): self.api.emit_progress(percent, msg)
+    def _emit_progress(self, percent: int, msg: str, args: dict = None):
+        if hasattr(self, 'api'): self.api.emit_progress(percent, msg, args)
     def _cleanup_failed_install(self, zip_path: str, e: Exception, name: str):
         import os
         if os.path.exists(zip_path): 
             try: os.remove(zip_path)
             except OSError: pass
-        self._emit_progress(-1, "Instalasi Gagal: {0}".format(str(e)))
-        self._emit_log("Gagal memasang {0}: {1}".format(name, str(e)), "error")
-        return {"status": "error", "message": str(e)}
+        self._emit_progress(-1, "backend.runtimes.install_failed", {"e": str(e)})
+        self._emit_log("backend.runtimes.install_error_named", "error", {"name": name, "e": str(e)})
+        return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
 
     def _get_cbs(self, start_pct: int, end_pct: int):
         """
@@ -58,8 +58,8 @@ class RuntimesManager:
         aman (clamp), bukan faktor pengali, supaya progress tidak pernah meluber ribuan
         persen lalu "melompat mundur" saat tahap berikutnya mengirim nilai tetap.
         """
-        def log_cb(msg, lvl="info"):
-            self._emit_log(msg, lvl)
+        def log_cb(msg, lvl="info", args=None):
+            self._emit_log(msg, lvl, args)
         def download_cb(pct, msg):
             clamped = max(start_pct, min(pct, end_pct))
             self._emit_progress(clamped, msg)
@@ -78,7 +78,7 @@ class RuntimesManager:
         import shutil
 
         # Mengirimkan log ke UI VyloServe (Hanya terpicu saat render halaman)
-        self._emit_log(f"Memindai instalasi eksternal untuk engine '{command}'...", "info")
+        self._emit_log("backend.runtimes.scanning_external", "info", {"engine": command})
 
         vyloserve_bin = os.path.normpath(os.path.join(self.root_dir, 'bin')).lower()
         found_path = None
@@ -115,7 +115,7 @@ class RuntimesManager:
             if version_out:
                 final_version = version_out.split('\n')[0].strip()
                 
-                self._emit_log(f"Instalasi eksternal {command} ({final_version}) terdeteksi pada sistem.", "warn")
+                self._emit_log("backend.runtimes.external_detected", "warn", {"engine": command, "version": final_version})
                     
                 return {"exists": True, "path": found_path, "version": final_version}
                 
@@ -173,7 +173,7 @@ class RuntimesManager:
 
     def toggle_user_path(self, engine: str, enable: bool):
         paths_to_toggle = self._get_paths_to_toggle(engine)
-        if not paths_to_toggle: return {"status": "error", "message": "Engine tidak didukung."}
+        if not paths_to_toggle: return {"status": "error", "message": "backend.runtimes.engine_unsupported"}
         try:
             import winreg, ctypes
             key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Environment', 0, winreg.KEY_ALL_ACCESS)
@@ -181,11 +181,11 @@ class RuntimesManager:
             if modified:
                 ctypes.windll.user32.SendMessageTimeoutW(0xFFFF, 0x001A, 0, 'Environment', 0x0002, 5000, ctypes.byref(ctypes.c_ulong()))
             winreg.CloseKey(key)
-            self._emit_log(f"Global PATH {engine.upper()} diperbarui.", "success")
+            self._emit_log("backend.runtimes.path_updated", "success", {"engine": engine.upper()})
             return {"status": "success"}
         except Exception as e:
-            self._emit_log(f"Gagal mengatur PATH {engine}: {str(e)}", "error")
-            return {"status": "error", "message": f"Registry Error: {str(e)}"}
+            self._emit_log("backend.runtimes.path_error_log", "error", {"engine": engine, "e": str(e)})
+            return {"status": "error", "message": "backend.runtimes.registry_error", "args": {"e": str(e)}}
 
     # ==========================================
     # NODE.JS MANAGER
@@ -238,20 +238,20 @@ class RuntimesManager:
                 return {'status': 'success', 'data': versions}
         except Exception as e:
             # Ignore SonarQube urllib warning for now, using Exception is fine when bubbling to UI
-            return {'status': 'error', 'message': f"Gagal mengambil versi Node.js: {str(e)}"}
+            return {'status': 'error', 'message': "backend.runtimes.node_fetch_failed", 'args': {"e": str(e)}}
 
 
     def _finalize_node_install(self, node_dir: str, enable_corepack: bool, version: str, zip_filename: str):
-        self._emit_progress(85, "Menata ulang struktur direktori...")
+        self._emit_progress(85, "backend.runtimes.reorganizing_dir")
         extracted_folder = os.path.join(self.bin_dir, zip_filename.replace('.zip', ''))
         os.rename(extracted_folder, node_dir)
         if enable_corepack:
-            self._emit_progress(90, "Mengaktifkan dukungan Yarn & pnpm (Corepack)...")
+            self._emit_progress(90, "backend.runtimes.node_enable_corepack")
             corepack_cmd = os.path.join(node_dir, 'corepack.cmd' if sys.platform == 'win32' else 'corepack')
             if os.path.exists(corepack_cmd):
                 run_silent_command([corepack_cmd, 'enable'], cwd=node_dir)
-        self._emit_progress(100, "Instalasi Node.js Selesai!")
-        self._emit_log("Node.js v{0} berhasil diinstal dan siap digunakan.".format(version), "success")
+        self._emit_progress(100, "backend.runtimes.node_install_complete")
+        self._emit_log("backend.runtimes.node_ready", "success", {"version": version})
 
     def install_node(self, version: str, enable_corepack: bool):
         node_dir = os.path.join(self.bin_dir, 'node')
@@ -259,7 +259,7 @@ class RuntimesManager:
 
         try:
             # 1. LOG INISIALISASI
-            self._emit_log(f"Memulai instalasi Node.js v{version}...", "info")
+            self._emit_log("backend.runtimes.node_install_start", "info", {"version": version})
             self._emit_progress(5, MSG_PREPARE_DL)
 
             zip_filename = f"node-v{version}-win-x64.zip"
@@ -270,12 +270,12 @@ class RuntimesManager:
 
             if os.path.exists(node_dir): shutil.rmtree(node_dir, ignore_errors=True)
 
-            log_cb("Mulai mengunduh binary Node.js dari peladen resmi...", "info")
+            log_cb("backend.runtimes.starting_binary_download", "info", {"engine": "Node.js"})
             download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb)
 
             # 3. FASE EKSTRAKSI (60% - 85%)
             self._emit_log(MSG_DL_DONE, "info")
-            self._emit_progress(65, "Mengekstrak Node.js...")
+            self._emit_progress(65, "backend.runtimes.node_extracting")
             
             _, extract_prog_cb = self._get_cbs(65, 85)
 
@@ -295,7 +295,7 @@ class RuntimesManager:
         self.toggle_user_path('node', False)
         if os.path.exists(node_dir):
             shutil.rmtree(node_dir, ignore_errors=True)
-        self._emit_log("Node.js berhasil dihapus dari sistem.", "warn")
+        self._emit_log("backend.runtimes.node_uninstalled", "warn")
         return {"status": "success"}
 
 
@@ -385,14 +385,14 @@ class RuntimesManager:
             
         except Exception as e:
             # Ignore SonarQube urllib warning for now, using Exception is fine when bubbling to UI
-            return {'status': 'error', 'message': f"Gagal mengambil versi Python: {str(e)}"}
+            return {'status': 'error', 'message': "backend.runtimes.py_fetch_failed", 'args': {"e": str(e)}}
 
 
     def _finalize_python_install(self, python_dir: str, install_pip: bool, version: str):
         import subprocess
         if install_pip:
-            self._emit_log("Membuka kunci dukungan paket (import site)...", "info")
-            self._emit_progress(80, "Mengonfigurasi environment...")
+            self._emit_log("backend.runtimes.py_unlock_site", "info")
+            self._emit_progress(80, "backend.runtimes.configuring_environment")
             pth_file = next((f for f in os.listdir(python_dir) if f.endswith('._pth')), None)
             if pth_file:
                 pth_path = os.path.join(python_dir, pth_file)
@@ -402,8 +402,8 @@ class RuntimesManager:
                     content += '\nLib\\site-packages\n'
                 with open(pth_path, 'w') as f: f.write(content)
             os.makedirs(os.path.join(python_dir, 'Lib', 'site-packages'), exist_ok=True)
-            self._emit_log("Mengunduh & Menginstal pip...", "info")
-            self._emit_progress(85, "Menyiapkan package manager...")
+            self._emit_log("backend.runtimes.py_install_pip", "info")
+            self._emit_progress(85, "backend.runtimes.py_setup_pkg_manager")
             version_parts = version.split('.')
             major = int(version_parts[0])
             minor = int(version_parts[1])
@@ -424,8 +424,8 @@ class RuntimesManager:
             if res.returncode != 0:
                 raise RuntimeError("Gagal mengeksekusi get-pip.py: {0}".format(res.stderr.strip() or res.stdout.strip()))
             os.remove(get_pip_path)
-        self._emit_progress(100, "Instalasi Python Selesai!")
-        self._emit_log("Python {0} berhasil diinstal dan siap digunakan.".format(version), "success")
+        self._emit_progress(100, "backend.runtimes.py_install_complete")
+        self._emit_log("backend.runtimes.py_ready", "success", {"version": version})
 
     def install_python(self, version: str, install_pip: bool):
         python_dir = os.path.join(self.bin_dir, 'python')
@@ -433,7 +433,7 @@ class RuntimesManager:
 
         try:
             # 1. LOG INISIALISASI
-            self._emit_log(f"Memulai instalasi Python {version} (Embeddable)...", "info")
+            self._emit_log("backend.runtimes.py_install_start", "info", {"version": version})
             self._emit_progress(5, MSG_PREPARE_DL)
 
             zip_filename = f"python-{version}-embed-amd64.zip"
@@ -445,12 +445,12 @@ class RuntimesManager:
             if os.path.exists(python_dir): shutil.rmtree(python_dir, ignore_errors=True)
             os.makedirs(python_dir, exist_ok=True)
 
-            log_cb("Mulai mengunduh binary Python dari peladen resmi...", "info")
+            log_cb("backend.runtimes.starting_binary_download", "info", {"engine": "Python"})
             download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb)
 
             # 3. FASE EKSTRAKSI (50% - 75%)
             self._emit_log(MSG_DL_DONE, "info")
-            self._emit_progress(55, "Mengekstrak Python Embeddable...")
+            self._emit_progress(55, "backend.runtimes.py_extracting")
             
             _, extract_prog_cb = self._get_cbs(65, 80)
 
@@ -470,7 +470,7 @@ class RuntimesManager:
         self.toggle_user_path('python', False)
         if os.path.exists(python_dir):
             shutil.rmtree(python_dir, ignore_errors=True)
-        self._emit_log("Python berhasil dihapus dari sistem.", "warn")
+        self._emit_log("backend.runtimes.py_uninstalled", "warn")
         return {"status": "success"}
 
     # ==========================================
@@ -529,7 +529,7 @@ class RuntimesManager:
                         
                 return {'status': 'success', 'data': formatted_versions}
         except Exception as e:
-            return {'status': 'error', 'message': f"Gagal mengambil daftar versi Java: {str(e)}"}
+            return {'status': 'error', 'message': "backend.runtimes.java_fetch_failed", 'args': {"e": str(e)}}
 
     def install_java(self, version: str):
         java_dir = os.path.join(self.bin_dir, 'java')
@@ -537,8 +537,8 @@ class RuntimesManager:
 
         try:
             # 1. LOG INISIALISASI (0% - 5%)
-            self._emit_log(f"Memulai instalasi OpenJDK {version} (Eclipse Temurin)...", "info")
-            self._emit_progress(5, "Menginisialisasi pengunduhan dari Adoptium API...")
+            self._emit_log("backend.runtimes.java_install_start", "info", {"version": version})
+            self._emit_progress(5, "backend.runtimes.java_init_adoptium")
 
             # URL API Adoptium
             download_url = f"https://api.adoptium.net/v3/binary/latest/{version}/ga/windows/x64/jdk/hotspot/normal/eclipse"
@@ -549,12 +549,12 @@ class RuntimesManager:
             if os.path.exists(java_dir): 
                 shutil.rmtree(java_dir, ignore_errors=True)
 
-            log_cb("Mulai mengunduh binary Java dari peladen resmi...", "info")
+            log_cb("backend.runtimes.starting_binary_download", "info", {"engine": "Java"})
             download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb)
 
             # 3. FASE EKSTRAKSI (60% - 95%)
             self._emit_log(MSG_DL_DONE, "info")
-            self._emit_progress(65, "Me  ngekstrak Java Development Kit...")
+            self._emit_progress(65, "backend.runtimes.java_extracting")
             
             _, extract_prog_cb = self._get_cbs(65, 95)
 
@@ -564,7 +564,7 @@ class RuntimesManager:
                 os.remove(zip_path)
 
             # 4. FASE FINALISASI (95% - 100%)
-            self._emit_progress(95, "Menata ulang struktur direktori...")
+            self._emit_progress(95, "backend.runtimes.reorganizing_dir")
 
             extracted_folder = None
             for item in os.listdir(self.bin_dir):
@@ -578,8 +578,8 @@ class RuntimesManager:
                 raise RuntimeError("Folder biner JDK tidak ditemukan setelah diekstrak.")
 
             # SUKSES
-            self._emit_progress(100, "Instalasi Java Selesai!")
-            self._emit_log(f"Java JDK {version} berhasil diinstal dan siap digunakan.", "success")
+            self._emit_progress(100, "backend.runtimes.java_install_complete")
+            self._emit_log("backend.runtimes.java_ready", "success", {"version": version})
 
             return {"status": "success"}
 
@@ -591,17 +591,17 @@ class RuntimesManager:
                 try: os.remove(zip_path)
                 except OSError: pass
 
-            self._emit_progress(-1, f"Instalasi Gagal: {str(e)}")
-            self._emit_log(f"Gagal menginstal Java JDK: {str(e)}", "error")
-                
-            return {"status": "error", "message": str(e)}
+            self._emit_progress(-1, "backend.runtimes.install_failed", {"e": str(e)})
+            self._emit_log("backend.runtimes.java_install_error", "error", {"e": str(e)})
+
+            return {"status": "error", "message": "backend.runtimes.java_install_error", "args": {"e": str(e)}}
 
     def uninstall_java(self):
         java_dir = os.path.join(self.bin_dir, 'java')
         self.toggle_user_path('java', False)
         if os.path.exists(java_dir):
             shutil.rmtree(java_dir, ignore_errors=True)
-        self._emit_log("Java JDK berhasil dihapus dari sistem.", "warn")
+        self._emit_log("backend.runtimes.java_uninstalled", "warn")
         return {"status": "success"}
     
     # ==========================================
@@ -654,7 +654,7 @@ class RuntimesManager:
                 return {'status': 'success', 'data': versions}
         except Exception as e:
             # Ignore SonarQube urllib warning for now, using Exception is fine when bubbling to UI
-            return {'status': 'error', 'message': f"Gagal mengambil versi Go: {str(e)}"}
+            return {'status': 'error', 'message': "backend.runtimes.go_fetch_failed", 'args': {"e": str(e)}}
 
     def install_go(self, version: str):
         go_dir = os.path.join(self.bin_dir, 'go')
@@ -662,13 +662,13 @@ class RuntimesManager:
 
         try:
             # 1. LOG INISIALISASI (0% - 10%)
-            self._emit_log("Memulai persiapan instalasi Go Compiler...", "info")
+            self._emit_log("backend.runtimes.go_install_start", "info")
             self._emit_progress(5, MSG_PREPARE_DL)
-            
+
             # Jika user memilih 'latest', cari tahu versi aslinya
             if version == 'latest':
-                self._emit_log("Menghubungi API Go Dev untuk resolusi rilis terbaru...", "info")
-                self._emit_progress(10, "Mencari rilis Go stabil terbaru...")
+                self._emit_log("backend.runtimes.go_contact_api", "info")
+                self._emit_progress(10, "backend.runtimes.go_search_stable")
                 req = urllib.request.Request('https://go.dev/dl/?mode=json', headers={'User-Agent': USER_AGENT})
                 with urllib.request.urlopen(req, timeout=10) as response:
                     data = json.loads(response.read().decode('utf-8'))
@@ -683,12 +683,12 @@ class RuntimesManager:
             if os.path.exists(go_dir): 
                 shutil.rmtree(go_dir, ignore_errors=True)
 
-            log_cb(f"Mulai mengunduh binary Go (v{version})...", "info")
+            log_cb("backend.runtimes.starting_binary_download", "info", {"engine": "Go"})
             download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb)
 
             # 3. FASE EKSTRAKSI (60% - 95%)
             self._emit_log(MSG_DL_DONE, "info")
-            self._emit_progress(65, "Mengekstrak file biner Go Compiler...")
+            self._emit_progress(65, "backend.runtimes.go_extracting")
             
             _, extract_prog_cb = self._get_cbs(65, 95)
 
@@ -698,8 +698,8 @@ class RuntimesManager:
                 os.remove(zip_path)
 
             # 4. FASE FINALISASI
-            self._emit_progress(100, "Instalasi Go Selesai!")
-            self._emit_log(f"Go v{version} berhasil diinstal dan siap digunakan.", "success")
+            self._emit_progress(100, "backend.runtimes.go_install_complete")
+            self._emit_log("backend.runtimes.go_ready", "success", {"version": version})
 
             return {"status": "success"}
 
@@ -707,21 +707,21 @@ class RuntimesManager:
             # PENANGANAN ERROR & PEMBERSIHAN
             # Konsisten dengan install_node/install_python/install_java: tangkap Exception
             # secara umum, bukan hanya OSError, agar error tak terduga tetap ter-handle rapi.
-            if os.path.exists(zip_path): 
+            if os.path.exists(zip_path):
                 try: os.remove(zip_path)
                 except OSError: pass
-                
-            self._emit_progress(-1, f"Instalasi Gagal: {str(e)}")
-            self._emit_log(f"Gagal menginstal Go Compiler: {str(e)}", "error")
-                
-            return {"status": "error", "message": str(e)}
+
+            self._emit_progress(-1, "backend.runtimes.install_failed", {"e": str(e)})
+            self._emit_log("backend.runtimes.go_install_error", "error", {"e": str(e)})
+
+            return {"status": "error", "message": "backend.runtimes.go_install_error", "args": {"e": str(e)}}
 
     def uninstall_go(self):
         go_dir = os.path.join(self.bin_dir, 'go')
         self.toggle_user_path('go', False)
         if os.path.exists(go_dir):
             shutil.rmtree(go_dir, ignore_errors=True)
-        self._emit_log("Go Compiler berhasil dihapus dari sistem.", "warn")
+        self._emit_log("backend.runtimes.go_uninstalled", "warn")
         return {"status": "success"}
 
     def _check_via_where(self, command: str, vyloserve_bin: str) -> str | None:

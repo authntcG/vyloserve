@@ -12,7 +12,7 @@ export default function LogsPanel() {
     const [isExpanded, setIsExpanded] = useState(true);
     const [isAutoScroll, setIsAutoScroll] = useState(true);
     const [logs, setLogs] = useState<LogEntry[]>([
-        { id: 'log-init', timestamp: new Date().toLocaleTimeString(), message: 'VyloServe Backend Initialized', level: 'info' }
+        { id: 'log-init', timestamp: new Date().toLocaleTimeString(), message: t('components.logs.backend_initialized'), level: 'info' }
     ]);
 
     const [isCopied, setIsCopied] = useState(false);
@@ -132,7 +132,7 @@ export default function LogsPanel() {
                     }}
                     aria-label={t('components.logs.resize_panel', 'Drag or use arrow keys to resize panel')}
                     className="absolute top-0 left-0 w-full h-1.5 cursor-ns-resize hover:bg-primary/50 transition-colors z-20 outline-none"
-                    title="Drag to resize panel"
+                    title={t('components.logs.resize_panel', 'Drag or use arrow keys to resize panel')}
                 />
             )}
 

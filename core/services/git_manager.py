@@ -93,7 +93,7 @@ class GitManager:
                 import re
                 match = re.search(r'git version (\d+\.\d+\.\d+)', version_out)
                 if match:
-                    self._log("backend.git.found_external", "success", {"version": match.group(1), "path": found_path})
+                    self._log("backend.git.external_detected", "success", {"version": match.group(1), "path": found_path})
                     return {"exists": True, "version": match.group(1), "path": found_path}
         except Exception: pass
         return None
@@ -280,7 +280,7 @@ class GitManager:
             if hasattr(self, 'api'):
                 self._progress(-1, "backend.git.install_failed")
                 self._log("backend.git.install_error", "error", {"e": str(e)})
-            return {"status": "error", "message": str(e)}
+            return {"status": "error", "message": "backend.git.install_error", "args": {"e": str(e)}}
 
     def uninstall_git(self):
         git_dir = os.path.join(self.bin_dir, 'git')
@@ -364,4 +364,4 @@ class GitManager:
             return {"status": "success"}
         except Exception as e:
             self._log("backend.git.config_error", "error", {"e": str(e)})
-            return {"status": "error", "message": str(e)}
+            return {"status": "error", "message": "backend.git.config_error", "args": {"e": str(e)}}

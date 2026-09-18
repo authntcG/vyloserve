@@ -7,7 +7,12 @@
         "success": "Berhasil",
         "error": "Gagal",
         "close": "Tutup",
-        "apply": "Terapkan Perubahan"
+        "apply": "Terapkan Perubahan",
+        "connecting_engine": "Menghubungkan ke Mesin VyloServe...",
+        "unknown": "Tidak Diketahui",
+        "not_available": "T/T",
+        "apache_version": "Apache {{version}}",
+        "php_version": "PHP {{version}}"
     },
     "sidebar": {
         "search": "Cari...",
@@ -153,7 +158,11 @@
         "install_first_config": "Instal Apache terlebih dahulu untuk mengakses konfigurasi.",
         "main_configuration": "Konfigurasi utama",
         "virtual_domains_setup": "Pengaturan domain virtual",
-        "view_crash_reports": "Lihat laporan kerusakan"
+        "view_crash_reports": "Lihat laporan kerusakan",
+        "untitled_project": "Proyek Tanpa Nama",
+        "placeholder_project_directory": "C:/Projects/my-site",
+        "placeholder_workspace_location": "C:/vylo-workspace",
+        "placeholder_specific_version": "cth., ^10.0"
     },
     "php": {
         "fetch_php_data_error": "Gagal memuat data PHP.",
@@ -217,7 +226,8 @@
         "active": " Aktif",
         "search_extension": "Cari nama ekstensi...",
         "no_extensions_found": "Tidak ada ekstensi ditemukan di folder ext/.",
-        "no_extensions_match": "Tidak ada ekstensi yang cocok dengan pencarian Anda."
+        "no_extensions_match": "Tidak ada ekstensi yang cocok dengan pencarian Anda.",
+        "version_fetch_error_prefix": "Error: "
     },
     "database": {
         "fetch_db_error": "Gagal memuat instalasi database.",
@@ -439,7 +449,15 @@
         "quit_desc": "Apakah Anda yakin ingin mematikan aplikasi VyloServe? Semua servis latar belakang akan tetap berjalan sesuai dengan status terakhirnya.",
         "view_on_github": "Lihat di GitHub",
         "documentation": "Dokumentasi",
-        "version": "v0.0.4"
+        "version": "v0.0.4",
+        "lang_option_english": "English",
+        "lang_option_indonesian": "Bahasa Indonesia",
+        "app_tagline": "Manajer Server Web Lokal Modern Berkinerja Tinggi",
+        "feature_dashboard": "Dasbor Global Cerdas",
+        "feature_sparklines": "Sparkline Tanpa Beban CPU",
+        "feature_apache_vhosts": "Virtual Host Apache",
+        "feature_fastcgi": "FastCGI Multi-versi",
+        "license_label": "Lisensi:"
     },
     "tools": {
         "base64": {
@@ -463,7 +481,18 @@
             "status_valid": "Valid",
             "status_waiting": "Waiting",
             "status_active": "Active",
-            "status_result": "Result"
+            "status_result": "Result",
+            "page_title": "Encoder / Decoder Base64",
+            "tab_encode": "Encode Base64",
+            "tab_decode": "Decode Base64",
+            "label_base64_string": "String Base64",
+            "label_base64": "Base64",
+            "label_text": "Teks",
+            "label_file": "File",
+            "input_card_title": "Input {{label}}",
+            "output_card_title": "Output {{label}}",
+            "unknown_type": "tidak diketahui",
+            "preview_alt": "Pratinjau Base64"
         },
         "git": {
             "fetch_error": "Koneksi terputus. Gagal mengambil daftar rilis Git.",
@@ -525,7 +554,8 @@
             "uninstalling_btn": "Menghapus...",
             "yes_uninstall": "Ya, Uninstall",
             "uninstall_confirm": "Apakah Anda yakin ingin menghapus PortableGit dari VyloServe?",
-            "uninstall_warning": "Aksi ini akan menghapus direktori Git dan membersihkan konfigurasi PATH dari sistem."
+            "uninstall_warning": "Aksi ini akan menghapus direktori Git dan membersihkan konfigurasi PATH dari sistem.",
+            "native_os_card_title": "Git (OS Native)"
         },
         "qr": {
             "download_success": "QR Code berhasil diunduh sebagai",
@@ -584,7 +614,14 @@
             "copy": "Salin",
             "hierarchy_title": "Struktur & Hierarki URL",
             "valid_url": "URL Valid",
-            "waiting": "Menunggu"
+            "waiting": "Menunggu",
+            "input_card_title": "Input Teks ({{mode}})",
+            "output_card_title": "Output Teks ({{mode}})",
+            "mode_raw": "Mentah",
+            "mode_encoded": "Terenkode",
+            "mode_decoded": "Terdekode",
+            "placeholder_encode": "https://example.com/api?search=hello world",
+            "placeholder_decode": "https%3A%2F%2Fexample.com%2Fapi%3Fsearch%3Dhello%20world"
         }
     },
     "components": {
@@ -596,7 +633,8 @@
             "paused": "Jeda",
             "clear": "Bersihkan",
             "empty": "Tidak ada log...",
-            "resize_panel": "Seret atau gunakan tombol panah untuk mengubah ukuran panel"
+            "resize_panel": "Seret atau gunakan tombol panah untuk mengubah ukuran panel",
+            "backend_initialized": "Backend VyloServe Diinisialisasi"
         },
         "progress": {
             "installing": "Menginstal...",
@@ -610,7 +648,8 @@
     },
     "backend": {
         "error": {
-            "project_module_not_loaded": "Modul Project tidak termuat. Silakan restart aplikasi."
+            "project_module_not_loaded": "Modul Project tidak termuat. Silakan restart aplikasi.",
+            "unexpected": "Terjadi kesalahan tak terduga: {{e}}"
         },
         "apache": {
             "status_check_failed": "Gagal mengecek status Apache: {{e}}",
@@ -646,7 +685,9 @@
             "start_success": "Web Server dijalankan.",
             "terminating": "Mengirim sinyal terminasi ke Apache...",
             "stopped": "Apache dihentikan.",
-            "stopped_success": "Web Server dihentikan."
+            "stopped_success": "Web Server dihentikan.",
+            "starting_service": "Memulai Servis Apache...",
+            "stopping_service": "Menghentikan Servis Apache..."
         },
         "php": {
             "release_load_failed": "Gagal memuat rilis PHP.",
@@ -680,7 +721,9 @@
             "none_installed": "Tidak ada PHP terinstal.",
             "multi_started": "{{count}} PHP berjalan.",
             "multi_stopped": "{{count}} PHP dihentikan.",
-            "fetching_versions": "Mengambil daftar versi PHP terbaru dari server..."
+            "fetching_versions": "Mengambil daftar versi PHP terbaru dari server...",
+            "starting_service": "Memulai Servis PHP...",
+            "stopping_service": "Menghentikan Servis PHP..."
         },
         "database": {
             "not_found": "Database tidak ditemukan.",
@@ -688,6 +731,11 @@
             "engine_running": "Engine {{name}} berjalan di port {{port}}.",
             "started_success": "{{name}} berhasil dijalankan.",
             "timeout_starting": "Timeout menunggu database berjalan.",
+            "crashed_on_startup": "Database mengalami crash saat startup: {{err}}",
+            "process_crashed_log": "Proses database mengalami crash. Log: {{err}}",
+            "config_saved_restarted": "Konfigurasi berhasil disimpan. Database telah direstart.",
+            "config_saved_restart_failed": "Konfigurasi berhasil disimpan. Namun gagal start ulang.",
+            "config_saved_pending": "Konfigurasi berhasil disimpan. Silakan Start DB untuk menerapkan.",
             "engine_stopped": "Engine {{name}} berhasil dihentikan.",
             "stopped_success": "Database dihentikan.",
             "checking_releases": "Memeriksa rilis terbaru {{engine}}...",
@@ -737,6 +785,7 @@
             "download_complete_extracting": "Unduhan selesai. Mengeksekusi ekstraksi otomatis (SFX)...",
             "extracting_binary": "Mengekstrak berkas biner Git (Mohon tunggu)...",
             "install_complete": "Instalasi Git Selesai!",
+            "install_success": "Git berhasil diinstal!",
             "ready_to_use": "Git v{{version}} berhasil diinstal dan siap digunakan.",
             "install_failed": "Instalasi Gagal: {{e}}",
             "install_error": "Gagal menginstal Git: {{e}}",
@@ -793,7 +842,9 @@
             "go_install_complete": "Instalasi Go Selesai!",
             "go_ready": "Go v{{version}} berhasil diinstal dan siap digunakan.",
             "go_install_error": "Gagal menginstal Go Compiler: {{e}}",
-            "go_uninstalled": "Go Compiler berhasil dihapus dari sistem."
+            "go_uninstalled": "Go Compiler berhasil dihapus dari sistem.",
+            "install_error_named": "Gagal memasang {{name}}: {{e}}",
+            "starting_binary_download": "Mulai mengunduh binary {{engine}} dari peladen resmi..."
         },
         "project": {
             "save_json_failed": "Gagal menyimpan ke projects.json",
@@ -836,9 +887,15 @@
             "project_deleted": "Proyek {{domain}} dihapus.",
             "vhost_deleted": "Virtual Host {{domain}} telah dihapus.",
             "domain_synced": "Berhasil menyinkronkan domain!",
+            "hosts_uac_warning": "Proyek diinstal, namun gagal memodifikasi file Hosts Windows. Harap restart aplikasi sebagai Administrator.",
             "dir_not_found": "Direktori tidak ditemukan.",
             "php_version_changed": "Versi PHP diubah ke {{new_php}}",
-            "settings_saved": "Pengaturan disimpan!"
+            "settings_saved": "Pengaturan disimpan!",
+            "rolling_back": "Melakukan rollback instalasi...",
+            "retry_update": "Percobaan update ke-{{attempt}} gagal. Mencoba lagi...",
+            "configuring_php": "Mengonfigurasi PHP...",
+            "install_complete_perfect": "Instalasi selesai sempurna!",
+            "starting_setup": "Memulai setup project untuk {{domain}}..."
         },
         "ssl": {
             "creating_root_ca": "Membuat VyloServe Root CA (Otoritas Sertifikat Lokal)...",
@@ -852,7 +909,9 @@
         "api": {
             "connection_success": "Koneksi Python dan React berhasil!",
             "browser_failed": "Gagal membuka browser: {{e}}",
-            "project_module_not_loaded": "Modul Project tidak dimuat."
+            "project_module_not_loaded": "Modul Project tidak dimuat.",
+            "closing_app": "Menutup aplikasi...",
+            "ping_received": "Menerima ping dari UI: {{data}}"
         }
     }
 }

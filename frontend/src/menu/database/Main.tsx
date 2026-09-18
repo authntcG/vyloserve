@@ -260,7 +260,7 @@ export default function DatabaseMain() {
                                         </>
                                     }
                                 >
-                                    <div className="flex flex-col gap-1 min-w-0"><span className="text-xs font-medium text-slate-500 uppercase">{t('database.engine')}</span><span className="text-sm font-medium text-slate-900 dark:text-slate-200 flex items-center gap-1.5 truncate"><span className="material-symbols-outlined text-[16px] text-slate-400">{db.engine === 'postgres' ? 'storage' : 'database'}</span>{db.engine === 'postgres' ? 'PostgreSQL' : 'MySQL/MariaDB'}</span></div>
+                                    <div className="flex flex-col gap-1 min-w-0"><span className="text-xs font-medium text-slate-500 uppercase">{t('database.engine')}</span><span className="text-sm font-medium text-slate-900 dark:text-slate-200 flex items-center gap-1.5 truncate"><span className="material-symbols-outlined text-[16px] text-slate-400">{db.engine === 'postgres' ? 'storage' : 'database'}</span>{db.engine === 'postgres' ? t('database.postgres') : t('database.mysql_mariadb')}</span></div>
                                     <div className="flex flex-col gap-1 min-w-0"><span className="text-xs font-medium text-slate-500 uppercase">{t('database.port')}</span><span className="font-mono text-sm text-primary truncate">{db.port}</span></div>
                                     <div className="flex flex-col gap-1 col-span-2 md:col-span-3 min-w-0"><span className="text-xs font-medium text-slate-500 uppercase">{t('database.data_directory')}</span><span className="font-mono text-sm text-slate-700 dark:text-slate-300 truncate" title={db.dataDir}>{db.dataDir}</span></div>
                                 </Card>

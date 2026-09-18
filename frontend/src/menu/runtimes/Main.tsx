@@ -312,7 +312,7 @@ export default function RuntimesMain() {
                 if (enable) showToast(t('runtimes.path_added_success', { engine }), "success");
                 else showToast(t('runtimes.path_removed_success', { engine }), "success");
             } else {
-                showToast(res?.message || t('runtimes.path_change_error'), "error");
+                showToast(res?.message ? t(res.message, res.args || {}) : t('runtimes.path_change_error'), "error");
             }
         } catch (error){ console.error(error);
             showToast(t('runtimes.path_change_sys_error'), "error");
@@ -340,7 +340,7 @@ export default function RuntimesMain() {
                 setEngineToUninstall(null);
                 fetchStatuses();
             } else {
-                showToast(res?.message || t('runtimes.uninstall_error', { engine: engineToUninstall }), "error");
+                showToast(res?.message ? t(res.message, res.args || {}) : t('runtimes.uninstall_error', { engine: engineToUninstall }), "error");
             }
         } catch (error){ console.error(error);
             showToast(t('runtimes.uninstall_sys_error'), "error");

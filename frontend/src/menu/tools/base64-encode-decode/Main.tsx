@@ -67,7 +67,7 @@ interface EditorSectionProps {
 function EditorSection({ mode, inputType, inputText, onInputTextChange, outputText, fileMeta, fileInputRef, onFileUpload, onCopy, inputCardLabel, t }: EditorSectionProps) {
     return (
         <div className="col-span-1 xl:col-span-7 flex flex-col gap-6 w-full min-w-0">
-            <Card title={`Input ${inputCardLabel}`} status={t('tools.base64.status_active')} gridCols="grid-cols-1">
+            <Card title={t('tools.base64.input_card_title', { label: inputCardLabel })} status={t('tools.base64.status_active')} gridCols="grid-cols-1">
                 <div className="w-full min-w-0 flex flex-col">
                     {mode === 'encode' && inputType === 'file' ? (
                         <div className="w-full h-36 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-lg flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-900/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer relative overflow-hidden">
@@ -88,7 +88,7 @@ function EditorSection({ mode, inputType, inputText, onInputTextChange, outputTe
                 </div>
             </Card>
 
-            <Card title={`Output ${mode === 'encode' ? 'Base64' : 'Text'}`} status={t('tools.base64.status_result')} gridCols="grid-cols-1">
+            <Card title={t('tools.base64.output_card_title', { label: mode === 'encode' ? t('tools.base64.label_base64') : t('tools.base64.label_text') })} status={t('tools.base64.status_result')} gridCols="grid-cols-1">
                 <div className="relative w-full min-w-0 flex flex-col">
                     <textarea
                         value={outputText}
@@ -127,7 +127,7 @@ function PayloadInfoCard({ mode, inputType, fileMeta, rawSizeLabel, base64SizeLa
                             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{t('tools.base64.file_metadata')}</span>
                             <div className="flex items-center justify-between mt-1 w-full min-w-0">
                                 <span className="font-mono text-sm text-slate-900 dark:text-slate-200 truncate pr-2">{fileMeta.name}</span>
-                                <span className="px-2 py-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded text-[10px] font-bold shrink-0">{fileMeta.type || 'unknown'}</span>
+                                <span className="px-2 py-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded text-[10px] font-bold shrink-0">{fileMeta.type || t('tools.base64.unknown_type')}</span>
                             </div>
                         </div>
                     )}
@@ -154,7 +154,7 @@ function PayloadInfoCard({ mode, inputType, fileMeta, rawSizeLabel, base64SizeLa
                         <div className="flex flex-col gap-1 w-full min-w-0">
                             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{t('tools.base64.image_preview')}</span>
                             <div className="mt-2 w-full h-40 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPgo8cmVjdCB3aWR0aD0iNCIgaGVpZ2h0PSI0IiBmaWxsPSIjZjBmMGYwIiAvPgo8cmVjdCB4PSI0IiB5PSI0IiB3aWR0aD0iNCIgaGVpZ2h0PSI0IiBmaWxsPSIjZjBmMGYwIiAvPjwvc3ZnPg==')] dark:bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPgo8cmVjdCB3aWR0aD0iNCIgaGVpZ2h0PSI0IiBmaWxsPSIjMWUxZTFlIiAvPgo8cmVjdCB4PSI0IiB5PSI0IiB3aWR0aD0iNCIgaGVpZ2h0PSI0IiBmaWxsPSIjMWUxZTFlIiAvPjwvc3ZnPg==')] flex items-center justify-center p-2">
-                                <img src={previewImage} alt="Base64 Preview" className="max-w-full max-h-full object-contain shadow-sm" />
+                                <img src={previewImage} alt={t('tools.base64.preview_alt')} className="max-w-full max-h-full object-contain shadow-sm" />
                             </div>
                         </div>
                     )}
@@ -235,8 +235,8 @@ export default function Base64Main() {
     };
 
     const inputCardLabel = (() => {
-        if (mode !== 'encode') return 'Base64 String';
-        return inputType === 'text' ? 'Text' : 'File';
+        if (mode !== 'encode') return t('tools.base64.label_base64_string');
+        return inputType === 'text' ? t('tools.base64.label_text') : t('tools.base64.label_file');
     })();
 
     const rawSizeLabel = (() => {
@@ -251,13 +251,13 @@ export default function Base64Main() {
         <div className="flex flex-col w-full min-w-0">
             <PageHeader
                 icon="code_blocks"
-                title="Base64 Encoder / Decoder"
+                title={t('tools.base64.page_title')}
                 subtitle={<><span className="material-symbols-outlined text-[14px]">info</span> {t('tools.base64.subtitle')}</>}
             />
 
             <div className="flex gap-1 overflow-x-auto no-scrollbar mb-6 border-b border-slate-200 dark:border-slate-800">
-                <button type="button" onClick={() => { setMode('encode'); clearAll(); }} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${mode === 'encode' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>Encode Base64</button>
-                <button type="button" onClick={() => { setMode('decode'); setInputType('text'); clearAll(); }} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${mode === 'decode' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>Decode Base64</button>
+                <button type="button" onClick={() => { setMode('encode'); clearAll(); }} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${mode === 'encode' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>{t('tools.base64.tab_encode')}</button>
+                <button type="button" onClick={() => { setMode('decode'); setInputType('text'); clearAll(); }} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${mode === 'decode' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>{t('tools.base64.tab_decode')}</button>
             </div>
 
             {mode === 'encode' && (

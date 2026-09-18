@@ -87,7 +87,8 @@ def test_cleanup_failed_install(runtimes_manager):
     with patch('os.path.exists', return_value=True), patch('os.remove') as mock_remove:
         res = runtimes_manager._cleanup_failed_install("some/path.zip", Exception("Test Error"), "Node.js")
         assert res['status'] == 'error'
-        assert "Test Error" in res['message']
+        assert res['message'] == 'backend.error.unexpected'
+        assert "Test Error" in res['args']['e']
         mock_remove.assert_called_once()
 
 # 57-59
@@ -99,7 +100,7 @@ def test_get_cbs(runtimes_manager):
     log_cb, download_cb = runtimes_manager._get_cbs(10, 60)
     with patch.object(runtimes_manager, '_emit_log') as mock_log, patch.object(runtimes_manager, '_emit_progress') as mock_prog:
         log_cb("Test log", "info")
-        mock_log.assert_called_once_with("Test log", "info")
+        mock_log.assert_called_once_with("Test log", "info", None)
 
         download_cb(35, "Downloading")
         mock_prog.assert_called_once_with(35, "Downloading")
@@ -167,7 +168,8 @@ def test_toggle_user_path_exception(runtimes_manager):
     with patch('winreg.OpenKey', side_effect=Exception("Test Exception")):
         res = runtimes_manager.toggle_user_path('node', True)
         assert res['status'] == 'error'
-        assert "Test Exception" in res['message']
+        assert res['message'] == 'backend.runtimes.registry_error'
+        assert "Test Exception" in res['args']['e']
 
 def test_toggle_user_path_invalid_engine(runtimes_manager):
     res = runtimes_manager.toggle_user_path('invalid', True)
@@ -205,7 +207,8 @@ def test_get_available_node_versions_exception(runtimes_manager):
     with patch('urllib.request.urlopen', side_effect=Exception("Network Error")):
         res = runtimes_manager.get_available_node_versions()
         assert res['status'] == 'error'
-        assert "Network Error" in res['message']
+        assert res['message'] == 'backend.runtimes.node_fetch_failed'
+        assert "Network Error" in res['args']['e']
 
 # 239-248
 def test_finalize_node_install(runtimes_manager):
@@ -513,7 +516,8 @@ def test_install_java_raises_when_extracted_jdk_folder_not_found(runtimes_manage
         res = runtimes_manager.install_java("21")
 
     assert res['status'] == 'error'
-    assert 'tidak ditemukan setelah diekstrak' in res['message']
+    assert res['message'] == 'backend.runtimes.java_install_error'
+    assert 'tidak ditemukan setelah diekstrak' in res['args']['e']
 
 # ==========================================
 # get_available_python_versions / get_available_go_versions — error path
@@ -523,13 +527,15 @@ def test_get_available_python_versions_handles_exception(runtimes_manager):
     with patch('urllib.request.urlopen', side_effect=OSError("network down")):
         res = runtimes_manager.get_available_python_versions()
     assert res['status'] == 'error'
-    assert 'network down' in res['message']
+    assert res['message'] == 'backend.runtimes.py_fetch_failed'
+    assert 'network down' in res['args']['e']
 
 def test_get_available_go_versions_handles_exception(runtimes_manager):
     with patch('urllib.request.urlopen', side_effect=OSError("network down")):
         res = runtimes_manager.get_available_go_versions()
     assert res['status'] == 'error'
-    assert 'network down' in res['message']
+    assert res['message'] == 'backend.runtimes.go_fetch_failed'
+    assert 'network down' in res['args']['e']
 
 def test_get_available_node_versions_labels_non_lts_as_latest_current(runtimes_manager):
     """Item pertama tanpa LTS harus dilabeli '(Latest Current)', bukan LTS."""

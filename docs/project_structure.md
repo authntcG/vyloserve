@@ -41,7 +41,7 @@ vyloserve/
 ├── www/                        # (Ter-Generate) Direktori utama penyimpan proyek Web
 ├── main.py                     # Entrypoint aplikasi (PyWebView & System Tray)
 ├── requirements.txt            # Dependensi Python
-└── GEMINI.md                   # Instruksi dasar untuk AI Assistant (Gemini)
+└── AGENTS.md                   # Instruksi dasar untuk AI Assistant (standar agents.md, lintas-vendor)
 ```
 
 ## Penjelasan Direktori *Generate*

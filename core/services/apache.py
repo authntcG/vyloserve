@@ -264,7 +264,7 @@ class ApacheManager:
             if restart and self.check_is_running(): self.restart_server()
             return {"status": "success", "message": "backend.apache.proxy_updated"}
         except Exception as e:
-            return {"status": "error", "message": str(e)}
+            return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
 
     def _parse_apache_versions_html(self, html: str) -> list:
         versions = []
@@ -376,8 +376,8 @@ class ApacheManager:
             elif sys.platform == 'darwin': subprocess.Popen(['open', target])
             else: subprocess.Popen(['xdg-open', target])
             return {"status": "success"}
-        except Exception as e: return {"status": "error", "message": str(e)}
-            
+        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+
     def open_config(self):
         try:
             status = self.get_status()
@@ -389,7 +389,7 @@ class ApacheManager:
                     else: subprocess.Popen(['xdg-open', conf_path])
                     return {"status": "success"}
             return {"status": "error", "message": "backend.apache.httpd_not_found"}
-        except Exception as e: return {"status": "error", "message": str(e)}
+        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
 
     def open_apache_file(self, file_type):
         try:
@@ -409,7 +409,7 @@ class ApacheManager:
             elif sys.platform == 'darwin': subprocess.Popen(['open', target])
             else: subprocess.Popen(['xdg-open', target])
             return {"status": "success"}
-        except Exception as e: return {"status": "error", "message": str(e)}
+        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
 
     def start_server(self):
         if hasattr(self, 'api'): self.api.emit_log("backend.apache.starting", "info")
@@ -430,7 +430,7 @@ class ApacheManager:
                 
             if hasattr(self, 'api'): self.api.emit_log("backend.apache.started_with_pid", "success", {"pid": proc.pid})
             return {"status": "success", "message": "backend.apache.start_success"}
-        except Exception as e: return {"status": "error", "message": str(e)}
+        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
             
     def stop_server(self):
         try:
@@ -440,7 +440,7 @@ class ApacheManager:
                 
             if hasattr(self, 'api'): self.api.emit_log("backend.apache.stopped", "success")
             return {"status": "success", "message": "backend.apache.stopped_success"}
-        except Exception as e: return {"status": "error", "message": str(e)}
+        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
         
     def restart_server(self):
         try:
@@ -448,4 +448,4 @@ class ApacheManager:
                 self.stop_server()
                 time.sleep(1)
             return self.start_server()
-        except Exception as e: return {"status": "error", "message": str(e)}
+        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}

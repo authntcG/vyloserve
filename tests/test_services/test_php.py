@@ -249,7 +249,8 @@ def test_php_get_available_versions_unexpected_error_returns_real_message(mock_u
     res = php_mgr.get_versions()
 
     assert res['status'] == 'error'
-    assert res['message'] == 'disk unreadable'
+    assert res['message'] == 'backend.error.unexpected'
+    assert res['args']['e'] == 'disk unreadable'
 
 @patch('builtins.open', new_callable=MagicMock)
 @patch('core.services.php.os.path.exists', return_value=True)
@@ -403,7 +404,8 @@ def test_php_open_path_handles_exception(mock_exists, php_mgr):
         with patch('os.startfile', side_effect=OSError("access denied")):
             res = php_mgr.open_path("8.1", is_file=True)
     assert res['status'] == 'error'
-    assert res['message'] == 'access denied'
+    assert res['message'] == 'backend.php.fatal_error'
+    assert res['args']['e'] == 'access denied'
 
 # ==========================================
 # _verify_and_patch_ini — cabang directive aktif (bukan komentar)
@@ -475,7 +477,8 @@ def test_start_php_handles_launch_exception(mock_start, mock_patch_ini, mock_get
     with patch('os.path.exists', return_value=True):
         res = php_mgr.start_php("8.1")
     assert res['status'] == 'error'
-    assert res['message'] == 'php-cgi.exe crashed'
+    assert res['message'] == 'backend.error.unexpected'
+    assert res['args']['e'] == 'php-cgi.exe crashed'
 
 # ==========================================
 # check_is_running — implementasi nyata

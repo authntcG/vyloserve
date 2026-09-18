@@ -120,7 +120,7 @@ class PhpManager:
 
             self._log("backend.php.release_load_success", "success")
             return {"status": "success", "data": result}
-        except Exception as e: return {"status": "error", "message": str(e)}
+        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
     
     def _install_composer(self, target_dir: str):
         self._progress(95, "backend.php.installing_composer")
@@ -213,7 +213,7 @@ class PhpManager:
             if os.path.exists(file_path): os.remove(file_path)
             if os.path.exists(target_dir): shutil.rmtree(target_dir, ignore_errors=True)
             self._progress(0, "backend.php.failed")
-            return {"status": "error", "message": str(e)}
+            return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
 
     def _parse_config_file(self, php_ini_path: str, config: dict, active_exts: set):
         if not os.path.exists(php_ini_path): return
@@ -271,7 +271,7 @@ class PhpManager:
             return {"status": "success", "message": "backend.php.opened"}
         except Exception as e:
             self._log("backend.php.fatal_error", "error", {"e": str(e)})
-            return {"status": "error", "message": str(e)}
+            return {"status": "error", "message": "backend.php.fatal_error", "args": {"e": str(e)}}
 
     # ---> FIX: Tambahkan Log Sukses <---
     def uninstall_version(self, version: str):
@@ -353,7 +353,7 @@ class PhpManager:
             self._log("backend.php.fastcgi_started", "success", {"version": version, "port": port})
             return {"status": "success", "message": "backend.php.fastcgi_success"}
         except Exception as e:
-            return {"status": "error", "message": str(e)}
+            return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
 
     def stop_php(self, version: str):
         if version in self.processes:

@@ -515,7 +515,7 @@ def test_update_global_php_proxy_not_installed_returns_error(apache_manager):
 def test_update_global_php_proxy_handles_unexpected_exception(apache_manager):
     with patch.object(apache_manager, 'get_status', side_effect=RuntimeError("boom")):
         res = apache_manager.update_global_php_proxy(9000)
-    assert res == {"status": "error", "message": "boom"}
+    assert res == {"status": "error", "message": "backend.error.unexpected", "args": {"e": "boom"}}
 
 # ==========================================
 # _parse_apache_versions_html
@@ -598,7 +598,7 @@ def test_apache_open_config_linux_branch(mock_exists, mock_status, apache_manage
 def test_apache_open_config_handles_exception(apache_manager):
     with patch.object(apache_manager, 'get_status', side_effect=RuntimeError("boom")):
         res = apache_manager.open_config()
-    assert res == {"status": "error", "message": "boom"}
+    assert res == {"status": "error", "message": "backend.error.unexpected", "args": {"e": "boom"}}
 
 @patch('core.services.apache.ApacheManager.get_status')
 def test_apache_open_apache_file_error_type_creates_log_if_missing(mock_status, apache_manager):
@@ -616,7 +616,7 @@ def test_apache_open_apache_file_error_type_creates_log_if_missing(mock_status, 
 def test_apache_open_apache_file_handles_exception(apache_manager):
     with patch.object(apache_manager, 'get_status', side_effect=RuntimeError("boom")):
         res = apache_manager.open_apache_file('httpd')
-    assert res == {"status": "error", "message": "boom"}
+    assert res == {"status": "error", "message": "backend.error.unexpected", "args": {"e": "boom"}}
 
 # ==========================================
 # start_server / stop_server — cabang tambahan

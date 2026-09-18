@@ -12,7 +12,7 @@ from typing import Optional
 from core.utils.system_utils import get_project_root, check_port_in_use, start_silent_process, run_silent_command
 from core.utils.file_utils import read_json, write_json, download_advanced, extract_archive
 
-DB_NOT_FOUND_MSG = "backend.database.db_not_found"
+DB_NOT_FOUND_MSG = "backend.database.not_found"
 USER_AGENT_MOZILLA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
 MY_INI = "my.ini"
 POSTGRESQL_CON = "postgresql.conf"
@@ -60,7 +60,7 @@ class DatabaseManager:
 
             return {"status": "success", "data": data}
         except Exception as e:
-            return {"status": "error", "message": str(e)}
+            return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
 
     # ==========================================
     # START / STOP CONTROLLER (SILENT SUBPROCESS)
@@ -84,8 +84,8 @@ class DatabaseManager:
                 except Exception: 
                     err_msg = "Unknown error (log unreadable)"
                 
-                self._log(f"Database process crashed. Log: {err_msg}", "error")
-                return {"status": "error", "message": f"Database crashed on startup: {err_msg}"}
+                self._log("backend.database.process_crashed_log", "error", {"err": err_msg})
+                return {"status": "error", "message": "backend.database.crashed_on_startup", "args": {"err": err_msg}}
             
             time.sleep(0.1)
 
@@ -207,8 +207,8 @@ class DatabaseManager:
     def _fetch_mariadb_versions(self):
         req = urllib.request.Request("https://archive.mariadb.org/", headers={'User-Agent': USER_AGENT_MOZILLA})
         try: html = urllib.request.urlopen(req, timeout=10).read().decode('utf-8')
-        except Exception as e: return {"status": "error", "message": str(e)}
-        
+        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+
         raw_versions = list(set(re.findall(r'href="mariadb-(\d+\.\d+\.\d+)/"', html)))
         latest_versions_dict = {}
         for v in raw_versions:
@@ -253,7 +253,7 @@ class DatabaseManager:
     def _fetch_postgres_versions(self):
         req = urllib.request.Request("https://www.enterprisedb.com/download-postgresql-binaries", headers={'User-Agent': USER_AGENT_MOZILLA})
         try: html = urllib.request.urlopen(req, timeout=10).read().decode('utf-8')
-        except Exception as e: return {"status": "error", "message": str(e)}
+        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
 
         if sys.platform == 'win32': os_target = "Windows x86-64"
         elif sys.platform == 'darwin': os_target = "Mac OS X"
@@ -356,7 +356,7 @@ class DatabaseManager:
                 
             self._progress(-1, str(e))
             self._log("backend.database.install_failed_log", "error", {"e": str(e)})
-            return {"status": "error", "message": str(e)}
+            return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
 
     def uninstall_database(self, db_id: str, delete_data: bool = False):
         try:
@@ -377,7 +377,7 @@ class DatabaseManager:
             self._log("backend.database.engine_removed_log", "success", {"name": db_to_remove["name"]})
             return {"status": "success", "message": "backend.database.removed_success"}
         except Exception as e:
-            return {"status": "error", "message": str(e)}
+            return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
         
     # ==========================================
     # DATABASE CONFIGURATION & CREDENTIALS
@@ -400,7 +400,7 @@ class DatabaseManager:
             elif sys.platform == 'darwin': subprocess.Popen(['open', target])
             else: subprocess.Popen(['xdg-open', target])
             return {"status": "success", "message": "backend.database.opened_success"}
-        except Exception as e: return {"status": "error", "message": str(e)}
+        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
 
     def _parse_mysql_config(self, conf_file: str, config: dict):
         if not os.path.exists(conf_file): return
@@ -516,16 +516,15 @@ class DatabaseManager:
 
         with open(conf_file, 'w', encoding='utf-8') as f: f.writelines(new_lines)
 
-        msg = "Konfigurasi berhasil disimpan."
         if was_running:
             self.stop_database(db_id)
-            time.sleep(1) 
-            msg += " Database telah direstart." if self.start_database(db_id).get('status') == 'success' else " Namun gagal start ulang."
+            time.sleep(1)
+            msg_key = "backend.database.config_saved_restarted" if self.start_database(db_id).get('status') == 'success' else "backend.database.config_saved_restart_failed"
         else:
-            msg += " Silakan Start DB untuk menerapkan."
+            msg_key = "backend.database.config_saved_pending"
 
-        self._log(msg, "success")
-        return {"status": "success", "message": msg}
+        self._log(msg_key, "success")
+        return {"status": "success", "message": msg_key}
     
     def _change_mysql_credentials(self, db_obj: dict, username: str, old_pass: str, new_pass: str):
         exe = os.path.join(db_obj['installDir'], 'bin', 'mysql.exe' if sys.platform == 'win32' else 'mysql')

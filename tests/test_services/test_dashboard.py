@@ -44,8 +44,9 @@ def test_save_dashboard_error(mock_write_json, dashboard_manager, mock_api):
     
     res = dashboard_manager.save_config({"apache": True})
     assert res['status'] == 'error'
-    assert "diblokir oleh OS" in res['message']
-    
+    assert res['message'] == 'backend.dashboard.save_failed'
+    assert "diblokir oleh OS" in res['args']['e']
+
     mock_api.emit_log.assert_called_once_with("backend.dashboard.save_failed", "error", {"e": "Proses penulisan diblokir oleh OS."})
 
 @patch('core.services.dashboard.read_json')
@@ -55,6 +56,7 @@ def test_get_dashboard_exception(mock_read_json, dashboard_manager, mock_api):
     
     res = dashboard_manager.get_config()
     assert res['status'] == 'error'
-    assert res['message'] == 'Disk failure'
-    
+    assert res['message'] == 'backend.dashboard.read_failed'
+    assert res['args'] == {"e": "Disk failure"}
+
     mock_api.emit_log.assert_called_once_with("backend.dashboard.read_failed", "error", {"e": "Disk failure"})

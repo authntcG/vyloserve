@@ -84,7 +84,8 @@ def test_install_git_failure(mock_download, git_manager):
     res = git_manager.install_git("http://fake.url/git.exe", "git.exe", "2.45.1")
     
     assert res['status'] == 'error'
-    assert 'Network timeout' in res['message']
+    assert res['message'] == 'backend.git.install_error'
+    assert 'Network timeout' in res['args']['e']
 
 @patch('core.services.git_manager.urllib.request.urlopen')
 def test_get_available_git_versions(mock_urlopen, git_manager):
@@ -336,4 +337,5 @@ def test_set_git_config_handles_exception(git_manager):
     with patch('subprocess.run', side_effect=OSError("git.exe missing")):
         res = git_manager.set_git_config("name", "email")
     assert res['status'] == 'error'
-    assert res['message'] == 'git.exe missing'
+    assert res['message'] == 'backend.git.config_error'
+    assert res['args']['e'] == 'git.exe missing'

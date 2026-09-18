@@ -101,7 +101,7 @@ function ExistingProjectFields({ documentRoot, onDocumentRootChange, isCreating,
         <div className="flex flex-col gap-2 animate-in fade-in">
             <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('apache.project_directory')}</label>
             <div className="flex gap-2">
-                <input type="text" value={documentRoot} onChange={(e) => onDocumentRootChange(e.target.value)} disabled={isCreating} placeholder="C:/Projects/my-site" className={inputClasses} />
+                <input type="text" value={documentRoot} onChange={(e) => onDocumentRootChange(e.target.value)} disabled={isCreating} placeholder={t('apache.placeholder_project_directory')} className={inputClasses} />
                 <button type="button" onClick={onBrowseExisting} disabled={isCreating || isDetecting} className={`px-4 font-medium text-sm border rounded-lg transition-colors outline-none ${isCreating || isDetecting ? 'bg-slate-50 text-slate-400 dark:bg-slate-900 border-slate-200' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'}`}>
                     {t('apache.browse')}
                 </button>
@@ -167,7 +167,7 @@ function AdvancedSettingsSection({ isOpen, onToggle, domainName, onDomainNameCha
                                 {installLocation && <span className="text-[10px] text-emerald-600 dark:text-emerald-400">{t('apache.saved')}</span>}
                             </label>
                             <div className="flex gap-2">
-                                <input type="text" value={installLocation} onChange={(e) => onInstallLocationChange(e.target.value)} disabled={isCreating} placeholder="C:/vylo-workspace" className={inputClasses} />
+                                <input type="text" value={installLocation} onChange={(e) => onInstallLocationChange(e.target.value)} disabled={isCreating} placeholder={t('apache.placeholder_workspace_location')} className={inputClasses} />
                                 <button type="button" onClick={onBrowseFolder} disabled={isCreating} className="px-3 border rounded-lg bg-white hover:bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-sm outline-none transition-colors">{t('apache.browse')}</button>
                             </div>
                             <span className="text-[11px] text-slate-500">{t('apache.project_extracted_to')}<strong>{installLocation ? `${installLocation}\\${domainName}`.replaceAll('\\', '/') : '...'}</strong></span>
@@ -175,7 +175,7 @@ function AdvancedSettingsSection({ isOpen, onToggle, domainName, onDomainNameCha
 
                         <div className="flex flex-col gap-2">
                             <label className="text-xs font-medium text-slate-600 dark:text-slate-400">{t('apache.specific_version')}</label>
-                            <input type="text" value={specificVersion} onChange={(e) => onSpecificVersionChange(e.target.value)} disabled={isCreating} placeholder="e.g., ^10.0" className={inputClasses} />
+                            <input type="text" value={specificVersion} onChange={(e) => onSpecificVersionChange(e.target.value)} disabled={isCreating} placeholder={t('apache.placeholder_specific_version')} className={inputClasses} />
                         </div>
 
                         <div className="flex flex-col gap-2">
@@ -337,11 +337,11 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
                 const api = window.pywebview?.api;
                 const response = await api?.create_project(payload);
                 if (response?.status === 'success') {
-                    showToast(response.message, 'success');
+                    showToast(t(response.message, response.args || {}) as string, 'success');
                     window.dispatchEvent(new CustomEvent('project_list_updated'));
                     return true;
                 } else {
-                    showToast(response?.message || 'Error', 'error');
+                    showToast(response?.message ? (t(response.message, response.args || {}) as string) : t('common.error'), 'error');
                     return false;
                 }
             } catch (error){ console.error(error);
