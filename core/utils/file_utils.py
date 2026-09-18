@@ -11,15 +11,20 @@ USER_AGENT_MOZILLA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.
 
 def read_json(file_path: str, default_type: type = list) -> Any:
     """
-    Membaca file JSON secara aman. Jika gagal atau file tidak ada, 
-    mengembalikan tipe default kosong (list/dict).
-    
+    Membaca file JSON secara aman. Jika gagal, file tidak ada, atau isi file
+    valid JSON tapi BUKAN bertipe `default_type` (mis. file berisi string/angka
+    padahal caller mengharapkan dict/list), mengembalikan tipe default kosong.
+    Ini mencegah caller yang memanggil `.get()`/iterasi langsung pada hasilnya
+    (tanpa `isinstance` check sendiri) crash dengan AttributeError/TypeError
+    saat file rusak atau berformat lama. Lihat docs/known_bugs.md.
+
     Args:
         file_path (str): Lokasi path absolut file JSON.
-        default_type (type): Tipe data kembalian bawaan (list atau dict).
-        
+        default_type (type): Tipe data kembalian bawaan sekaligus tipe yang
+            DIJAMIN dikembalikan (list atau dict).
+
     Returns:
-        Any: Data JSON yang diparsing.
+        Any: Data JSON yang diparsing, selalu bertipe `default_type`.
     """
     if not os.path.exists(file_path):
         return default_type()
@@ -28,7 +33,10 @@ def read_json(file_path: str, default_type: type = list) -> Any:
             content = f.read().strip()
             if not content:
                 return default_type()
-            return json.loads(content)
+            data = json.loads(content)
+            if not isinstance(data, default_type):
+                return default_type()
+            return data
     except Exception:
         return default_type()
 

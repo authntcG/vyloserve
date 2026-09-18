@@ -8,6 +8,7 @@ import BackgroundProgressWidget from '../../components/BackgroundProgressWidget'
 import PageHeader from '../../components/PageHeader';
 import SkeletonCard from '../../components/SkeletonCard';
 import EmptyState from '../../components/EmptyState';
+import { clampPercent } from '../../utils/progress';
 
 import NewDbInstance, { type NewDbInstanceRef } from './NewInstance';
 import DbSettings from './Settings';
@@ -47,6 +48,7 @@ export default function DatabaseMain() {
     const [progress, setProgress] = useState(0);
     const [progressText, setProgressText] = useState('');
     const [isInstalling, setIsInstalling] = useState(false);
+    const hideProgressTimeoutRef = useRef<number | null>(null);
 
     const newDbRef = useRef<NewDbInstanceRef>(null);
     const passwordRef = useRef<ChangePasswordRef>(null);
@@ -80,14 +82,28 @@ export default function DatabaseMain() {
             if (e.detail?.source && e.detail.source !== 'DatabaseManager') return;
             if (e.detail) {
                 const p = e.detail.percent;
+
+                // Batalkan timer auto-hide sebelumnya setiap ada event baru -- mencegah timer basi
+                // dari event 100%/negatif mid-flow (bukan akhir proses sebenarnya) menyembunyikan
+                // widget saat instalasi masih berjalan. Lihat docs/known_bugs.md.
+                if (hideProgressTimeoutRef.current) {
+                    window.clearTimeout(hideProgressTimeoutRef.current);
+                    hideProgressTimeoutRef.current = null;
+                }
+
                 if (p < 0) { setIsInstalling(false); setProgress(0); return; }
                 if (p > 0 && p < 100) setIsInstalling(true);
-                setProgress(p); setProgressText(t(e.detail.text || '', e.detail.args || {}) as string);
-                if (p >= 100) setTimeout(() => { setProgress(0); setIsInstalling(false); setIsNewInstanceOpen(false); fetchDatabases(); }, 3000);
+                setProgress(clampPercent(p)); setProgressText(t(e.detail.text || '', e.detail.args || {}) as string);
+                if (p >= 100) {
+                    hideProgressTimeoutRef.current = window.setTimeout(() => { setProgress(0); setIsInstalling(false); setIsNewInstanceOpen(false); fetchDatabases(); }, 3000);
+                }
             }
         };
         window.addEventListener('vylo_progress', handleProg);
-        return () => window.removeEventListener('vylo_progress', handleProg);
+        return () => {
+            window.removeEventListener('vylo_progress', handleProg);
+            if (hideProgressTimeoutRef.current) window.clearTimeout(hideProgressTimeoutRef.current);
+        };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isInstalling]);
 

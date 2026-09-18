@@ -268,6 +268,27 @@ def test_install_git_removes_partial_exe_on_failure(mock_remove, mock_exists, mo
     assert res['status'] == 'error'
     mock_remove.assert_called_once()
 
+
+@patch('core.services.git_manager.download_advanced')
+@patch.object(GitManager, '_extract_sfx')
+def test_install_git_download_progress_is_clamped_not_scaled(mock_extract, mock_download, git_manager, mock_api):
+    """Regresi: download_advanced mengirim pct ABSOLUT (0-100), bukan fraksi 0.0-1.0. Bug lama
+    mengalikan pct dengan span sehingga progress meluber jauh di atas 100 saat unduhan lalu
+    "melompat mundur" saat fase ekstraksi mengirim nilai tetap (lihat docs/known_bugs.md)."""
+    with patch('os.path.exists', return_value=False):
+        git_manager.install_git("http://fake.url/git.exe", "git.exe", "2.45.1")
+
+    progress_cb = mock_download.call_args.kwargs['progress_cb']
+
+    progress_cb(10, "Downloading start")
+    progress_cb(60, "Downloading end")
+
+    calls = [c.args for c in mock_api.emit_progress.call_args_list]
+    assert (10, "Downloading start") in calls
+    assert (60, "Downloading end") in calls
+    download_calls = [pct for pct, msg in calls if msg in ("Downloading start", "Downloading end")]
+    assert all(5 <= pct <= 74 for pct in download_calls)
+
 # ==========================================
 # toggle_user_path — cabang tambahan
 # ==========================================

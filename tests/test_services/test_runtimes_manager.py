@@ -92,12 +92,28 @@ def test_cleanup_failed_install(runtimes_manager):
 
 # 57-59
 def test_get_cbs(runtimes_manager):
+    # download_advanced/extract_archive (core/utils/file_utils.py) memanggil progress_cb
+    # dengan persentase ABSOLUT (0-100), bukan fraksi 0.0-1.0 -- lihat docs/known_bugs.md.
+    # download_cb harus meneruskan nilai absolut itu apa adanya (di-clamp ke [start,end]),
+    # BUKAN memperlakukannya sebagai fraksi (bug lama: int(pct * span) meluber ribuan persen).
     log_cb, download_cb = runtimes_manager._get_cbs(10, 60)
     with patch.object(runtimes_manager, '_emit_log') as mock_log, patch.object(runtimes_manager, '_emit_progress') as mock_prog:
         log_cb("Test log", "info")
         mock_log.assert_called_once_with("Test log", "info")
-        download_cb(0.5, "Downloading")
-        mock_prog.assert_called_once_with(35, "Downloading") # 10 + 0.5 * 50
+
+        download_cb(35, "Downloading")
+        mock_prog.assert_called_once_with(35, "Downloading")
+
+
+def test_get_cbs_clamps_out_of_range_percent(runtimes_manager):
+    """Regresi: pct absolut di luar [start_pct, end_pct] harus di-clamp, tidak diteruskan mentah."""
+    _, download_cb = runtimes_manager._get_cbs(10, 60)
+    with patch.object(runtimes_manager, '_emit_progress') as mock_prog:
+        download_cb(5, "Below start")
+        mock_prog.assert_called_with(10, "Below start")
+
+        download_cb(95, "Above end")
+        mock_prog.assert_called_with(60, "Above end")
 
 # 68-119
 def test_check_external_installation_found(runtimes_manager):

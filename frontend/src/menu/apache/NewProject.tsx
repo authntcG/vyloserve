@@ -1,6 +1,7 @@
 import { useState, useEffect, useImperativeHandle, forwardRef, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useToast } from '../../components/ToastContext';
+import { clampPercent } from '../../utils/progress';
 
 export interface NewProjectRef {
     submit: () => Promise<boolean>;
@@ -235,7 +236,7 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
             // yang kebetulan berjalan bersamaan tidak ikut ter-render di sini (lihat docs/known_bugs.md #7).
             if (customEvent.detail?.source && customEvent.detail.source !== 'ProjectManager') return;
             if (customEvent.detail) {
-                setProgress({ percent: customEvent.detail.percent || 0, text: customEvent.detail.text || t('apache.processing') });
+                setProgress({ percent: clampPercent(customEvent.detail.percent || 0), text: customEvent.detail.text || t('apache.processing') });
             }
         };
         window.addEventListener('vylo_progress', handleProgress);

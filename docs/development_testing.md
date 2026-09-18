@@ -34,6 +34,7 @@ VyloServe terintegrasi sangat dalam dengan sistem operasi Windows (membongkar re
 - Tidak ada file dummy sembarangan yang diturunkan ke disk selain di folder `tmp_path` bawaan pytest.
 - Gunakan *Fixture Mock API* (`mock_api` dalam file `tests/conftest.py`) saat menginisiasi Manager agar aplikasi tidak error mencari referensi *Pywebview bridge*.
 - **Setiap fitur atau fungsi publik baru WAJIB disertai unit test.** Tidak ada pengecualian.
+- ⚠️ **Heuristik deteksi mock yang lolos:** kalau satu file/fungsi test tiba-tiba jauh lebih lambat dari biasanya (detik → puluhan detik), curigai ada panggilan jaringan/subprocess/file-system nyata yang lolos dari mock — **jangan** anggap itu cuma "mesin sedang lambat". Ini persis bagaimana ditemukan bahwa `test_php_install_version` diam-diam mengunduh `composer.phar` sungguhan dari internet tiap kali dijalankan (`_install_composer()` tidak di-mock) — durasi suite yang tidak wajar adalah sinyalnya, bukan assertion yang gagal (test itu tetap "lulus").
 
 ### Skenario Test yang Wajib Dicover per Fungsi
 Setiap test suite untuk sebuah fungsi *setidaknya* harus mencakup:

@@ -75,21 +75,23 @@ Menginisialisasi 9 manager (`self.apache`, `self.php`, `self.database`, `self.pr
 ### 2.2 Event Emitter — Mekanisme Inti Komunikasi Real-Time
 
 ```python
-def emit_log(self, message, level="info", args=None):
-    if not self._window:
-        return  # Silent skip — window belum siap
-    detail = json.dumps({"message": message, "level": level, "args": args or {}})
-    self._window.evaluate_js(f"window.dispatchEvent(new CustomEvent('vylo_log', {{detail: {detail}}}))")
+def emit_log(self, message: str, level: str = "info", args: dict = None):
+    if self._window:
+        source = self._resolve_event_source()
+        detail = json.dumps({"message": message, "level": level, "args": args or {}, "source": source})
+        self._window.evaluate_js(f"window.dispatchEvent(new CustomEvent('vylo_log', {{detail: {detail} }}));")
 
-def emit_progress(self, percentage, message_key, args=None):
-    if not self._window:
-        return
-    detail = json.dumps({"percent": percentage, "text": message_key, "args": args or {}})
-    self._window.evaluate_js(f"window.dispatchEvent(new CustomEvent('vylo_progress', {{detail: {detail}}}))")
+def emit_progress(self, percent: int, text: str = "", args: dict = None):
+    if self._window:
+        source = self._resolve_event_source()
+        detail = json.dumps({"percent": percent, "text": text, "args": args or {}, "source": source})
+        self._window.evaluate_js(f"window.dispatchEvent(new CustomEvent('vylo_progress', {{detail: {detail} }}));")
 ```
 
 - `json.dumps()` dipakai untuk membangun payload event → ini yang mencegah XSS/JS-injection saat men-embed string dinamis ke `evaluate_js()` (lihat standar security di `docs/development_testing.md`).
 - **Kedua fungsi ini silent-no-op jika `self._window` belum di-set** — artinya jika `main.py` lupa memanggil `api.set_window(window)`, seluruh log & progress bar akan hilang tanpa error apapun. Ini pola debugging yang sudah benar didokumentasikan di `docs/ai_development_guide.md` §4.3.
+- **`source`** diisi otomatis oleh `_resolve_event_source()` (memakai `inspect.currentframe()` untuk membaca nama class pemanggil dari stack frame, mis. `"ApacheManager"`) — pemanggil `_progress()`/`_log()` di tiap service **tidak perlu** mengisi field ini sendiri. Frontend memakai field ini untuk memfilter event yang bukan miliknya karena semua halaman selalu ter-*mount* bersamaan — lihat `docs/frontend_ui.md` §3.3.
+- ⚠️ **Kontrak `percent`:** selalu angka **absolut 0-100** (bukan fraksi `0.0-1.0`), dan `percent >= 100`/`percent <= 0` **punya makna khusus di frontend** — ditafsirkan sebagai "proses benar-benar selesai" dan memicu auto-hide widget progress. Jangan panggil `_progress(100, ...)`/`emit_progress(100, ...)` untuk checkpoint di tengah alur multi-tahap; lihat §8.2 di bawah dan `docs/known_bugs.md` #16 & #18 untuk 2 bug nyata yang disebabkan pelanggaran kontrak ini.
 
 ### 2.3 Endpoint Non-Delegasi Penting
 
@@ -112,8 +114,12 @@ def emit_progress(self, percentage, message_key, args=None):
 |---|---|
 | `download_advanced(url, dest, log_cb, prog_cb)` | Kirim `HEAD` dulu untuk cek `Content-Length` & `Accept-Ranges`. Jika server mendukung *byte range* dan ukuran diketahui → `_download_multi_part()` (8 koneksi paralel, file di-*preallocate*, tiap thread menulis potongan byte-nya sendiri, progress digabung via `threading.Lock`). Jika tidak → `_download_single_stream()` (chunked 32KB). HTTP 404 dilempar ulang sebagai `RuntimeError` yang jelas. |
 | `extract_archive(zip_path, dest, prog_cb)` | `.zip` → member-by-member (progress tiap 50 file). `.tar.gz` → `extractall()` sekali jalan (progress langsung loncat ke 80%, tidak granular). |
+| `read_json(path, default_type=list)` | Baca JSON dengan aman. **Selalu mengembalikan tipe `default_type`** — jika file tidak ada/kosong/JSON tidak valid, ATAU jika isi file valid JSON tapi bertipe berbeda dari `default_type` (mis. file berisi string top-level padahal caller minta `dict`), otomatis fallback ke `default_type()` kosong. Lihat catatan kontrak di bawah. |
+| `write_json(path, data)` | Tulis `data` sebagai JSON (`indent=4`), `os.makedirs` otomatis. Return `bool` sukses/gagal — **tidak validasi tipe `data`**, jadi caller tetap bertanggung jawab hanya mengirim `dict`/`list` yang sesuai konvensi file targetnya. |
 
 > ✅ **Temuan audit (sudah diperbaiki):** dokumentasi versi lama mengklaim fungsi ini "mencegah *zip slip vulnerability*", padahal saat itu belum ada validasi path traversal apapun di `_extract_zip`/`_extract_tar_gz`. Sekarang sudah ditambahkan `_is_safe_extract_path()` — setiap member arsip divalidasi dengan `os.path.realpath()` sebelum diekstrak; member yang keluar dari direktori tujuan (mis. `../../evil.exe`) akan menggagalkan seluruh ekstraksi dengan `RuntimeError`. Detail di §13.
+
+> ⚠️ **Kontrak tipe `read_json()`:** parameter `default_type` dulu **hanya** dipakai sebagai nilai fallback saat file tidak ada — bukan jaminan tipe hasil baca. Kalau file ADA dan isinya JSON valid tapi bukan `default_type` (mis. sisa string dari file lama/rusak/edit manual), fungsi lama meneruskan nilai itu apa adanya, sehingga caller yang langsung memanggil `.get()`/iterasi pada hasilnya (tanpa `isinstance` check sendiri) bisa crash. Sekarang `read_json()` sudah memvalidasi `isinstance(data, default_type)` setelah parsing — **hasilnya dijamin bertipe `default_type`**, jadi caller baru tidak perlu lagi menambahkan `isinstance` check sendiri untuk kasus ini. Detail insiden nyata di `docs/known_bugs.md` #17.
 
 ### 3.2 `system_utils.py`
 
@@ -253,10 +259,10 @@ Karena PHP mendukung banyak versi berjalan bersamaan, `toggle_global_path()` **s
 
 | Method | Fungsi |
 |---|---|
-| `install_version(version, filename, port)` | Download (dengan fallback URL untuk versi lama) → extract → tulis `php.ini` baru (port + `memory_limit=512M` + ekstensi dasar) → `_install_composer()`. |
+| `install_version(version, filename, port)` | Download (dengan fallback URL untuk versi lama) → extract → tulis `php.ini` baru (port + `memory_limit=512M` + ekstensi dasar), lapor progress **92%** ("configuring") → `_install_composer()` (lapor **95%**) → **100%** ("installation_complete") hanya di titik ini, setelah Composer benar-benar terpasang. Progress 92% (bukan 100%) di tahap "configuring" itu sengaja — lihat catatan kontrak `percent` di §2.2 dan `docs/known_bugs.md` #18. |
 | `stop_php(version)` | `taskkill /PID` → hapus dari `processes{}` → `toggle_global_path(enable=False)`. |
 | `save_config(version, config, extensions)` | Rewrite `php.ini` baris-per-baris (`_update_ini_lines`, mempertahankan baris lain) → **jika Apache sedang berjalan, `restart_server()`**; jika ProjectManager ada, `sync_apache_vhosts()` (keduanya dibungkus bare `try/except: pass`). |
-| `start_all()` / `stop_all()` | Baca `data/dashboard.json` → `selected_php` (dipakai tombol "Start Selected" di Dashboard). Fallback ke versi terbaru terinstall jika belum ada preferensi tersimpan. |
+| `start_all()` / `stop_all()` | Baca `data/dashboard.json` → `selected_php` lewat `read_json(path, dict)` (dijamin `dict`, lihat §3.1) → `.get('selected_php', [])` (dipakai tombol "Start Selected" di Dashboard). Fallback ke versi terbaru terinstall jika belum ada preferensi tersimpan. |
 
 ### 5.5 ✅ Bug Ditemukan & Diperbaiki: Unbound Exception Variable
 
@@ -505,6 +511,8 @@ flowchart LR
 - **Java**: resolusi via Adoptium API (`api.adoptium.net/v3/binary/latest/...`).
 - **Go**: jika versi diminta adalah string literal `"latest"`, resolusi dulu ke nomor versi nyata via `go.dev/dl/?mode=json`.
 
+> ⚠️ **Kontrak `progress_cb` (penting, pernah jadi bug nyata):** callback `progress_cb`/`prog_cb` yang dikirim ke `download_advanced()`/`extract_archive()` (§3.1) selalu dipanggil dengan `pct` berupa **angka absolut 0-100** yang SUDAH dihitung internal oleh `file_utils.py` sendiri (mis. `10 + int(dl_percent * 0.5)` untuk unduhan, `65 + int((index/total)*15)` untuk ekstraksi ZIP) — **bukan** fraksi `0.0-1.0`. `_get_cbs(start_pct, end_pct)` di `RuntimesManager` **tidak mengalikan** `pct` dengan `span` (`start_pct + int(pct * span)` akan meluber ribuan persen, tepat itu yang terjadi di `docs/known_bugs.md` #16) — ia hanya meng-*clamp* `pct` ke `[start_pct, end_pct]` sebagai jaring pengaman. Rentang 5-60%/65-95% di diagram atas adalah **hasil clamp**, bukan hasil perkalian. Kalau menambah service baru yang memakai pola callback serupa, ikuti pola clamp ini, jangan pola kali-dengan-span.
+
 ### 8.3 PATH Toggle per Engine
 
 | Engine | Path yang ditambahkan/dihapus | Ekstra |
@@ -640,5 +648,8 @@ Tabel ini adalah hasil audit langsung terhadap kode per tanggal dokumen ini ditu
 | 11 | `uninstall_go()` tidak punya `return` sama sekali (implisit `None`) — frontend salah menampilkan error walau sukses | `runtimes_manager.py.uninstall_go()` | 🟡 Sedang — bug fungsional UX | ✅ **Sudah diperbaiki** — ditambahkan `return {"status": "success"}` |
 | 12 | `install_java()`/`install_go()` hanya menangkap `except OSError`, melewatkan `RuntimeError` yang dilempar sendiri di dalam try-nya → crash tidak tertangkap | `runtimes_manager.py` | 🔴 Bisa crash saat folder JDK tidak ditemukan setelah ekstrak | ✅ **Sudah diperbaiki** — diubah jadi `except Exception as e:`, konsisten dengan `install_node`/`install_python` |
 | 13 | Menu Tray "Exit Engine" punya jalur exit terpisah yang melewatkan cleanup engine (Apache/PHP/Database) — bug #2 sebenarnya masih bisa terjadi lewat jalur ini | `main.py` (`setup_systray.on_exit_clicked`, sebelum refactor) | 🔴 Kritis — bug fungsional (zombie process via jalur lain) | ✅ **Sudah diperbaiki** — kini memanggil `lifecycle.perform_exit()` yang sama dengan tombol Quit UI, sekaligus bagian dari refactor `main.py` → `AppLifecycle` (§12) |
+| 14 | `_get_cbs()`'s `download_cb` memperlakukan `pct` (absolut 0-100 dari `file_utils.py`) seolah fraksi `0.0-1.0`, mengalikannya dengan `span` → progress meluber ribuan persen saat unduhan/ekstraksi, lalu "melompat mundur" saat tahap berikutnya mengirim nilai tetap | `runtimes_manager.py._get_cbs()`, `git_manager.py.install_git()` (multiplier lebih kecil, gejala tersamar) | 🔴 Kritis — bug UX nyata, dilaporkan pengguna | ✅ **Sudah diperbaiki** — `download_cb` sekarang meng-*clamp* `pct` ke `[start_pct, end_pct]`, bukan mengalikan. Lihat §8.2 & `docs/known_bugs.md` #16 |
+| 15 | `read_json(path, dict).get(...)` dipanggil langsung tanpa `isinstance` check di 2 tempat — crash `AttributeError: 'str' object has no attribute 'get'` jika file JSON valid tapi bukan objek | `php.py._get_preferred_versions()`, `database.py._get_preferred_dbs()` | 🔴 Kritis — crash tidak konsisten (tergantung isi file saat itu) | ✅ **Sudah diperbaiki** — root cause di `read_json()` sendiri (§3.1, sekarang menjamin tipe), plus `isinstance` guard eksplisit di kedua caller. Lihat `docs/known_bugs.md` #17 |
+| 16 | Tahap "configuring" pada `install_version()` PHP melapor progress **100%** padahal Composer (tahap berikutnya) belum dipasang → melanggar kontrak `percent>=100 = selesai` (§2.2) → widget progress frontend menghilang mid-instalasi | `php.py.install_version()` | 🔴 Kritis — bug UX nyata, dilaporkan pengguna | ✅ **Sudah diperbaiki** — diganti jadi 92%; 100% dicadangkan khusus untuk `"backend.php.installation_complete"`. Lihat `docs/known_bugs.md` #18 |
 
-> Lihat `docs/known_bugs.md` untuk detail lengkap tiap perbaikan (#3, #6–#15 di dokumen tersebut berkorespondensi dengan tabel di atas).
+> Lihat `docs/known_bugs.md` untuk detail lengkap tiap perbaikan (#3, #6–#18 di dokumen tersebut berkorespondensi dengan tabel di atas).

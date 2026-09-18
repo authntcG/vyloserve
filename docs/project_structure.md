@@ -25,6 +25,9 @@ vyloserve/
 │   │   ├── locales/            # Berkas i18n JSON untuk bahasa (en, id)
 │   │   ├── menu/                # Halaman utama aplikasi: apache/ (termasuk CRUD Project & Virtual Host,
 │   │   │                        # TIDAK ada folder project/ terpisah), php/, database/, dashboard/, runtimes/, tools/
+│   │   ├── utils/               # Helper murni lintas-halaman (BUKAN komponen React) — lihat docs/frontend_ui.md §1
+│   │   │   ├── a11y.ts          # onEnterOrSpace() — keyboard support (Enter/Space) utk elemen non-native
+│   │   │   └── progress.ts      # clampPercent() — clamp nilai progress vylo_progress ke [0, 100]
 │   │   ├── i18n.ts             # Konfigurasi react-i18next (TIDAK ada folder contexts/)
 │   │   └── App.tsx             # Routing MANUAL via useState (BUKAN React Router) — lihat docs/frontend_ui.md §2
 │   ├── package.json            # Daftar dependensi Frontend (React, Tailwind, i18next)

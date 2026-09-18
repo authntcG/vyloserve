@@ -32,13 +32,16 @@ Karena fungsi backend yang panjang (seperti *download* engine) bisa memblokir an
 Di `core/api.py`, fungsi `emit_log` dan `emit_progress` diatur untuk mengeksekusi *CustomEvent* JavaScript di window React.
 
 ```python
-# Di dalam Python (Backend)
-def emit_progress(self, percentage, message_key):
-    # Mengevaluasi JS langsung di UI
-    self.window.evaluate_js(f"window.dispatchEvent(new CustomEvent('vylo_progress', {{detail: {{percentage: {percentage}, message: '{message_key}'}}}}))")
+# Di dalam Python (Backend) — core/api.py, disederhanakan (detail lengkap di docs/backend_services.md §2.2)
+def emit_progress(self, percent: int, text: str = "", args: dict = None):
+    source = self._resolve_event_source()  # auto-deteksi Manager pemanggil via inspect
+    detail = json.dumps({"percent": percent, "text": text, "args": args or {}, "source": source})
+    self.window.evaluate_js(f"window.dispatchEvent(new CustomEvent('vylo_progress', {{detail: {detail} }}));")
 ```
 
 Di frontend (React), komponen `<BackgroundProgressWidget>` akan mendengarkan event tersebut dan merender Progress Bar mengambang (overlay) secara real-time.
+
+> ⚠️ **Kontrak `percent` yang wajib dipatuhi:** nilainya selalu **absolut 0-100** (bukan fraksi), dan frontend memperlakukan **`percent >= 100` atau `percent <= 0` sebagai sinyal "proses selesai total"** — memicu auto-hide widget progress setelah jeda singkat. Backend **tidak boleh** mengirim `emit_progress(100, ...)` untuk checkpoint di tengah alur multi-tahap (hanya untuk tahap paling akhir). Dua bug produksi nyata pernah terjadi karena kontrak ini dilanggar/disalahtafsirkan — lihat `docs/known_bugs.md` #16 dan #18, serta `docs/frontend_ui.md` §3.4 untuk detail sisi frontend.
 
 ## 3. Sistem i18n *Frontend-Driven*
 Untuk mendukung multibahasa, aplikasi menerapkan prinsip **Frontend-Driven i18n**. 

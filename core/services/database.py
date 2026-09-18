@@ -575,7 +575,12 @@ class DatabaseManager:
 
     def _get_preferred_dbs(self, dbs):
         dashboard_json = os.path.join(self.data_dir, 'dashboard.json')
-        selected = read_json(dashboard_json, dict).get('selected_database', [])
+        dashboard_data = read_json(dashboard_json, dict)
+        # read_json() TIDAK menjamin dict hanya karena default_type=dict -- parameter itu
+        # cuma dipakai saat file kosong/tidak ada. Jika isi file valid JSON tapi bukan objek
+        # (mis. string sisa dari file lama/rusak), .get() langsung akan melempar
+        # AttributeError "'str' object has no attribute 'get'". Lihat docs/known_bugs.md.
+        selected = dashboard_data.get('selected_database', []) if isinstance(dashboard_data, dict) else []
         valid = [db['id'] for db in dbs if db['id'] in selected]
         if valid: return valid
             

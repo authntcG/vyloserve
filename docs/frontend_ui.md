@@ -57,6 +57,11 @@ frontend/src/
 │       ├── url-encode-decode/Main.tsx
 │       ├── qr-generator/Main.tsx
 │       └── settings/SettingsModals.tsx
+├── utils/                        # Helper murni (BUKAN komponen React), tidak punya state/hook sendiri
+│   ├── a11y.ts                  # onEnterOrSpace(handler) — keyboard support (Enter/Space) utk elemen
+│   │                             # non-native yang diberi role ARIA (mis. listbox custom)
+│   └── progress.ts              # clampPercent(value) — clamp hasil event `vylo_progress` ke [0, 100]
+│                                 # sebagai pengaman sisi frontend, lihat §3.3
 └── locales/{en,id}/translation.json
 ```
 
@@ -201,6 +206,14 @@ sequenceDiagram
 - **Frontend**: setiap listener `vylo_progress` (`ApacheMain`, `NewProject` Apache, `PhpMain`, `PhpNewInstance`, `DatabaseMain`, `RuntimesMain`, Git `Main`) memfilter `e.detail.source` terhadap nama Manager yang relevan sebelum meng-update state progress. `ApacheMain` menerima dua sumber (`ApacheManager` dan `ProjectManager`) karena satu halaman itu menampilkan progress untuk instalasi Apache maupun pembuatan project baru.
 - Sebagai bagian dari perbaikan ini, 4 titik di `core/services/project.py` yang sebelumnya memanggil `window.evaluate_js()` secara manual (bypass `emit_progress`, dengan escaping string manual yang rawan) diubah memakai `self._progress()` sehingga otomatis ikut mendapat `source` yang benar sekaligus escaping JSON yang aman (`json.dumps`).
 
+### 3.4 ⚠️ Kontrak Implisit: `percent >= 100` / `percent <= 0` = "Proses Selesai"
+
+Field `percent` di payload `vylo_progress` **selalu berupa angka absolut 0-100** (bukan fraksi 0.0-1.0 — lihat `docs/backend_services.md` §"Kontrak `progress_cb`"). Di sisi frontend, nilai ini punya **makna tersembunyi tambahan** yang tidak eksplisit di payload event itu sendiri: listener di `apache/Main.tsx`, `php/Main.tsx`, dan `database/Main.tsx` memperlakukan **`percent >= 100` atau `percent <= 0` sebagai sinyal "proses benar-benar selesai"**, lalu menjadwalkan `setTimeout(..., 3000)` untuk auto-reset `progress` ke 0 (menyembunyikan `BackgroundProgressWidget`, lihat §4.4).
+
+Kontrak ini rawan dilanggar dari sisi backend: sebuah service **tidak boleh** memanggil `_progress(100, ...)`/`emit_progress(100, ...)` untuk *checkpoint* di tengah alur multi-tahap (mis. "konfigurasi selesai, lanjut ke tahap berikutnya") — 100% harus benar-benar berarti "tidak ada lagi yang akan terjadi". Pelanggaran kontrak ini pernah terjadi di `PhpManager.install_version()` (tahap "configuring" sempat melapor 100% sebelum instalasi Composer dimulai) dan menyebabkan `BackgroundProgressWidget` menghilang mid-instalasi — lihat `docs/known_bugs.md` #18 untuk kronologi lengkap dan perbaikannya.
+
+Sebagai pengaman tambahan di sisi frontend (karena kontrak di atas bergantung pada disiplin setiap service backend dan bisa dilanggar lagi di masa depan), ketiga listener tersebut sekarang membatalkan (`clearTimeout`) timer auto-hide yang masih pending setiap kali ada event `vylo_progress` baru, sebelum menjadwalkan timer baru. Ini mencegah timer basi dari event 100%/0% yang ternyata bukan akhir proses menyembunyikan widget saat proses backend masih berjalan.
+
 ---
 
 ## 4. Provider & Komponen Cross-Cutting
@@ -228,7 +241,9 @@ Panel log **fixed di bawah layout**, collapsible & resizable (drag strip 1.5px, 
 > Catatan: `LogsPanel` adalah **timeline log**, bukan progress bar. Progress bar ada terpisah di `BackgroundProgressWidget` + progress bar inline per form instalasi.
 
 ### 4.4 `BackgroundProgressWidget.tsx`
-Widget mengambang generik (pojok kanan-bawah) untuk kondisi "modal instalasi diminimize/ditutup tapi proses backend masih jalan". **Murni presentational** — props `{isOpen, progress, progressText, title?, onRestore}`, tidak mendengarkan event sendiri (parent yang dengar `vylo_progress` lalu meneruskan sebagai props). Auto-hide jika `progress <= 0 || progress >= 100`. Klik → `onRestore()` membuka kembali modal.
+Widget mengambang generik (pojok kanan-bawah) untuk kondisi "modal instalasi diminimize/ditutup tapi proses backend masih jalan". **Murni presentational** — props `{isOpen, progress, progressText, title?, onRestore}`, tidak mendengarkan event sendiri (parent yang dengar `vylo_progress` lalu meneruskan sebagai props). Auto-hide jika `progress <= 0 || progress >= 100` (guard internal komponen ini). Klik → `onRestore()` membuka kembali modal.
+
+> ⚠️ Karena guard di atas hanya melihat nilai `progress` SAAT INI tanpa tahu apakah proses backend benar-benar sudah selesai, parent wajib disiplin soal kapan `progress` boleh benar-benar menyentuh 0/100 — lihat §3.4 dan `docs/known_bugs.md` #18.
 
 ### 4.5 `Modal.tsx`
 Komponen generik dipakai **semua** modal di aplikasi. Props kunci: `isOpen, onClose, title, icon, children, onApply, applyText, isDanger, isDestructive, isLoading, keepMounted, customHeader, customFooter`.
@@ -254,6 +269,33 @@ flowchart TD
 ```
 
 **Pola `ref` + `useImperativeHandle`:** Form di dalam Modal (mis. `ApacheInstallWizard`, `NewProject`) mengekspos method `submit(): Promise<boolean>` lewat `useImperativeHandle`, sehingga tombol "Apply" yang dikendalikan oleh `Modal.tsx` (parent) bisa memicu logic submit yang sebenarnya berada di komponen form anak — pola ini dipakai konsisten di semua form modal.
+
+### 5.1 Konvensi Ekstraksi Sub-Komponen & Pure Function (Cognitive Complexity)
+
+Beberapa halaman "Golden Standard" awalnya menaruh **seluruh JSX kondisional** (status card 3-state loading/installed/empty, grid daftar item, dropdown pencarian, dst.) langsung di dalam fungsi komponen `XxxMain()`, yang membuat *Cognitive Complexity*-nya melewati batas SonarQube (rule `S3776`, alasannya: banyak ternary/`&&` bersarang yang identik diulang untuk tiap engine/service). Perbaikannya **bukan** menyederhanakan logic, melainkan **mengekstrak** blok JSX yang sama ke komponen terpisah di *module scope* (di luar `XxxMain`, biasanya di atas `export default function XxxMain()` dalam file yang sama) — karena SonarQube menghitung kompleksitas **per fungsi**, blok yang diekstrak jadi fungsi sendiri tidak lagi menyumbang ke skor `XxxMain`.
+
+Pola yang sama dipakai berulang kali, cari komponen berikut sebagai referensi sebelum menulis JSX serupa dari nol:
+
+| File | Sub-komponen/pure-function hasil ekstraksi |
+|---|---|
+| `runtimes/Main.tsx` | `RuntimeEnginePanel`, `ExternalRuntimeCard`, `ExternalWarningBanner`, `RegisterPathToggle`, `EngineTabButton`, `RuntimesHeaderActions`, `RuntimesSubtitle` |
+| `dashboard/Main.tsx` | `ApacheServiceCard`, `PhpServiceCard`, `DatabaseServiceCard`, `RecentProjectsSection`, plus pure function `computeCanStartStop()`, `refreshApacheStatus()`/`refreshPhpStatus()`/`refreshDatabaseStatus()`, `anyCanStart()`/`anyCanStop()` |
+| `apache/Main.tsx` | `ApacheStatusSection`, `ApacheProjectsSection`, `ApacheProjectCard` |
+| `apache/NewProject.tsx` | `FreshInstallFields`, `ExistingProjectFields`, `AdvancedSettingsSection`, pure function `detectFrameworkForPath()` |
+| `database/NewInstance.tsx` | `VersionDropdown` |
+| `tools/base64-encode-decode/Main.tsx` | `EditorSection`, `PayloadInfoCard`, pure function `encodeTextToBase64()`/`decodeBase64Input()` |
+
+Aturan praktis saat menambah fitur ke halaman-halaman ini: **jangan** tulis ulang JSX status-card/dropdown/tab-button secara inline — cek dulu apakah komponen di atas sudah menutupi kebutuhan, atau tambahkan varian baru dengan pola serupa (props eksplisit, tanpa closure ke state parent) supaya kompleksitas halaman induk tetap rendah.
+
+### 5.2 Konvensi Aksesibilitas: Elemen Native, Bukan `div[role=...]`
+
+Elemen yang bisa diklik/di-*focus* harus berupa elemen HTML native yang semantiknya sesuai (`<button>` untuk aksi klik, `<option>`/native listbox jika memungkinkan), **bukan** `<div onClick={...} role="button" tabIndex={0}>`. Elemen native otomatis dapat fokus keyboard, respons Enter/Space, dan styling default yang bisa di-override — pola `div[role]` butuh keyboard handler manual (`utils/a11y.ts::onEnterOrSpace`) dan tetap kena temuan SonarQube `S6819` ("use native element instead of ARIA role").
+
+**Perhatikan elemen interaktif bersarang:** jangan bungkus konten yang SUDAH berisi elemen interaktif lain (mis. `<input type="checkbox">` di dalam toggle switch) ke dalam `<button>` — HTML tidak mengizinkan interactive content di dalam `<button>`. Solusinya (lihat `Sidebar.tsx` service item): pecah jadi `<button>` untuk bagian yang benar-benar cuma teks/ikon, dan biarkan kontrol interaktif lain sebagai sibling di luar `<button>` itu, bukan di dalamnya.
+
+**2 pengecualian yang sengaja dipertahankan** (didokumentasikan dengan komentar `// NOSONAR typescript:S6819` **persis di baris yang dilaporkan SonarQube** — untuk tag JSX multi-baris itu berarti baris pembuka tag, bukan baris atribut manapun di dalamnya):
+- `Modal.tsx` — `role="dialog"` dipertahankan; migrasi ke native `<dialog>` ditunda karena mengubah semantik focus-trap/backdrop-close/ESC yang berbeda dari implementasi `keepMounted` + animasi opacity saat ini.
+- `database/NewInstance.tsx` (`VersionDropdown`) — `role="option"` dipertahankan; ini custom searchable combobox, native `<option>` tidak bisa merender ikon/checkmark per item.
 
 ---
 
@@ -337,8 +379,8 @@ sequenceDiagram
 
 | File | Peran |
 |---|---|
-| `Main.tsx` | State terbesar — status Apache global (installed/running/version/path) + daftar Virtual Host project (CRUD). 2 `useEffect` independen (fetch project, fetch status apache). Listen: `project_list_updated`, `service_status_changed`, `vylo_progress`, `apache_version_changed`. |
-| `NewProject.tsx` (forwardRef) | Form 2-mode: "Fresh Install" (scaffold Composer) vs "Link Existing" (`api.browse_directory()` → `api.detect_framework(path)`, auto-append `/public` untuk Laravel/CodeIgniter). **Satu-satunya pemakaian `localStorage`** di seluruh frontend (`vylo_install_loc` — menyimpan lokasi install terakhir). Submit → `api.create_project()` → dispatch `project_list_updated`. |
+| `Main.tsx` | State terbesar — status Apache global (installed/running/version/path) + daftar Virtual Host project (CRUD). 2 `useEffect` independen (fetch project, fetch status apache). Listen: `project_list_updated`, `service_status_changed`, `vylo_progress`, `apache_version_changed`. JSX status-card & grid project diekstrak ke `ApacheStatusSection`/`ApacheProjectsSection`/`ApacheProjectCard` di module scope yang sama — lihat §5.1. |
+| `NewProject.tsx` (forwardRef) | Form 2-mode: "Fresh Install" (scaffold Composer) vs "Link Existing" (`api.browse_directory()` → `api.detect_framework(path)`, auto-append `/public` untuk Laravel/CodeIgniter). **Satu-satunya pemakaian `localStorage`** di seluruh frontend (`vylo_install_loc` — menyimpan lokasi install terakhir). Submit → `api.create_project()` → dispatch `project_list_updated`. Field per-mode diekstrak ke `FreshInstallFields`/`ExistingProjectFields`/`AdvancedSettingsSection` — lihat §5.1. |
 | `ProjectSettings.tsx` (forwardRef) | Edit nama project & rebind versi PHP untuk vhost existing (domain read-only). Submit → `api.update_project()` → dispatch `project_list_updated`. |
 | `Settings.tsx` | Modal "Global Apache Config" — pilih versi aktif (`set_apache_active_version` → dispatch `apache_version_changed`), shortcut buka `httpd.conf`/`vhosts.conf`/`error.log`. |
 | `InstallWizard.tsx` | Deteksi OS dari `navigator.userAgent` (murni display), pilih versi+port, auto-scroll ke progress bar saat instalasi mulai. |
@@ -359,8 +401,8 @@ sequenceDiagram
 
 | File | Peran |
 |---|---|
-| `Main.tsx` | Dual-engine (MySQL/MariaDB & PostgreSQL), tab filter client-side. Listener progress unik: `percent < 0` = reset/cancel, `percent >= 100` = auto-close modal + refetch. |
-| `NewInstance.tsx` (forwardRef, expose `getFormData()` — **beda pola** dari modul lain yang expose `submit()`; parent yang panggil `api.install_database()` langsung) | Custom dropdown searchable untuk versi, deteksi OS, password wajib untuk PostgreSQL. |
+| `Main.tsx` | Dual-engine (MySQL/MariaDB & PostgreSQL), tab filter client-side. Listener progress unik: `percent < 0` = reset/cancel, `percent >= 100` = auto-close modal + refetch (timer auto-hide sekarang cancelable — lihat §3.4). |
+| `NewInstance.tsx` (forwardRef, expose `getFormData()` — **beda pola** dari modul lain yang expose `submit()`; parent yang panggil `api.install_database()` langsung) | Custom dropdown searchable untuk versi, deteksi OS, password wajib untuk PostgreSQL. Dropdown pencarian versi (bagian JSX paling kompleks) diekstrak ke `VersionDropdown` — lihat §5.1. `role="option"` pada item dropdown **sengaja dipertahankan** (bukan native `<option>`) karena butuh render checkmark/styling custom — lihat §5.2. |
 | `Settings.tsx` | Form config berbeda total per engine: MySQL (`innodb_buffer_pool_size`, `character_set_server`) vs PostgreSQL (`shared_buffers`, `work_mem`). |
 | `ChangePassword.tsx` (forwardRef, expose `submit()`) | Mengharuskan instance `status === 'running'`. Panggil `api.change_db_credentials(id, user, old, new)`. |
 
@@ -384,18 +426,20 @@ flowchart TD
 
 Sparkline CPU/RAM: SVG custom (cubic-bezier path manual, bukan library chart), riwayat 20 titik data di-update tiap polling 3 detik.
 
+Kartu ringkasan tiap service (Apache/PHP/Database) diekstrak ke `ApacheServiceCard`/`PhpServiceCard`/`DatabaseServiceCard`, dan grid "Recent Projects" ke `RecentProjectsSection` — lihat §5.1. Logic penentuan tombol Start/Stop mana yang aktif (`computeCanStartStop()`) dan refresh status per-service (`refreshApacheStatus()` dkk.) juga diekstrak jadi pure function terpisah agar `DashboardMain` sendiri tetap sederhana.
+
 ---
 
 ## 12. Modul: Runtimes & Tools
 
 ### Runtimes
-Tab-based (Node/Python/Java/Go), tiap engine punya komponen `InstallX.tsx` terpisah (dipanggil via `ref.current.submit()`). Jika `external.exists` terdeteksi (native install di OS), toggle "Add to PATH" **dikunci (disabled)** dengan pesan warning untuk mencegah konflik PATH. Pola "minimize modal" dengan `isMinimized` state terpisah dari `isNewInstanceOpen` (bisa diminimize manual, tidak hanya auto saat modal ditutup).
+Tab-based (Node/Python/Java/Go), tiap engine punya komponen `InstallX.tsx` terpisah (dipanggil via `ref.current.submit()`). Jika `external.exists` terdeteksi (native install di OS), toggle "Add to PATH" **dikunci (disabled)** dengan pesan warning untuk mencegah konflik PATH. Pola "minimize modal" dengan `isMinimized` state terpisah dari `isNewInstanceOpen` (bisa diminimize manual, tidak hanya auto saat modal ditutup). Ke-4 tab engine dirender lewat satu komponen `RuntimeEnginePanel` yang sama (parameterized per engine) — lihat §5.1, bukan 4 blok JSX terpisah yang identik.
 
 ### Git (`tools/git/Main.tsx`)
 Struktur sama seperti Runtimes (deteksi eksternal/native, PATH toggle terkunci jika ada Git native) + form Global Config (`user.name`/`user.email` via `get_git_config`/`set_git_config`).
 
 ### Base64 & URL Encode/Decode
-**100% client-side** — tidak ada pemanggilan `window.pywebview.api` sama sekali kecuali clipboard/toast. Base64: `TextEncoder`/`TextDecoder` + `btoa`/`atob` (UTF-8 safe), mendukung mode file (drag-drop → `FileReader.readAsDataURL`, deteksi otomatis preview image dari data-URI). URL tool: parsing native `URL` API untuk visualisasi hierarki protocol/host/path/query.
+**100% client-side** — tidak ada pemanggilan `window.pywebview.api` sama sekali kecuali clipboard/toast. Base64: `TextEncoder`/`TextDecoder` + `btoa`/`atob` (UTF-8 safe), mendukung mode file (drag-drop → `FileReader.readAsDataURL`, deteksi otomatis preview image dari data-URI). Logic encode/decode diekstrak jadi pure function `encodeTextToBase64()`/`decodeBase64Input()`, dan panel kiri/kanan jadi `EditorSection`/`PayloadInfoCard` — lihat §5.1. URL tool: parsing native `URL` API untuk visualisasi hierarki protocol/host/path/query.
 
 ### `SettingsModals.tsx`
 3 modal terpusat (language/about/quit) dari footer Sidebar. Language modal menyimpan ke **dua sumber kebenaran**: `i18n.changeLanguage()` (runtime) **dan** `api.save_app_settings({language})` (persisted) — disinkronkan ulang saat `App.tsx` mount via `get_app_settings()`.
