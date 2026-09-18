@@ -6,6 +6,7 @@ import Modal from '../../components/Modal';
 import BackgroundProgressWidget from '../../components/BackgroundProgressWidget';
 import EmptyState from '../../components/EmptyState';
 import { useToast } from '../../components/ToastContext';
+import { clampPercent } from '../../utils/progress';
 
 import InstallNode, { type InstallNodeRef } from './InstallNode';
 import InstallPython, { type InstallPythonRef } from './InstallPython';
@@ -255,7 +256,7 @@ export default function RuntimesMain() {
             // Abaikan progress milik modul lain — lihat docs/known_bugs.md #7.
             if (event.detail?.source && event.detail.source !== 'RuntimesManager') return;
             const { percent, text } = event.detail;
-            setProgress(Math.max(0, percent));
+            setProgress(clampPercent(percent));
             setProgressText(text);
         };
         window.addEventListener('vylo_progress', handleProgress);

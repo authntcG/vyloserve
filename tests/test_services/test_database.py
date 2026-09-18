@@ -304,10 +304,25 @@ def test_db_start_stop_all(db_mgr):
             with patch.object(db_mgr, 'start_database') as mock_start:
                 db_mgr.start_all()
                 mock_start.assert_called_once_with("db_1")
-                
+
             with patch.object(db_mgr, 'stop_database') as mock_stop:
                 db_mgr.stop_all()
                 mock_stop.assert_called_once_with("db_1")
+
+def test_get_preferred_dbs_falls_back_when_dashboard_json_is_not_a_dict(db_mgr):
+    """
+    Regresi: dashboard.json rusak/legacy bisa berisi JSON valid yang bukan objek
+    (mis. string). _get_preferred_dbs() tidak boleh crash dengan AttributeError
+    "'str' object has no attribute 'get'" -- harus tetap fallback ke db
+    mysql/postgres versi tertinggi. Lihat docs/known_bugs.md.
+    """
+    dbs = [
+        {"id": "db_mysql", "engine": "mysql", "version": "8.0"},
+        {"id": "db_pg", "engine": "postgres", "version": "16"},
+    ]
+    with patch('core.services.database.read_json', return_value="corrupted string content"):
+        result = db_mgr._get_preferred_dbs(dbs)
+    assert set(result) == {"db_mysql", "db_pg"}
 
 def test_db_unwrap_single_subdir(db_mgr):
     with patch('core.services.database.os.listdir', return_value=["subdir"]):

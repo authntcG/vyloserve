@@ -21,6 +21,7 @@ vyloserve/
 │   │   ├── components/     # Reusable UI (Modal.tsx, PageHeader.tsx, dll)
 │   │   ├── locales/        # File terjemahan JSON (en & id)
 │   │   ├── menu/           # Halaman/Menu utama berdasarkan modul (apache, php, database, dll)
+│   │   ├── utils/          # Helper murni non-komponen (a11y.ts, progress.ts)
 │   │   └── App.tsx         # Routing & Layout Utama
 └── main.py                 # Entrypoint aplikasi (Setup window, Pywebview, & System Tray)
 ```
@@ -38,6 +39,9 @@ vyloserve/
    self.api.emit_log("backend.apache.starting", "info")
    self.api.emit_progress(50, "Mengekstrak file...")
    ```
+
+### 🚨 WAJIB: Kontrak Nilai `percent` di `emit_progress()`
+`percent` **selalu angka absolut 0-100**, bukan fraksi `0.0-1.0` — jangan pernah menulis kode yang mengalikan `percent` dengan rentang lain (`start + percent * span`) seolah ia fraksi. Frontend juga memperlakukan **`percent >= 100` atau `percent <= 0` sebagai sinyal "proses selesai total"** (memicu auto-hide widget progress) — **DILARANG** memanggil `emit_progress(100, ...)` untuk checkpoint di tengah alur multi-tahap, hanya untuk tahap paling akhir yang benar-benar tidak ada lanjutannya. Dua bug produksi nyata terjadi karena pelanggaran kontrak ini — lihat `docs/known_bugs.md` #16 dan #18.
 
 ## 🌐 Arsitektur Multi-Bahasa (i18n)
 VyloServe menerapkan standar **Frontend-Driven i18n (Opsi 1)**.
@@ -68,7 +72,7 @@ Setiap kali menambah **fitur baru, komponen UI baru, atau mengubah teks yang tam
    - Gunakan `<PageHeader>` untuk judul halaman module.
    - Gunakan `<BackgroundProgressWidget>` untuk menangkap log loading dari OS.
 2. **Golden Standard UI:**
-   Modul **Apache** dan **PHP** (`frontend/src/menu/apache/Main.tsx` dll) adalah standar emas (*golden standard*) tampilan dan integrasi *Toast* dan i18n di aplikasi ini. Jika membuat modul baru, ikuti struktur mereka.
+   Pola `PageHeader + SkeletonCard + EmptyState + Card + Modal` (fetch on mount → render 3-state loading/data/empty → handler aksi dengan toast+i18n) diterapkan konsisten di **Apache, PHP, Database, Runtimes, dan Git** — bukan eksklusif milik Apache/PHP. Jika membuat modul baru, ikuti struktur ini. Detail lengkap + diagram: `docs/frontend_ui.md` §5. Untuk halaman dengan banyak state bercabang (mis. multi-engine/multi-tab), lihat juga §5.1 di dokumen yang sama soal konvensi ekstraksi sub-komponen supaya *Cognitive Complexity* tetap rendah.
 3. **Graceful Exit:**
    Penutupan aplikasi dikendalikan oleh variabel global `is_real_exit` di `main.py`. Menekan (X) pada window hanya akan menyembunyikan aplikasi ke System Tray (jika `IS_PRODUCTION=True`). Perintah mematikan total hanya lewat `api.close_app()` atau menu di System Tray.
 4. **Patching UI Component Props:**
@@ -148,6 +152,14 @@ Setiap kali menambah **fitur baru, komponen UI baru, atau mengubah teks yang tam
 22. **Entrypoint Aplikasi Harus Tetap Testable:**
     - Logika penting (exit handler, lifecycle window, dsb.) di `main.py` **DILARANG** ditulis sebagai closure di dalam `if __name__ == '__main__':` — itu membuatnya mustahil di-import dan ditest (`pytest` mengimpor modul sebagai `main`, bukan `__main__`, sehingga blok itu tidak pernah jalan).
     - Gunakan class/fungsi level-modul yang menerima dependency (`api`, `window`, dsb.) sebagai parameter/atribut, lalu `if __name__ == '__main__': main()` cukup memanggil wiring-nya. Lihat `main.py` (class `AppLifecycle`) sebagai contoh pola yang benar.
+23. **Jangan Asumsikan Tipe Data dari I/O Tanpa Validasi:**
+    - Nilai hasil baca file/JSON/registry bisa saja bertipe berbeda dari yang diasumsikan (file lama/rusak/edit manual). `read_json(path, default_type)` di `core/utils/file_utils.py` **menjamin** hasilnya selalu bertipe `default_type` (sudah divalidasi `isinstance` di dalamnya) — pakai fungsi ini alih-alih `json.load()` mentah, dan tetap jangan panggil `.get()`/iterasi pada hasil pemrosesan JSON lain (mis. hasil `api.xxx()` yang belum tentu `dict`) tanpa `isinstance` check kalau sumbernya bisa dikontrol pengguna/file eksternal. Insiden nyata: `docs/known_bugs.md` #17.
+24. **Penempatan Komentar `// NOSONAR` Harus Presisi:**
+    - Komentar `// NOSONAR <rule-id>` hanya menekan temuan SonarQube jika berada **persis di baris yang dilaporkan** — untuk tag JSX multi-baris, itu berarti baris **pembuka tag** (`<div // NOSONAR ...`), BUKAN baris atribut (`role="..."`) di dalamnya walau atribut itu penyebab temuannya. Verifikasi dengan scan ulang, bukan asumsi — sempat salah taruh sekali di `database/NewInstance.tsx` dan temuan tetap muncul di scan berikutnya.
+25. **Utamakan `Edit` Daripada `Write` Full-File untuk File yang Sudah Ada:**
+    - Menulis ulang seluruh isi file (lewat `Write`) padahal hanya sebagian yang berubah membuat git-blame menganggap **semua baris** sebagai "baru", bukan cuma baris yang benar-benar diubah. Ini memicu tool berbasis blame (SonarQube "new code period", `git blame` untuk investigasi bug) salah mengklasifikasikan baris lama yang tidak tersentuh sebagai perubahan baru — pernah terjadi pada `base64/Main.tsx`, menyebabkan temuan SonarQube lama muncul lagi sebagai "new violation". Pakai `Edit` (diff bertarget) untuk file yang sudah ada; `Write` penuh hanya untuk file baru atau saat benar-benar seluruh isi berubah drastis.
+26. **Test yang Tiba-Tiba Lambat = Curigai I/O Nyata yang Lolos dari Mock:**
+    - Kalau `pytest` untuk satu file/fungsi tiba-tiba jauh lebih lambat dari biasanya (detik → puluhan detik), itu tanda kuat ada panggilan jaringan/subprocess/file-system yang lolos dari mock (rule 14), bukan sekadar "mesin sedang lambat". Insiden nyata: `test_php_install_version` diam-diam mengunduh `composer.phar` sungguhan dari internet setiap kali dijalankan (~80 detik) karena `_install_composer()` tidak di-mock — baru ketahuan dari anomali durasi run, bukan dari assertion yang gagal.
 
 ---
 *File ini dirancang khusus untuk dibaca oleh AI Assistant (Gemini) untuk langsung memahami ekosistem VyloServe tanpa perlu menganalisa ulang seluruh repositori secara manual dari awal setiap memulai percakapan atau sesi baru.*
@@ -165,3 +177,4 @@ Untuk orientasi cepat dan pengembangan yang efektif, ikuti **urutan bacaan** ber
 1. **DILARANG** melakukan `git commit` tanpa persetujuan eksplisit dari pengguna.
 2. **DILARANG** menjalankan command scan ulang SonarQube secara sembarangan (selalu baca spesifikasi command dari knowledge atau tanyakan pengguna).
 3. **WAJIB** menghapus kembali (clean up) file-file *scratch/generator* yang dibuat secara dinamis oleh AI untuk keperluan perbaikan atau generate skrip sementara (seperti `gen_test_*.py`, `parse_*.py`) segera setelah selesai digunakan agar tidak menjadi sampah di dalam repositori.
+4. **DILARANG** menyertakan watermark atau atribusi AI apa pun di commit message maupun deskripsi pull request — tidak ada trailer `Co-Authored-By: Claude ...`, tidak ada baris "Generated with Claude Code" atau sejenisnya. Berlaku untuk semua commit/PR ke depannya, bukan hanya sekali saat instruksi ini diberikan.

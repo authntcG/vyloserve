@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import Card from '../../components/Card';
 import Modal from '../../components/Modal';
@@ -8,6 +8,7 @@ import { useToast } from '../../components/ToastContext';
 import PageHeader from '../../components/PageHeader';
 import SkeletonCard from '../../components/SkeletonCard';
 import EmptyState from '../../components/EmptyState';
+import { clampPercent } from '../../utils/progress';
 
 import NewPhpInstance from './NewInstance';
 import PhpSettings from './Settings';
@@ -52,6 +53,7 @@ export default function PhpMain() {
     // PROGRESS WIDGET
     const [progress, setProgress] = useState(0);
     const [progressText, setProgressText] = useState('');
+    const hideProgressTimeoutRef = useRef<number | null>(null);
 
     const usedPorts = instances.map(inst => inst.port);
 
@@ -80,12 +82,27 @@ export default function PhpMain() {
             // berjalan bersamaan — lihat docs/known_bugs.md #7.
             if (e.detail?.source && e.detail.source !== 'PhpManager') return;
             if (e.detail) {
-                setProgress(e.detail.percent); setProgressText(t(e.detail.text || '', e.detail.args || {}) as string);
-                if (e.detail.percent >= 100 || e.detail.percent === 0) setTimeout(() => setProgress(0), 3000);
+                const pct = clampPercent(e.detail.percent);
+                setProgress(pct); setProgressText(t(e.detail.text || '', e.detail.args || {}) as string);
+
+                // Batalkan timer auto-hide sebelumnya setiap ada event baru -- mencegah timer basi
+                // dari event 100%/0% yang TERNYATA bukan akhir proses (mis. instalasi PHP sempat
+                // melaporkan progress mid-flow sebelum fase composer) menyembunyikan widget saat
+                // proses sebenarnya masih berjalan. Lihat docs/known_bugs.md.
+                if (hideProgressTimeoutRef.current) {
+                    window.clearTimeout(hideProgressTimeoutRef.current);
+                    hideProgressTimeoutRef.current = null;
+                }
+                if (pct >= 100 || pct === 0) {
+                    hideProgressTimeoutRef.current = window.setTimeout(() => setProgress(0), 3000);
+                }
             }
         };
         window.addEventListener('vylo_progress', handleProgress);
-        return () => window.removeEventListener('vylo_progress', handleProgress);
+        return () => {
+            window.removeEventListener('vylo_progress', handleProgress);
+            if (hideProgressTimeoutRef.current) window.clearTimeout(hideProgressTimeoutRef.current);
+        };
     }, []);
 
     // --- PHP HANDLERS ---

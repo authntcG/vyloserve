@@ -246,9 +246,13 @@ class GitManager:
             # 2. FASE UNDUHAN
             def log_cb(msg, lvl="info"): 
                 self._log(msg, lvl)
-            def download_prog_cb(pct, msg): 
-                scaled_pct = 5 + int(pct * 0.65) # Porsi unduhan lebih besar karena filenya cukup berat (~50MB)
-                self._progress(scaled_pct, msg)
+            def download_prog_cb(pct, msg):
+                # download_advanced (core/utils/file_utils.py) mengirim persentase ABSOLUT
+                # (0-100), bukan fraksi 0.0-1.0 -- lihat docs/known_bugs.md. Clamp ke jendela
+                # aman sebelum fase ekstraksi mulai di 75% agar progress tidak meluber lalu
+                # "melompat mundur".
+                clamped_pct = max(5, min(pct, 74))
+                self._progress(clamped_pct, msg)
 
             if os.path.exists(git_dir): shutil.rmtree(git_dir, ignore_errors=True)
 

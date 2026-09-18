@@ -1,6 +1,7 @@
 // src/menu/php/NewInstance.tsx
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { clampPercent } from '../../utils/progress';
 
 interface PhpVersion {
     version: string;
@@ -93,7 +94,7 @@ export default function NewPhpInstance({
             const customEvent = e as CustomEvent;
             // Abaikan progress milik modul lain — lihat docs/known_bugs.md #7.
             if (customEvent.detail?.source && customEvent.detail.source !== 'PhpManager') return;
-            setProgress({ percent: customEvent.detail.percent, text: customEvent.detail.text || '' });
+            setProgress({ percent: clampPercent(customEvent.detail.percent), text: customEvent.detail.text || '' });
         };
         window.addEventListener('vylo_progress', handleProgress);
         return () => window.removeEventListener('vylo_progress', handleProgress);

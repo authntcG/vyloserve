@@ -51,12 +51,18 @@ class RuntimesManager:
         return {"status": "error", "message": str(e)}
 
     def _get_cbs(self, start_pct: int, end_pct: int):
+        """
+        `download_advanced`/`extract_archive` (core/utils/file_utils.py) sudah memanggil
+        progress_cb dengan persentase ABSOLUT (0-100), bukan fraksi 0.0-1.0 — lihat
+        docs/known_bugs.md. `start_pct`/`end_pct` di sini hanya dipakai sebagai batas
+        aman (clamp), bukan faktor pengali, supaya progress tidak pernah meluber ribuan
+        persen lalu "melompat mundur" saat tahap berikutnya mengirim nilai tetap.
+        """
         def log_cb(msg, lvl="info"):
             self._emit_log(msg, lvl)
         def download_cb(pct, msg):
-            span = end_pct - start_pct
-            scaled = start_pct + int(pct * span)
-            self._emit_progress(scaled, msg)
+            clamped = max(start_pct, min(pct, end_pct))
+            self._emit_progress(clamped, msg)
         return log_cb, download_cb
 
 

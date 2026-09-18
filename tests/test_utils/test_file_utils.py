@@ -39,6 +39,30 @@ def test_read_json_invalid_format(tmp_path):
     result = read_json(test_file, list)
     assert result == [] # Harusnya mengembalikan list kosong (fallback)
 
+def test_read_json_returns_default_when_content_type_mismatches(tmp_path):
+    """
+    Regresi: file berisi JSON VALID tapi bukan tipe yang diminta (mis. string
+    top-level padahal caller minta dict) harus jatuh ke default_type(), bukan
+    meneruskan tipe asli mentah-mentah. Sebelum perbaikan ini, caller yang
+    langsung memanggil .get()/iterasi pada hasil read_json() (tanpa isinstance
+    check sendiri) crash dengan "'str' object has no attribute 'get'" saat
+    dashboard.json/apache.json berisi nilai bukan-objek. Lihat docs/known_bugs.md.
+    """
+    string_file = os.path.join(tmp_path, "was_a_string.json")
+    with open(string_file, 'w', encoding='utf-8') as f:
+        json.dump("this is just a string, not an object", f)
+    assert read_json(string_file, dict) == {}
+
+    number_file = os.path.join(tmp_path, "was_a_number.json")
+    with open(number_file, 'w', encoding='utf-8') as f:
+        json.dump(42, f)
+    assert read_json(number_file, dict) == {}
+
+    dict_file = os.path.join(tmp_path, "was_a_dict.json")
+    with open(dict_file, 'w', encoding='utf-8') as f:
+        json.dump({"a": 1}, f)
+    assert read_json(dict_file, list) == []
+
 def test_read_json_empty_file_returns_default(tmp_path):
     """File ada tapi kosong (0 byte) -> harus mengembalikan default, bukan error JSONDecodeError."""
     test_file = os.path.join(tmp_path, "empty.json")

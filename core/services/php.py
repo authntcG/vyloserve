@@ -191,7 +191,13 @@ class PhpManager:
             extract_archive(file_path, target_dir, progress_cb=prog_cb)
             if os.path.exists(file_path): os.remove(file_path)
             
-            self._progress(100, "backend.php.configuring")
+            # Bukan 100: progress 100% harus berarti instalasi BENAR-BENAR selesai
+            # (lihat _progress(100, "backend.php.installation_complete") di bawah, setelah
+            # composer terpasang). Jika di sini dipakai 100, frontend yang mendeteksi
+            # "percent >= 100 -> auto-hide widget setelah 3 detik" akan menyembunyikan
+            # progress widget padahal instalasi composer di bawah ini masih berjalan.
+            # Lihat docs/known_bugs.md.
+            self._progress(92, "backend.php.configuring")
             with open(os.path.join(target_dir, PHP_INI), 'w') as f:
                 f.write(f"; VyloServe PHP {version} Configuration\n; vyloserve_port = {port}\nmemory_limit = 512M\nfastcgi.logging = 0\ncgi.force_redirect = 0\ncgi.fix_pathinfo = 1\n")
                 if sys.platform == 'win32': f.write("extension_dir = \"ext\"\nextension=curl\nextension=mbstring\n")
@@ -373,8 +379,13 @@ class PhpManager:
         dashboard_json = os.path.join(get_project_root(), 'data', 'dashboard.json')
         installed = self.get_installed_versions()
         if not installed: return []
-            
-        selected = read_json(dashboard_json, dict).get('selected_php', [])
+
+        dashboard_data = read_json(dashboard_json, dict)
+        # read_json() TIDAK menjamin dict hanya karena default_type=dict -- parameter itu
+        # cuma dipakai saat file kosong/tidak ada. Jika isi file valid JSON tapi bukan objek
+        # (mis. string sisa dari file lama/rusak), .get() langsung akan melempar
+        # AttributeError "'str' object has no attribute 'get'". Lihat docs/known_bugs.md.
+        selected = dashboard_data.get('selected_php', []) if isinstance(dashboard_data, dict) else []
         valid = [v for v in selected if v in installed]
         if valid: return valid
             

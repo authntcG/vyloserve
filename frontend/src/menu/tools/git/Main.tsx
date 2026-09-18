@@ -5,6 +5,7 @@ import Card from '../../../components/Card';
 import Modal from '../../../components/Modal';
 import EmptyState from '../../../components/EmptyState';
 import { useToast } from '../../../components/ToastContext';
+import { clampPercent } from '../../../utils/progress';
 
 // --- SUB-KOMPONEN: FORM INSTALASI GIT ---
 interface InstallGitRef { submit: () => Promise<boolean>; }
@@ -198,7 +199,7 @@ export default function GitMain() {
             // Abaikan progress milik modul lain — lihat docs/known_bugs.md #7.
             if (event.detail?.source && event.detail.source !== 'GitManager') return;
             const { percent, text } = event.detail;
-            setProgress(Math.max(0, percent));
+            setProgress(clampPercent(percent));
             setProgressText(text);
         };
         window.addEventListener('vylo_progress', handleProgress);

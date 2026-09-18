@@ -9,6 +9,7 @@ import BackgroundProgressWidget from '../../components/BackgroundProgressWidget'
 import PageHeader from '../../components/PageHeader';
 import SkeletonCard from '../../components/SkeletonCard';
 import EmptyState from '../../components/EmptyState';
+import { clampPercent } from '../../utils/progress';
 
 import ApacheSettings from './Settings';
 import NewApacheProject, { type NewProjectRef } from './NewProject';
@@ -218,6 +219,7 @@ export default function ApacheMain() {
 
     const [progress, setProgress] = useState(0);
     const [progressText, setProgressText] = useState('');
+    const hideProgressTimeoutRef = useRef<number | null>(null);
 
     // State Project Management
     const [projects, setProjects] = useState<ProjectData[]>([]);
@@ -313,9 +315,20 @@ export default function ApacheMain() {
             if (e.detail) {
                 const text = e.detail.text || '';
                 const args = e.detail.args || {};
-                setProgress(e.detail.percent);
+                const pct = clampPercent(e.detail.percent);
+                setProgress(pct);
                 setProgressText(t(text, args) as string);
-                if (e.detail.percent >= 100 || e.detail.percent === 0) setTimeout(() => { setProgress(0); setIsCreatingProject(false); }, 3000);
+
+                // Batalkan timer auto-hide sebelumnya setiap ada event baru -- mencegah timer basi
+                // dari event 100%/0% mid-flow (bukan akhir proses sebenarnya) menyembunyikan widget
+                // saat instalasi/pembuatan project masih berjalan. Lihat docs/known_bugs.md.
+                if (hideProgressTimeoutRef.current) {
+                    window.clearTimeout(hideProgressTimeoutRef.current);
+                    hideProgressTimeoutRef.current = null;
+                }
+                if (pct >= 100 || pct === 0) {
+                    hideProgressTimeoutRef.current = window.setTimeout(() => { setProgress(0); setIsCreatingProject(false); }, 3000);
+                }
             }
         };
         window.addEventListener('service_status_changed', handleStatus);
@@ -323,6 +336,7 @@ export default function ApacheMain() {
         return () => {
             window.removeEventListener('service_status_changed', handleStatus);
             window.removeEventListener('vylo_progress', handleProg);
+            if (hideProgressTimeoutRef.current) window.clearTimeout(hideProgressTimeoutRef.current);
         };
     }, [t]);
 
