@@ -1,11 +1,11 @@
 import { useTranslation } from "react-i18next";
 
 interface BackgroundProgressWidgetProps {
-    isOpen: boolean;            // Apakah proses sedang berjalan
-    progress: number;           // Nilai persen (0 - 100)
-    progressText: string;       // Teks deskripsi saat ini
-    title?: string;             // Judul widget (default: "Installing...")
-    onRestore: () => void;      // Fungsi saat widget diklik untuk membuka kembali modal
+    readonly isOpen: boolean;            // Apakah proses sedang berjalan
+    readonly progress: number;           // Nilai persen (0 - 100)
+    readonly progressText: string;       // Teks deskripsi saat ini
+    readonly title?: string;             // Judul widget (default: "Installing...")
+    readonly onRestore: () => void;      // Fungsi saat widget diklik untuk membuka kembali modal
 }
 
 export default function BackgroundProgressWidget({
@@ -23,9 +23,11 @@ export default function BackgroundProgressWidget({
     const displayTitle = title || t('components.progress.installing');
 
     return (
-        <div
+        <button
+            type="button"
             onClick={onRestore}
-            className="fixed bottom-6 right-6 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl rounded-xl p-4 z-50 flex flex-col gap-2 animate-in slide-in-from-bottom-5 fade-in duration-300 cursor-pointer hover:border-primary/50 transition-colors group"
+            aria-label={displayTitle}
+            className="fixed bottom-6 right-6 w-80 text-left bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl rounded-xl p-4 z-50 flex flex-col gap-2 animate-in slide-in-from-bottom-5 fade-in duration-300 cursor-pointer hover:border-primary/50 transition-colors group"
         >
             <div className="flex justify-between items-center mb-1">
                 <span className="text-xs font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
@@ -43,6 +45,6 @@ export default function BackgroundProgressWidget({
             <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
                 <div className="bg-primary h-2 rounded-full transition-all duration-300 ease-out" style={{ width: `${progress}%` }}></div>
             </div>
-        </div>
+        </button>
     );
 }

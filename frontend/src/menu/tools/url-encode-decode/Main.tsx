@@ -121,7 +121,7 @@ export default function UrlMain() {
                                             <span className="text-sm text-slate-500 italic">/ (Root)</span>
                                         ) : (
                                             parsedUrl.pathname.split('/').filter(Boolean).map((segment, index) => (
-                                                <div key={index} className="flex items-center gap-2 max-w-full">
+                                                <div key={`${segment}-${index}`} className="flex items-center gap-2 max-w-full">
                                                     <span className="material-symbols-outlined text-slate-300 dark:text-slate-600 text-[16px] shrink-0">chevron_right</span>
                                                     <span className="px-2 py-1 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded border border-slate-200 dark:border-slate-700 text-xs font-mono truncate max-w-[200px]" title={segment}>{segment}</span>
                                                 </div>
@@ -138,7 +138,7 @@ export default function UrlMain() {
                                                 const [key, ...valueParts] = param.split('=');
                                                 const value = valueParts.join('=');
                                                 return (
-                                                    <div key={idx} className="flex items-start gap-3 bg-slate-50 dark:bg-slate-900/50 p-2 rounded-lg border border-slate-100 dark:border-slate-800 w-full min-w-0">
+                                                    <div key={`${key}-${idx}`} className="flex items-start gap-3 bg-slate-50 dark:bg-slate-900/50 p-2 rounded-lg border border-slate-100 dark:border-slate-800 w-full min-w-0">
                                                         <span className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/20 px-2 py-0.5 rounded break-words max-w-[40%] shrink-0">
                                                             {decodeURIComponent(key)}
                                                         </span>

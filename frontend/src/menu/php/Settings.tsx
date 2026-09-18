@@ -16,12 +16,12 @@ interface ConfigData {
 }
 
 interface Props {
-    config: ConfigData;
-    setConfig: React.Dispatch<React.SetStateAction<ConfigData>>;
-    extensions: Extension[];
-    setExtensions: React.Dispatch<React.SetStateAction<Extension[]>>;
-    isLoading: boolean;
-    usedPorts: number[]; // PROPERTI BARU: Daftar port yang terpakai
+    readonly config: ConfigData;
+    readonly setConfig: React.Dispatch<React.SetStateAction<ConfigData>>;
+    readonly extensions: Extension[];
+    readonly setExtensions: React.Dispatch<React.SetStateAction<Extension[]>>;
+    readonly isLoading: boolean;
+    readonly usedPorts: number[]; // PROPERTI BARU: Daftar port yang terpakai
 }
 
 export default function PhpSettings({ config, setConfig, extensions, setExtensions, isLoading, usedPorts }: Props) {

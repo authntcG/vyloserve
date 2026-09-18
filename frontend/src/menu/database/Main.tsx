@@ -194,11 +194,13 @@ export default function DatabaseMain() {
                     <button type="button" onClick={() => setActiveTab('postgres')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'postgres' ? 'border-primary text-primary' : 'border-transparent text-slate-500'}`}>{t('database.postgres')}</button>
                 </div>
 
-                {isLoading ? (
+                {(() => {
+                    if (isLoading) return (
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
                         {[1, 2].map((item) => <SkeletonCard key={item} />)}
                     </div>
-                ) : filteredInstances.length === 0 ? (
+                    );
+                    if (filteredInstances.length === 0) return (
                     <EmptyState
                         icon="dns"
                         title={t('database.no_instances_found')}
@@ -206,7 +208,8 @@ export default function DatabaseMain() {
                         actionText={t('database.install_now')}
                         onAction={() => setIsNewInstanceOpen(true)}
                     />
-                ) : (
+                    );
+                    return (
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
                         {filteredInstances.map(db => {
                             const isRunning = db.status === 'running';
@@ -233,7 +236,7 @@ export default function DatabaseMain() {
                                     footerActions={
                                         <>
                                             <button type="button" onClick={() => handleToggleDB(db)} disabled={togglingDbId === db.id} className={`flex-1 text-white text-sm font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2 disabled:opacity-70 ${isRunning ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600'}`}>
-                                                {togglingDbId === db.id ? <><span className="material-symbols-outlined text-[18px] animate-spin">sync</span></> : <span className="material-symbols-outlined text-[18px]">{isRunning ? 'stop' : 'play_arrow'}</span>} {isRunning ? t('database.stop_db') : t('database.start_db')}
+                                                {togglingDbId === db.id ? <span className="material-symbols-outlined text-[18px] animate-spin">sync</span> : <span className="material-symbols-outlined text-[18px]">{isRunning ? 'stop' : 'play_arrow'}</span>} {isRunning ? t('database.stop_db') : t('database.start_db')}
                                             </button>
                                             <button type="button" onClick={() => handleOpenSettings(db)} className="flex-1 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 dark:bg-slate-950 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2">
                                                 <span className="material-symbols-outlined text-[18px]">tune</span> {t('database.config')}
@@ -248,7 +251,8 @@ export default function DatabaseMain() {
                             )
                         })}
                     </div>
-                )}
+                    );
+                })()}
             </div>
 
             <BackgroundProgressWidget isOpen={isInstalling && !isNewInstanceOpen} progress={progress} progressText={progressText} title={t('database.installing_db')} onRestore={() => setIsNewInstanceOpen(true)} />
@@ -278,7 +282,7 @@ export default function DatabaseMain() {
             <Modal isOpen={isDeleteConfirmOpen} onClose={() => !isDeleting && setIsDeleteConfirmOpen(false)} title={t('database.drop_db_title')} icon="warning" onApply={handleConfirmUninstall} applyText={isDeleting ? t('database.dropping') : t('database.yes_drop')} isApplyDisabled={isDeleting} isDestructive={true} isLoading={isDeleting}>
                 <p className="text-slate-700 dark:text-slate-300 mb-2">{t('database.completely_remove')}<strong className="text-slate-900 dark:text-white">{selectedDb?.name}</strong>?</p>
                 <label className="flex items-start gap-2 bg-red-50 dark:bg-red-900/10 p-3 rounded-lg border border-red-200 cursor-pointer">
-                    <input type="checkbox" checked={deleteData} onChange={(e) => setDeleteData(e.target.checked)} disabled={isDeleting} className="mt-0.5" />
+                    <input type="checkbox" checked={deleteData} onChange={(e) => setDeleteData(e.target.checked)} disabled={isDeleting} aria-label={t('database.delete_raw_data')} className="mt-0.5" />
                     <div className="flex flex-col"><span className="text-sm font-semibold text-red-800">{t('database.delete_raw_data')}</span></div>
                 </label>
             </Modal>

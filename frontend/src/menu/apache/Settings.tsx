@@ -110,7 +110,8 @@ export default function ApacheSettings() {
             <div className="flex flex-col gap-3">
                 <h4 className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('apache.essential_configurations')}</h4>
 
-                {isLoading ? (
+                {(() => {
+                    if (isLoading) return (
                     // Skeleton Loader untuk Button Grid
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {[1, 2, 3].map((item) => (
@@ -123,11 +124,13 @@ export default function ApacheSettings() {
                             </div>
                         ))}
                     </div>
-                ) : installedVersions.length === 0 ? (
+                    );
+                    if (installedVersions.length === 0) return (
                     <div className="text-sm text-slate-500 italic p-3 border border-dashed border-slate-300 dark:border-slate-700 rounded-lg text-center bg-slate-50 dark:bg-slate-900/50">
                         {t('apache.install_first_config')}
                     </div>
-                ) : (
+                    );
+                    return (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <button type="button" onClick={() => handleOpenFile('httpd')} className="flex items-center gap-3 p-3 border border-slate-200 dark:border-slate-700 rounded-lg hover:border-primary dark:hover:border-primary hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors text-left group">
                             <span className="material-symbols-outlined text-slate-400 group-hover:text-primary transition-colors">description</span>
@@ -153,7 +156,8 @@ export default function ApacheSettings() {
                             </div>
                         </button>
                     </div>
-                )}
+                    );
+                })()}
             </div>
         </div>
     );

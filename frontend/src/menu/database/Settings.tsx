@@ -13,10 +13,10 @@ interface DbInstance {
 }
 
 interface Props {
-    instance: DbInstance;
-    config: any;
-    onChange: (key: string, value: string | number) => void;
-    isLoading: boolean;
+    readonly instance: DbInstance;
+    readonly config: any;
+    readonly onChange: (key: string, value: string | number) => void;
+    readonly isLoading: boolean;
 }
 
 export default function DbSettings({ instance, config, onChange, isLoading }: Props) {
@@ -44,14 +44,14 @@ export default function DbSettings({ instance, config, onChange, isLoading }: Pr
                 </h4>
                 <div className="grid grid-cols-2 gap-4">
                     <div className="flex flex-col gap-2">
-                        <label className="text-xs font-medium text-slate-700 dark:text-slate-300">Port</label>
-                        <input type="number" id="port"  value={config.port || ''} onChange={(e) => onChange('port', Number(e.target.value))} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2 outline-none transition-colors font-mono" />
+                        <label htmlFor="db-port" className="text-xs font-medium text-slate-700 dark:text-slate-300">Port</label>
+                        <input type="number" id="db-port" value={config.port || ''} onChange={(e) => onChange('port', Number(e.target.value))} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2 outline-none transition-colors font-mono" />
                     </div>
                     <div className="flex flex-col gap-2">
-                        <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                        <label htmlFor="db-bind-address" className="text-xs font-medium text-slate-700 dark:text-slate-300">
                             {isPostgres ? 'listen_addresses' : 'bind-address'}
                         </label>
-                        <input type="text" id="shared_buffers"  value={isPostgres ? (config.listen_addresses || '') : (config.bind_address || '')} onChange={(e) => onChange(isPostgres ? 'listen_addresses' : 'bind_address', e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2 outline-none transition-colors font-mono" />
+                        <input type="text" id="db-bind-address" value={isPostgres ? (config.listen_addresses || '') : (config.bind_address || '')} onChange={(e) => onChange(isPostgres ? 'listen_addresses' : 'bind_address', e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2 outline-none transition-colors font-mono" />
                     </div>
                 </div>
             </div>
@@ -69,16 +69,16 @@ export default function DbSettings({ instance, config, onChange, isLoading }: Pr
                     {isMysql && (
                         <>
                             <div className="flex flex-col gap-2">
-                                <label className="text-xs font-medium text-slate-700 dark:text-slate-300">innodb_buffer_pool_size</label>
-                                <input type="text" id="shared_buffers"  value={config.innodb_buffer_pool_size || ''} onChange={(e) => onChange('innodb_buffer_pool_size', e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg block p-2 outline-none font-mono" />
+                                <label htmlFor="db-innodb-buffer-pool-size" className="text-xs font-medium text-slate-700 dark:text-slate-300">innodb_buffer_pool_size</label>
+                                <input type="text" id="db-innodb-buffer-pool-size" value={config.innodb_buffer_pool_size || ''} onChange={(e) => onChange('innodb_buffer_pool_size', e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg block p-2 outline-none font-mono" />
                             </div>
                             <div className="flex flex-col gap-2">
-                                <label className="text-xs font-medium text-slate-700 dark:text-slate-300">max_allowed_packet</label>
-                                <input type="text" id="shared_buffers"  value={config.max_allowed_packet || ''} onChange={(e) => onChange('max_allowed_packet', e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg block p-2 outline-none font-mono" />
+                                <label htmlFor="db-max-allowed-packet" className="text-xs font-medium text-slate-700 dark:text-slate-300">max_allowed_packet</label>
+                                <input type="text" id="db-max-allowed-packet" value={config.max_allowed_packet || ''} onChange={(e) => onChange('max_allowed_packet', e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg block p-2 outline-none font-mono" />
                             </div>
                             <div className="flex flex-col gap-2">
-                                <label htmlFor="max_connections" className="text-xs font-medium text-slate-700 dark:text-slate-300">max_connections</label>
-                                <input type="number" id="port"  value={config.max_connections || ''} onChange={(e) => onChange('max_connections', e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg block p-2 outline-none font-mono" />
+                                <label htmlFor="db-max-connections-mysql" className="text-xs font-medium text-slate-700 dark:text-slate-300">max_connections</label>
+                                <input type="number" id="db-max-connections-mysql" value={config.max_connections || ''} onChange={(e) => onChange('max_connections', e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg block p-2 outline-none font-mono" />
                             </div>
                             <div className="flex flex-col gap-2">
                                 <label htmlFor="character_set_server" className="text-xs font-medium text-slate-700 dark:text-slate-300">character_set_server</label>
@@ -89,12 +89,12 @@ export default function DbSettings({ instance, config, onChange, isLoading }: Pr
                                 </select>
                             </div>
                             <div className="flex flex-col gap-2">
-                                <label className="text-xs font-medium text-slate-700 dark:text-slate-300">collation_server</label>
-                                <input type="text" id="shared_buffers"  value={config.collation_server || 'utf8mb4_unicode_ci'} onChange={(e) => onChange('collation_server', e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg block p-2 outline-none font-mono" />
+                                <label htmlFor="db-collation-server" className="text-xs font-medium text-slate-700 dark:text-slate-300">collation_server</label>
+                                <input type="text" id="db-collation-server" value={config.collation_server || 'utf8mb4_unicode_ci'} onChange={(e) => onChange('collation_server', e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg block p-2 outline-none font-mono" />
                             </div>
                             <div className="flex flex-col gap-2">
-                                <label className="text-xs font-medium text-slate-700 dark:text-slate-300">default_storage_engine</label>
-                                <input type="text" id="shared_buffers"  value={config.default_storage_engine || 'InnoDB'} onChange={(e) => onChange('default_storage_engine', e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg block p-2 outline-none font-mono" />
+                                <label htmlFor="db-default-storage-engine" className="text-xs font-medium text-slate-700 dark:text-slate-300">default_storage_engine</label>
+                                <input type="text" id="db-default-storage-engine" value={config.default_storage_engine || 'InnoDB'} onChange={(e) => onChange('default_storage_engine', e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg block p-2 outline-none font-mono" />
                             </div>
                         </>
                     )}
@@ -104,27 +104,27 @@ export default function DbSettings({ instance, config, onChange, isLoading }: Pr
                         <>
                             <div className="flex flex-col gap-2">
                                 <label htmlFor="shared_buffers" className="text-xs font-medium text-slate-700 dark:text-slate-300">shared_buffers</label>
-                                <input type="text" id="shared_buffers"  value={config.shared_buffers || ''} onChange={(e) => onChange('shared_buffers', e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg block p-2 outline-none font-mono" />
+                                <input type="text" id="shared_buffers" value={config.shared_buffers || ''} onChange={(e) => onChange('shared_buffers', e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg block p-2 outline-none font-mono" />
                             </div>
                             <div className="flex flex-col gap-2">
-                                <label className="text-xs font-medium text-slate-700 dark:text-slate-300">work_mem</label>
-                                <input type="text" id="shared_buffers"  value={config.work_mem || ''} onChange={(e) => onChange('work_mem', e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg block p-2 outline-none font-mono" />
+                                <label htmlFor="db-work-mem" className="text-xs font-medium text-slate-700 dark:text-slate-300">work_mem</label>
+                                <input type="text" id="db-work-mem" value={config.work_mem || ''} onChange={(e) => onChange('work_mem', e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg block p-2 outline-none font-mono" />
                             </div>
                             <div className="flex flex-col gap-2">
-                                <label className="text-xs font-medium text-slate-700 dark:text-slate-300">maintenance_work_mem</label>
-                                <input type="text" id="shared_buffers"  value={config.maintenance_work_mem || ''} onChange={(e) => onChange('maintenance_work_mem', e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg block p-2 outline-none font-mono" />
+                                <label htmlFor="db-maintenance-work-mem" className="text-xs font-medium text-slate-700 dark:text-slate-300">maintenance_work_mem</label>
+                                <input type="text" id="db-maintenance-work-mem" value={config.maintenance_work_mem || ''} onChange={(e) => onChange('maintenance_work_mem', e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg block p-2 outline-none font-mono" />
                             </div>
                             <div className="flex flex-col gap-2">
                                 <label htmlFor="effective_cache_size" className="text-xs font-medium text-slate-700 dark:text-slate-300">effective_cache_size</label>
-                                <input type="text" id="shared_buffers"  value={config.effective_cache_size || ''} onChange={(e) => onChange('effective_cache_size', e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg block p-2 outline-none font-mono" />
+                                <input type="text" id="effective_cache_size" value={config.effective_cache_size || ''} onChange={(e) => onChange('effective_cache_size', e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg block p-2 outline-none font-mono" />
                             </div>
                             <div className="flex flex-col gap-2">
-                                <label htmlFor="max_connections" className="text-xs font-medium text-slate-700 dark:text-slate-300">max_connections</label>
-                                <input type="number" id="port"  value={config.max_connections || ''} onChange={(e) => onChange('max_connections', e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg block p-2 outline-none font-mono" />
+                                <label htmlFor="db-max-connections-pg" className="text-xs font-medium text-slate-700 dark:text-slate-300">max_connections</label>
+                                <input type="number" id="db-max-connections-pg" value={config.max_connections || ''} onChange={(e) => onChange('max_connections', e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg block p-2 outline-none font-mono" />
                             </div>
                             <div className="flex flex-col gap-2">
                                 <label htmlFor="timezone" className="text-xs font-medium text-slate-700 dark:text-slate-300">timezone</label>
-                                <input type="text" id="shared_buffers"  value={config.timezone || ''} onChange={(e) => onChange('timezone', e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg block p-2 outline-none font-mono" />
+                                <input type="text" id="timezone" value={config.timezone || ''} onChange={(e) => onChange('timezone', e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg block p-2 outline-none font-mono" />
                             </div>
                         </>
                     )}

@@ -8,15 +8,15 @@ interface PhpVersion {
 }
 
 interface Props {
-    version: string;
-    setVersion: (val: string) => void;
-    setFilename: (val: string) => void;
-    port: number;
-    setPort: (val: number) => void;
-    isInstalling?: boolean;
-    isFetchingVersions: boolean;
-    setIsFetchingVersions: (val: boolean) => void;
-    usedPorts: number[];
+    readonly version: string;
+    readonly setVersion: (val: string) => void;
+    readonly setFilename: (val: string) => void;
+    readonly port: number;
+    readonly setPort: (val: number) => void;
+    readonly isInstalling?: boolean;
+    readonly isFetchingVersions: boolean;
+    readonly setIsFetchingVersions: (val: boolean) => void;
+    readonly usedPorts: number[];
 }
 
 export default function NewPhpInstance({
@@ -58,7 +58,7 @@ export default function NewPhpInstance({
             setIsFetchingVersions(true);
             setFetchError('');
 
-            if (window.pywebview && window.pywebview.api) {
+            if (window.pywebview?.api) {
                 try {
                     const response = await window.pywebview.api.get_php_versions();
                     if (response.status === 'success') {
@@ -77,6 +77,7 @@ export default function NewPhpInstance({
                         setAvailableVersions([]);
                     }
                 } catch (error) {
+                    console.error(error);
                     setFetchError(t('php.backend_connection_error'));
                 }
             }
@@ -151,17 +152,15 @@ export default function NewPhpInstance({
                             disabled={isInstalling || availableVersions.length === 0 || fetchError !== ''}
                             className={`w-full bg-white dark:bg-slate-950 border ${fetchError ? 'border-red-400 focus:border-red-500 text-red-500' : 'border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100'} text-sm rounded-lg focus:ring-primary block p-2.5 outline-none transition-colors disabled:opacity-70`}
                         >
-                            {fetchError ? (
-                                <option>Error: {fetchError}</option>
-                            ) : availableVersions.length > 0 ? (
-                                availableVersions.map((v, index) => (
+                            {(() => {
+                                if (fetchError) return <option>Error: {fetchError}</option>;
+                                if (availableVersions.length > 0) return availableVersions.map((v, index) => (
                                     <option key={v.version} value={v.version}>
                                         PHP {v.version} {index === 0 ? t('php.latest_release') : ''}
                                     </option>
-                                ))
-                            ) : (
-                                <option>{t('php.all_versions_installed')}</option>
-                            )}
+                                ));
+                                return <option>{t('php.all_versions_installed')}</option>;
+                            })()}
                         </select>
                     )}
                 </div>
@@ -190,21 +189,25 @@ export default function NewPhpInstance({
                     />
                 </div>
 
-                {isPortConflict ? (
-                    <div className="mt-1 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-lg flex gap-3 animate-in fade-in">
-                        <span className="material-symbols-outlined text-red-600 dark:text-red-500 text-[20px] shrink-0">error</span>
-                        <p className="text-[12px] text-red-800 dark:text-red-400">
-                            <strong>{t('php.port_conflict')}</strong> {t('php.port_used_desc_1')}{port}{t('php.port_used_desc_2')}<strong>{recommendedPort}</strong>.
-                        </p>
-                    </div>
-                ) : port === 9000 ? (
-                    <div className="mt-1 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/50 rounded-lg flex gap-3">
-                        <span className="material-symbols-outlined text-blue-600 dark:text-blue-500 text-[20px] shrink-0">info</span>
-                        <p className="text-[12px] text-blue-800 dark:text-blue-400">
-                            <strong>{t('php.tip')}</strong> {t('php.port_9000_tip')}
-                        </p>
-                    </div>
-                ) : null}
+                {(() => {
+                    if (isPortConflict) return (
+                        <div className="mt-1 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-lg flex gap-3 animate-in fade-in">
+                            <span className="material-symbols-outlined text-red-600 dark:text-red-500 text-[20px] shrink-0">error</span>
+                            <p className="text-[12px] text-red-800 dark:text-red-400">
+                                <strong>{t('php.port_conflict')}</strong> {t('php.port_used_desc_1')}{port}{t('php.port_used_desc_2')}<strong>{recommendedPort}</strong>.
+                            </p>
+                        </div>
+                    );
+                    if (port === 9000) return (
+                        <div className="mt-1 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/50 rounded-lg flex gap-3">
+                            <span className="material-symbols-outlined text-blue-600 dark:text-blue-500 text-[20px] shrink-0">info</span>
+                            <p className="text-[12px] text-blue-800 dark:text-blue-400">
+                                <strong>{t('php.tip')}</strong> {t('php.port_9000_tip')}
+                            </p>
+                        </div>
+                    );
+                    return null;
+                })()}
 
                 {/* --- PROGRESS BAR DENGAN GAP YANG DIRAPATKAN --- */}
                 <div ref={bottomRef} className="pt-1 mt-1">

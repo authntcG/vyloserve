@@ -1,10 +1,10 @@
 import { useTranslation } from 'react-i18next';
 
 interface RuntimeVersionSelectProps {
-    isLoading: boolean;
-    versionsList: any[];
-    version: string;
-    setVersion: (val: string) => void;
+    readonly isLoading: boolean;
+    readonly versionsList: any[];
+    readonly version: string;
+    readonly setVersion: (val: string) => void;
 }
 
 export default function RuntimeVersionSelect({ isLoading, versionsList, version, setVersion }: RuntimeVersionSelectProps) {

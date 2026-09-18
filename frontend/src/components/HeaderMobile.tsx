@@ -1,5 +1,5 @@
 interface HeaderMobileProps {
-    onMenuClick: () => void;
+    readonly onMenuClick: () => void;
 }
 
 export default function HeaderMobile({ onMenuClick }: HeaderMobileProps) {

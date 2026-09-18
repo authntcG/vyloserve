@@ -2,22 +2,22 @@ import { type ReactNode, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 
 export interface ModalProps {
-    isOpen: boolean;
-    onClose: () => void;
-    title: string;
-    icon?: string;
-    children: ReactNode;
-    onApply?: () => void;
-    applyText?: string;
-    isDanger?: boolean;
-    isApplyDisabled?: boolean;
-    isDestructive?: boolean;
-    isLoading?: boolean;
-    keepMounted?: boolean;
-    maxWidthClass?: string;
-    customFooter?: ReactNode;
-    customHeader?: ReactNode;
-    bodyPaddingClass?: string;
+    readonly isOpen: boolean;
+    readonly onClose: () => void;
+    readonly title: string;
+    readonly icon?: string;
+    readonly children: ReactNode;
+    readonly onApply?: () => void;
+    readonly applyText?: string;
+    readonly isDanger?: boolean;
+    readonly isApplyDisabled?: boolean;
+    readonly isDestructive?: boolean;
+    readonly isLoading?: boolean;
+    readonly keepMounted?: boolean;
+    readonly maxWidthClass?: string;
+    readonly customFooter?: ReactNode;
+    readonly customHeader?: ReactNode;
+    readonly bodyPaddingClass?: string;
 }
 
 export default function Modal({
@@ -58,22 +58,27 @@ export default function Modal({
 
     if (!isOpen && !keepMounted) return null;
 
+    // native <dialog> mengubah semantik focus-trap/backdrop-close/ESC (showModal()/close(),
+    // ::backdrop) yang berbeda dari implementasi keepMounted+animasi opacity di komponen ini.
+    // Migrasi ditunda (butuh smoke-test manual menyeluruh); lihat docs/known_bugs.md.
     return (
-        <div className={`fixed inset-0 z-[100] flex items-center justify-center p-4 transition-all duration-300 ${isOpen ? 'opacity-100 visible' : 'opacity-0 invisible pointer-events-none'}`} role="dialog" aria-modal="true">
+        <div className={`fixed inset-0 z-[100] flex items-center justify-center p-4 transition-all duration-300 ${isOpen ? 'opacity-100 visible' : 'opacity-0 invisible pointer-events-none'}`} role="dialog" aria-modal="true"> {/* NOSONAR typescript:S6819 */}
 
             {/* OVERLAY DENGAN ANIMASI OPACITY */}
-            <div
-                className={`absolute inset-0 bg-slate-950/70 backdrop-blur-sm transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0'}`}
+            <button
+                type="button"
+                className={`absolute inset-0 bg-slate-950/70 backdrop-blur-sm transition-opacity duration-300 outline-none ${isOpen ? 'opacity-100' : 'opacity-0'}`}
                 onClick={(e) => {
                     e.stopPropagation();
                     if (!isLoading && isOpen) onClose();
                 }}
+                aria-label={t('common.close', 'Close')}
             />
 
             {/* KOTAK MODAL DENGAN ANIMASI SCALE & SLIDE */}
             <div className={`relative w-full ${maxWidthClass} bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl flex flex-col transition-all duration-300 ${isOpen ? 'scale-100 translate-y-0' : 'scale-95 translate-y-4'} overflow-hidden`}>
                 
-                {customHeader ? customHeader : (
+                {customHeader || (
                     <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 rounded-t-xl">
                         <div className="flex items-center gap-3">
                             <span className={`material-symbols-outlined ${isDanger || isDestructive ? 'text-red-500' : 'text-slate-700 dark:text-slate-300'}`}>{icon}</span>
@@ -94,7 +99,7 @@ export default function Modal({
                     {children}
                 </div>
 
-                {customFooter ? customFooter : (
+                {customFooter || (
                     <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 rounded-b-xl">
                         <button type="button"
                             onClick={onClose}

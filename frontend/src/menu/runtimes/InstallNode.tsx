@@ -67,7 +67,7 @@ const InstallNode = forwardRef<InstallNodeRef, any>((_, ref) => {
                 </button>
                 <div className={`flex flex-col gap-4 overflow-hidden transition-all duration-300 ${isAdvancedOpen ? 'max-h-[200px] opacity-100 mt-4' : 'max-h-0 opacity-0'}`}>
                     <label className="flex items-start gap-3 cursor-pointer p-3 border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-900/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-                        <input type="checkbox" checked={enableCorepack} onChange={(e) => setEnableCorepack(e.target.checked)} className="mt-1 w-4 h-4 text-primary bg-slate-100 border-slate-300 rounded focus:ring-primary dark:ring-offset-slate-800 dark:bg-slate-700 dark:border-slate-600" />
+                        <input type="checkbox" checked={enableCorepack} onChange={(e) => setEnableCorepack(e.target.checked)} aria-label={t('runtimes.enable_corepack')} className="mt-1 w-4 h-4 text-primary bg-slate-100 border-slate-300 rounded focus:ring-primary dark:ring-offset-slate-800 dark:bg-slate-700 dark:border-slate-600" />
                         <div className="flex flex-col">
                             <span className="text-sm font-medium text-slate-900 dark:text-slate-100">{t('runtimes.enable_corepack')}</span>
                             <span className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{t('runtimes.corepack_desc')}</span>

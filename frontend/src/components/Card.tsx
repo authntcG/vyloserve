@@ -2,12 +2,12 @@
 import { type ReactNode } from 'react';
 
 export interface CardProps {
-    title: string;
-    status?: string | null; // Diubah menjadi string universal agar bisa menerima teks apapun
-    gridCols?: string;
-    dropdownActions?: ReactNode;
-    footerActions?: ReactNode;
-    children: ReactNode;
+    readonly title: string;
+    readonly status?: string | null; // Diubah menjadi string universal agar bisa menerima teks apapun
+    readonly gridCols?: string;
+    readonly dropdownActions?: ReactNode;
+    readonly footerActions?: ReactNode;
+    readonly children: ReactNode;
 }
 
 export default function Card({
