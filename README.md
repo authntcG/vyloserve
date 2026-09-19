@@ -49,6 +49,7 @@ Built on top of **PyWebView**, VyloServe offers a 100% native desktop applicatio
 * **Workspace Git Manager:** Built-in git status dashboard for local projects.
 * **Developer Tools:** Built-in QR Code Generator, Base64 Encoder, URL Decoder, and SSL Auto-generation for `https://` access.
 * **Native i18n:** Full bilingual support (English and Indonesian) built straight into the UI components.
+* **Auto-Updater:** Automatic startup check against GitHub Releases, with an optional pre-release opt-in, one-click background download with live progress, and silent self-install on restart.
 
 ## 🏗️ Architecture & Tech Stack
 
@@ -71,6 +72,7 @@ VyloServe is actively in development. Here is what we have built and what is com
 * [x] **Git Manager & SSL Manager:** Local repo management and auto-generated trusted SSL certificates.
 * [x] **Developer Utilities:** Built-in QR Code Generator, Base64 Encoder, and URL Decoder.
 * [x] **i18n Multi-Language:** Built-in support for English and Indonesian.
+* [x] **Auto-Updater:** Startup update check, background download, and silent self-install via GitHub Releases.
 * [ ] **Redis / Memcached:** In-memory data structure store management.
 
 ## 🛠️ Getting Started (Development)
@@ -79,7 +81,7 @@ Want to contribute or run VyloServe from the source?
 
 1. **Clone the repository:**
 ```bash
-git clone https://github.com/yourusername/vyloserve.git
+git clone https://github.com/authntcG/vyloserve.git
 cd vyloserve
 ```
 
@@ -103,7 +105,7 @@ Contributions, issues, and feature requests are welcome! Feel free to check the 
 
 ## 📝 License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the GNU General Public License v3.0 (GPL-3.0) - see the [LICENSE](LICENSE) file for details.
 
 ---
 

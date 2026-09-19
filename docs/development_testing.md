@@ -68,6 +68,7 @@ tests/
 │   ├── test_ssl_manager.py               # Unit test untuk core/services/ssl_manager.py
 │   ├── test_dashboard.py                 # Unit test untuk core/services/dashboard.py
 │   ├── test_settings.py                  # Unit test untuk core/services/settings.py
+│   ├── test_updater.py                   # Unit test untuk core/services/updater.py (Auto-Updater)
 │   ├── test_runtimes_manager.py          # Unit test untuk core/services/runtimes_manager.py
 │   ├── test_service_lifecycles.py        # Unit test orkestrasi start/stop antar service
 │   └── test_<nama_service>.py            # Pola: test_<nama_file_source>.py
