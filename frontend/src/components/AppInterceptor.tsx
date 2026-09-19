@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useToast } from './ToastContext';
 
 export default function GlobalAppInterceptor() {
     const { showToast } = useToast();
+    const { t } = useTranslation();
     const [menuState, setMenuState] = useState({
         visible: false,
         x: 0,
@@ -70,9 +72,9 @@ export default function GlobalAppInterceptor() {
         if (menuState.textToCopy) {
             try {
                 await navigator.clipboard.writeText(menuState.textToCopy);
-                showToast("Log disalin ke clipboard!", "success");
-            } catch (err) {
-                showToast("Gagal menyalin teks", "error");
+                showToast(t('components.interceptor.copy_success'), "success");
+            } catch (err){ console.error(err);
+                showToast(t('components.interceptor.copy_error'), "error");
             }
         }
         setMenuState(prev => ({ ...prev, visible: false }));
@@ -88,13 +90,13 @@ export default function GlobalAppInterceptor() {
             className="fixed z-[9999] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-2xl overflow-hidden py-1 min-w-[160px] animate-in fade-in zoom-in-95 duration-100"
             style={{ top: safeY, left: safeX }}
         >
-            <button
+            <button type="button"
                 onClick={handleCopy}
                 disabled={!menuState.textToCopy}
                 className="w-full text-left px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
                 <span className="material-symbols-outlined text-[18px] text-slate-500">content_copy</span>
-                Copy Log Text
+                {t('components.interceptor.copy_btn')}
             </button>
         </div>
     );

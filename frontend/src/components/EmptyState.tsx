@@ -1,9 +1,9 @@
 interface EmptyStateProps {
-    icon: string;
-    title: string;
-    description: string;
-    actionText?: string;
-    onAction?: () => void;
+    readonly icon: string;
+    readonly title: string;
+    readonly description: string;
+    readonly actionText?: string;
+    readonly onAction?: () => void;
 }
 
 export default function EmptyState({ icon, title, description, actionText, onAction }: EmptyStateProps) {
@@ -26,7 +26,7 @@ export default function EmptyState({ icon, title, description, actionText, onAct
             
             {actionText && onAction && (
                 <div className="mt-5 block">
-                    <button 
+                    <button type="button" 
                         onClick={onAction} 
                         className="inline-block text-sm font-medium text-primary hover:text-blue-600 hover:underline outline-none transition-colors"
                     >

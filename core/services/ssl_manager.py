@@ -17,7 +17,7 @@ class SslManager:
     def _get_openssl_paths(self) -> Tuple[str, str]:
         status = self.api.apache.get_status()
         if not status.get("installed"):
-            raise Exception("Apache belum terinstal. OpenSSL tidak ditemukan.")
+            raise RuntimeError("Apache belum terinstal. OpenSSL tidak ditemukan.")
         
         apache_path = status["path"]
         return os.path.join(apache_path, 'bin', 'openssl.exe'), os.path.join(apache_path, 'conf', 'openssl.cnf')
@@ -26,7 +26,7 @@ class SslManager:
         if os.path.exists(self.ca_key) and os.path.exists(self.ca_crt): return True 
 
         openssl_exe, openssl_cnf = self._get_openssl_paths()
-        self.api.emit_log("Membuat VyloServe Root CA (Otoritas Sertifikat Lokal)...", "info")
+        self.api.emit_log("backend.ssl.creating_root_ca", "info")
 
         try:
             run_silent_command([openssl_exe, 'genrsa', '-out', self.ca_key, '2048'])
@@ -37,19 +37,19 @@ class SslManager:
                 '-config', openssl_cnf
             ])
 
-            self.api.emit_log("Meminta akses Administrator (UAC) untuk menanamkan Root CA...", "warn")
+            self.api.emit_log("backend.ssl.requesting_uac", "warn")
             
             cmd = f'certutil -addstore -f "Root" "{self.ca_crt}"'
             result = ctypes.windll.shell32.ShellExecuteW(None, "runas", "cmd.exe", f"/c {cmd}", None, 0)
             
             if result > 32:
-                self.api.emit_log("Root CA VyloServe berhasil dipercaya oleh OS Windows!", "success")
+                self.api.emit_log("backend.ssl.ca_trusted_success", "success")
                 return True
             else:
-                self.api.emit_log("Gagal menginstal Root CA: Akses Administrator ditolak.", "error")
+                self.api.emit_log("backend.ssl.ca_uac_denied", "error")
                 return False
         except Exception as e:
-            self.api.emit_log(f"Terjadi kesalahan saat setup CA: {str(e)}", "error")
+            self.api.emit_log("backend.ssl.ca_setup_error", "error", {"e": str(e)})
             return False
 
     def generate_domain_cert(self, domain: str) -> Tuple[str, str]:
@@ -85,11 +85,11 @@ class SslManager:
             if os.path.exists(domain_csr): os.remove(domain_csr)
             if os.path.exists(domain_ext): os.remove(domain_ext)
             
-            self.api.emit_log(f"Sertifikat SSL (HTTPS) untuk {domain} berhasil dibuat.", "success")
+            self.api.emit_log("backend.ssl.cert_created", "success", {"domain": domain})
             return domain_crt, domain_key
             
         except Exception as e:
-            self.api.emit_log(f"Gagal mencetak sertifikat SSL {domain}: {str(e)}", "error")
+            self.api.emit_log("backend.ssl.cert_failed", "error", {"domain": domain})
             raise e
 
     def delete_domain_cert(self, domain: str):
@@ -98,4 +98,4 @@ class SslManager:
             file_path = os.path.join(self.ssl_dir, f"{domain}{ext}")
             if os.path.exists(file_path):
                 try: os.remove(file_path)
-                except: pass
+                except Exception: pass

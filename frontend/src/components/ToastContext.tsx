@@ -1,16 +1,16 @@
 // src/components/ToastContext.tsx
-import { createContext, useContext, useState, type ReactNode, useCallback } from 'react';
+import { createContext, useContext, useState, type ReactNode, useCallback, useMemo } from 'react';
 
 type ToastType = 'success' | 'error' | 'warning' | 'info';
 
-interface Toast {
+interface ToastMessage {
     id: number;
     message: string;
     type: ToastType;
 }
 
 interface ToastContextType {
-    showToast: (message: string, type?: ToastType) => void;
+    showToast: (message: string, type: ToastType) => void;
 }
 
 const ToastContext = createContext<ToastContextType | undefined>(undefined);
@@ -23,16 +23,15 @@ export function useToast() {
     return context;
 }
 
-export function ToastProvider({ children }: { children: ReactNode }) {
-    const [toasts, setToasts] = useState<Toast[]>([]);
+export function ToastProvider({ children }: Readonly<{ children: ReactNode }>) {
+    const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-    const showToast = useCallback((message: string, type: ToastType = 'info') => {
+    const showToast = useCallback((message: string, type: ToastType) => {
         const id = Date.now();
         setToasts((prev) => [...prev, { id, message, type }]);
 
-        // Auto hapus toast setelah 4 detik
         setTimeout(() => {
-            setToasts((prev) => prev.filter((toast) => toast.id !== id));
+            removeToast(id);
         }, 4000);
     }, []);
 
@@ -40,8 +39,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         setToasts((prev) => prev.filter((toast) => toast.id !== id));
     };
 
+    const contextValue = useMemo(() => ({ showToast }), [showToast]);
+
     return (
-        <ToastContext.Provider value={{ showToast }}>
+        <ToastContext.Provider value={contextValue}>
             {children}
 
             {/* Kontainer Render Toast */}
@@ -80,7 +81,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                                     {toast.message}
                                 </p>
                             </div>
-                            <button
+                            <button type="button"
                                 onClick={() => removeToast(toast.id)}
                                 className="shrink-0 p-0.5 opacity-50 hover:opacity-100 transition-opacity"
                             >

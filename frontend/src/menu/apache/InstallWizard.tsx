@@ -1,5 +1,6 @@
 // src/menu/apache/InstallWizard.tsx
 import React, { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 
 export interface ApacheVersionData {
     version: string;
@@ -8,18 +9,18 @@ export interface ApacheVersionData {
 }
 
 interface ApacheInstallWizardProps {
-    versions: ApacheVersionData[];
-    version: string;
-    setVersion: React.Dispatch<React.SetStateAction<string>>;
-    setUrl: React.Dispatch<React.SetStateAction<string>>;
-    httpPort: number;
-    setHttpPort: React.Dispatch<React.SetStateAction<number>>;
-    httpsPort: number;
-    setHttpsPort: React.Dispatch<React.SetStateAction<number>>;
-    isInstalling: boolean;
-    isFetchingVersions: boolean;
-    progress: number;
-    progressText: string;
+    readonly versions: ApacheVersionData[];
+    readonly version: string;
+    readonly setVersion: React.Dispatch<React.SetStateAction<string>>;
+    readonly setUrl: React.Dispatch<React.SetStateAction<string>>;
+    readonly httpPort: number;
+    readonly setHttpPort: React.Dispatch<React.SetStateAction<number>>;
+    readonly httpsPort: number;
+    readonly setHttpsPort: React.Dispatch<React.SetStateAction<number>>;
+    readonly isInstalling: boolean;
+    readonly isFetchingVersions: boolean;
+    readonly progress: number;
+    readonly progressText: string;
 }
 
 export default function ApacheInstallWizard({
@@ -37,6 +38,7 @@ export default function ApacheInstallWizard({
     progressText
 }: ApacheInstallWizardProps) {
 
+    const { t } = useTranslation();
     const [osInfo, setOsInfo] = useState({ name: 'Windows', arch: 'x64', icon: 'window' });
     const bottomRef = useRef<HTMLDivElement>(null); // Ref untuk auto-scroll
 
@@ -82,27 +84,27 @@ export default function ApacheInstallWizard({
                             <span className="material-symbols-outlined text-[18px]">{osInfo.icon}</span>
                         </div>
                         <div className="flex flex-col">
-                            <span className="text-xs text-slate-500 dark:text-slate-400">Detected System</span>
+                            <span className="text-xs text-slate-500 dark:text-slate-400">{t('apache.detected_system')}</span>
                             <span className="text-sm font-semibold text-slate-900 dark:text-white">
                                 {osInfo.name} <span className="text-primary dark:text-blue-400 font-mono text-xs ml-1 bg-blue-50 dark:bg-blue-900/30 px-1 rounded">{osInfo.arch}</span>
                             </span>
                         </div>
                     </div>
                     <span className="inline-flex items-center px-2 py-1 rounded text-[10px] font-bold tracking-wide uppercase bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-400">
-                        COMPATIBLE
+                        {t('apache.compatible')}
                     </span>
                 </div>
 
                 <div className="flex flex-col gap-2">
                     <label className="text-sm font-medium text-slate-900 dark:text-white flex items-center gap-2">
                         <span className="material-symbols-outlined text-[18px] text-primary">dns</span>
-                        Target Apache Version
+                        {t('apache.target_apache_version')}
                     </label>
 
                     {isFetchingVersions ? (
                         <div className="h-10 border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 rounded-lg flex items-center px-3 gap-2">
                             <span className="material-symbols-outlined animate-spin text-slate-400 text-sm">sync</span>
-                            <span className="text-sm text-slate-500">Retrieving stable releases...</span>
+                            <span className="text-sm text-slate-500">{t('apache.retrieving_releases')}</span>
                         </div>
                     ) : (
                         <select
@@ -114,18 +116,18 @@ export default function ApacheInstallWizard({
                             {versions.length > 0 ? (
                                 versions.map((v, index) => (
                                     <option key={v.version} value={v.version}>
-                                        Apache {v.version} {index === 0 ? '(Latest Stable)' : ''}
+                                        Apache {v.version} {index === 0 ? t('apache.latest_stable') : ''}
                                     </option>
                                 ))
                             ) : (
-                                <option>Server is up to date (No new versions available).</option>
+                                <option>{t('apache.server_up_to_date')}</option>
                             )}
                         </select>
                     )}
 
                     {osInfo.name === 'Windows' && !isFetchingVersions && (
                         <p className="text-[11px] text-slate-500 mt-1">
-                            Binaries provided by <strong>ApacheLounge</strong>. Requires Visual C++ Redistributable.
+                            {t('apache.binaries_provided_by')} <strong>ApacheLounge</strong>. {t('apache.requires_vcpp')}
                         </p>
                     )}
                 </div>
@@ -137,26 +139,28 @@ export default function ApacheInstallWizard({
             <div className="flex flex-col gap-3">
                 <label className="text-sm font-medium text-slate-900 dark:text-white flex items-center gap-2">
                     <span className="material-symbols-outlined text-[18px] text-emerald-500">settings_ethernet</span>
-                    Default Listening Ports
+                    {t('apache.default_listening_ports')}
                 </label>
 
                 <div className="grid grid-cols-2 gap-4">
                     <div className="flex flex-col gap-2">
-                        <label className="text-xs font-medium text-slate-700 dark:text-slate-300">HTTP Port</label>
+                        <label htmlFor="apache_http_port" className="text-xs font-medium text-slate-700 dark:text-slate-300">{t('apache.http_port')}</label>
                         <input
+                            id="apache_http_port"
                             type="number"
                             value={httpPort}
-                            onChange={(e) => setHttpPort(parseInt(e.target.value) || 80)}
+                            onChange={(e) => setHttpPort(Number.parseInt(e.target.value) || 80)}
                             disabled={isInstalling}
                             className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2.5 outline-none disabled:opacity-50 transition-colors font-mono"
                         />
                     </div>
                     <div className="flex flex-col gap-2">
-                        <label className="text-xs font-medium text-slate-700 dark:text-slate-300">HTTPS Port (SSL)</label>
+                        <label htmlFor="apache_https_port" className="text-xs font-medium text-slate-700 dark:text-slate-300">{t('apache.https_port')}</label>
                         <input
+                            id="apache_https_port"
                             type="number"
                             value={httpsPort}
-                            onChange={(e) => setHttpsPort(parseInt(e.target.value) || 443)}
+                            onChange={(e) => setHttpsPort(Number.parseInt(e.target.value) || 443)}
                             disabled={isInstalling}
                             className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2.5 outline-none disabled:opacity-50 transition-colors font-mono"
                         />
@@ -168,7 +172,7 @@ export default function ApacheInstallWizard({
                     {isInstalling && (
                         <div className="p-3.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg flex flex-col gap-2 animate-in fade-in duration-300 shadow-sm">
                             <div className="flex justify-between items-center">
-                                <span className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate w-3/4">{progressText || 'Memulai proses...'}</span>
+                                <span className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate w-3/4">{progressText || t('apache.starting_process')}</span>
                                 <span className="text-xs font-bold text-primary dark:text-blue-400">{progress}%</span>
                             </div>
                             <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">

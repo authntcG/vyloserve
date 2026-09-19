@@ -1,5 +1,7 @@
 // src/menu/php/NewInstance.tsx
 import { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
+import { clampPercent } from '../../utils/progress';
 
 interface PhpVersion {
     version: string;
@@ -7,15 +9,15 @@ interface PhpVersion {
 }
 
 interface Props {
-    version: string;
-    setVersion: (val: string) => void;
-    setFilename: (val: string) => void;
-    port: number;
-    setPort: (val: number) => void;
-    isInstalling?: boolean;
-    isFetchingVersions: boolean;
-    setIsFetchingVersions: (val: boolean) => void;
-    usedPorts: number[];
+    readonly version: string;
+    readonly setVersion: (val: string) => void;
+    readonly setFilename: (val: string) => void;
+    readonly port: number;
+    readonly setPort: (val: number) => void;
+    readonly isInstalling?: boolean;
+    readonly isFetchingVersions: boolean;
+    readonly setIsFetchingVersions: (val: boolean) => void;
+    readonly usedPorts: number[];
 }
 
 export default function NewPhpInstance({
@@ -23,6 +25,7 @@ export default function NewPhpInstance({
     isFetchingVersions, setIsFetchingVersions, usedPorts
 }: Props) {
 
+    const { t } = useTranslation();
     const [availableVersions, setAvailableVersions] = useState<PhpVersion[]>([]);
     const [progress, setProgress] = useState({ percent: 0, text: '' });
     const [fetchError, setFetchError] = useState<string>('');
@@ -56,7 +59,7 @@ export default function NewPhpInstance({
             setIsFetchingVersions(true);
             setFetchError('');
 
-            if (window.pywebview && window.pywebview.api) {
+            if (window.pywebview?.api) {
                 try {
                     const response = await window.pywebview.api.get_php_versions();
                     if (response.status === 'success') {
@@ -71,11 +74,12 @@ export default function NewPhpInstance({
                             setFilename('');
                         }
                     } else {
-                        setFetchError(response.message);
+                        setFetchError((t(response.message, response.args || {}) as string));
                         setAvailableVersions([]);
                     }
                 } catch (error) {
-                    setFetchError("Gagal terhubung ke backend Python.");
+                    console.error(error);
+                    setFetchError(t('php.backend_connection_error'));
                 }
             }
             setIsFetchingVersions(false);
@@ -83,12 +87,14 @@ export default function NewPhpInstance({
 
         fetchVersions();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         const handleProgress = (e: Event) => {
             const customEvent = e as CustomEvent;
-            setProgress({ percent: customEvent.detail.percent, text: customEvent.detail.text || '' });
+            // Abaikan progress milik modul lain — lihat docs/known_bugs.md #7.
+            if (customEvent.detail?.source && customEvent.detail.source !== 'PhpManager') return;
+            setProgress({ percent: clampPercent(customEvent.detail.percent), text: customEvent.detail.text || '' });
         };
         window.addEventListener('vylo_progress', handleProgress);
         return () => window.removeEventListener('vylo_progress', handleProgress);
@@ -118,27 +124,27 @@ export default function NewPhpInstance({
                             <span className="material-symbols-outlined text-[18px]">{osInfo.icon}</span>
                         </div>
                         <div className="flex flex-col">
-                            <span className="text-xs text-slate-500 dark:text-slate-400">Detected System</span>
+                            <span className="text-xs text-slate-500 dark:text-slate-400">{t('php.detected_system')}</span>
                             <span className="text-sm font-semibold text-slate-900 dark:text-white">
                                 {osInfo.name} <span className="text-primary dark:text-blue-400 font-mono text-xs ml-1 bg-blue-50 dark:bg-blue-900/30 px-1 rounded">{osInfo.arch}</span>
                             </span>
                         </div>
                     </div>
                     <span className="inline-flex items-center px-2 py-1 rounded text-[10px] font-bold tracking-wide uppercase bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-400">
-                        COMPATIBLE
+                        {t('php.compatible')}
                     </span>
                 </div>
 
                 <div className="flex flex-col gap-2">
                     <label className="text-sm font-medium text-slate-900 dark:text-white flex items-center gap-2">
                         <span className="material-symbols-outlined text-[18px] text-primary">php</span>
-                        Target PHP Version
+                        {t('php.target_php_version')}
                     </label>
 
                     {isFetchingVersions ? (
                         <div className="h-10 border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 rounded-lg flex items-center px-3 gap-2">
                             <span className="material-symbols-outlined animate-spin text-slate-400 text-sm">sync</span>
-                            <span className="text-sm text-slate-500">Retrieving available versions...</span>
+                            <span className="text-sm text-slate-500">{t('php.retrieving_versions')}</span>
                         </div>
                     ) : (
                         <select
@@ -147,17 +153,15 @@ export default function NewPhpInstance({
                             disabled={isInstalling || availableVersions.length === 0 || fetchError !== ''}
                             className={`w-full bg-white dark:bg-slate-950 border ${fetchError ? 'border-red-400 focus:border-red-500 text-red-500' : 'border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100'} text-sm rounded-lg focus:ring-primary block p-2.5 outline-none transition-colors disabled:opacity-70`}
                         >
-                            {fetchError ? (
-                                <option>Error: {fetchError}</option>
-                            ) : availableVersions.length > 0 ? (
-                                availableVersions.map((v, index) => (
+                            {(() => {
+                                if (fetchError) return <option>{t('php.version_fetch_error_prefix')}{fetchError}</option>;
+                                if (availableVersions.length > 0) return availableVersions.map((v, index) => (
                                     <option key={v.version} value={v.version}>
-                                        PHP {v.version} {index === 0 ? '(Latest Release)' : ''}
+                                        PHP {v.version} {index === 0 ? t('php.latest_release') : ''}
                                     </option>
-                                ))
-                            ) : (
-                                <option>All available versions are already installed.</option>
-                            )}
+                                ));
+                                return <option>{t('php.all_versions_installed')}</option>;
+                            })()}
                         </select>
                     )}
                 </div>
@@ -169,15 +173,16 @@ export default function NewPhpInstance({
             <div className="flex flex-col gap-3">
                 <label className="text-sm font-medium text-slate-900 dark:text-white flex items-center gap-2">
                     <span className="material-symbols-outlined text-[18px] text-emerald-500">settings_ethernet</span>
-                    FastCGI Configuration
+                    {t('php.fastcgi_configuration')}
                 </label>
                 <p className="text-[13px] text-slate-500 dark:text-slate-400 mb-2">
-                    Set the default port for this PHP FastCGI process. Ensure it does not conflict with other running PHP versions.
+                    {t('php.fastcgi_desc')}
                 </p>
 
                 <div className="flex flex-col gap-2">
-                    <label className="text-xs font-medium text-slate-700 dark:text-slate-300">Listening Port</label>
+                    <label htmlFor="php_new_instance_port" className="text-xs font-medium text-slate-700 dark:text-slate-300">{t('php.listening_port')}</label>
                     <input
+                        id="php_new_instance_port"
                         type="number"
                         value={port}
                         onChange={(e) => setPort(Number(e.target.value))}
@@ -186,21 +191,25 @@ export default function NewPhpInstance({
                     />
                 </div>
 
-                {isPortConflict ? (
-                    <div className="mt-1 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-lg flex gap-3 animate-in fade-in">
-                        <span className="material-symbols-outlined text-red-600 dark:text-red-500 text-[20px] shrink-0">error</span>
-                        <p className="text-[12px] text-red-800 dark:text-red-400">
-                            <strong>Port Conflict:</strong> Port {port} is already used by another PHP installation. Please change it to an available port, such as <strong>{recommendedPort}</strong>.
-                        </p>
-                    </div>
-                ) : port === 9000 ? (
-                    <div className="mt-1 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/50 rounded-lg flex gap-3">
-                        <span className="material-symbols-outlined text-blue-600 dark:text-blue-500 text-[20px] shrink-0">info</span>
-                        <p className="text-[12px] text-blue-800 dark:text-blue-400">
-                            <strong>Tip:</strong> Port 9000 is the standard for PHP. If you plan to install multiple PHP versions, use sequential ports (e.g., 9001, 9002).
-                        </p>
-                    </div>
-                ) : null}
+                {(() => {
+                    if (isPortConflict) return (
+                        <div className="mt-1 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-lg flex gap-3 animate-in fade-in">
+                            <span className="material-symbols-outlined text-red-600 dark:text-red-500 text-[20px] shrink-0">error</span>
+                            <p className="text-[12px] text-red-800 dark:text-red-400">
+                                <strong>{t('php.port_conflict')}</strong> {t('php.port_used_desc_1')}{port}{t('php.port_used_desc_2')}<strong>{recommendedPort}</strong>.
+                            </p>
+                        </div>
+                    );
+                    if (port === 9000) return (
+                        <div className="mt-1 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/50 rounded-lg flex gap-3">
+                            <span className="material-symbols-outlined text-blue-600 dark:text-blue-500 text-[20px] shrink-0">info</span>
+                            <p className="text-[12px] text-blue-800 dark:text-blue-400">
+                                <strong>{t('php.tip')}</strong> {t('php.port_9000_tip')}
+                            </p>
+                        </div>
+                    );
+                    return null;
+                })()}
 
                 {/* --- PROGRESS BAR DENGAN GAP YANG DIRAPATKAN --- */}
                 <div ref={bottomRef} className="pt-1 mt-1">
@@ -208,7 +217,7 @@ export default function NewPhpInstance({
                         <div className="p-3.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg flex flex-col gap-2 animate-in fade-in duration-300 shadow-sm">
                             <div className="flex justify-between items-center">
                                 <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                                    {progress.text || 'Memulai proses...'}
+                                    {progress.text || t('php.starting_process')}
                                 </span>
                                 <span className="text-xs font-bold text-primary dark:text-blue-400">
                                     {progress.percent}%

@@ -1,6 +1,8 @@
 import webview
 import psutil
 import json
+import inspect
+import threading
 from typing import Dict, Any, Optional
 
 # Import Modul-modul Manager
@@ -12,6 +14,9 @@ from core.services.dashboard import DashboardManager
 from core.services.database import DatabaseManager
 from core.services.runtimes_manager import RuntimesManager
 from core.services.git_manager import GitManager
+from core.services.settings import SettingsManager
+
+PROJECT_NOT_LOADED_MSG = "backend.error.project_module_not_loaded"
 
 class Api:
     """
@@ -28,54 +33,122 @@ class Api:
         self.database = DatabaseManager(self)
         self.runtimes_manager = RuntimesManager(self)
         self.git_manager = GitManager(self)
+        self.settings = SettingsManager(self)
+        self._log_watcher_thread: Optional[threading.Thread] = None
+        self._log_watcher_stop = threading.Event()
 
     def set_window(self, window: webview.Window):
         self._window = window
 
     # ==========================================
+    # LOG WATCHER (Apache error_log/access_log & Database db_startup.log/*.err -> System Logs)
+    # ==========================================
+    def start_log_watcher(self, interval: float = 2.0):
+        """
+        Menjalankan thread background yang secara berkala memanggil
+        ApacheManager/DatabaseManager.tail_new_logs() untuk menyalurkan baris
+        baru di file log persisten ke System Logs (event 'vylo_log') secara
+        otomatis, tanpa perlu user membuka modal log-file manual. Lihat
+        docs/backend_services.md §11.2 dan docs/known_bugs.md.
+
+        Dipanggil sekali dari main.py setelah window terpasang (emit_log()
+        butuh self._window untuk bisa mengirim event ke frontend).
+        """
+        if self._log_watcher_thread and self._log_watcher_thread.is_alive():
+            return
+        self._log_watcher_stop.clear()
+
+        def _loop():
+            while not self._log_watcher_stop.is_set():
+                try:
+                    self.apache.tail_new_logs()
+                except Exception:
+                    pass
+                try:
+                    self.database.tail_new_logs()
+                except Exception:
+                    pass
+                self._log_watcher_stop.wait(interval)
+
+        self._log_watcher_thread = threading.Thread(target=_loop, daemon=True)
+        self._log_watcher_thread.start()
+
+    def stop_log_watcher(self):
+        """Menghentikan thread log watcher dengan bersih -- dipanggil saat AppLifecycle.perform_exit()."""
+        self._log_watcher_stop.set()
+
+    # ==========================================
     # EVENT EMITTERS (UI SYNC)
     # ==========================================
-    def emit_log(self, message: str, level: str = "info"):
-        """ Menembakkan log real-time ke LogsPanel React """
+    def _resolve_event_source(self) -> Optional[str]:
+        """
+        Deteksi otomatis nama class Manager yang memanggil emit_log/emit_progress
+        (mis. "ApacheManager", "PhpManager"), tanpa perlu mengubah setiap call site.
+        Dipakai frontend untuk memfilter event 'vylo_progress'/'vylo_log' agar tidak
+        "bocor" ke halaman modul lain yang kebetulan sedang ter-mount bersamaan
+        (lihat docs/known_bugs.md #7).
+        """
+        frame = inspect.currentframe()
+        try:
+            # frame -> _resolve_event_source, f_back -> emit_log/emit_progress, f_back.f_back -> pemanggil asli
+            caller_frame = frame.f_back.f_back
+            caller_self = caller_frame.f_locals.get('self') if caller_frame else None
+            return caller_self.__class__.__name__ if caller_self is not None else None
+        except Exception:
+            return None
+        finally:
+            del frame
+
+    def emit_log(self, message: str, level: str = "info", args: dict = None, source_override: Optional[str] = None):
+        """
+        Menembakkan log real-time ke LogsPanel React. `source_override` dipakai
+        pemanggil yang perlu label kategori BERBEDA dari nama class-nya sendiri
+        secara auto-detect -- mis. ApacheManager.tail_new_logs() memakai
+        'ApacheFileLog' (bukan 'ApacheManager') supaya baris dari file
+        error_log/access_log bisa difilter terpisah dari pesan sistem Apache
+        biasa di modal "System Logs" (lihat docs/known_bugs.md).
+        """
         if self._window:
-            detail = json.dumps({"message": message, "level": level})
+            source = source_override if source_override is not None else self._resolve_event_source()
+            detail = json.dumps({"message": message, "level": level, "args": args or {}, "source": source})
             script = f"window.dispatchEvent(new CustomEvent('vylo_log', {{detail: {detail} }}));"
             self._window.evaluate_js(script)
 
-    def emit_progress(self, percent: int, text: str = ""):
+    def emit_progress(self, percent: int, text: str = "", args: dict = None):
         """ Menembakkan progress bar real-time ke Modal Instalasi React """
         if self._window:
-            detail = json.dumps({"percent": percent, "text": text})
+            source = self._resolve_event_source()
+            detail = json.dumps({"percent": percent, "text": text, "args": args or {}, "source": source})
             script = f"window.dispatchEvent(new CustomEvent('vylo_progress', {{detail: {detail} }}));"
             self._window.evaluate_js(script)
 
     def test_connection(self, data: str) -> Dict[str, str]:
-        self.emit_log(f"Menerima ping dari UI: {data}", "info")
-        return {"status": "success", "message": "Koneksi Python dan React berhasil!"}
+        self.emit_log("backend.api.ping_received", "info", {"data": data})
+        return {"status": "success", "message": "backend.api.connection_success"}
 
     # ==========================================
     # SIDEBAR & GLOBAL CONTROLLER SECTIONS
     # ==========================================
     def start_service(self, service_id: str) -> Dict[str, str]:
         if service_id == 'apache':
-            self.emit_log("Memulai Apache...", "info")
+            self.emit_log("backend.apache.starting_service", "info")
             return self.apache.start_server()
         elif service_id == 'php':
-            self.emit_log("Memulai Servis PHP...", "info")
+            self.emit_log("backend.php.starting_service", "info")
             return self.php.start_all()
         elif service_id == 'database':
-            self.emit_log("Memulai Servis Database...", "info")
+            self.emit_log("backend.database.starting_service", "info")
             return self.database.start_all()
 
     def stop_service(self, service_id: str) -> Dict[str, str]:
         if service_id == 'apache':
-            self.emit_log("Menghentikan Apache...", "warn")
+            self.emit_log("backend.apache.stopping_service", "warn")
             return self.apache.stop_server()
         elif service_id == 'php':
-            self.emit_log("Menghentikan Servis PHP...", "warn")
+            self.emit_log("backend.php.stopping_service", "warn")
             return self.php.stop_all()
         elif service_id == 'database':
-            self.emit_log("Menghentikan Servis Database...", "warn")
+            self.emit_log("backend.database.stopping_service", "warn")
             return self.database.stop_all()
     
     def get_all_services_status(self) -> Dict[str, Any]:
@@ -95,7 +168,7 @@ class Api:
     # PHP SECTIONS
     # ==========================================
     def get_php_versions(self):
-        self.emit_log("Mengambil daftar versi PHP terbaru dari server...", "info")
+        self.emit_log("backend.php.fetching_versions", "info")
         return self.php.get_versions()
 
     def install_php(self, version: str, filename: str, port: int):
@@ -131,8 +204,8 @@ class Api:
     def get_available_apache(self):
         return self.apache.get_available_versions()
 
-    def install_apache(self, version: str, url: str, http_port: int, https_port: int):
-        return self.apache.install_version(version, url, http_port, https_port)
+    def install_apache(self, version: str, url: str, http_port: int):
+        return self.apache.install_version(version, url, http_port)
     
     def get_apache_status(self):
         return self.apache.get_status()
@@ -154,7 +227,10 @@ class Api:
         
     def open_apache_file(self, file_type: str):
         return self.apache.open_apache_file(file_type)
-    
+
+    def get_apache_log_content(self, log_type: str):
+        return self.apache.get_log_content(log_type)
+
     def start_apache_server(self):
         return self.apache.start_server()
 
@@ -177,39 +253,48 @@ class Api:
             webbrowser.open(url)
             return {"status": "success"}
         except Exception as e:
-            return {"status": "error", "message": f"Gagal membuka browser: {str(e)}"}
+            return {"status": "error", "message": "backend.api.browser_failed", "args": {"e": str(e)}}
+
+    def close_app(self):
+        """ Menutup aplikasi sepenuhnya lewat request frontend """
+        self.emit_log("backend.api.closing_app", "warn")
+        if hasattr(self, 'quit_callback') and self.quit_callback:
+            self.quit_callback()
+        else:
+            import os
+            os._exit(0)
 
     def detect_framework(self, directory: str):
         return self.project.detect_framework(directory)
 
     def create_project(self, payload: dict):
-        self.emit_log(f"Memulai setup project untuk {payload.get('domain')}...", "info")
+        self.emit_log("backend.project.starting_setup", "info", {"domain": payload.get('domain')})
         return self.project.create_project(payload)
     
     def get_projects(self):
         if hasattr(self, 'project') and self.project:
             return self.project.get_projects()
-        return {"status": "error", "message": "Modul Project tidak dimuat."}
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
 
     def delete_project(self, project_id: str, delete_files: bool = False):
         if hasattr(self, 'project') and self.project:
             return self.project.delete_project(project_id, delete_files)
-        return {"status": "error", "message": "Modul Project tidak dimuat."}
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
 
     def retry_sync_host(self, project_id: str):
         if hasattr(self, 'project') and self.project:
             return self.project.retry_sync_host(project_id)
-        return {"status": "error", "message": "Modul Project tidak dimuat."}
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
 
     def open_in_explorer(self, path: str):
         if hasattr(self, 'project') and self.project:
             return self.project.open_in_explorer(path)
-        return {"status": "error", "message": "Modul Project tidak dimuat."}
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
     
     def update_project(self, payload: dict):
         if hasattr(self, 'project') and self.project:
             return self.project.update_project(payload)
-        return {"status": "error", "message": "Modul Project tidak dimuat."}
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
     
     # ==========================================
     # DASHBOARD SECTIONS
@@ -219,6 +304,12 @@ class Api:
         
     def save_dashboard_config(self, data: dict):
         return self.dashboard.save_config(data)
+
+    def get_app_settings(self):
+        return self.settings.get_settings()
+
+    def save_app_settings(self, data: dict):
+        return self.settings.save_settings(data)
     
     # ==========================================
     # DATABASE SECTIONS
@@ -243,6 +334,9 @@ class Api:
 
     def open_db_dir(self, db_id: str):
         return self.database.open_path(db_id, is_file=False)
+
+    def get_database_log_content(self, db_id: str, log_type: str = 'startup'):
+        return self.database.get_log_content(db_id, log_type)
 
     def get_db_config(self, db_id: str):
         return self.database.get_db_config(db_id)

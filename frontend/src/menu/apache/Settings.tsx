@@ -1,13 +1,17 @@
 // src/menu/apache/Settings.tsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useToast } from '../../components/ToastContext';
+import LogFileViewerModal from '../../components/LogFileViewerModal';
 
 export default function ApacheSettings() {
+    const { t } = useTranslation();
     const { showToast } = useToast();
 
     const [installedVersions, setInstalledVersions] = useState<string[]>([]);
     const [activeVersion, setActiveVersion] = useState<string>('');
     const [isLoading, setIsLoading] = useState(true);
+    const [logViewerType, setLogViewerType] = useState<'error' | 'access' | null>(null);
 
     useEffect(() => {
         const fetchInstalledVersions = async () => {
@@ -22,18 +26,18 @@ export default function ApacheSettings() {
                         // Memicu trigger untuk main.tsx agar judul ikut terganti
                         window.dispatchEvent(new Event('apache_version_changed'));
                     } else {
-                        showToast(response.message, 'error');
+                        showToast((t(response.message, response.args || {}) as string), 'error');
                     }
                 }
-            } catch (error) {
-                showToast("Gagal mengambil data versi dari server lokal.", "error");
+            } catch (error){ console.error(error);
+                showToast(t('apache.fetch_version_local_error'), "error");
             } finally {
                 setIsLoading(false);
             }
         };
 
         fetchInstalledVersions();
-    }, [showToast]);
+    }, [showToast, t]);
 
     const handleVersionChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
         const newVersion = e.target.value;
@@ -44,14 +48,14 @@ export default function ApacheSettings() {
             if (api && typeof api.set_apache_active_version === 'function') {
                 const response = await api.set_apache_active_version(newVersion);
                 if (response.status === 'success') {
-                    showToast(response.message, 'success');
+                    showToast((t(response.message, response.args || {}) as string), 'success');
                     window.dispatchEvent(new Event('apache_version_changed'));
                 } else {
-                    showToast(response.message, 'error');
+                        showToast((t(response.message, response.args || {}) as string), 'error');
                 }
             }
-        } catch (error) {
-            showToast("Gagal menyimpan pengaturan versi.", "error");
+        } catch (error){ console.error(error);
+            showToast(t('apache.save_version_settings_error'), "error");
         }
     };
 
@@ -61,20 +65,25 @@ export default function ApacheSettings() {
             if (api && typeof api.open_apache_file === 'function') {
                 const response = await api.open_apache_file(fileType);
                 if (response.status === 'error') {
-                    showToast(response.message, 'error');
+                    showToast((t(response.message, response.args || {}) as string), 'error');
                 }
             }
-        } catch (error) {
-            showToast("Gagal membuka file. Periksa koneksi API.", "error");
+        } catch (error){ console.error(error);
+            showToast(t('apache.open_file_error'), "error");
         }
     };
+
+    const fetchApacheLogContent = useCallback(() => {
+        const api = window.pywebview?.api;
+        return api?.get_apache_log_content(logViewerType);
+    }, [logViewerType]);
 
     return (
         <div className="flex flex-col gap-5">
             {/* Version Selector */}
             <div className="flex flex-col gap-2">
                 <label htmlFor="apache-version" className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                    Active Version
+                    {t('apache.active_version')}
                 </label>
 
                 {isLoading ? (
@@ -90,15 +99,15 @@ export default function ApacheSettings() {
                     >
                         {installedVersions.length > 0 ? (
                             installedVersions.map(ver => (
-                                <option key={ver} value={ver}>Apache {ver}</option>
+                                <option key={ver} value={ver}>{t('common.apache_version', { version: ver })}</option>
                             ))
                         ) : (
-                            <option>No Apache installation found</option>
+                            <option>{t('apache.no_apache_installation_found')}</option>
                         )}
                     </select>
                 )}
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Changing the version will automatically restart the Apache service.
+                    {t('apache.change_version_desc')}
                 </p>
             </div>
 
@@ -106,9 +115,10 @@ export default function ApacheSettings() {
 
             {/* Quick Shortcuts */}
             <div className="flex flex-col gap-3">
-                <h4 className="text-sm font-medium text-slate-700 dark:text-slate-300">Essential Configurations</h4>
+                <h4 className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('apache.essential_configurations')}</h4>
 
-                {isLoading ? (
+                {(() => {
+                    if (isLoading) return (
                     // Skeleton Loader untuk Button Grid
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {[1, 2, 3].map((item) => (
@@ -121,38 +131,63 @@ export default function ApacheSettings() {
                             </div>
                         ))}
                     </div>
-                ) : installedVersions.length === 0 ? (
+                    );
+                    if (installedVersions.length === 0) return (
                     <div className="text-sm text-slate-500 italic p-3 border border-dashed border-slate-300 dark:border-slate-700 rounded-lg text-center bg-slate-50 dark:bg-slate-900/50">
-                        Install Apache first to access configurations.
+                        {t('apache.install_first_config')}
                     </div>
-                ) : (
+                    );
+                    return (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <button onClick={() => handleOpenFile('httpd')} className="flex items-center gap-3 p-3 border border-slate-200 dark:border-slate-700 rounded-lg hover:border-primary dark:hover:border-primary hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors text-left group">
+                        <button type="button" onClick={() => handleOpenFile('httpd')} className="flex items-center gap-3 p-3 border border-slate-200 dark:border-slate-700 rounded-lg hover:border-primary dark:hover:border-primary hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors text-left group">
                             <span className="material-symbols-outlined text-slate-400 group-hover:text-primary transition-colors">description</span>
                             <div className="flex flex-col">
                                 <span className="text-sm font-medium text-slate-900 dark:text-slate-100">httpd.conf</span>
-                                <span className="text-xs text-slate-500">Main configuration</span>
+                                <span className="text-xs text-slate-500">{t('apache.main_configuration')}</span>
                             </div>
                         </button>
 
-                        <button onClick={() => handleOpenFile('vhosts')} className="flex items-center gap-3 p-3 border border-slate-200 dark:border-slate-700 rounded-lg hover:border-primary dark:hover:border-primary hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors text-left group">
+                        <button type="button" onClick={() => handleOpenFile('vhosts')} className="flex items-center gap-3 p-3 border border-slate-200 dark:border-slate-700 rounded-lg hover:border-primary dark:hover:border-primary hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors text-left group">
                             <span className="material-symbols-outlined text-slate-400 group-hover:text-primary transition-colors">link</span>
                             <div className="flex flex-col">
                                 <span className="text-sm font-medium text-slate-900 dark:text-slate-100">vhosts.conf</span>
-                                <span className="text-xs text-slate-500">Virtual domains setup</span>
+                                <span className="text-xs text-slate-500">{t('apache.virtual_domains_setup')}</span>
                             </div>
                         </button>
 
-                        <button onClick={() => handleOpenFile('error')} className="flex items-center gap-3 p-3 border border-slate-200 dark:border-slate-700 rounded-lg hover:border-primary dark:hover:border-primary hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors text-left group">
-                            <span className="material-symbols-outlined text-slate-400 group-hover:text-primary transition-colors">bug_report</span>
-                            <div className="flex flex-col">
-                                <span className="text-sm font-medium text-slate-900 dark:text-slate-100">error.log</span>
-                                <span className="text-xs text-slate-500">View crash reports</span>
-                            </div>
-                        </button>
+                        <div className="flex items-center gap-1 p-3 border border-slate-200 dark:border-slate-700 rounded-lg hover:border-primary dark:hover:border-primary hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group">
+                            <button type="button" onClick={() => setLogViewerType('error')} className="flex items-center gap-3 flex-1 text-left min-w-0">
+                                <span className="material-symbols-outlined text-slate-400 group-hover:text-primary transition-colors">bug_report</span>
+                                <div className="flex flex-col min-w-0">
+                                    <span className="text-sm font-medium text-slate-900 dark:text-slate-100">{t('settings.log_file_error')}</span>
+                                    <span className="text-xs text-slate-500 truncate">{t('apache.view_crash_reports')}</span>
+                                </div>
+                            </button>
+                            <button type="button" onClick={() => handleOpenFile('error')} title={t('common.open_externally') as string} className="p-1.5 text-slate-400 hover:text-primary rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0">
+                                <span className="material-symbols-outlined text-[18px]">open_in_new</span>
+                            </button>
+                        </div>
+
+                        <div className="flex items-center gap-1 p-3 border border-slate-200 dark:border-slate-700 rounded-lg hover:border-primary dark:hover:border-primary hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group">
+                            <button type="button" onClick={() => setLogViewerType('access')} className="flex items-center gap-3 flex-1 text-left min-w-0">
+                                <span className="material-symbols-outlined text-slate-400 group-hover:text-primary transition-colors">receipt_long</span>
+                                <div className="flex flex-col min-w-0">
+                                    <span className="text-sm font-medium text-slate-900 dark:text-slate-100">{t('settings.log_file_access')}</span>
+                                    <span className="text-xs text-slate-500 truncate">{t('apache.view_access_log_desc')}</span>
+                                </div>
+                            </button>
+                        </div>
                     </div>
-                )}
+                    );
+                })()}
             </div>
+
+            <LogFileViewerModal
+                isOpen={logViewerType !== null}
+                onClose={() => setLogViewerType(null)}
+                title={logViewerType === 'access' ? t('settings.log_file_access') : t('settings.log_file_error')}
+                fetchContent={fetchApacheLogContent}
+            />
         </div>
     );
 }

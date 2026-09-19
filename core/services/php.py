@@ -3,10 +3,14 @@ import sys
 import re
 import shutil
 import time
+import subprocess
+from typing import Optional
 
 # ---> IMPORT UTILITIES (DRY PRINCIPLE) <---
 from core.utils.system_utils import get_project_root, start_silent_process, run_silent_command
 from core.utils.file_utils import read_json, download_advanced, extract_archive
+PHP_INI = "php.ini"
+MSG_UNEXPECTED_ERROR = "backend.error.unexpected"
 
 class PhpManager:
     """Manager untuk siklus hidup Engine FastCGI PHP"""
@@ -15,6 +19,23 @@ class PhpManager:
         self.base_dir = os.path.join(get_project_root(), 'bin', 'php')
         os.makedirs(self.base_dir, exist_ok=True)
         self.processes = {}
+
+    def _log(self, msg: str, level: str = "info", args: dict = None):
+        if hasattr(self, 'api') and self.api: self.api.emit_log(msg, level, args)
+
+    def _progress(self, pct: int, msg: str):
+        if hasattr(self, 'api') and self.api: self.api.emit_progress(pct, msg)
+
+    def _parse_php_ini_info(self, php_ini_path: str):
+        port, memory_limit = 9000, "Unknown"
+        if os.path.exists(php_ini_path):
+            with open(php_ini_path, 'r') as f:
+                for line in f:
+                    if line.startswith('memory_limit'): memory_limit = line.split('=')[1].strip()
+                    elif 'vyloserve_port' in line:
+                        try: port = int(line.split('=')[1].strip())
+                        except Exception: pass
+        return port, memory_limit
 
     def get_installed_instances(self):
         instances = []
@@ -25,18 +46,8 @@ class PhpManager:
         
         for version in folders:
             target_dir = os.path.join(self.base_dir, version)
-            php_ini_path = os.path.join(target_dir, 'php.ini')
-            port, memory_limit = 9000, "Unknown"
+            port, memory_limit = self._parse_php_ini_info(os.path.join(target_dir, PHP_INI))
             
-            if os.path.exists(php_ini_path):
-                with open(php_ini_path, 'r') as f:
-                    for line in f:
-                        if line.startswith('memory_limit'): memory_limit = line.split('=')[1].strip()
-                        elif 'vyloserve_port' in line:
-                            try: port = int(line.split('=')[1].strip())
-                            except: pass
-            
-            # Dinamis Tracker Status
             status = "stopped"
             if version in self.processes:
                 if self.processes[version].poll() is None: status = "running"
@@ -82,10 +93,7 @@ class PhpManager:
 
     def get_versions(self):
         try:
-            import urllib.request, ssl
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
+            import urllib.request
 
             if sys.platform == 'win32':
                 urls = ["https://windows.php.net/downloads/releases/", "https://windows.php.net/downloads/releases/archives/"]
@@ -96,12 +104,12 @@ class PhpManager:
             matches = []
             for url in urls:
                 try:
-                    html = urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'}), context=ctx, timeout=10).read().decode('utf-8')
+                    html = urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'}), timeout=10).read().decode('utf-8')
                     matches.extend(re.findall(pattern, html))
-                except: pass
+                except Exception: pass
             
             version_map = {ver: fname for filename, ver in matches if 'nts' not in filename.lower() and '-pack' not in filename.lower() and 'qa' not in filename.lower() for fname in [filename]}
-            if not version_map: return {"status": "error", "message": "Gagal memuat rilis PHP."}
+            if not version_map: return {"status": "error", "message": "backend.php.release_load_failed"}
 
             latest_minors = {}
             for v in sorted(version_map.keys(), key=lambda v: [int(x) for x in v.split('.')], reverse=True):
@@ -109,141 +117,162 @@ class PhpManager:
                 if mm not in latest_minors: latest_minors[mm] = v
 
             result = [{"version": v, "filename": version_map[v]} for v in latest_minors.values() if not os.path.exists(os.path.join(self.base_dir, v))]
-            if not result: return {"status": "success", "data": [], "message": "Semua versi terbaru terinstal."}
+            if not result: return {"status": "success", "data": [], "message": "backend.php.all_versions_installed"}
 
-            if hasattr(self, 'api'): self.api.emit_log(f"Berhasil memuat rilis stabil PHP.", "success")
+            self._log("backend.php.release_load_success", "success")
             return {"status": "success", "data": result}
-        except Exception as e: return {"status": "error", "message": str(e)}
+        except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
     
+    def _install_composer(self, target_dir: str):
+        self._progress(95, "backend.php.installing_composer")
+        import urllib.request
+        composer_url = "https://getcomposer.org/composer.phar"
+        composer_phar = os.path.join(target_dir, 'composer.phar')
+        urllib.request.urlretrieve(composer_url, composer_phar)
+        
+        composer_bat = os.path.join(target_dir, 'composer.bat')
+        with open(composer_bat, 'w') as f:
+            f.write('@ECHO OFF\nphp "%~dp0composer.phar" %*\n')
+
+    def _process_ini_line(self, line: str, new_config: dict, ckeys: list, found_keys: set) -> Optional[str]:
+        l = line.strip()
+        if l.startswith('; vyloserve_port'): return f"; vyloserve_port = {new_config.get('port', 9000)}\n"
+        if l.startswith(('extension=', ';extension=')): return None
+        
+        for key in ckeys:
+            if l.startswith(key) and not l.startswith(';'):
+                found_keys.add(key)
+                return f"{key} = {new_config.get(key, '')}\n"
+        return line
+
+    def _update_ini_lines(self, lines: list, new_config: dict, active_extensions: list) -> list:
+        new_lines, found_keys, ckeys = [], set(), ['memory_limit', 'max_execution_time', 'upload_max_filesize', 'post_max_size']
+        
+        for line in lines:
+            processed = self._process_ini_line(line, new_config, ckeys, found_keys)
+            if processed is not None: new_lines.append(processed)
+                
+        for key in ckeys:
+            if key not in found_keys and key in new_config: new_lines.append(f"{key} = {new_config[key]}\n")
+                
+        if sys.platform == 'win32' and not any('extension_dir' in l for l in new_lines): new_lines.append('extension_dir = "ext"\n')
+        new_lines.append("\n; --- VyloServe Managed Extensions ---\n")
+        for ext in active_extensions: new_lines.append(f"extension={ext}\n")
+        
+        return new_lines
+
+    def _download_php_archive(self, dl_url, filename, file_path, log_cb, prog_cb):
+        try:
+            download_advanced(dl_url, file_path, log_cb=log_cb, progress_cb=prog_cb)
+        except Exception as http_err:
+            if sys.platform == 'win32':
+                self._log("backend.php.redirect_archives", "warn")
+                download_advanced(f"https://windows.php.net/downloads/releases/archives/{filename}", file_path, log_cb=log_cb, progress_cb=prog_cb)
+            else: raise http_err
+
     def install_version(self, version: str, filename: str, port: int):
         target_dir = os.path.join(self.base_dir, version)
         file_path = os.path.join(self.base_dir, filename)
 
         try:
-            if os.path.exists(target_dir): return {"status": "error", "message": "PHP sudah terinstal."}
+            if os.path.exists(target_dir): return {"status": "error", "message": "backend.php.already_installed"}
             os.makedirs(target_dir)
             
             dl_url = f"https://windows.php.net/downloads/releases/{filename}" if sys.platform == 'win32' else f"https://www.php.net/distributions/{filename}"
-            if hasattr(self, 'api'): self.api.emit_log(f"Memulai unduhan PHP {version}...", "info")
+            self._log("backend.php.download_start", "info", {"version": version})
 
             def log_cb(msg, lvl): 
-                if hasattr(self, 'api'): self.api.emit_log(msg, lvl)
+                self._log(msg, lvl)
             def prog_cb(pct, msg): 
-                if hasattr(self, 'api'): self.api.emit_progress(pct, msg)
+                self._progress(pct, msg)
 
-            try:
-                download_advanced(dl_url, file_path, log_cb=log_cb, progress_cb=prog_cb)
-            except Exception as http_err:
-                if sys.platform == 'win32':
-                    if hasattr(self, 'api'): self.api.emit_log("Mengalihkan pencarian ke folder archives...", "warn")
-                    download_advanced(f"https://windows.php.net/downloads/releases/archives/{filename}", file_path, log_cb=log_cb, progress_cb=prog_cb)
-                else: raise http_err
+            self._download_php_archive(dl_url, filename, file_path, log_cb, prog_cb)
 
-            if hasattr(self, 'api'): self.api.emit_log("Mengekstrak berkas...", "info")
+            self._log("backend.php.extracting", "info")
             extract_archive(file_path, target_dir, progress_cb=prog_cb)
             if os.path.exists(file_path): os.remove(file_path)
             
-            # --- KONFIGURASI INI ---
-            if hasattr(self, 'api'): self.api.emit_progress(100, "Configuring...")
-            with open(os.path.join(target_dir, 'php.ini'), 'w') as f:
+            # Bukan 100: progress 100% harus berarti instalasi BENAR-BENAR selesai
+            # (lihat _progress(100, "backend.php.installation_complete") di bawah, setelah
+            # composer terpasang). Jika di sini dipakai 100, frontend yang mendeteksi
+            # "percent >= 100 -> auto-hide widget setelah 3 detik" akan menyembunyikan
+            # progress widget padahal instalasi composer di bawah ini masih berjalan.
+            # Lihat docs/known_bugs.md.
+            self._progress(92, "backend.php.configuring")
+            with open(os.path.join(target_dir, PHP_INI), 'w') as f:
                 f.write(f"; VyloServe PHP {version} Configuration\n; vyloserve_port = {port}\nmemory_limit = 512M\nfastcgi.logging = 0\ncgi.force_redirect = 0\ncgi.fix_pathinfo = 1\n")
                 if sys.platform == 'win32': f.write("extension_dir = \"ext\"\nextension=curl\nextension=mbstring\n")
 
-            # --- OTOMATISASI COMPOSER ---
-            if hasattr(self, 'api'): self.api.emit_progress(95, "Installing Composer...")
+            self._install_composer(target_dir)
             
-            # 1. Unduh composer.phar
-            composer_url = "https://getcomposer.org/composer.phar"
-            composer_phar = os.path.join(target_dir, 'composer.phar')
-            import urllib.request
-            urllib.request.urlretrieve(composer_url, composer_phar)
-            
-            # 2. Buat wrapper composer.bat agar bisa dieksekusi di Windows CMD
-            composer_bat = os.path.join(target_dir, 'composer.bat')
-            with open(composer_bat, 'w') as f:
-                f.write('@ECHO OFF\nphp "%~dp0composer.phar" %*\n')
-            
-            if hasattr(self, 'api'):
-                self.api.emit_log(f"Selesai! PHP {version} siap digunakan pada port {port}.", "success")
-                self.api.emit_progress(100, "Installation Complete!")
-            return {"status": "success", "message": f"PHP {version} berhasil diinstal."}
+            self._log("backend.php.ready", "success", {"version": version, "port": port})
+            self._progress(100, "backend.php.installation_complete")
+            return {"status": "success", "message": "backend.php.install_success", "args": {"version": version}}
         
         except Exception as e:
-            if hasattr(self, 'api'): self.api.emit_log("Membatalkan instalasi...", "warn")
+            self._log("backend.php.cancelling", "warn")
             if os.path.exists(file_path): os.remove(file_path)
             if os.path.exists(target_dir): shutil.rmtree(target_dir, ignore_errors=True)
-            if hasattr(self, 'api'): self.api.emit_progress(0, "Failed")
-            return {"status": "error", "message": str(e)}
+            self._progress(0, "backend.php.failed")
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def _parse_config_file(self, php_ini_path: str, config: dict, active_exts: set):
+        if not os.path.exists(php_ini_path): return
+        with open(php_ini_path, 'r') as f:
+            for line in f:
+                l = line.strip()
+                if l.startswith('; vyloserve_port'): config['port'] = int(l.split('=')[1].strip())
+                elif l.startswith('memory_limit'): config['memory_limit'] = l.split('=')[1].strip()
+                elif l.startswith('max_execution_time'): config['max_execution_time'] = l.split('=')[1].strip()
+                elif l.startswith('upload_max_filesize'): config['upload_max_filesize'] = l.split('=')[1].strip()
+                elif l.startswith('post_max_size'): config['post_max_size'] = l.split('=')[1].strip()
+                elif l.startswith('extension=') and not l.startswith(';'): active_exts.add(l.split('=')[1].strip().strip('"\''))
+
+    def _get_available_exts(self, ext_dir: str, active_exts: set) -> list:
+        if not os.path.exists(ext_dir): available_exts = []
+        else: available_exts = [{"name": f[4:-4], "active": f[4:-4] in active_exts} for f in os.listdir(ext_dir) if f.startswith('php_') and f.endswith('.dll')]
+        
+        for ext in active_exts:
+            if not any(e['name'] == ext for e in available_exts): available_exts.append({"name": ext, "active": True})
+        return available_exts
 
     def get_config(self, version: str):
         target_dir = os.path.join(self.base_dir, version)
-        php_ini_path, ext_dir = os.path.join(target_dir, 'php.ini'), os.path.join(target_dir, 'ext')
         config = {"port": 9000, "memory_limit": "512M", "max_execution_time": "120", "upload_max_filesize": "64M", "post_max_size": "64M"}
         active_exts = set()
 
-        if os.path.exists(php_ini_path):
-            with open(php_ini_path, 'r') as f:
-                for line in f:
-                    l = line.strip()
-                    if l.startswith('; vyloserve_port'): config['port'] = int(l.split('=')[1].strip())
-                    elif l.startswith('memory_limit'): config['memory_limit'] = l.split('=')[1].strip()
-                    elif l.startswith('max_execution_time'): config['max_execution_time'] = l.split('=')[1].strip()
-                    elif l.startswith('upload_max_filesize'): config['upload_max_filesize'] = l.split('=')[1].strip()
-                    elif l.startswith('post_max_size'): config['post_max_size'] = l.split('=')[1].strip()
-                    elif l.startswith('extension=') and not l.startswith(';'): active_exts.add(l.split('=')[1].strip().strip('"\''))
-
-        available_exts = [{"name": f[4:-4], "active": f[4:-4] in active_exts} for f in os.listdir(ext_dir) if f.startswith('php_') and f.endswith('.dll')] if os.path.exists(ext_dir) else []
-        for ext in active_exts:
-            if not any(e['name'] == ext for e in available_exts): available_exts.append({"name": ext, "active": True})
+        self._parse_config_file(os.path.join(target_dir, PHP_INI), config, active_exts)
+        available_exts = self._get_available_exts(os.path.join(target_dir, 'ext'), active_exts)
         
         return {"status": "success", "config": config, "extensions": sorted(available_exts, key=lambda x: x['name'])}
 
     def save_config(self, version: str, new_config: dict, active_extensions: list):
-        php_ini_path = os.path.join(self.base_dir, version, 'php.ini')
-        if not os.path.exists(php_ini_path): return {"status": "error", "message": "php.ini tidak ditemukan!"}
+        php_ini_path = os.path.join(self.base_dir, version, PHP_INI)
+        if not os.path.exists(php_ini_path): return {"status": "error", "message": "backend.php.ini_not_found"}
 
         with open(php_ini_path, 'r') as f: lines = f.readlines()
-        new_lines, found_keys, ckeys = [], set(), ['memory_limit', 'max_execution_time', 'upload_max_filesize', 'post_max_size']
-        
-        for line in lines:
-            l = line.strip()
-            if l.startswith('; vyloserve_port'): new_lines.append(f"; vyloserve_port = {new_config.get('port', 9000)}\n"); continue
-            if l.startswith('extension=') or l.startswith(';extension='): continue
-            
-            upd = False
-            for key in ckeys:
-                if l.startswith(key) and not l.startswith(';'):
-                    new_lines.append(f"{key} = {new_config.get(key, '')}\n")
-                    found_keys.add(key); upd = True; break
-            if not upd: new_lines.append(line)
-                
-        for key in ckeys:
-            if key not in found_keys and key in new_config: new_lines.append(f"{key} = {new_config[key]}\n")
-                
-        if not any('extension_dir' in l for l in new_lines) and sys.platform == 'win32': new_lines.append('extension_dir = "ext"\n')
-        new_lines.append("\n; --- VyloServe Managed Extensions ---\n")
-        for ext in active_extensions: new_lines.append(f"extension={ext}\n")
+        new_lines = self._update_ini_lines(lines, new_config, active_extensions)
 
         with open(php_ini_path, 'w') as f: f.writelines(new_lines)
             
-        if hasattr(self, 'api'): self.api.emit_log(f"Konfigurasi PHP {version} diperbarui.", "success")
+        self._log("backend.php.config_updated", "success", {"version": version})
         try:
             if hasattr(self.api, 'project'): self.api.project.sync_apache_vhosts()
             if hasattr(self.api, 'apache') and self.api.apache.check_is_running(): self.api.apache.restart_server()
-        except: pass
-        return {"status": "success", "message": "Disimpan!"}
+        except Exception: pass
+        return {"status": "success", "message": "backend.php.saved"}
     
     def open_path(self, version: str, is_file: bool = False):
-        target = os.path.join(self.base_dir, version, 'php.ini') if is_file else os.path.join(self.base_dir, version)
-        if not os.path.exists(target): return {"status": "error", "message": "Tidak ditemukan!"}
+        target = os.path.join(self.base_dir, version, PHP_INI) if is_file else os.path.join(self.base_dir, version)
+        if not os.path.exists(target): return {"status": "error", "message": "backend.php.not_found"}
         try:
             if sys.platform == 'win32': os.startfile(target)
             elif sys.platform == 'darwin': subprocess.Popen(['open', target])
             else: subprocess.Popen(['xdg-open', target])
-            return {"status": "success", "message": "Dibuka."}
+            return {"status": "success", "message": "backend.php.opened"}
         except Exception as e:
-            self.api.emit_log(f"Terjadi kesalahan fatal: {str(e)}", "error")
-            return {"status": "error", "message": str(e)}
+            self._log("backend.php.fatal_error", "error", {"e": str(e)})
+            return {"status": "error", "message": "backend.php.fatal_error", "args": {"e": str(e)}}
 
     # ---> FIX: Tambahkan Log Sukses <---
     def uninstall_version(self, version: str):
@@ -253,12 +282,12 @@ class PhpManager:
             try:
                 if hasattr(self.api, 'project'): self.api.project.sync_apache_vhosts()
                 if hasattr(self.api, 'apache') and self.api.apache.check_is_running(): self.api.apache.restart_server()
-            except: pass
+            except Exception: pass
             
             if hasattr(self.api, 'emit_log'):
-                self.api.emit_log(f"PHP {version} beserta konfigurasinya berhasil dihapus dari sistem.", "success")
-            return {"status": "success", "message": "Uninstall sukses."}
-        return {"status": "error", "message": "Tidak ditemukan."}
+                self._log("backend.php.uninstalled", "success", {"version": version})
+            return {"status": "success", "message": "backend.php.uninstall_success"}
+        return {"status": "error", "message": "backend.php.not_found"}
 
     # ==========================================
     # FASTCGI SUBPROCESS & MASTER CONTROLS
@@ -280,25 +309,34 @@ class PhpManager:
         if mod:
             with open(php_ini_path, 'w') as f: f.writelines(new_lines)
 
+    def _get_port_from_ini(self, php_ini_path: str, default_port: int = 9000) -> int:
+        if not os.path.exists(php_ini_path): return default_port
+        with open(php_ini_path, 'r') as f:
+            for line in f:
+                if 'vyloserve_port' in line:
+                    try: return int(line.split('=')[1].strip())
+                    except Exception: pass
+        return default_port
+
+    def _update_apache_proxy_silent(self, port: int):
+        try:
+            if hasattr(self, 'api') and hasattr(self.api, 'apache'):
+                self.api.apache.update_global_php_proxy(port)
+        except Exception: pass
+
     def start_php(self, version: str):
         if version in self.processes and self.processes[version].poll() is None:
-            return {"status": "error", "message": f"PHP {version} sudah berjalan!"}
+            return {"status": "error", "message": "backend.php.already_running", "args": {"version": version}}
         
             
         target_dir = os.path.join(self.base_dir, version)
         exe_path = os.path.join(target_dir, "php-cgi.exe" if sys.platform == 'win32' else "php-cgi")
-        if not os.path.exists(exe_path): return {"status": "error", "message": "Binary tidak ditemukan."}
+        if not os.path.exists(exe_path): return {"status": "error", "message": "backend.php.binary_not_found"}
         
         self.toggle_global_path(target_dir, enable=True)
-
-        port = 9000
-        php_ini_path = os.path.join(target_dir, 'php.ini')
-        if os.path.exists(php_ini_path):
-            with open(php_ini_path, 'r') as f:
-                for line in f:
-                    if 'vyloserve_port' in line:
-                        try: port = int(line.split('=')[1].strip())
-                        except: pass
+        
+        php_ini_path = os.path.join(target_dir, PHP_INI)
+        port = self._get_port_from_ini(php_ini_path)
 
         self._verify_and_patch_ini(php_ini_path)
         php_env = os.environ.copy()
@@ -309,16 +347,14 @@ class PhpManager:
             time.sleep(0.5)
             
             if self.processes[version].poll() is not None:
-                 return {"status": "error", "message": f"Gagal menjalankan CGI. Port {port} mungkin digunakan."}
+                 return {"status": "error", "message": "backend.php.cgi_failed", "args": {"port": port}}
             
-            try:
-                if hasattr(self, 'api') and hasattr(self.api, 'apache'): self.api.apache.update_global_php_proxy(port)
-            except: pass
+            self._update_apache_proxy_silent(port)
             
-            if hasattr(self, 'api'): self.api.emit_log(f"FastCGI PHP {version} menyala pada Port {port}.", "success")
-            return {"status": "success", "message": "FastCGI menyala."}
+            self._log("backend.php.fastcgi_started", "success", {"version": version, "port": port})
+            return {"status": "success", "message": "backend.php.fastcgi_success"}
         except Exception as e:
-            return {"status": "error", "message": str(e)}
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
     def stop_php(self, version: str):
         if version in self.processes:
@@ -330,13 +366,13 @@ class PhpManager:
             target_dir = os.path.join(self.base_dir, version)
             self.toggle_global_path(target_dir, enable=False)
 
-        return {"status": "success", "message": f"PHP {version} dihentikan."}
+        return {"status": "success", "message": "backend.php.stopped", "args": {"version": version}}
 
     def get_installed_versions(self):
         return [d for d in os.listdir(self.base_dir) if os.path.isdir(os.path.join(self.base_dir, d))] if os.path.exists(self.base_dir) else []
 
     def check_is_running(self):
-        for v in list(self.processes.keys()):
+        for v in tuple(self.processes):
             if self.processes[v].poll() is not None: self.processes.pop(v, None)
         return len(self.processes) > 0
 
@@ -344,20 +380,25 @@ class PhpManager:
         dashboard_json = os.path.join(get_project_root(), 'data', 'dashboard.json')
         installed = self.get_installed_versions()
         if not installed: return []
-            
-        selected = read_json(dashboard_json, dict).get('selected_php', [])
+
+        dashboard_data = read_json(dashboard_json, dict)
+        # read_json() TIDAK menjamin dict hanya karena default_type=dict -- parameter itu
+        # cuma dipakai saat file kosong/tidak ada. Jika isi file valid JSON tapi bukan objek
+        # (mis. string sisa dari file lama/rusak), .get() langsung akan melempar
+        # AttributeError "'str' object has no attribute 'get'". Lihat docs/known_bugs.md.
+        selected = dashboard_data.get('selected_php', []) if isinstance(dashboard_data, dict) else []
         valid = [v for v in selected if v in installed]
         if valid: return valid
             
-        return [sorted(installed, key=lambda v: [int(x) for x in re.findall(r'\d+', v)] if re.findall(r'\d+', v) else [0], reverse=True)[0]]
+        return [max(installed, key=lambda v: [int(x) for x in re.findall(r'\d+', v)] if re.findall(r'\d+', v) else [0])]
 
     def start_all(self):
         targets = self._get_preferred_versions()
-        if not targets: return {"status": "error", "message": "Tidak ada PHP terinstal."}
+        if not targets: return {"status": "error", "message": "backend.php.none_installed"}
         success = sum(1 for v in targets if (v not in self.processes or self.processes[v].poll() is not None) and self.start_php(v).get('status') == 'success')
-        if success > 0: return {"status": "success", "message": f"{success} PHP berjalan."}
-        return {"status": "success", "message": "Sudah berjalan."} if self.check_is_running() else {"status": "error", "message": "Gagal."}
+        if success > 0: return {"status": "success", "message": "backend.php.multi_started", "args": {"count": success}}
+        return {"status": "success", "message": "backend.php.already_running"} if self.check_is_running() else {"status": "error", "message": "backend.php.failed"}
 
     def stop_all(self):
-        stopped = sum(1 for v in list(self.processes.keys()) if self.stop_php(v).get('status') == 'success')
-        return {"status": "success", "message": f"{stopped} PHP dihentikan."}
+        stopped = sum(1 for v in tuple(self.processes) if self.stop_php(v).get('status') == 'success')
+        return {"status": "success", "message": "backend.php.multi_stopped", "args": {"count": stopped}}

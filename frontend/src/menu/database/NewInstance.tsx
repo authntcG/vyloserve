@@ -1,4 +1,6 @@
-import { useState, useEffect, forwardRef, useImperativeHandle, useRef } from 'react';
+import { useState, useEffect, forwardRef, useImperativeHandle, useRef, type RefObject } from 'react';
+import { useTranslation } from 'react-i18next';
+import { onEnterOrSpace } from '../../utils/a11y';
 
 interface Props {
     activeTab: 'all' | 'mysql' | 'postgres';
@@ -18,7 +20,102 @@ interface OnlineVersion {
     url: string;
 }
 
+interface VersionDropdownProps {
+    readonly availableVersions: OnlineVersion[];
+    readonly filteredVersions: OnlineVersion[];
+    readonly selectedVersion: string;
+    readonly isFetchingVersions: boolean;
+    readonly isDropdownOpen: boolean;
+    readonly onToggleDropdown: () => void;
+    readonly isInstalling: boolean;
+    readonly searchQuery: string;
+    readonly onSearchChange: (q: string) => void;
+    readonly onSelectVersion: (version: string) => void;
+    readonly dropdownRef: RefObject<HTMLDivElement | null>;
+    readonly searchInputRef: RefObject<HTMLInputElement | null>;
+    readonly displayLimit: number;
+    readonly t: any;
+}
+
+function VersionDropdown({ availableVersions, filteredVersions, selectedVersion, isFetchingVersions, isDropdownOpen, onToggleDropdown, isInstalling, searchQuery, onSearchChange, onSelectVersion, dropdownRef, searchInputRef, displayLimit, t }: VersionDropdownProps) {
+    return (
+        <div className="flex flex-col gap-2 relative" ref={dropdownRef}>
+            <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('database.version')}</label>
+
+            {isFetchingVersions ? (
+                <div className="h-[42px] border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 rounded-lg flex items-center px-3 gap-2">
+                    <span className="material-symbols-outlined animate-spin text-slate-400 text-sm">sync</span>
+                    <span className="text-sm text-slate-500">{t('database.retrieving_versions')}</span>
+                </div>
+            ) : (
+                <button
+                    type="button"
+                    onClick={onToggleDropdown}
+                    className={`w-full h-[42px] px-3 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 text-sm rounded-lg outline-none transition-colors border flex justify-between items-center ${isDropdownOpen ? 'border-primary ring-1 ring-primary' : 'border-slate-300 dark:border-slate-700'} ${availableVersions.length === 0 || isInstalling ? 'opacity-50 cursor-not-allowed bg-slate-50 dark:bg-slate-900/50' : 'cursor-pointer'}`}
+                >
+                    <span className="truncate pr-2">
+                        {availableVersions.length === 0 ? t('database.failed_to_fetch') : availableVersions.find(v => v.version === selectedVersion)?.name || t('database.select_version')}
+                    </span>
+                    <span className={`material-symbols-outlined text-[20px] text-slate-500 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180 text-primary' : ''}`}>
+                        expand_more
+                    </span>
+                </button>
+            )}
+
+            {isDropdownOpen && !isInstalling && (
+                <div className="absolute top-[70px] left-0 z-50 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                    <div className="p-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50">
+                        <div className="relative">
+                            <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-[16px] text-slate-400">search</span>
+                            <input
+                                ref={searchInputRef}
+                                type="text"
+                                placeholder={t('database.find_version')}
+                                value={searchQuery}
+                                onChange={(e) => onSearchChange(e.target.value)}
+                                className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-md py-1.5 pl-8 pr-3 text-xs outline-none focus:border-primary transition-colors text-slate-700 dark:text-slate-300"
+                            />
+                        </div>
+                    </div>
+                    <div className="max-h-[180px] overflow-y-auto custom-scrollbar p-1.5 flex flex-col gap-0.5">
+                        {/* role="option" dipertahankan: ini custom searchable combobox (bukan native
+                            <select>), butuh render ikon/checkmark per item yang tidak bisa dilakukan
+                            di dalam <option> native. Lihat docs/known_bugs.md. */}
+                        {filteredVersions.length > 0 ? (
+                            filteredVersions.map(ver => {
+                                const isSelected = selectedVersion === ver.version;
+                                return (
+                                    <div // NOSONAR typescript:S6819
+                                        key={ver.version}
+                                        onClick={() => onSelectVersion(ver.version)}
+                                        onKeyDown={onEnterOrSpace(() => onSelectVersion(ver.version))}
+                                        role="option"
+                                        aria-selected={isSelected}
+                                        tabIndex={0}
+                                        className={`px-3 py-2 text-sm rounded-md cursor-pointer transition-colors flex items-center justify-between group ${isSelected ? 'bg-blue-50 dark:bg-blue-900/30 text-primary dark:text-blue-400 font-medium' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                                    >
+                                        <span>{ver.name}</span>
+                                        {isSelected && <span className="material-symbols-outlined text-[16px] text-primary">check</span>}
+                                    </div>
+                                )
+                            })
+                        ) : (
+                            <div className="px-3 py-4 text-center text-xs text-slate-500">{t('database.no_versions_found')}</div>
+                        )}
+                    </div>
+                    {availableVersions.length > displayLimit && searchQuery === '' && (
+                        <div className="px-3 py-1.5 text-[10px] font-medium text-center text-slate-400 bg-slate-50 dark:bg-slate-900/80 border-t border-slate-100 dark:border-slate-800">
+                            {t('database.showing_top')}{displayLimit}{t('database.recent_releases')}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
 const NewDbInstance = forwardRef<NewDbInstanceRef, Props>(({ activeTab, usedPorts, isInstalling, progress, progressText }, ref) => {
+    const { t } = useTranslation();
     const [engineFamily, setEngineFamily] = useState<'mysql' | 'postgres'>(
         activeTab === 'postgres' ? 'postgres' : 'mysql'
     );
@@ -89,8 +186,8 @@ const NewDbInstance = forwardRef<NewDbInstanceRef, Props>(({ activeTab, usedPort
                     if (res.data.length > 0) setSelectedVersion(res.data[0].version);
                 } else setAvailableVersions([]);
             }
-        } catch (error) {
-            console.error("Gagal menarik versi DB online");
+        } catch (error){ console.error(error);
+            console.error("Gagal menarik versi DB online", error);
         } finally {
             setIsFetchingVersions(false);
         }
@@ -122,6 +219,9 @@ const NewDbInstance = forwardRef<NewDbInstanceRef, Props>(({ activeTab, usedPort
     const baseInputClass = "w-full h-[42px] px-3 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 text-sm rounded-lg outline-none transition-colors border";
     const normalInputClass = `${baseInputClass} border-slate-300 dark:border-slate-700 focus:border-primary focus:ring-1 focus:ring-primary`;
     const errorInputClass = `${baseInputClass} border-red-500 focus:border-red-500 focus:ring-1 focus:ring-red-500`;
+    const warningInputClass = `${baseInputClass} border-amber-300 dark:border-amber-700 focus:ring-1 focus:ring-amber-500`;
+    const needsPostgresPasswordWarning = engineFamily === 'postgres' && !rootPass;
+    const rootPassInputClass = needsPostgresPasswordWarning ? warningInputClass : normalInputClass;
 
     return (
         <div className="flex flex-col gap-5 relative">
@@ -133,19 +233,19 @@ const NewDbInstance = forwardRef<NewDbInstanceRef, Props>(({ activeTab, usedPort
                         <span className="material-symbols-outlined text-[18px]">{osInfo.icon}</span>
                     </div>
                     <div className="flex flex-col">
-                        <span className="text-xs text-slate-500 dark:text-slate-400">Detected System</span>
+                        <span className="text-xs text-slate-500 dark:text-slate-400">{t('database.detected_system')}</span>
                         <span className="text-sm font-semibold text-slate-900 dark:text-white">
                             {osInfo.name} <span className="text-primary dark:text-blue-400 font-mono text-xs ml-1 bg-blue-50 dark:bg-blue-900/30 px-1 rounded">{osInfo.arch}</span>
                         </span>
                     </div>
                 </div>
                 <span className="inline-flex items-center px-2 py-1 rounded text-[10px] font-bold tracking-wide uppercase bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-400">
-                    COMPATIBLE
+                    {t('database.compatible')}
                 </span>
             </div>
 
             <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Database Engine</label>
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('database.database_engine_label')}</label>
                 <select
                     value={engineFamily}
                     disabled={isInstalling}
@@ -157,87 +257,38 @@ const NewDbInstance = forwardRef<NewDbInstanceRef, Props>(({ activeTab, usedPort
                     }}
                     className={`${normalInputClass} ${isInstalling ? 'opacity-50 cursor-not-allowed bg-slate-50 dark:bg-slate-900/50' : 'cursor-pointer'}`}
                 >
-                    <option value="mysql">MySQL / MariaDB</option>
-                    <option value="postgres">PostgreSQL</option>
+                    <option value="mysql">{t('database.mysql_mariadb')}</option>
+                    <option value="postgres">{t('database.postgres')}</option>
                 </select>
             </div>
 
             <hr className="border-slate-200 dark:border-slate-800" />
 
             <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-2 relative" ref={dropdownRef}>
-                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Version</label>
-
-                    {/* ---> LOADING STATE (Mengikuti gaya PHP) <--- */}
-                    {isFetchingVersions ? (
-                        <div className="h-[42px] border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 rounded-lg flex items-center px-3 gap-2">
-                            <span className="material-symbols-outlined animate-spin text-slate-400 text-sm">sync</span>
-                            <span className="text-sm text-slate-500">Retrieving versions...</span>
-                        </div>
-                    ) : (
-                        <div
-                            onClick={() => {
-                                if (availableVersions.length > 0 && !isInstalling) setIsDropdownOpen(!isDropdownOpen);
-                            }}
-                            className={`${baseInputClass} flex justify-between items-center ${isDropdownOpen ? 'border-primary ring-1 ring-primary' : 'border-slate-300 dark:border-slate-700'} ${availableVersions.length === 0 || isInstalling ? 'opacity-50 cursor-not-allowed bg-slate-50 dark:bg-slate-900/50' : 'cursor-pointer'}`}
-                        >
-                            <span className="truncate pr-2">
-                                {availableVersions.length === 0 ? 'Failed to fetch' : availableVersions.find(v => v.version === selectedVersion)?.name || 'Select version'}
-                            </span>
-                            <span className={`material-symbols-outlined text-[20px] text-slate-500 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180 text-primary' : ''}`}>
-                                expand_more
-                            </span>
-                        </div>
-                    )}
-
-                    {isDropdownOpen && !isInstalling && (
-                        <div className="absolute top-[70px] left-0 z-50 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-                            <div className="p-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50">
-                                <div className="relative">
-                                    <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-[16px] text-slate-400">search</span>
-                                    <input
-                                        ref={searchInputRef}
-                                        type="text"
-                                        placeholder="Find version..."
-                                        value={searchQuery}
-                                        onChange={(e) => setSearchQuery(e.target.value)}
-                                        className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-md py-1.5 pl-8 pr-3 text-xs outline-none focus:border-primary transition-colors text-slate-700 dark:text-slate-300"
-                                    />
-                                </div>
-                            </div>
-                            <div className="max-h-[180px] overflow-y-auto custom-scrollbar p-1.5 flex flex-col gap-0.5">
-                                {filteredVersions.length > 0 ? (
-                                    filteredVersions.map(ver => {
-                                        const isSelected = selectedVersion === ver.version;
-                                        return (
-                                            <div
-                                                key={ver.version}
-                                                onClick={() => {
-                                                    setSelectedVersion(ver.version);
-                                                    setIsDropdownOpen(false);
-                                                }}
-                                                className={`px-3 py-2 text-sm rounded-md cursor-pointer transition-colors flex items-center justify-between group ${isSelected ? 'bg-blue-50 dark:bg-blue-900/30 text-primary dark:text-blue-400 font-medium' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-                                            >
-                                                <span>{ver.name}</span>
-                                                {isSelected && <span className="material-symbols-outlined text-[16px] text-primary">check</span>}
-                                            </div>
-                                        )
-                                    })
-                                ) : (
-                                    <div className="px-3 py-4 text-center text-xs text-slate-500">No versions found</div>
-                                )}
-                            </div>
-                            {availableVersions.length > DISPLAY_LIMIT && searchQuery === '' && (
-                                <div className="px-3 py-1.5 text-[10px] font-medium text-center text-slate-400 bg-slate-50 dark:bg-slate-900/80 border-t border-slate-100 dark:border-slate-800">
-                                    Showing top {DISPLAY_LIMIT} recent releases
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </div>
+                <VersionDropdown
+                    availableVersions={availableVersions}
+                    filteredVersions={filteredVersions}
+                    selectedVersion={selectedVersion}
+                    isFetchingVersions={isFetchingVersions}
+                    isDropdownOpen={isDropdownOpen}
+                    onToggleDropdown={() => {
+                        if (availableVersions.length > 0 && !isInstalling) setIsDropdownOpen(!isDropdownOpen);
+                    }}
+                    isInstalling={isInstalling}
+                    searchQuery={searchQuery}
+                    onSearchChange={setSearchQuery}
+                    onSelectVersion={(v) => {
+                        setSelectedVersion(v);
+                        setIsDropdownOpen(false);
+                    }}
+                    dropdownRef={dropdownRef}
+                    searchInputRef={searchInputRef}
+                    displayLimit={DISPLAY_LIMIT}
+                    t={t}
+                />
 
                 <div className="flex flex-col gap-2">
-                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">TCP Port Bind</label>
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('database.tcp_port_bind')}</label>
                     <input
                         type="number"
                         disabled={isInstalling}
@@ -246,32 +297,32 @@ const NewDbInstance = forwardRef<NewDbInstanceRef, Props>(({ activeTab, usedPort
                         className={`${usedPorts.includes(port) ? errorInputClass : normalInputClass} ${isInstalling ? 'opacity-50 cursor-not-allowed bg-slate-50 dark:bg-slate-900/50' : ''}`}
                     />
                     {usedPorts.includes(port) && !isInstalling && (
-                        <p className="text-xs text-red-500 font-medium animate-in fade-in">Port {port} in use!</p>
+                        <p className="text-xs text-red-500 font-medium animate-in fade-in">{t('database.port_in_use')}{port}{t('database.in_use')}</p>
                     )}
                 </div>
             </div>
 
             <div className="flex flex-col gap-4 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700/50">
-                <h4 className="text-sm font-semibold text-slate-900 dark:text-white">Initial Setup</h4>
+                <h4 className="text-sm font-semibold text-slate-900 dark:text-white">{t('database.initial_setup')}</h4>
 
                 {engineFamily === 'postgres' && (
                     <div className="p-3 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/30 rounded-lg flex items-start gap-2 mb-1 animate-in fade-in">
                         <span className="material-symbols-outlined text-amber-500 text-[18px]">security</span>
-                        <span className="text-xs text-amber-800 dark:text-amber-400">PostgreSQL requires a superuser password during initialization.</span>
+                        <span className="text-xs text-amber-800 dark:text-amber-400">{t('database.postgres_password_req')}</span>
                     </div>
                 )}
 
                 <div className="flex flex-col gap-2">
                     <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                        {engineFamily === 'postgres' ? 'Superuser (postgres) Password' : 'Root Password'}
+                        {engineFamily === 'postgres' ? t('database.superuser_password') : t('database.root_password')}
                     </label>
                     <input
                         type="password"
                         disabled={isInstalling}
                         value={rootPass}
                         onChange={(e) => setRootPass(e.target.value)}
-                        placeholder={engineFamily === 'postgres' ? 'Required (e.g., root)' : 'Leave empty for no password'}
-                        className={`${engineFamily === 'postgres' && !rootPass ? `${baseInputClass} border-amber-300 dark:border-amber-700 focus:ring-1 focus:ring-amber-500` : normalInputClass} ${isInstalling ? 'opacity-50 cursor-not-allowed bg-slate-50 dark:bg-slate-900/50' : ''}`}
+                        placeholder={engineFamily === 'postgres' ? t('database.required_password_placeholder') : t('database.empty_password_placeholder')}
+                        className={`${rootPassInputClass} ${isInstalling ? 'opacity-50 cursor-not-allowed bg-slate-50 dark:bg-slate-900/50' : ''}`}
                     />
                 </div>
             </div>
@@ -282,7 +333,7 @@ const NewDbInstance = forwardRef<NewDbInstanceRef, Props>(({ activeTab, usedPort
                     <div className="p-3.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg flex flex-col gap-2 animate-in fade-in duration-300 shadow-sm">
                         <div className="flex justify-between items-center">
                             <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                                {progressText || 'Memulai proses...'}
+                                {progressText || t('database.starting_process')}
                             </span>
                             <span className="text-xs font-bold text-primary dark:text-blue-400">
                                 {progress}%

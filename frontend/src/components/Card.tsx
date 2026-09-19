@@ -2,12 +2,12 @@
 import { type ReactNode } from 'react';
 
 export interface CardProps {
-    title: string;
-    status?: string | null; // Diubah menjadi string universal agar bisa menerima teks apapun
-    gridCols?: string;
-    dropdownActions?: ReactNode;
-    footerActions?: ReactNode;
-    children: ReactNode;
+    readonly title: string;
+    readonly status?: string | null; // Diubah menjadi string universal agar bisa menerima teks apapun
+    readonly gridCols?: string;
+    readonly dropdownActions?: ReactNode;
+    readonly footerActions?: ReactNode;
+    readonly children: ReactNode;
 }
 
 export default function Card({
@@ -78,7 +78,7 @@ export default function Card({
                 {/* Dropdown Menu Titik Tiga */}
                 {dropdownActions && (
                     <div className="relative group/menu">
-                        <button className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors rounded-md hover:bg-slate-50 dark:hover:bg-slate-800 outline-none">
+                        <button type="button" className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors rounded-md hover:bg-slate-50 dark:hover:bg-slate-800 outline-none">
                             <span className="material-symbols-outlined">more_vert</span>
                         </button>
                         <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-10 opacity-0 invisible group-hover/menu:opacity-100 group-hover/menu:visible transition-all duration-200 overflow-hidden">
