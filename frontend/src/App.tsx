@@ -37,10 +37,24 @@ function AppContent() {
         // --- LOAD GLOBAL SETTINGS ---
         if (window.pywebview.api.get_app_settings) {
             window.pywebview.api.get_app_settings().then((res: any) => {
-                if (res?.status === 'success' && res.data?.language) {
-                    import('./i18n').then(({ default: i18n }) => {
-                        i18n.changeLanguage(res.data.language);
-                    });
+                if (res?.status === 'success') {
+                    if (res.data?.language) {
+                        import('./i18n').then(({ default: i18n }) => {
+                            i18n.changeLanguage(res.data.language);
+                        });
+                    }
+                    
+                    // Cek update otomatis di latar belakang
+                    if (window.pywebview.api.check_for_updates) {
+                        window.pywebview.api.check_for_updates().then((upd: any) => {
+                            if (upd?.status === 'success' && upd?.is_update_available) {
+                                // Munculkan pop-up Updates secara otomatis jika ada versi baru
+                                window.dispatchEvent(new CustomEvent('vylo_open_settings_modal', {
+                                    detail: { modal: 'updates' }
+                                }));
+                            }
+                        }).catch((e: any) => console.error("Gagal mengecek pembaruan:", e));
+                    }
                 }
             }).catch((err: any) => console.error("Gagal memuat setting:", err));
         }

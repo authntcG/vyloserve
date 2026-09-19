@@ -15,6 +15,7 @@ from core.services.database import DatabaseManager
 from core.services.runtimes_manager import RuntimesManager
 from core.services.git_manager import GitManager
 from core.services.settings import SettingsManager
+from core.services.updater import UpdaterManager
 
 PROJECT_NOT_LOADED_MSG = "backend.error.project_module_not_loaded"
 
@@ -34,6 +35,7 @@ class Api:
         self.runtimes_manager = RuntimesManager(self)
         self.git_manager = GitManager(self)
         self.settings = SettingsManager(self)
+        self.updater = UpdaterManager(self)
         self._log_watcher_thread: Optional[threading.Thread] = None
         self._log_watcher_stop = threading.Event()
 
@@ -436,3 +438,21 @@ class Api:
 
     def set_git_config(self, name, email):
         return self.git_manager.set_git_config(name, email)
+    # ==========================================
+    # UPDATER MANAGER (VyloServe Auto-Update)
+    # ==========================================
+    def get_app_version(self):
+        from main import APP_VERSION
+        return APP_VERSION
+
+    def check_for_updates(self):
+        return self.updater.check_for_updates()
+
+    def get_update_status(self):
+        return self.updater.get_update_status()
+
+    def start_download_update(self, asset_url, asset_name):
+        return self.updater.start_download_update(asset_url, asset_name)
+
+    def install_update(self):
+        return self.updater.install_update()

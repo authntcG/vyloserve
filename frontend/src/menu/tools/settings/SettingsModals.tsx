@@ -3,11 +3,8 @@ import { useTranslation } from 'react-i18next';
 import Modal from '../../../components/Modal';
 import appIcon from '../../../assets/icons-nobg.png';
 
-export type SettingsModalType = 'language' | 'about' | 'quit' | 'logs' | null;
+export type SettingsModalType = 'language' | 'about' | 'quit' | 'logs' | 'updates' | null;
 
-// Daftar level & source/modul yang bisa disaring di panel System Logs. 'source' berasal dari
-// auto-detection nama class Manager di backend (lihat core/api.py, _resolve_event_source).
-// dotClass = warna dot indikator, mengikuti warna yang sama dipakai LogsPanel.getColorClass().
 const LOG_LEVELS = [
     { key: 'info', labelKey: 'settings.log_level_info', dotClass: 'bg-primary' },
     { key: 'warn', labelKey: 'settings.log_level_warn', dotClass: 'bg-amber-400' },
@@ -15,13 +12,6 @@ const LOG_LEVELS = [
     { key: 'success', labelKey: 'settings.log_level_success', dotClass: 'bg-emerald-500' },
 ];
 
-// Dikelompokkan per-modul (bukan daftar datar) supaya Apache & Database masing-masing bisa
-// menampilkan DUA toggle terpisah dalam satu baris: pesan sistem biasa (instal/start/stop/error)
-// VS baris yang disalurkan dari file log persisten (error_log/access_log/db_startup.log/*.err
-// lewat Api.start_log_watcher(), lihat docs/backend_services.md §11.2). `fileKey` di-set eksplisit
-// lewat source_override di emit_log(), BUKAN auto-detect nama class, supaya keduanya bisa difilter
-// independen (mis. matikan baris file log tapi tetap lihat pesan sistem, atau sebaliknya). Modul
-// tanpa file log (PHP, Project, dst.) cukup satu toggle ("fileKey" di-omit).
 const LOG_SOURCE_GROUPS = [
     { icon: 'dns', labelKey: 'settings.log_source_apache', systemKey: 'ApacheManager', fileKey: 'ApacheFileLog' },
     { icon: 'code', labelKey: 'settings.log_source_php', systemKey: 'PhpManager' },
@@ -36,8 +26,6 @@ const LOG_SOURCE_GROUPS = [
 const ALL_LOG_LEVEL_KEYS = LOG_LEVELS.map(l => l.key);
 const ALL_LOG_SOURCE_KEYS = LOG_SOURCE_GROUPS.flatMap(g => g.fileKey ? [g.systemKey, g.fileKey] : [g.systemKey]);
 
-// Toggle switch pill kecil -- identik dengan yang sudah dipakai di Sidebar.tsx untuk toggle
-// start/stop service, disamakan supaya modal ini tidak keluar dari pakem UI yang ada.
 function ToggleSwitch({ checked, onChange, label }: { readonly checked: boolean; readonly onChange: () => void; readonly label: string }) {
     return (
         <label className="relative inline-flex items-center cursor-pointer shrink-0" aria-label={label}>
@@ -52,20 +40,308 @@ interface SettingsModalsProps {
     readonly onClose: () => void;
 }
 
+// Extracted UpdatesModal to reduce cognitive complexity of SettingsModals
+function UpdatesModal({ isOpen, onClose }: { readonly isOpen: boolean; readonly onClose: () => void }) {
+    const { t } = useTranslation();
+    const [receivePrerelease, setReceivePrerelease] = useState(false);
+    const [appVersion, setAppVersion] = useState<string>('');
+    const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+    const [updateResult, setUpdateResult] = useState<any>(null);
+    const [isDownloadingUpdate, setIsDownloadingUpdate] = useState(false);
+    const [isReadyToInstall, setIsReadyToInstall] = useState(false);
+    const [downloadProgress, setDownloadProgress] = useState<number>(0);
+    const [downloadText, setDownloadText] = useState<string>('');
+
+    useEffect(() => {
+        if (!isOpen) {
+            setUpdateResult(null);
+            setIsDownloadingUpdate(false);
+            setIsReadyToInstall(false);
+            setDownloadProgress(0);
+            return;
+        }
+
+        const api = (window as any).pywebview?.api;
+        if (!api) return;
+
+        api.get_app_version().then((ver: string) => setAppVersion(ver));
+
+        api.get_app_settings().then((res: any) => {
+            if (res?.status === 'success') {
+                setReceivePrerelease(res.data?.receive_prerelease_updates ?? false);
+            }
+        });
+
+        api.get_update_status().then((status: any) => {
+            setUpdateResult(status.result);
+            setIsDownloadingUpdate(status.is_downloading);
+            setIsReadyToInstall(status.is_ready);
+            if (status.is_downloading) {
+                setDownloadProgress(status.progress_percent || 0);
+                setDownloadText(status.progress_text || '');
+            }
+        });
+
+        const handleProgress = (e: Event) => {
+            const ce = e as CustomEvent;
+            if (ce.detail?.text?.includes('backend.updater')) {
+                setDownloadProgress(ce.detail.percent);
+                setDownloadText(ce.detail.text);
+            }
+        };
+
+        const handleUpdateReady = () => {
+            setIsDownloadingUpdate(false);
+            setIsReadyToInstall(true);
+            api.get_update_status().then((status: any) => {
+                setUpdateResult(status.result);
+            });
+        };
+
+        window.addEventListener('vylo_progress', handleProgress);
+        window.addEventListener('vylo_update_ready', handleUpdateReady);
+
+        return () => {
+            window.removeEventListener('vylo_progress', handleProgress);
+            window.removeEventListener('vylo_update_ready', handleUpdateReady);
+        };
+    }, [isOpen]);
+
+    const handleTogglePrerelease = async () => {
+        const newVal = !receivePrerelease;
+        setReceivePrerelease(newVal);
+        const api = (window as any).pywebview?.api;
+        if (!api) return;
+        const res = await api.get_app_settings();
+        if (res?.status === 'success') {
+            await api.save_app_settings({
+                ...res.data,
+                receive_prerelease_updates: newVal
+            });
+            handleCheckUpdate();
+        }
+    };
+
+    const handleCheckUpdate = async () => {
+        const api = (window as any).pywebview?.api;
+        if (!api) return;
+        setIsCheckingUpdate(true);
+        setUpdateResult(null);
+        setIsReadyToInstall(false);
+        try {
+            const res = await api.check_for_updates();
+            setUpdateResult(res);
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setIsCheckingUpdate(false);
+        }
+    };
+
+    const handleDownloadUpdate = async () => {
+        const api = (window as any).pywebview?.api;
+        if (!api || !updateResult?.asset_url) return;
+        setIsDownloadingUpdate(true);
+        setDownloadProgress(0);
+        try {
+            await api.start_download_update(updateResult.asset_url, updateResult.asset_name);
+        } catch (e) {
+            console.error(e);
+            setIsDownloadingUpdate(false);
+        }
+    };
+
+    const handleInstallUpdate = async () => {
+        const api = (window as any).pywebview?.api;
+        if (!api) return;
+        try {
+            await api.install_update();
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    // Helpler function to reduce nested ternary operations
+    const renderUpdateStatus = () => {
+        if (!updateResult) return null;
+
+        if (updateResult.status === 'error') {
+            return (
+                <div className="text-sm text-red-600 dark:text-red-400">
+                    <span className="material-symbols-outlined align-middle mr-2 text-[18px]">error</span>
+                    {t(updateResult.message, updateResult.args) as string}
+                </div>
+            );
+        }
+        
+        if (!updateResult.is_update_available) {
+            return (
+                <div className="text-sm text-slate-600 dark:text-slate-400 flex items-center gap-2">
+                    <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                    {t(updateResult.message) as string}
+                </div>
+            );
+        }
+
+        return (
+            <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 font-semibold">
+                    <span className="material-symbols-outlined text-[20px]">new_releases</span>
+                    {t('ui.update.available', 'New Update Available!')} ({updateResult.version})
+                </div>
+                <div className="text-sm text-slate-700 dark:text-slate-300 max-h-48 overflow-y-auto whitespace-pre-wrap font-mono text-xs bg-white dark:bg-black/20 p-3 rounded border border-emerald-100 dark:border-emerald-900/50">
+                    {updateResult.changelog || t('ui.update.no_changelog', 'No changelog provided.')}
+                </div>
+
+                {isDownloadingUpdate && (
+                    <div className="mt-3 flex flex-col gap-2">
+                        <div className="flex items-center justify-between text-xs font-semibold text-slate-600 dark:text-slate-400">
+                            <span>{(downloadText ? t(downloadText) : '') || t('ui.update.downloading_fallback', 'Downloading...')}</span>
+                            <span>{Math.round(downloadProgress)}%</span>
+                        </div>
+                        <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2.5 overflow-hidden">
+                            <div className="bg-emerald-500 h-2.5 rounded-full transition-all duration-300" style={{ width: `${downloadProgress}%` }}></div>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1 italic">* {t('ui.update.close_hint_background', 'You can close this modal, the download will continue in the background.')}</p>
+                    </div>
+                )}
+
+                {(!isDownloadingUpdate && isReadyToInstall) && (
+                    <div className="mt-3 flex flex-col gap-3 border-t border-emerald-200 dark:border-emerald-900/50 pt-3">
+                        <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
+                            <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                            <span className="text-sm font-semibold">{t('ui.update.download_complete', 'Download Complete. Ready to install!')}</span>
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    let resultContainerClass = 'border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900';
+    if (updateResult?.status === 'error') {
+        resultContainerClass = 'border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-900/20';
+    } else if (updateResult?.is_update_available) {
+        resultContainerClass = 'border-emerald-200 bg-emerald-50 dark:border-emerald-900/30 dark:bg-emerald-900/10';
+    }
+
+    const updateModalFooter = (
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 rounded-b-xl">
+            <button
+                type="button"
+                onClick={isDownloadingUpdate ? () => { } : onClose}
+                className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${isDownloadingUpdate ? 'text-slate-400 dark:text-slate-500 cursor-not-allowed' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+            >
+                {t('common.close', 'Close')}
+            </button>
+
+            {updateResult?.is_update_available && !isDownloadingUpdate && !isReadyToInstall && (
+                <button
+                    type="button"
+                    onClick={handleDownloadUpdate}
+                    className="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-all shadow-sm active:scale-95 flex items-center gap-2"
+                >
+                    <span className="material-symbols-outlined text-[18px]">download</span>
+                    {t('ui.update.download_restart', 'Download & Install')}
+                </button>
+            )}
+
+            {isReadyToInstall && (
+                <button
+                    type="button"
+                    onClick={handleInstallUpdate}
+                    className="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-all shadow-sm active:scale-95 flex items-center gap-2"
+                >
+                    <span className="material-symbols-outlined text-[18px]">system_update_alt</span>
+                    <span>{t('ui.update.install_restart', 'Install & Restart')}</span>
+                </button>
+            )}
+        </div>
+    );
+
+    return (
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            title={t('settings.updates', 'Updates')}
+            icon="system_update"
+            maxWidthClass="sm:w-[560px]"
+            customFooter={updateModalFooter}
+        >
+            <div className="flex flex-col gap-6">
+                <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-100 dark:border-slate-800">
+                    <div className="flex flex-col">
+                        <span className="text-xs text-slate-500 uppercase tracking-wider font-semibold">{t('ui.update.current_version', 'Current Version')}</span>
+                        <span className="text-lg font-mono text-slate-800 dark:text-slate-200">{appVersion || '...'}</span>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={handleCheckUpdate}
+                        disabled={isCheckingUpdate || isDownloadingUpdate || isReadyToInstall}
+                        className="px-4 py-2 bg-primary text-white text-sm font-medium rounded-md hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2 transition-all shadow-sm active:scale-95"
+                    >
+                        {isCheckingUpdate ? (
+                            <><span className="material-symbols-outlined text-[18px] animate-spin">refresh</span> {t('ui.update.checking', 'Checking...')}</>
+                        ) : (
+                            <><span className="material-symbols-outlined text-[18px]">search</span> {t('ui.update.check', 'Check for Updates')}</>
+                        )}
+                    </button>
+                </div>
+                <div className="flex items-center justify-between p-1">
+                    <div className="flex flex-col">
+                        <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                            {t('settings.receive_prerelease', 'Receive Pre-release Updates')}
+                        </span>
+                        <span className="text-xs text-slate-500">
+                            {t('settings.receive_prerelease_desc', 'Get early access to alpha and beta versions.')}
+                        </span>
+                    </div>
+                    <button
+                        type="button"
+                        role="switch"
+                        aria-checked={receivePrerelease}
+                        onClick={handleTogglePrerelease}
+                        disabled={isCheckingUpdate || isDownloadingUpdate || isReadyToInstall}
+                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full focus:outline-none transition-colors ${receivePrerelease ? 'bg-primary' : 'bg-slate-200 dark:bg-slate-700'}`}
+                    >
+                        <span
+                            aria-hidden="true"
+                            className={`pointer-events-none inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${receivePrerelease ? 'translate-x-2' : '-translate-x-2'}`}
+                        />
+                    </button>
+                </div>
+                {updateResult && (
+                    <div className={`p-4 border rounded-lg ${resultContainerClass}`}>
+                        {renderUpdateStatus()}
+                    </div>
+                )}
+            </div>
+        </Modal>
+    );
+}
+
 export default function SettingsModals({ activeModal, onClose }: SettingsModalsProps) {
     const { t, i18n } = useTranslation();
     const [selectedLang, setSelectedLang] = useState(i18n.language);
     const [logLevels, setLogLevels] = useState<string[]>(ALL_LOG_LEVEL_KEYS);
     const [logSources, setLogSources] = useState<string[]>(ALL_LOG_SOURCE_KEYS);
+    const [appVersion, setAppVersion] = useState<string>('');
 
-    // Sinkronisasikan state lokal jika modal bahasa dibuka
     useEffect(() => {
         if (activeModal === 'language') {
             setSelectedLang(i18n.language);
         }
     }, [activeModal, i18n.language]);
 
-    // Muat filter System Logs yang tersimpan setiap kali modalnya dibuka
+    useEffect(() => {
+        if (activeModal === 'about' || activeModal === 'language') {
+            const api = (window as any).pywebview?.api;
+            if (api) {
+                api.get_app_version().then((ver: string) => setAppVersion(ver));
+            }
+        }
+    }, [activeModal]);
+
     useEffect(() => {
         if (activeModal !== 'logs') return;
         const api = (window as any).pywebview?.api;
@@ -73,10 +349,6 @@ export default function SettingsModals({ activeModal, onClose }: SettingsModalsP
 
         api.get_app_settings().then((res: any) => {
             if (res?.status !== 'success') return;
-            // null tersimpan = belum pernah dikustomisasi -> tampilkan checkbox semua tercentang.
-            // Array (termasuk array kosong) = daftar eksplisit tersimpan, pakai apa adanya --
-            // JANGAN diperlakukan sama seperti null, atau uncheck-semua-lalu-Save akan terlihat
-            // seolah gagal tersimpan setiap modal dibuka lagi (lihat docs/known_bugs.md).
             const savedLevels: string[] | null = res.data?.system_log_levels ?? null;
             const savedSources: string[] | null = res.data?.system_log_sources ?? null;
             setLogLevels(savedLevels ?? ALL_LOG_LEVEL_KEYS);
@@ -92,10 +364,6 @@ export default function SettingsModals({ activeModal, onClose }: SettingsModalsP
         setLogSources(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
     };
 
-    // Simpan filter System Logs & beri tahu LogsPanel yang sedang mounted agar langsung ikut menyaring.
-    // Selalu simpan array literal apa adanya (TERMASUK array kosong kalau user uncheck semua) --
-    // tidak lagi "dikompres" jadi array kosong saat semua tercentang, karena itulah akar bug lama:
-    // array kosong yang sama dipakai untuk dua makna berbeda (lihat docs/known_bugs.md).
     const handleApplyLogSettings = async () => {
         const api = (window as any).pywebview?.api;
         if (api && typeof api.save_app_settings === 'function') {
@@ -105,12 +373,9 @@ export default function SettingsModals({ activeModal, onClose }: SettingsModalsP
         onClose();
     };
 
-    // Handle aksi apply perubahan bahasa
     const handleApplyLanguage = async () => {
         if (selectedLang !== i18n.language) {
             i18n.changeLanguage(selectedLang);
-            
-            // Simpan ke file settings.json via Backend
             const api = (window as any).pywebview?.api;
             if (api && typeof api.save_app_settings === 'function') {
                 await api.save_app_settings({ language: selectedLang });
@@ -119,9 +384,7 @@ export default function SettingsModals({ activeModal, onClose }: SettingsModalsP
         onClose();
     };
 
-    // Handle aksi apply quit/keluar aplikasi
     const handleQuit = () => {
-        // Coba menutup aplikasi lewat backend pywebview jika ada, atau fallback window.close()
         const api = (window as any).pywebview?.api;
         if (api && typeof api.close_app === 'function') {
             api.close_app();
@@ -132,7 +395,6 @@ export default function SettingsModals({ activeModal, onClose }: SettingsModalsP
 
     return (
         <>
-            {/* Modal Ubah Bahasa */}
             <Modal
                 isOpen={activeModal === 'language'}
                 onClose={onClose}
@@ -172,7 +434,6 @@ export default function SettingsModals({ activeModal, onClose }: SettingsModalsP
                 </div>
             </Modal>
 
-            {/* Modal Tentang Custom Menggunakan Komponen Modal DRY */}
             <Modal
                 isOpen={activeModal === 'about'}
                 onClose={onClose}
@@ -211,7 +472,6 @@ export default function SettingsModals({ activeModal, onClose }: SettingsModalsP
                 }
             >
                 <div className="flex flex-col md:flex-row gap-6 md:gap-8 items-start">
-                    {/* Left Side: App Icon & Badges */}
                     <div className="flex flex-col items-center text-center w-full md:w-44 shrink-0">
                         <div className="relative w-24 h-24 md:w-28 md:h-28 rounded-2xl p-2 bg-gradient-to-b from-blue-500/10 to-indigo-500/5 border border-blue-500/20 shadow-lg shadow-blue-500/10 flex items-center justify-center group mb-3">
                             <img alt="VyloServe Icon" className="w-full h-full object-contain rounded-xl drop-shadow-md transition-transform duration-300 group-hover:scale-105" src={appIcon} />
@@ -219,7 +479,7 @@ export default function SettingsModals({ activeModal, onClose }: SettingsModalsP
                         <span className="font-bold text-slate-900 dark:text-white text-base">VyloServe</span>
                         <div className="flex flex-wrap items-center justify-center gap-1.5 mt-2">
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60">
-                                {t('settings.version')}
+                                {appVersion || '...'}
                             </span>
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60">
                                 GPL-3.0
@@ -227,17 +487,15 @@ export default function SettingsModals({ activeModal, onClose }: SettingsModalsP
                         </div>
                     </div>
 
-                    {/* Right Side: Content & Description */}
                     <div className="flex-1 flex flex-col gap-4 text-left">
                         <div>
                             <h3 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white tracking-tight">VyloServe</h3>
-                            <p className="text-xs md:text-sm font-medium text-primary dark:text-blue-400 mt-0.5">{t('settings.app_tagline')}</p>
+                            <p className="text-xs md:text-sm font-medium text-primary dark:text-blue-400 mt-0.5">{t('settings.app_tagline')} {' '} {appVersion || '...'}</p>
                         </div>
                         <p className="text-xs md:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
                             {t('settings.about_desc')}
                         </p>
-                        
-                        {/* Feature Highlights */}
+
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-950/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800/60">
                             <div className="flex items-center gap-2">
                                 <span className="material-symbols-outlined text-[16px] text-emerald-500">check_circle</span>
@@ -264,7 +522,6 @@ export default function SettingsModals({ activeModal, onClose }: SettingsModalsP
                 </div>
             </Modal>
 
-            {/* Modal Filter System Logs */}
             <Modal
                 isOpen={activeModal === 'logs'}
                 onClose={onClose}
@@ -279,7 +536,6 @@ export default function SettingsModals({ activeModal, onClose }: SettingsModalsP
                         {t('settings.system_logs_desc')}
                     </p>
 
-                    {/* Level Log */}
                     <section className="flex flex-col gap-3">
                         <div className="flex flex-col gap-0.5">
                             <div className="flex items-center gap-2">
@@ -301,7 +557,6 @@ export default function SettingsModals({ activeModal, onClose }: SettingsModalsP
                         </div>
                     </section>
 
-                    {/* Kategori Modul */}
                     <section className="flex flex-col gap-3">
                         <div className="flex flex-col gap-0.5">
                             <div className="flex items-center gap-2">
@@ -336,7 +591,6 @@ export default function SettingsModals({ activeModal, onClose }: SettingsModalsP
                 </div>
             </Modal>
 
-            {/* Modal Matikan Aplikasi */}
             <Modal
                 isOpen={activeModal === 'quit'}
                 onClose={onClose}
@@ -350,6 +604,8 @@ export default function SettingsModals({ activeModal, onClose }: SettingsModalsP
                     {t('settings.quit_desc')}
                 </p>
             </Modal>
+
+            <UpdatesModal isOpen={activeModal === 'updates'} onClose={onClose} />
         </>
     );
 }
