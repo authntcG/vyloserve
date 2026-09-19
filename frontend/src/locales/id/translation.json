@@ -489,7 +489,10 @@
         "log_file_empty": "File log ini kosong.",
         "log_file_loading": "Memuat isi log...",
         "log_file_fetch_error": "Gagal membaca isi file log.",
-        "refresh": "Refresh"
+        "refresh": "Refresh",
+        "updates": "Pembaruan",
+        "receive_prerelease": "Terima Pembaruan Pre-release",
+        "receive_prerelease_desc": "Dapatkan akses awal ke versi alpha dan beta."
     },
     "tools": {
         "base64": {
@@ -947,6 +950,34 @@
             "project_module_not_loaded": "Modul Project tidak dimuat.",
             "closing_app": "Menutup aplikasi...",
             "ping_received": "Menerima ping dari UI: {{data}}"
+        },
+        "updater": {
+            "network_error": "Terjadi kesalahan jaringan saat mengecek pembaruan.",
+            "no_releases": "Tidak ada rilis yang ditemukan.",
+            "already_latest": "Anda sudah menggunakan versi terbaru.",
+            "no_installer": "Tidak ada file installer yang ditemukan pada rilis ini.",
+            "already_downloading": "Pengunduhan pembaruan sudah sedang berlangsung.",
+            "not_ready": "File installer pembaruan belum diunduh atau belum siap.",
+            "download_error": "Gagal mengunduh pembaruan: {{e}}",
+            "downloading": "Mengunduh pembaruan {{file}}...",
+            "restarting": "Memulai ulang aplikasi untuk menerapkan pembaruan...",
+            "ready_to_install": "Siap untuk diinstal",
+            "download_failed": "Gagal mengunduh pembaruan"
+        }
+    },
+    "ui": {
+        "update": {
+            "current_version": "Versi Saat Ini",
+            "check": "Periksa Pembaruan",
+            "checking": "Memeriksa...",
+            "available": "Pembaruan Baru Tersedia!",
+            "downloading": "Mengunduh & Memulai Ulang...",
+            "downloading_fallback": "Mengunduh...",
+            "download_restart": "Unduh & Instal",
+            "close_hint_background": "Anda dapat menutup modal ini, pengunduhan akan tetap berlanjut di latar belakang.",
+            "download_complete": "Pengunduhan Selesai. Siap untuk diinstal!",
+            "install_restart": "Instal & Mulai Ulang",
+            "no_changelog": "Tidak ada catatan perubahan yang disediakan."
         }
     }
 }

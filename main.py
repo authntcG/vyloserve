@@ -15,6 +15,7 @@ ssl._create_default_https_context = lambda: ssl.create_default_context(cafile=ce
 # --- KONFIGURASI ENVIRONMENT ---
 # Ubah menjadi True jika ingin melakukan build (.exe) atau Alpha Testing
 IS_PRODUCTION = False
+APP_VERSION = "0.0.3-beta"
 
 # --- FUNGSI RESOLUSI PATH PYINSTALLER ---
 def resource_path(relative_path):

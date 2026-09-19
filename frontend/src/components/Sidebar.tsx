@@ -236,6 +236,13 @@ function SidebarFooter({ isDesktopCollapsed, systemLoad, systemLoadColorClass, i
                         {t('settings.system_logs')}
                     </button>
                     <button type="button"
+                        onClick={() => onOpenModal('updates')}
+                        className="w-full text-left px-4 py-3 flex items-center gap-3 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-100 dark:border-slate-800"
+                    >
+                        <span className="material-symbols-outlined text-[18px] text-slate-400">system_update</span>
+                        {t('settings.updates')}
+                    </button>
+                    <button type="button"
                         onClick={() => onOpenModal('about')}
                         className="w-full text-left px-4 py-3 flex items-center gap-3 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-100 dark:border-slate-800"
                     >
@@ -302,6 +309,17 @@ export default function Sidebar({
             }
         };
 
+        const handleOpenSettingsModalEvent = (e: Event) => {
+            const customEvent = e as CustomEvent;
+            if (customEvent.detail?.modal) {
+                setActiveSettingsModal(customEvent.detail.modal);
+            }
+        };
+
+        const handleUpdateReadyGlobal = () => {
+            setActiveSettingsModal('updates');
+        };
+
         const handleClickOutside = (event: MouseEvent) => {
             if (settingsRef.current && !settingsRef.current.contains(event.target as Node)) {
                 setIsSettingsOpen(false);
@@ -309,11 +327,15 @@ export default function Sidebar({
         };
 
         window.addEventListener('service_status_changed', handleStatusSync);
+        window.addEventListener('vylo_open_settings_modal', handleOpenSettingsModalEvent);
+        window.addEventListener('vylo_update_ready', handleUpdateReadyGlobal);
         document.addEventListener('mousedown', handleClickOutside);
 
         return () => {
             clearInterval(interval);
             window.removeEventListener('service_status_changed', handleStatusSync);
+            window.removeEventListener('vylo_open_settings_modal', handleOpenSettingsModalEvent);
+            window.removeEventListener('vylo_update_ready', handleUpdateReadyGlobal);
             document.removeEventListener('mousedown', handleClickOutside);
         };
     }, []);

@@ -27,6 +27,7 @@ class SettingsManager:
             # Default settings. Mudah diextend di kemudian hari.
             default_config = {
                 "language": "en", # 'en' atau 'id'
+                "receive_prerelease_updates": False, # opsi untuk auto-updater
                 "default_apache_install_location": "", # lokasi folder terakhir dipakai di modal New Project
                 # None = belum pernah dikustomisasi user -> tampilkan semua level/source.
                 # SENGAJA bukan array kosong ([]) -- array kosong dipakai sebagai nilai TERSIMPAN
