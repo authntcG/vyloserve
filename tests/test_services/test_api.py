@@ -30,6 +30,27 @@ def test_set_window_and_emitters(api_instance):
     assert mock_window.evaluate_js.call_count == 2
     assert "test progress" in mock_window.evaluate_js.call_args[0][0]
 
+def test_emit_log_source_override_bypasses_auto_detection(api_instance):
+    """
+    source_override dipakai pemanggil (mis. ApacheManager.tail_new_logs()) yang perlu
+    label kategori BERBEDA dari nama class-nya sendiri, supaya baris dari file log bisa
+    difilter terpisah dari pesan sistem biasa di modal "System Logs".
+    """
+    mock_window = MagicMock()
+    api_instance.set_window(mock_window)
+
+    class FakeApacheManager:
+        def __init__(self, api):
+            self.api = api
+
+        def do_tail(self):
+            self.api.emit_log("[error] boom", "error", {}, source_override='ApacheFileLog')
+
+    FakeApacheManager(api_instance).do_tail()
+
+    payload = mock_window.evaluate_js.call_args[0][0]
+    assert '"source": "ApacheFileLog"' in payload
+
 def test_emit_events_include_caller_source(api_instance):
     """
     emit_log()/emit_progress() harus otomatis menyertakan nama class pemanggil
@@ -101,6 +122,67 @@ def test_start_stop_service(api_instance):
     
     api_instance.stop_service("database")
     api_instance.database.stop_all.assert_called_once()
+
+# ==========================================
+# start_log_watcher / stop_log_watcher (System Logs auto-tail file log Apache/Database)
+# ==========================================
+
+@patch('core.api.threading.Thread')
+def test_start_log_watcher_starts_a_daemon_thread(mock_thread_cls, api_instance):
+    mock_thread_instance = MagicMock()
+    mock_thread_cls.return_value = mock_thread_instance
+
+    api_instance.start_log_watcher(interval=2.0)
+
+    mock_thread_cls.assert_called_once()
+    assert mock_thread_cls.call_args.kwargs.get('daemon') is True
+    mock_thread_instance.start.assert_called_once()
+
+@patch('core.api.threading.Thread')
+def test_start_log_watcher_does_not_start_a_second_thread_when_already_running(mock_thread_cls, api_instance):
+    mock_thread_instance = MagicMock()
+    mock_thread_instance.is_alive.return_value = True
+    mock_thread_cls.return_value = mock_thread_instance
+
+    api_instance.start_log_watcher()
+    api_instance.start_log_watcher()
+
+    mock_thread_cls.assert_called_once()
+
+@patch('core.api.threading.Thread')
+def test_log_watcher_loop_polls_apache_and_database_once_per_iteration(mock_thread_cls, api_instance):
+    api_instance.start_log_watcher(interval=5)
+    loop_fn = mock_thread_cls.call_args.kwargs['target']
+
+    # Jalankan body loop persis SEKALI dengan mengontrol is_set() secara manual,
+    # tanpa perlu threading/sleep sungguhan agar test deterministik.
+    with patch.object(api_instance._log_watcher_stop, 'is_set', side_effect=[False, True]):
+        with patch.object(api_instance._log_watcher_stop, 'wait') as mock_wait:
+            loop_fn()
+
+    api_instance.apache.tail_new_logs.assert_called_once()
+    api_instance.database.tail_new_logs.assert_called_once()
+    mock_wait.assert_called_once_with(5)
+
+@patch('core.api.threading.Thread')
+def test_log_watcher_loop_still_polls_database_even_if_apache_tail_raises(mock_thread_cls, api_instance):
+    """Error di satu service tidak boleh menghentikan polling service lainnya."""
+    api_instance.apache.tail_new_logs.side_effect = RuntimeError("boom")
+    api_instance.start_log_watcher(interval=1)
+    loop_fn = mock_thread_cls.call_args.kwargs['target']
+
+    with patch.object(api_instance._log_watcher_stop, 'is_set', side_effect=[False, True]):
+        with patch.object(api_instance._log_watcher_stop, 'wait'):
+            loop_fn()  # tidak boleh raise
+
+    api_instance.database.tail_new_logs.assert_called_once()
+
+def test_stop_log_watcher_sets_the_stop_event(api_instance):
+    api_instance._log_watcher_stop.clear()
+
+    api_instance.stop_log_watcher()
+
+    assert api_instance._log_watcher_stop.is_set()
 
 @patch('core.api.psutil')
 def test_get_all_services_status(mock_psutil, api_instance):

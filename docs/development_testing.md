@@ -174,7 +174,64 @@ Jangan taruh logika penting sebagai closure di dalam `if __name__ == '__main__':
 **6. Selesai menambah test bukan berarti selesai — verifikasi ke SonarQube.**
 Setelah menambah/mengubah test: jalankan ulang suite penuh + coverage, lalu pastikan hasil scan SonarQube menunjukkan **0 temuan baru** (bug/code smell) akibat test yang baru ditulis, sebelum menyerahkan pekerjaan sebagai selesai.
 
-## 3. Standar Clean Code & DRY
+## 3. Pengujian Unit Frontend (Unit Testing dengan Vitest)
+
+Frontend (`frontend/`) memakai **Vitest + React Testing Library**, bukan Jest — proyek ini berbasis Vite, dan Vitest berbagi config langsung dengan `vite.config.ts` (tidak perlu setup Babel/webpack terpisah), native ESM, dan API-nya kompatibel Jest.
+
+### 3.1 Struktur & Lokasi Test
+Berbeda dari kebiasaan umum React (`Component.test.tsx` di sebelah `Component.tsx`), proyek ini **mengikuti pola folder `tests/` terpisah** yang sama seperti backend Python, supaya konsisten satu proyek:
+```
+frontend/
+├── tests/
+│   ├── setup.ts                      # Global setup: mock react-i18next, jest-dom matchers, jsdom polyfills
+│   ├── test-utils.tsx                # Helper bersama: mockPywebviewApi(), renderWithToast(), re-export RTL
+│   ├── i18n.test.ts                  # Smoke test untuk src/i18n.ts asli (vi.unmock react-i18next)
+│   ├── components/                   # Mirror src/components/*.tsx
+│   └── menu/                         # Mirror src/menu/**/*.tsx (apache/, php/, database/, runtimes/, dashboard/, tools/)
+├── tsconfig.test.json                # tsconfig khusus untuk src/ + tests/ (types vitest/globals, testing-library)
+└── vite.config.ts                    # blok `test: {...}` + `coverage: {...}` di sini
+```
+Pola: `tests/<mirror-struktur-src>/<NamaKomponen>.test.tsx`.
+
+Helper bersama ada di `tests/test-utils.tsx` (re-export semua dari `@testing-library/react` ditambah `mockPywebviewApi()` dan `renderWithToast()`) — **selalu pakai helper ini, jangan tulis ulang boilerplate mock `window.pywebview.api` atau `<ToastProvider>` wrapper di tiap file test**. Untuk sekelompok komponen yang bentuknya identik (mis. empat form `InstallGo/Java/Node/Python.tsx` yang sama-sama forwardRef + `submit()` + fetch-versions-on-mount), buat SATU factory function bersama (lihat `tests/menu/runtimes/installRuntimeTestKit.tsx`) lalu panggil dari tiap file test dengan config berbeda, dan gunakan `it.each`/`describe.each` untuk variasi data (lihat `tests/menu/database/Settings.test.tsx` untuk field MySQL/PostgreSQL, atau `tests/menu/runtimes/Main.test.tsx` untuk keempat engine). Pola ini WAJIB diikuti untuk suite test baru — proyek ini menjaga *new code duplication* SonarQube di bawah 3%, dan test suite yang tidak DRY adalah kontributor terbesar untuk duplication findings.
+
+Per audit test coverage (2026), seluruh `src/**/*.{ts,tsx}` frontend punya coverage statement **>95%** (~460 test case di 39 file test) — jalankan `npm run test:coverage` untuk laporan terbaru per file. Beberapa baris tetap sengaja tidak dicover karena secara nyata *unreachable* lewat UI (mis. validasi `if (!x) return` di dalam handler yang tombol pemicunya sendiri sudah `disabled` oleh kondisi yang sama — pola berulang yang ditemukan di banyak form Modal proyek ini; lihat commit history test untuk contoh).
+
+### 3.2 Mock `react-i18next` Secara Global
+`tests/setup.ts` men-mock `useTranslation()` secara global untuk SEMUA test — `t(key, fallback)` mengembalikan `fallback` apa adanya (dengan interpolasi `{{var}}` sederhana), `t(key)` tanpa fallback mengembalikan `key` literal. Ini **disengaja**: test komponen tidak boleh ikut gagal kalau teks terjemahan di `locales/*.json` berubah — itu tanggung jawab `tests/test_i18n_keys.py` (backend) dan review manual, bukan test komponen. Kalau sebuah test benar-benar perlu memverifikasi teks terjemahan asli, override mock global ini per-file dengan `vi.mock('react-i18next', ...)` di file test yang bersangkutan.
+
+### 3.3 Mock `window.pywebview.api`
+Komponen manapun yang memanggil `window.pywebview.api.*` (hampir semua komponen halaman) **wajib** di-mock di setiap test — pakai helper `mockPywebviewApi()` dari `tests/test-utils.tsx` (lihat §3.1), bukan menulis ulang `(window as any).pywebview = {...}` manual di tiap file.
+
+### 3.4 Cara Menjalankan
+```powershell
+npm run test            # sekali jalan (CI-friendly)
+npm run test:watch      # mode watch untuk development
+npm run test:coverage   # dengan coverage report (@vitest/coverage-v8) -- juga menghasilkan coverage/lcov.info untuk SonarQube, lihat §6
+```
+
+### 3.5 🚨 WAJIB: Cara Type-Check Frontend yang BENAR — `tsc -b`, BUKAN `tsc --noEmit -p tsconfig.json`
+`frontend/tsconfig.json` adalah **file "solution"** (`{"files": [], "references": [...]}`) — gaya bawaan template Vite React-TS untuk memisahkan config app (`tsconfig.app.json`), Node (`tsconfig.node.json`), dan sekarang test (`tsconfig.test.json`). Ini bukan bug, tapi implikasinya kritis:
+
+- **`tsc --noEmit -p tsconfig.json` (TANPA flag `-b`) adalah PERINTAH YANG VAKUM** — karena `files: []` dan tidak ada `include` langsung, TypeScript tidak benar-benar men-type-check APA PUN. Perintah ini **selalu exit 0**, bahkan kalau ada error nyata di `src/`. Ini bukan teori: pernah kejadian nyata satu sesi penuh di mana perintah ini dijalankan berulang kali setelah setiap perubahan dan selalu melaporkan "bersih", padahal ada **16 error TypeScript sungguhan** (union return type `t()` dari react-i18next yang tidak otomatis assignable ke `string`, butuh `as string`) yang baru ketahuan belakangan setelah `tsconfig.test.json` ditambahkan dan seseorang **kebetulan** memakai `tsc -b` untuk keperluan lain.
+- **WAJIB pakai salah satu dari ini untuk type-check yang benar-benar berjalan:**
+  ```powershell
+  npx tsc -b                      # build semua project reference (app + node + test) dari root
+  npx tsc -b tsconfig.test.json   # cuma project test (mencakup src + tests, lebih cepat untuk iterasi)
+  ```
+  `-b` (build mode) itulah yang membuat TypeScript benar-benar menelusuri `references` dan men-check tiap project di dalamnya. Tanpa `-b`, TypeScript memperlakukan file solution seolah tidak ada isinya.
+- Kalau butuh clean re-check (build cache TS kadang menyembunyikan error yang sudah pernah lolos), hapus dulu `*.tsbuildinfo`:
+  ```powershell
+  Remove-Item node_modules/.tmp/*.tsbuildinfo -ErrorAction SilentlyContinue
+  npx tsc -b
+  ```
+
+### 3.6 jsdom Tidak Mengimplementasikan `Element.prototype.scrollIntoView`
+Beberapa komponen (semua form "NewInstance" Apache/PHP/Database, dan komponen serupa) memanggil `bottomRef.current?.scrollIntoView(...)` lewat `setTimeout(..., 100)` saat `isInstalling` bernilai `true`, untuk auto-scroll ke progress bar. jsdom **tidak** mengimplementasikan `scrollIntoView` sama sekali (lihat [jsdom/jsdom#1695](https://github.com/jsdom/jsdom/issues/1695)) — tanpa stub, timer tsb melempar `TypeError: scrollIntoView is not a function` **setelah** test yang memicunya sudah selesai (karena `setTimeout` 100ms itu), muncul sebagai *unhandled exception* yang membingungkan pada test lain yang kebetulan berjalan berikutnya.
+
+Solusinya: `tests/setup.ts` men-stub `Element.prototype.scrollIntoView` sebagai no-op secara global (bukan per test file), supaya semua test yang secara tidak langsung memicu efek auto-scroll ini tetap aman.
+
+## 4. Standar Clean Code & DRY
 
 Setiap kontribusi kode (backend maupun frontend) wajib memenuhi standar berikut sebelum diserahkan.
 
@@ -226,7 +283,7 @@ Setiap kontribusi kode (backend maupun frontend) wajib memenuhi standar berikut 
 | Tipe / Interface | `PascalCase` | `ApiResponse`, `ProjectConfig` |
 | Custom Hook | prefix `use` | `useApacheStatus()` |
 
-## 4. Standar Security
+## 5. Standar Security
 
 Setiap pengembangan fitur baru **WAJIB** mempertimbangkan aspek keamanan berikut:
 
@@ -292,7 +349,7 @@ Validasi di frontend hanya untuk pengalaman pengguna (tampilkan pesan error cepa
 **3. Jangan Expose Token/Secret di Environment Frontend:**
 File `.env` di `frontend/` tidak boleh berisi data sensitif karena akan di-bundle ke dalam JS yang dapat dibaca siapapun.
 
-## 5. Analisis Kualitas Kode (SonarQube Scan)
+## 6. Analisis Kualitas Kode (SonarQube Scan)
 Untuk memonitor *Cognitive Complexity*, *Code Smells*, dan *Bugs*, kita menggunakan SonarQube Scanner.
 Jalankan perintah ini di root direktori proyek. Pastikan SonarQube berjalan di `http://127.0.0.1:9000`.
 
@@ -300,9 +357,16 @@ Jalankan perintah ini di root direktori proyek. Pastikan SonarQube berjalan di `
 > **Keamanan Token:** JANGAN PERNAH menuliskan token SonarQube asli di dalam dokumen ini atau file manapun yang ter-*commit* ke Git. Simpan token di *environment variable* lokal (misal `SONAR_TOKEN`) dan referensikan lewat `%SONAR_TOKEN%` (PowerShell: `$env:SONAR_TOKEN`), atau di file `.env` yang sudah masuk `.gitignore`. Jika token pernah ter-*commit* (seperti riwayat sebelumnya di file ini), token tersebut **wajib di-revoke/regenerate** di dashboard SonarQube karena dianggap bocor secara permanen di histori Git.
 
 **Frontend Sonar Scan:**
+*(Sebelum scan, WAJIB regenerate coverage report dulu — `sonar.javascript.lcov.reportPaths` di bawah membaca file statis `coverage/lcov.info`, SonarQube tidak menjalankan Vitest sendiri.)*
 ```powershell
-sonar-scanner.bat -D"sonar.projectKey=vyloserve-fe" -D"sonar.sources=." -D"sonar.host.url=http://127.0.0.1:9000" -D"sonar.token=%SONAR_TOKEN_FE%"
+cd frontend
+npm run test:coverage
+sonar-scanner.bat -D"sonar.projectKey=vyloserve-fe" -D"sonar.sources=src" -D"sonar.tests=tests" -D"sonar.host.url=http://127.0.0.1:9000" -D"sonar.token=%SONAR_TOKEN_FE%" -D"sonar.javascript.lcov.reportPaths=coverage/lcov.info"
 ```
+Detail parameter (dibanding perintah lama yang cuma `sonar.sources=.` tanpa `sonar.tests`/coverage — riwayat sebelumnya, semua file di `frontend/tests/` ikut ter-scan sebagai *source code* biasa, bukan test code, sehingga ikut membebani metrik *new code duplication*):
+- `sonar.sources=src` — cakupan source code dipersempit ke `frontend/src/` saja (konsisten dengan pola backend: `sonar.sources=core,main.py`), bukan seluruh `frontend/` (yang sebelumnya turut men-scan `tests/`, config root, dsb).
+- `sonar.tests=tests` — mengklasifikasikan `frontend/tests/**` sebagai *test code*, terpisah dari metrik duplication/code-smell *source* utama.
+- `sonar.javascript.lcov.reportPaths=coverage/lcov.info` — mengimpor hasil coverage Vitest (`npm run test:coverage`, reporter `lcov` di `vite.config.ts`) supaya persentase *Coverage* di dashboard SonarQube frontend terisi (sebelumnya selalu 0%/kosong karena tidak ada laporan yang diimpor).
 
 **Backend Sonar Scan:**
 *(Memiliki exclusions agar tidak meng-scan frontend, bin, file cache, dan library yang digenerate).*
@@ -310,7 +374,7 @@ sonar-scanner.bat -D"sonar.projectKey=vyloserve-fe" -D"sonar.sources=." -D"sonar
 sonar-scanner.bat -D"sonar.projectKey=vyloserve-be" -D"sonar.sources=core,main.py" -D"sonar.tests=tests" -D"sonar.host.url=http://127.0.0.1:9000" -D"sonar.token=%SONAR_TOKEN_BE%" -D"sonar.exclusions=frontend/**,bin/**,build/**,data/**,dist/**,docs/**,www/**,**/__pycache__/**,**/*.pyc,.coverage" -D"sonar.test.exclusions=**/__pycache__/**,**/*.pyc" -D"sonar.python.version=3.10" -D"sonar.scm.disabled=true" -D"sonar.python.coverage.reportPaths=coverage.xml"
 ```
 
-## 6. Proses Kompilasi Produksi (Build Project)
+## 7. Proses Kompilasi Produksi (Build Project)
 Untuk membuat aplikasi mandiri (Standalone Windows Executable `.exe`) yang bisa didistribusikan ke pengguna akhir:
 
 > **PERINGATAN (REMEMBER):**

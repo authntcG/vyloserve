@@ -83,8 +83,9 @@ const ProjectSettings = forwardRef<ProjectSettingsRef, Props>(({ project }, ref)
 
             {/* Opsi Edit Nama Project */}
             <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('apache.project_name')}</label>
+                <label htmlFor="apache_project_name" className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('apache.project_name')}</label>
                 <input
+                    id="apache_project_name"
                     type="text"
                     value={projectName}
                     onChange={(e) => setProjectName(e.target.value)}
@@ -95,9 +96,10 @@ const ProjectSettings = forwardRef<ProjectSettingsRef, Props>(({ project }, ref)
 
             {/* Read-Only Domain Host */}
             <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('apache.local_domain')}</label>
+                <label htmlFor="apache_local_domain" className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('apache.local_domain')}</label>
                 <div className="flex shadow-sm rounded-lg opacity-80 cursor-not-allowed">
                     <input
+                        id="apache_local_domain"
                         type="text"
                         value={project.domain.split('.')[0]}
                         className="w-full bg-slate-100 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 text-sm rounded-l-lg block p-2.5 outline-none pointer-events-none"
@@ -112,11 +114,12 @@ const ProjectSettings = forwardRef<ProjectSettingsRef, Props>(({ project }, ref)
 
             {/* Opsi Edit Binding PHP */}
             <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('apache.php_fastcgi_routing')}</label>
+                <label htmlFor="apache_php_routing" className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('apache.php_fastcgi_routing')}</label>
                 {isLoading ? (
                     <div className="h-[42px] bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg animate-pulse"></div>
                 ) : (
                     <select
+                        id="apache_php_routing"
                         value={phpVersion}
                         onChange={(e) => setPhpVersion(e.target.value)}
                         className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2.5 outline-none transition-colors"

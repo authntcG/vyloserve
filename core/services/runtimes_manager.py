@@ -19,6 +19,8 @@ from core.utils.file_utils import download_advanced, extract_archive
 USER_AGENT = 'Mozilla/5.0'
 MSG_PREPARE_DL = "backend.runtimes.preparing_download"
 MSG_DL_DONE = "backend.runtimes.download_complete_extracting"
+MSG_INSTALL_FAILED = "backend.runtimes.install_failed"
+MSG_STARTING_BINARY_DOWNLOAD = "backend.runtimes.starting_binary_download"
 
 
 class RuntimesManager:
@@ -46,7 +48,7 @@ class RuntimesManager:
         if os.path.exists(zip_path): 
             try: os.remove(zip_path)
             except OSError: pass
-        self._emit_progress(-1, "backend.runtimes.install_failed", {"e": str(e)})
+        self._emit_progress(-1, MSG_INSTALL_FAILED, {"e": str(e)})
         self._emit_log("backend.runtimes.install_error_named", "error", {"name": name, "e": str(e)})
         return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
 
@@ -270,7 +272,7 @@ class RuntimesManager:
 
             if os.path.exists(node_dir): shutil.rmtree(node_dir, ignore_errors=True)
 
-            log_cb("backend.runtimes.starting_binary_download", "info", {"engine": "Node.js"})
+            log_cb(MSG_STARTING_BINARY_DOWNLOAD, "info", {"engine": "Node.js"})
             download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb)
 
             # 3. FASE EKSTRAKSI (60% - 85%)
@@ -445,7 +447,7 @@ class RuntimesManager:
             if os.path.exists(python_dir): shutil.rmtree(python_dir, ignore_errors=True)
             os.makedirs(python_dir, exist_ok=True)
 
-            log_cb("backend.runtimes.starting_binary_download", "info", {"engine": "Python"})
+            log_cb(MSG_STARTING_BINARY_DOWNLOAD, "info", {"engine": "Python"})
             download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb)
 
             # 3. FASE EKSTRAKSI (50% - 75%)
@@ -549,7 +551,7 @@ class RuntimesManager:
             if os.path.exists(java_dir): 
                 shutil.rmtree(java_dir, ignore_errors=True)
 
-            log_cb("backend.runtimes.starting_binary_download", "info", {"engine": "Java"})
+            log_cb(MSG_STARTING_BINARY_DOWNLOAD, "info", {"engine": "Java"})
             download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb)
 
             # 3. FASE EKSTRAKSI (60% - 95%)
@@ -591,7 +593,7 @@ class RuntimesManager:
                 try: os.remove(zip_path)
                 except OSError: pass
 
-            self._emit_progress(-1, "backend.runtimes.install_failed", {"e": str(e)})
+            self._emit_progress(-1, MSG_INSTALL_FAILED, {"e": str(e)})
             self._emit_log("backend.runtimes.java_install_error", "error", {"e": str(e)})
 
             return {"status": "error", "message": "backend.runtimes.java_install_error", "args": {"e": str(e)}}
@@ -683,7 +685,7 @@ class RuntimesManager:
             if os.path.exists(go_dir): 
                 shutil.rmtree(go_dir, ignore_errors=True)
 
-            log_cb("backend.runtimes.starting_binary_download", "info", {"engine": "Go"})
+            log_cb(MSG_STARTING_BINARY_DOWNLOAD, "info", {"engine": "Go"})
             download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb)
 
             # 3. FASE EKSTRAKSI (60% - 95%)
@@ -711,7 +713,7 @@ class RuntimesManager:
                 try: os.remove(zip_path)
                 except OSError: pass
 
-            self._emit_progress(-1, "backend.runtimes.install_failed", {"e": str(e)})
+            self._emit_progress(-1, MSG_INSTALL_FAILED, {"e": str(e)})
             self._emit_log("backend.runtimes.go_install_error", "error", {"e": str(e)})
 
             return {"status": "error", "message": "backend.runtimes.go_install_error", "args": {"e": str(e)}}

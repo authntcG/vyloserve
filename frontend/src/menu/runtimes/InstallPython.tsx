@@ -40,10 +40,10 @@ const InstallPython = forwardRef<InstallPythonRef, any>((_, ref) => {
             try {
                 const res = await window.pywebview?.api?.install_python(version, installPip);
                 if (res?.status === 'success') {
-                    showToast(res.message ? t(res.message, res.args || {}) : t('runtimes.python_install_success'), 'success');
+                    showToast((res.message ? t(res.message, res.args || {}) : t('runtimes.python_install_success')) as string, 'success');
                     return true;
                 } else {
-                    showToast(res?.message ? t(res.message, res.args || {}) : t('runtimes.python_install_error'), 'error');
+                    showToast((res?.message ? t(res.message, res.args || {}) : t('runtimes.python_install_error')) as string, 'error');
                     return false;
                 }
             } catch {

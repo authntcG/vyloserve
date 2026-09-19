@@ -1,7 +1,4 @@
 @import "tailwindcss";
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
 
 /* Diimport lewat CSS @import ber-layer(base), BUKAN import JS biasa di main.tsx --
    Tailwind v4 membungkus utility class-nya dalam @layer utilities. CSS tanpa layer
@@ -11,8 +8,16 @@
    menindih SEMUA utility `text-[Npx]` yang dipasang di elemen ikon manapun. Memberinya
    layer(base) -- prioritas terendah di antara layer bawaan Tailwind -- membuatnya
    ikut sistem cascade layer yang sama, sehingga @layer utilities (termasuk text-[Npx])
-   benar-benar bisa menindihnya. */
+   benar-benar bisa menindihnya.
+   HARUS tepat setelah @import "tailwindcss" di atas dan SEBELUM rule non-@import
+   apa pun (termasuk @tailwind di bawah) -- spesifikasi CSS mewajibkan semua @import
+   berada paling atas file, sebelum rule lain (kecuali @charset/@import lain). Taruh
+   di posisi lain = @import tersebut invalid dan diabaikan browser (SonarQube css:S8778). */
 @import "material-symbols/outlined.css" layer(base);
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 @theme {
   /* Colors */

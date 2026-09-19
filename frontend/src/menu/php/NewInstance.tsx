@@ -74,7 +74,7 @@ export default function NewPhpInstance({
                             setFilename('');
                         }
                     } else {
-                        setFetchError(t(response.message, response.args || {}));
+                        setFetchError((t(response.message, response.args || {}) as string));
                         setAvailableVersions([]);
                     }
                 } catch (error) {
@@ -180,8 +180,9 @@ export default function NewPhpInstance({
                 </p>
 
                 <div className="flex flex-col gap-2">
-                    <label className="text-xs font-medium text-slate-700 dark:text-slate-300">{t('php.listening_port')}</label>
+                    <label htmlFor="php_new_instance_port" className="text-xs font-medium text-slate-700 dark:text-slate-300">{t('php.listening_port')}</label>
                     <input
+                        id="php_new_instance_port"
                         type="number"
                         value={port}
                         onChange={(e) => setPort(Number(e.target.value))}

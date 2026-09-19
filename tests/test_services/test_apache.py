@@ -618,6 +618,109 @@ def test_apache_open_apache_file_handles_exception(apache_manager):
         res = apache_manager.open_apache_file('httpd')
     assert res == {"status": "error", "message": "backend.error.unexpected", "args": {"e": "boom"}}
 
+def test_apache_open_apache_file_error_path_uses_real_apache_filename(apache_manager):
+    """
+    Regresi: 'error' dulu di-mapping ke 'error.log' (dengan titik), padahal Apache
+    sendiri menulis ke 'logs/error_log' (underscore, tanpa ekstensi) -- lihat
+    docs/known_bugs.md #24. Path yang salah membuat tombol "buka error log" selalu
+    membuat file kosong baru alih-alih membuka log Apache yang asli.
+    """
+    with patch.object(apache_manager, 'get_status', return_value={"installed": True, "path": "C:\\apache"}):
+        with patch('os.path.exists', return_value=True):
+            with patch('sys.platform', 'win32'), patch('os.startfile') as mock_startfile:
+                apache_manager.open_apache_file('error')
+    opened_path = mock_startfile.call_args[0][0]
+    assert opened_path.endswith(os.path.join('logs', 'error_log'))
+
+# ==========================================
+# get_log_content — pembacaan isi file log Apache di dalam aplikasi
+# ==========================================
+
+@patch('core.services.apache.read_log_tail')
+@patch.object(ApacheManager, 'get_status')
+def test_get_log_content_error_log_success(mock_status, mock_tail, apache_manager):
+    mock_status.return_value = {"installed": True, "path": "C:\\apache"}
+    mock_tail.return_value = "[error] something happened"
+
+    res = apache_manager.get_log_content('error')
+
+    assert res == {"status": "success", "data": "[error] something happened"}
+    mock_tail.assert_called_once_with(os.path.join("C:\\apache", 'logs', 'error_log'))
+
+@patch('core.services.apache.read_log_tail')
+@patch.object(ApacheManager, 'get_status')
+def test_get_log_content_access_log_success(mock_status, mock_tail, apache_manager):
+    mock_status.return_value = {"installed": True, "path": "C:\\apache"}
+    mock_tail.return_value = "127.0.0.1 - GET /"
+
+    res = apache_manager.get_log_content('access')
+
+    assert res == {"status": "success", "data": "127.0.0.1 - GET /"}
+    mock_tail.assert_called_once_with(os.path.join("C:\\apache", 'logs', 'access_log'))
+
+def test_get_log_content_not_installed(apache_manager):
+    with patch.object(apache_manager, 'get_status', return_value={"installed": False, "path": None}):
+        res = apache_manager.get_log_content('error')
+    assert res == {"status": "error", "message": "backend.apache.not_installed"}
+
+def test_get_log_content_invalid_type(apache_manager):
+    with patch.object(apache_manager, 'get_status', return_value={"installed": True, "path": "C:\\apache"}):
+        res = apache_manager.get_log_content('httpd')
+    assert res == {"status": "error", "message": "backend.apache.invalid_type"}
+
+def test_get_log_content_handles_exception(apache_manager):
+    with patch.object(apache_manager, 'get_status', side_effect=RuntimeError("boom")):
+        res = apache_manager.get_log_content('error')
+    assert res == {"status": "error", "message": "backend.error.unexpected", "args": {"e": "boom"}}
+
+# ==========================================
+# tail_new_logs — menyalurkan baris baru error_log/access_log ke System Logs
+# ==========================================
+
+def test_tail_new_logs_does_nothing_when_not_installed(apache_manager):
+    with patch.object(apache_manager, 'get_status', return_value={"installed": False}):
+        apache_manager.tail_new_logs()
+    apache_manager.api.emit_log.assert_not_called()
+
+def test_tail_new_logs_does_nothing_when_not_running(apache_manager):
+    with patch.object(apache_manager, 'get_status', return_value={"installed": True, "running": False, "path": "C:\\apache"}):
+        apache_manager.tail_new_logs()
+    apache_manager.api.emit_log.assert_not_called()
+
+def test_tail_new_logs_baselines_offset_on_first_call_without_emitting(apache_manager):
+    """Kunjungan pertama ke sebuah file log harus mulai dari AKHIR file (gaya tail -f), bukan me-replay histori lama."""
+    with patch.object(apache_manager, 'get_status', return_value={"installed": True, "running": True, "path": "C:\\apache"}):
+        with patch('core.services.apache.os.path.exists', return_value=True), \
+             patch('core.services.apache.os.path.getsize', return_value=999):
+            apache_manager.tail_new_logs()
+
+    apache_manager.api.emit_log.assert_not_called()
+    assert apache_manager._log_offsets[os.path.join("C:\\apache", 'logs', 'error_log')] == 999
+    assert apache_manager._log_offsets[os.path.join("C:\\apache", 'logs', 'access_log')] == 999
+
+def test_tail_new_logs_emits_new_lines_with_correct_level_per_file(apache_manager):
+    error_path = os.path.join("C:\\apache", 'logs', 'error_log')
+    access_path = os.path.join("C:\\apache", 'logs', 'access_log')
+    apache_manager._log_offsets = {error_path: 100, access_path: 200}
+
+    def fake_read_new_lines(path, offset):
+        if path == error_path:
+            return (["[core:error] boom"], 150)
+        return (["127.0.0.1 GET /"], 250)
+
+    with patch.object(apache_manager, 'get_status', return_value={"installed": True, "running": True, "path": "C:\\apache"}):
+        with patch('core.services.apache.read_new_lines', side_effect=fake_read_new_lines):
+            apache_manager.tail_new_logs()
+
+    apache_manager.api.emit_log.assert_any_call("[core:error] boom", "error", {}, source_override='ApacheFileLog')
+    apache_manager.api.emit_log.assert_any_call("127.0.0.1 GET /", "info", {}, source_override='ApacheFileLog')
+    assert apache_manager._log_offsets[error_path] == 150
+    assert apache_manager._log_offsets[access_path] == 250
+
+def test_tail_new_logs_swallows_exceptions_silently(apache_manager):
+    with patch.object(apache_manager, 'get_status', side_effect=RuntimeError("boom")):
+        apache_manager.tail_new_logs()  # tidak boleh raise
+
 # ==========================================
 # start_server / stop_server — cabang tambahan
 # ==========================================

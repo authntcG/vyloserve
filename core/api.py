@@ -2,6 +2,7 @@ import webview
 import psutil
 import json
 import inspect
+import threading
 from typing import Dict, Any, Optional
 
 # Import Modul-modul Manager
@@ -33,9 +34,48 @@ class Api:
         self.runtimes_manager = RuntimesManager(self)
         self.git_manager = GitManager(self)
         self.settings = SettingsManager(self)
+        self._log_watcher_thread: Optional[threading.Thread] = None
+        self._log_watcher_stop = threading.Event()
 
     def set_window(self, window: webview.Window):
         self._window = window
+
+    # ==========================================
+    # LOG WATCHER (Apache error_log/access_log & Database db_startup.log/*.err -> System Logs)
+    # ==========================================
+    def start_log_watcher(self, interval: float = 2.0):
+        """
+        Menjalankan thread background yang secara berkala memanggil
+        ApacheManager/DatabaseManager.tail_new_logs() untuk menyalurkan baris
+        baru di file log persisten ke System Logs (event 'vylo_log') secara
+        otomatis, tanpa perlu user membuka modal log-file manual. Lihat
+        docs/backend_services.md §11.2 dan docs/known_bugs.md.
+
+        Dipanggil sekali dari main.py setelah window terpasang (emit_log()
+        butuh self._window untuk bisa mengirim event ke frontend).
+        """
+        if self._log_watcher_thread and self._log_watcher_thread.is_alive():
+            return
+        self._log_watcher_stop.clear()
+
+        def _loop():
+            while not self._log_watcher_stop.is_set():
+                try:
+                    self.apache.tail_new_logs()
+                except Exception:
+                    pass
+                try:
+                    self.database.tail_new_logs()
+                except Exception:
+                    pass
+                self._log_watcher_stop.wait(interval)
+
+        self._log_watcher_thread = threading.Thread(target=_loop, daemon=True)
+        self._log_watcher_thread.start()
+
+    def stop_log_watcher(self):
+        """Menghentikan thread log watcher dengan bersih -- dipanggil saat AppLifecycle.perform_exit()."""
+        self._log_watcher_stop.set()
 
     # ==========================================
     # EVENT EMITTERS (UI SYNC)
@@ -59,10 +99,17 @@ class Api:
         finally:
             del frame
 
-    def emit_log(self, message: str, level: str = "info", args: dict = None):
-        """ Menembakkan log real-time ke LogsPanel React """
+    def emit_log(self, message: str, level: str = "info", args: dict = None, source_override: Optional[str] = None):
+        """
+        Menembakkan log real-time ke LogsPanel React. `source_override` dipakai
+        pemanggil yang perlu label kategori BERBEDA dari nama class-nya sendiri
+        secara auto-detect -- mis. ApacheManager.tail_new_logs() memakai
+        'ApacheFileLog' (bukan 'ApacheManager') supaya baris dari file
+        error_log/access_log bisa difilter terpisah dari pesan sistem Apache
+        biasa di modal "System Logs" (lihat docs/known_bugs.md).
+        """
         if self._window:
-            source = self._resolve_event_source()
+            source = source_override if source_override is not None else self._resolve_event_source()
             detail = json.dumps({"message": message, "level": level, "args": args or {}, "source": source})
             script = f"window.dispatchEvent(new CustomEvent('vylo_log', {{detail: {detail} }}));"
             self._window.evaluate_js(script)
@@ -180,7 +227,10 @@ class Api:
         
     def open_apache_file(self, file_type: str):
         return self.apache.open_apache_file(file_type)
-    
+
+    def get_apache_log_content(self, log_type: str):
+        return self.apache.get_log_content(log_type)
+
     def start_apache_server(self):
         return self.apache.start_server()
 
@@ -284,6 +334,9 @@ class Api:
 
     def open_db_dir(self, db_id: str):
         return self.database.open_path(db_id, is_file=False)
+
+    def get_database_log_content(self, db_id: str, log_type: str = 'startup'):
+        return self.database.get_log_content(db_id, log_type)
 
     def get_db_config(self, db_id: str):
         return self.database.get_db_config(db_id)

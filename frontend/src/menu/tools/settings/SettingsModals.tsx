@@ -3,7 +3,49 @@ import { useTranslation } from 'react-i18next';
 import Modal from '../../../components/Modal';
 import appIcon from '../../../assets/icons-nobg.png';
 
-export type SettingsModalType = 'language' | 'about' | 'quit' | null;
+export type SettingsModalType = 'language' | 'about' | 'quit' | 'logs' | null;
+
+// Daftar level & source/modul yang bisa disaring di panel System Logs. 'source' berasal dari
+// auto-detection nama class Manager di backend (lihat core/api.py, _resolve_event_source).
+// dotClass = warna dot indikator, mengikuti warna yang sama dipakai LogsPanel.getColorClass().
+const LOG_LEVELS = [
+    { key: 'info', labelKey: 'settings.log_level_info', dotClass: 'bg-primary' },
+    { key: 'warn', labelKey: 'settings.log_level_warn', dotClass: 'bg-amber-400' },
+    { key: 'error', labelKey: 'settings.log_level_error', dotClass: 'bg-red-500' },
+    { key: 'success', labelKey: 'settings.log_level_success', dotClass: 'bg-emerald-500' },
+];
+
+// Dikelompokkan per-modul (bukan daftar datar) supaya Apache & Database masing-masing bisa
+// menampilkan DUA toggle terpisah dalam satu baris: pesan sistem biasa (instal/start/stop/error)
+// VS baris yang disalurkan dari file log persisten (error_log/access_log/db_startup.log/*.err
+// lewat Api.start_log_watcher(), lihat docs/backend_services.md §11.2). `fileKey` di-set eksplisit
+// lewat source_override di emit_log(), BUKAN auto-detect nama class, supaya keduanya bisa difilter
+// independen (mis. matikan baris file log tapi tetap lihat pesan sistem, atau sebaliknya). Modul
+// tanpa file log (PHP, Project, dst.) cukup satu toggle ("fileKey" di-omit).
+const LOG_SOURCE_GROUPS = [
+    { icon: 'dns', labelKey: 'settings.log_source_apache', systemKey: 'ApacheManager', fileKey: 'ApacheFileLog' },
+    { icon: 'code', labelKey: 'settings.log_source_php', systemKey: 'PhpManager' },
+    { icon: 'database', labelKey: 'settings.log_source_database', systemKey: 'DatabaseManager', fileKey: 'DatabaseFileLog' },
+    { icon: 'folder', labelKey: 'settings.log_source_project', systemKey: 'ProjectManager' },
+    { icon: 'terminal', labelKey: 'settings.log_source_runtimes', systemKey: 'RuntimesManager' },
+    { icon: 'merge', labelKey: 'settings.log_source_git', systemKey: 'GitManager' },
+    { icon: 'lock', labelKey: 'settings.log_source_ssl', systemKey: 'SslManager' },
+    { icon: 'space_dashboard', labelKey: 'settings.log_source_dashboard', systemKey: 'DashboardManager' },
+    { icon: 'tune', labelKey: 'settings.log_source_settings', systemKey: 'SettingsManager' },
+];
+const ALL_LOG_LEVEL_KEYS = LOG_LEVELS.map(l => l.key);
+const ALL_LOG_SOURCE_KEYS = LOG_SOURCE_GROUPS.flatMap(g => g.fileKey ? [g.systemKey, g.fileKey] : [g.systemKey]);
+
+// Toggle switch pill kecil -- identik dengan yang sudah dipakai di Sidebar.tsx untuk toggle
+// start/stop service, disamakan supaya modal ini tidak keluar dari pakem UI yang ada.
+function ToggleSwitch({ checked, onChange, label }: { readonly checked: boolean; readonly onChange: () => void; readonly label: string }) {
+    return (
+        <label className="relative inline-flex items-center cursor-pointer shrink-0" aria-label={label}>
+            <input type="checkbox" checked={checked} onChange={onChange} className="sr-only peer" />
+            <div className="w-8 h-4 bg-slate-300 dark:bg-slate-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+        </label>
+    );
+}
 
 interface SettingsModalsProps {
     readonly activeModal: SettingsModalType;
@@ -13,6 +55,8 @@ interface SettingsModalsProps {
 export default function SettingsModals({ activeModal, onClose }: SettingsModalsProps) {
     const { t, i18n } = useTranslation();
     const [selectedLang, setSelectedLang] = useState(i18n.language);
+    const [logLevels, setLogLevels] = useState<string[]>(ALL_LOG_LEVEL_KEYS);
+    const [logSources, setLogSources] = useState<string[]>(ALL_LOG_SOURCE_KEYS);
 
     // Sinkronisasikan state lokal jika modal bahasa dibuka
     useEffect(() => {
@@ -20,6 +64,46 @@ export default function SettingsModals({ activeModal, onClose }: SettingsModalsP
             setSelectedLang(i18n.language);
         }
     }, [activeModal, i18n.language]);
+
+    // Muat filter System Logs yang tersimpan setiap kali modalnya dibuka
+    useEffect(() => {
+        if (activeModal !== 'logs') return;
+        const api = (window as any).pywebview?.api;
+        if (!api || typeof api.get_app_settings !== 'function') return;
+
+        api.get_app_settings().then((res: any) => {
+            if (res?.status !== 'success') return;
+            // null tersimpan = belum pernah dikustomisasi -> tampilkan checkbox semua tercentang.
+            // Array (termasuk array kosong) = daftar eksplisit tersimpan, pakai apa adanya --
+            // JANGAN diperlakukan sama seperti null, atau uncheck-semua-lalu-Save akan terlihat
+            // seolah gagal tersimpan setiap modal dibuka lagi (lihat docs/known_bugs.md).
+            const savedLevels: string[] | null = res.data?.system_log_levels ?? null;
+            const savedSources: string[] | null = res.data?.system_log_sources ?? null;
+            setLogLevels(savedLevels ?? ALL_LOG_LEVEL_KEYS);
+            setLogSources(savedSources ?? ALL_LOG_SOURCE_KEYS);
+        }).catch((e: any) => console.error(e));
+    }, [activeModal]);
+
+    const toggleLogLevel = (key: string) => {
+        setLogLevels(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+    };
+
+    const toggleLogSource = (key: string) => {
+        setLogSources(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+    };
+
+    // Simpan filter System Logs & beri tahu LogsPanel yang sedang mounted agar langsung ikut menyaring.
+    // Selalu simpan array literal apa adanya (TERMASUK array kosong kalau user uncheck semua) --
+    // tidak lagi "dikompres" jadi array kosong saat semua tercentang, karena itulah akar bug lama:
+    // array kosong yang sama dipakai untuk dua makna berbeda (lihat docs/known_bugs.md).
+    const handleApplyLogSettings = async () => {
+        const api = (window as any).pywebview?.api;
+        if (api && typeof api.save_app_settings === 'function') {
+            await api.save_app_settings({ system_log_levels: logLevels, system_log_sources: logSources });
+            window.dispatchEvent(new CustomEvent('vylo_log_settings_changed'));
+        }
+        onClose();
+    };
 
     // Handle aksi apply perubahan bahasa
     const handleApplyLanguage = async () => {
@@ -177,6 +261,78 @@ export default function SettingsModals({ activeModal, onClose }: SettingsModalsP
                             <span className="font-medium text-slate-700 dark:text-slate-300">{t('settings.license_label')}</span> GNU General Public License v3.0 (GPL-3.0)
                         </div>
                     </div>
+                </div>
+            </Modal>
+
+            {/* Modal Filter System Logs */}
+            <Modal
+                isOpen={activeModal === 'logs'}
+                onClose={onClose}
+                title={t('settings.system_logs')}
+                icon="filter_list"
+                maxWidthClass="sm:w-[560px]"
+                onApply={handleApplyLogSettings}
+                applyText={t('common.save')}
+            >
+                <div className="flex flex-col gap-6">
+                    <p className="text-sm text-slate-600 dark:text-slate-400">
+                        {t('settings.system_logs_desc')}
+                    </p>
+
+                    {/* Level Log */}
+                    <section className="flex flex-col gap-3">
+                        <div className="flex flex-col gap-0.5">
+                            <div className="flex items-center gap-2">
+                                <span className="material-symbols-outlined text-[18px] text-primary">filter_list</span>
+                                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-900 dark:text-slate-200">{t('settings.log_levels_label')}</h4>
+                            </div>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">{t('settings.log_levels_desc')}</p>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {LOG_LEVELS.map(({ key, labelKey, dotClass }) => (
+                                <div key={key} className="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50">
+                                    <div className="flex items-center gap-2.5">
+                                        <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${dotClass}`}></span>
+                                        <span className="text-xs font-medium text-slate-900 dark:text-slate-200">{t(labelKey)}</span>
+                                    </div>
+                                    <ToggleSwitch checked={logLevels.includes(key)} onChange={() => toggleLogLevel(key)} label={t(labelKey)} />
+                                </div>
+                            ))}
+                        </div>
+                    </section>
+
+                    {/* Kategori Modul */}
+                    <section className="flex flex-col gap-3">
+                        <div className="flex flex-col gap-0.5">
+                            <div className="flex items-center gap-2">
+                                <span className="material-symbols-outlined text-[18px] text-primary">dns</span>
+                                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-900 dark:text-slate-200">{t('settings.log_sources_label')}</h4>
+                            </div>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">{t('settings.log_sources_desc')}</p>
+                        </div>
+                        <div className="flex flex-col gap-2.5">
+                            {LOG_SOURCE_GROUPS.map(({ icon, labelKey, systemKey, fileKey }) => (
+                                <div key={systemKey} className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                    <div className="flex items-center gap-2.5">
+                                        <span className="material-symbols-outlined text-[20px] text-primary">{icon}</span>
+                                        <h5 className="text-xs font-semibold text-slate-900 dark:text-white">{t(labelKey)}</h5>
+                                    </div>
+                                    <div className="flex items-center gap-4 sm:gap-6">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xs text-slate-600 dark:text-slate-400">{t('settings.log_group_system')}</span>
+                                            <ToggleSwitch checked={logSources.includes(systemKey)} onChange={() => toggleLogSource(systemKey)} label={`${t(labelKey)} ${t('settings.log_group_system')}`} />
+                                        </div>
+                                        {fileKey && (
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs text-slate-600 dark:text-slate-400">{t('settings.log_group_file')}</span>
+                                                <ToggleSwitch checked={logSources.includes(fileKey)} onChange={() => toggleLogSource(fileKey)} label={`${t(labelKey)} ${t('settings.log_group_file')}`} />
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </section>
                 </div>
             </Modal>
 

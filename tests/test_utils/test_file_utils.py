@@ -3,7 +3,7 @@ import json
 import pytest
 import urllib.error
 from unittest.mock import patch, MagicMock, call
-from core.utils.file_utils import read_json, write_json, extract_archive, download_advanced
+from core.utils.file_utils import read_json, write_json, extract_archive, download_advanced, read_log_tail, read_new_lines
 
 def test_read_json_file_not_exist(tmp_path):
     """Memastikan read_json mengembalikan tipe default (list/dict) jika file tidak ada."""
@@ -76,6 +76,143 @@ def test_write_json_returns_false_on_failure(tmp_path):
     test_file = os.path.join(tmp_path, "data.json")
     with patch('builtins.open', side_effect=OSError("disk full")):
         assert write_json(test_file, {"a": 1}) is False
+
+def test_read_log_tail_missing_file_returns_empty_string(tmp_path):
+    """File log yang belum pernah ditulis (mis. service belum pernah start) harus mengembalikan string kosong, bukan error."""
+    missing = os.path.join(tmp_path, "does_not_exist.log")
+    assert read_log_tail(missing) == ""
+
+def test_read_log_tail_returns_whole_content_when_smaller_than_limit(tmp_path):
+    """File kecil (lebih sedikit baris dari batas) harus dikembalikan utuh."""
+    log_file = os.path.join(tmp_path, "small.log")
+    with open(log_file, 'w', encoding='utf-8') as f:
+        f.write("line1\nline2\nline3")
+
+    assert read_log_tail(log_file, max_lines=300) == "line1\nline2\nline3"
+
+def test_read_log_tail_returns_only_last_n_lines_of_large_file(tmp_path):
+    """
+    File besar (lebih banyak baris dari batas) harus mengembalikan HANYA N baris
+    terakhir, tanpa memuat seluruh isi file ke memori -- ini fungsi inti yang membuat
+    fitur ini aman dipakai untuk log yang tidak dibatasi ukurannya (mis. Apache error_log).
+    """
+    log_file = os.path.join(tmp_path, "large.log")
+    with open(log_file, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(f"line-{i}" for i in range(1000)))
+
+    result = read_log_tail(log_file, max_lines=5, chunk_size=64)
+    lines = result.splitlines()
+    assert lines == [f"line-{i}" for i in range(995, 1000)]
+
+def test_read_log_tail_retries_on_windows_permission_error_then_succeeds(tmp_path):
+    """
+    Simulasi file terkunci sesaat oleh proses lain di Windows (mis. Apache/MySQL sedang
+    menulis) -- harus retry, bukan langsung gagal/silently swallow. Lihat docs/known_bugs.md #12.
+    """
+    log_file = os.path.join(tmp_path, "locked.log")
+    with open(log_file, 'w', encoding='utf-8') as f:
+        f.write("recovered content")
+
+    real_open = open
+    call_count = {"n": 0}
+
+    def flaky_open(path, mode='r', *args, **kwargs):
+        if path == log_file and 'b' in mode:
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise PermissionError("used by another process")
+        return real_open(path, mode, *args, **kwargs)
+
+    with patch('builtins.open', side_effect=flaky_open), patch('core.utils.file_utils.time.sleep'):
+        result = read_log_tail(log_file)
+
+    assert result == "recovered content"
+    assert call_count["n"] == 2
+
+def test_read_log_tail_raises_after_exhausting_retries(tmp_path):
+    """Kalau file tetap terkunci setelah semua retry, error harus diteruskan (bukan ditelan diam-diam)."""
+    log_file = os.path.join(tmp_path, "always_locked.log")
+    with open(log_file, 'w', encoding='utf-8') as f:
+        f.write("content")
+
+    with patch('builtins.open', side_effect=PermissionError("used by another process")), \
+         patch('core.utils.file_utils.time.sleep'):
+        with pytest.raises(PermissionError):
+            read_log_tail(log_file, max_retries=2)
+
+def test_read_new_lines_missing_file_returns_empty(tmp_path):
+    missing = os.path.join(tmp_path, "missing.log")
+    lines, offset = read_new_lines(missing, 0)
+    assert lines == []
+    assert offset == 0
+
+def test_read_new_lines_returns_new_content_and_advances_offset(tmp_path):
+    log_file = os.path.join(tmp_path, "app.log")
+    with open(log_file, 'w', encoding='utf-8') as f:
+        f.write("line1\nline2\n")
+    offset_after_first = os.path.getsize(log_file)
+
+    with open(log_file, 'a', encoding='utf-8') as f:
+        f.write("line3\nline4\n")
+
+    lines, new_offset = read_new_lines(log_file, offset_after_first)
+
+    assert lines == ["line3", "line4"]
+    assert new_offset == os.path.getsize(log_file)
+
+def test_read_new_lines_no_new_content_returns_empty_and_unchanged_offset(tmp_path):
+    log_file = os.path.join(tmp_path, "app.log")
+    with open(log_file, 'w', encoding='utf-8') as f:
+        f.write("line1\n")
+    offset = os.path.getsize(log_file)
+
+    lines, new_offset = read_new_lines(log_file, offset)
+
+    assert lines == []
+    assert new_offset == offset
+
+def test_read_new_lines_resets_offset_when_file_shrinks(tmp_path):
+    """
+    File yang ditulis ulang mode 'w' setiap start baru (mis. db_startup.log)
+    harus dibaca ulang dari awal, bukan salah baca / offset-nya melewati akhir file.
+    """
+    log_file = os.path.join(tmp_path, "db_startup.log")
+    with open(log_file, 'w', encoding='utf-8') as f:
+        f.write("a much longer previous startup log line than the next one\n")
+    stale_offset = os.path.getsize(log_file)
+
+    with open(log_file, 'w', encoding='utf-8') as f:
+        f.write("short\n")
+
+    lines, new_offset = read_new_lines(log_file, stale_offset)
+
+    assert lines == ["short"]
+    assert new_offset == os.path.getsize(log_file)
+
+def test_read_new_lines_skips_blank_lines(tmp_path):
+    log_file = os.path.join(tmp_path, "app.log")
+    with open(log_file, 'w', encoding='utf-8') as f:
+        f.write("real line\n\n   \nanother line\n")
+
+    lines, _ = read_new_lines(log_file, 0)
+
+    assert lines == ["real line", "another line"]
+
+def test_read_new_lines_returns_same_offset_when_file_is_locked(tmp_path):
+    """
+    Kalau file sedang dikunci proses lain (mis. Apache/MySQL sedang menulis) saat
+    dibaca, harus mengembalikan offset yang SAMA (dicoba lagi di polling
+    berikutnya oleh pemanggil), bukan melempar exception.
+    """
+    log_file = os.path.join(tmp_path, "locked.log")
+    with open(log_file, 'w', encoding='utf-8') as f:
+        f.write("content\n")
+
+    with patch('builtins.open', side_effect=PermissionError("used by another process")):
+        lines, offset = read_new_lines(log_file, 0)
+
+    assert lines == []
+    assert offset == 0
 
 @patch('core.utils.file_utils.zipfile.ZipFile')
 def test_extract_archive_zip(mock_zipfile):

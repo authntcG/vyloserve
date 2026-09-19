@@ -68,8 +68,9 @@ export default function PhpSettings({ config, setConfig, extensions, setExtensio
 
                 <div className="grid grid-cols-2 gap-4">
                     <div className="flex flex-col gap-2">
-                        <label className="text-xs font-medium text-slate-700 dark:text-slate-300">{t('php.fastcgi_port')}</label>
+                        <label htmlFor="php_fastcgi_port" className="text-xs font-medium text-slate-700 dark:text-slate-300">{t('php.fastcgi_port')}</label>
                         <input
+                            id="php_fastcgi_port"
                             type="number"
                             value={config.port}
                             onChange={(e) => handleConfigChange(e, 'port')}

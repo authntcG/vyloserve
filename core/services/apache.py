@@ -1,5 +1,5 @@
 import os
-from typing import Optional
+from typing import Dict, Optional
 import sys
 import urllib.request
 import re
@@ -11,11 +11,12 @@ HTTPD_CONF_NAME = "httpd.conf"
 
 # ---> IMPORT UTILITIES (DRY PRINCIPLE) <---
 from core.utils.system_utils import get_project_root, run_silent_command, start_silent_process
-from core.utils.file_utils import read_json, write_json, download_advanced, extract_archive
+from core.utils.file_utils import read_json, write_json, download_advanced, extract_archive, read_log_tail, read_new_lines
 INC_VHOSTS = "Include conf/extra/vyloserve-vhosts.conf"
 INC_PHP = "Include conf/extra/vyloserve-php.conf"
 ERR_NOT_INSTALLED = "backend.apache.not_installed"
 APACHE_JSON = "apache.json"
+MSG_UNEXPECTED_ERROR = "backend.error.unexpected"
 
 class ApacheManager:
     """Manager untuk siklus hidup Engine Web Server Apache"""
@@ -23,6 +24,7 @@ class ApacheManager:
         self.api = api_ref
         self.base_dir = os.path.join(get_project_root(), 'bin', 'apache')
         os.makedirs(self.base_dir, exist_ok=True)
+        self._log_offsets: Dict[str, int] = {}
             
     def _get_active_version(self) -> Optional[str]:
         """Membaca versi Apache aktif dari penyimpanan lokal"""
@@ -264,7 +266,7 @@ class ApacheManager:
             if restart and self.check_is_running(): self.restart_server()
             return {"status": "success", "message": "backend.apache.proxy_updated"}
         except Exception as e:
-            return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
     def _parse_apache_versions_html(self, html: str) -> list:
         versions = []
@@ -376,7 +378,7 @@ class ApacheManager:
             elif sys.platform == 'darwin': subprocess.Popen(['open', target])
             else: subprocess.Popen(['xdg-open', target])
             return {"status": "success"}
-        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+        except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
     def open_config(self):
         try:
@@ -389,13 +391,13 @@ class ApacheManager:
                     else: subprocess.Popen(['xdg-open', conf_path])
                     return {"status": "success"}
             return {"status": "error", "message": "backend.apache.httpd_not_found"}
-        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+        except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
     def open_apache_file(self, file_type):
         try:
             status = self.get_status()
             if not status.get("installed"): return {"status": "error", "message": ERR_NOT_INSTALLED}
-            paths = {'httpd': os.path.join(status["path"], 'conf', HTTPD_CONF_NAME), 'vhosts': os.path.join(status["path"], 'conf', 'extra', 'vyloserve-vhosts.conf'), 'error': os.path.join(status["path"], 'logs', 'error.log')}
+            paths = {'httpd': os.path.join(status["path"], 'conf', HTTPD_CONF_NAME), 'vhosts': os.path.join(status["path"], 'conf', 'extra', 'vyloserve-vhosts.conf'), 'error': os.path.join(status["path"], 'logs', 'error_log')}
             
             target = paths.get(file_type)
             if not target: return {"status": "error", "message": "backend.apache.invalid_type"}
@@ -409,7 +411,61 @@ class ApacheManager:
             elif sys.platform == 'darwin': subprocess.Popen(['open', target])
             else: subprocess.Popen(['xdg-open', target])
             return {"status": "success"}
-        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+        except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def get_log_content(self, log_type: str):
+        """Membaca isi (tail) file log Apache secara langsung untuk ditampilkan di dalam aplikasi."""
+        try:
+            status = self.get_status()
+            if not status.get("installed"): return {"status": "error", "message": ERR_NOT_INSTALLED}
+
+            filenames = {'error': 'error_log', 'access': 'access_log'}
+            filename = filenames.get(log_type)
+            if not filename: return {"status": "error", "message": "backend.apache.invalid_type"}
+
+            log_path = os.path.join(status["path"], 'logs', filename)
+            content = read_log_tail(log_path)
+            return {"status": "success", "data": content}
+        except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def _parse_error_log_level(self, line: str, default_level: str) -> str:
+        lower_line = line.lower()
+        if ':warn]' in lower_line or '[warn]' in lower_line: return 'warn'
+        if ':notice]' in lower_line or '[notice]' in lower_line or ':info]' in lower_line or '[info]' in lower_line: return 'info'
+        if ':error]' in lower_line or '[error]' in lower_line or ':emerg]' in lower_line or ':crit]' in lower_line: return 'error'
+        return default_level
+
+    def tail_new_logs(self):
+        """
+        Menyalurkan baris BARU di error_log/access_log Apache (sejak polling
+        terakhir) ke System Logs lewat emit_log() -- dipanggil berkala oleh
+        Api.start_log_watcher() (lihat docs/backend_services.md §11.2). Hanya
+        aktif kalau Apache sedang berjalan; file yang baru pertama kali dipantau
+        mulai dihitung dari AKHIR-nya (gaya `tail -f`), bukan me-replay seluruh
+        histori lama sebagai log baru.
+        """
+        try:
+            status = self.get_status()
+            if not status.get('installed') or not status.get('running'):
+                return
+
+            filenames = {'error_log': 'error', 'access_log': 'info'}
+            for filename, level in filenames.items():
+                log_path = os.path.join(status['path'], 'logs', filename)
+                if log_path not in self._log_offsets:
+                    self._log_offsets[log_path] = os.path.getsize(log_path) if os.path.exists(log_path) else 0
+                    continue
+
+                lines, new_offset = read_new_lines(log_path, self._log_offsets[log_path])
+                self._log_offsets[log_path] = new_offset
+                for line in lines:
+                    actual_level = self._parse_error_log_level(line, level) if filename == 'error_log' else level
+                            
+                    # source_override='ApacheFileLog' (BUKAN auto-detect 'ApacheManager') supaya baris
+                    # dari file log bisa difilter terpisah dari pesan sistem Apache di modal "System Logs".
+                    self.api.emit_log(line, actual_level, {}, source_override='ApacheFileLog')
+        except Exception:
+            pass
 
     def start_server(self):
         if hasattr(self, 'api'): self.api.emit_log("backend.apache.starting", "info")
@@ -430,7 +486,7 @@ class ApacheManager:
                 
             if hasattr(self, 'api'): self.api.emit_log("backend.apache.started_with_pid", "success", {"pid": proc.pid})
             return {"status": "success", "message": "backend.apache.start_success"}
-        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+        except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
             
     def stop_server(self):
         try:
@@ -440,7 +496,7 @@ class ApacheManager:
                 
             if hasattr(self, 'api'): self.api.emit_log("backend.apache.stopped", "success")
             return {"status": "success", "message": "backend.apache.stopped_success"}
-        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+        except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
         
     def restart_server(self):
         try:
@@ -448,4 +504,4 @@ class ApacheManager:
                 self.stop_server()
                 time.sleep(1)
             return self.start_server()
-        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+        except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}

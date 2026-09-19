@@ -10,6 +10,7 @@ from typing import Optional
 from core.utils.system_utils import get_project_root, start_silent_process, run_silent_command
 from core.utils.file_utils import read_json, download_advanced, extract_archive
 PHP_INI = "php.ini"
+MSG_UNEXPECTED_ERROR = "backend.error.unexpected"
 
 class PhpManager:
     """Manager untuk siklus hidup Engine FastCGI PHP"""
@@ -120,7 +121,7 @@ class PhpManager:
 
             self._log("backend.php.release_load_success", "success")
             return {"status": "success", "data": result}
-        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+        except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
     
     def _install_composer(self, target_dir: str):
         self._progress(95, "backend.php.installing_composer")
@@ -213,7 +214,7 @@ class PhpManager:
             if os.path.exists(file_path): os.remove(file_path)
             if os.path.exists(target_dir): shutil.rmtree(target_dir, ignore_errors=True)
             self._progress(0, "backend.php.failed")
-            return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
     def _parse_config_file(self, php_ini_path: str, config: dict, active_exts: set):
         if not os.path.exists(php_ini_path): return
@@ -353,7 +354,7 @@ class PhpManager:
             self._log("backend.php.fastcgi_started", "success", {"version": version, "port": port})
             return {"status": "success", "message": "backend.php.fastcgi_success"}
         except Exception as e:
-            return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
     def stop_php(self, version: str):
         if version in self.processes:

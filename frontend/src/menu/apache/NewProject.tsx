@@ -209,8 +209,10 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
     const [projectType, setProjectType] = useState('php');
     const [specificVersion, setSpecificVersion] = useState('');
 
-    // Mengingat lokasi instalasi terakhir di LocalStorage
-    const [installLocation, setInstallLocation] = useState(() => localStorage.getItem('vylo_install_loc') || '');
+    // Mengingat lokasi instalasi terakhir lewat backend settings (data/settings.json) --
+    // localStorage TIDAK dipakai karena profil browser di shell pywebview/EdgeChromium
+    // bersifat sementara dan direset tiap aplikasi ditutup (lihat docs/known_bugs.md #24).
+    const [installLocation, setInstallLocation] = useState('');
 
     // PHP States
     const [phpVersions, setPhpVersions] = useState<any[]>([]);
@@ -252,6 +254,17 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
     }, [isCreating]);
 
     useEffect(() => {
+        const api = window.pywebview?.api;
+        if (api && typeof api.get_app_settings === 'function') {
+            api.get_app_settings().then((res: any) => {
+                if (res?.status === 'success' && res.data?.default_apache_install_location) {
+                    setInstallLocation(res.data.default_apache_install_location);
+                }
+            }).catch((e: any) => console.error(e));
+        }
+    }, []);
+
+    useEffect(() => {
         const fetchPhpVersions = async () => {
             setIsLoadingVersions(true);
             try {
@@ -276,7 +289,7 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
 
     const handleInstallLocChange = (val: string) => {
         setInstallLocation(val);
-        localStorage.setItem('vylo_install_loc', val);
+        window.pywebview?.api?.save_app_settings?.({ default_apache_install_location: val });
     };
 
     const handleBrowseFolder = async () => {
@@ -371,8 +384,8 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
             {/* 2. PRIMARY FIELDS (Always Visible) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-in fade-in zoom-in-95 duration-200">
                 <div className="flex flex-col gap-2">
-                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('apache.project_name')}</label>
-                    <input type="text" value={projectName} onChange={handleProjectNameChange} disabled={isCreating} placeholder={t('apache.placeholder_project_name')} className={inputClasses} />
+                    <label htmlFor="apache_new_project_name" className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('apache.project_name')}</label>
+                    <input id="apache_new_project_name" type="text" value={projectName} onChange={handleProjectNameChange} disabled={isCreating} placeholder={t('apache.placeholder_project_name')} className={inputClasses} />
                 </div>
 
                 <div className="flex flex-col gap-2">

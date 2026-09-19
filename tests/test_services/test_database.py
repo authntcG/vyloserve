@@ -1,3 +1,4 @@
+import os
 import pytest
 from unittest.mock import MagicMock, patch, mock_open
 from core.services.database import DatabaseManager
@@ -647,6 +648,121 @@ def test_db_open_path_uses_xdg_open_on_linux(mock_exists, mock_read_json, db_mgr
             res = db_mgr.open_path("db_1")
     assert res['status'] == 'success'
     mock_popen.assert_called_once_with(['xdg-open', "C:\\data"])
+
+# ==========================================
+# get_log_content — pembacaan isi file log database di dalam aplikasi
+# ==========================================
+
+def test_db_get_log_content_startup_log_success(db_mgr):
+    with patch('core.services.database.read_json', return_value=[{"id": "db_1", "engine": "mysql", "dataDir": "C:\\data"}]):
+        with patch('core.services.database.read_log_tail', return_value="startup ok") as mock_tail:
+            res = db_mgr.get_log_content("db_1", "startup")
+
+    assert res == {"status": "success", "data": "startup ok"}
+    mock_tail.assert_called_once_with("C:\\data\\db_startup.log")
+
+def test_db_get_log_content_native_mysql_picks_most_recent_err_file(db_mgr):
+    with patch('core.services.database.read_json', return_value=[{"id": "db_1", "engine": "mysql", "dataDir": "C:\\data"}]):
+        with patch('core.services.database.glob.glob', return_value=["C:\\data\\HOST-A.err", "C:\\data\\HOST-B.err"]):
+            with patch('core.services.database.os.path.getmtime', side_effect=lambda p: 2 if p.endswith('HOST-B.err') else 1):
+                with patch('core.services.database.read_log_tail', return_value="[ERROR] InnoDB") as mock_tail:
+                    res = db_mgr.get_log_content("db_1", "native")
+
+    assert res == {"status": "success", "data": "[ERROR] InnoDB"}
+    mock_tail.assert_called_once_with("C:\\data\\HOST-B.err")
+
+def test_db_get_log_content_native_mysql_no_err_file_found(db_mgr):
+    with patch('core.services.database.read_json', return_value=[{"id": "db_1", "engine": "mysql", "dataDir": "C:\\data"}]):
+        with patch('core.services.database.glob.glob', return_value=[]):
+            res = db_mgr.get_log_content("db_1", "native")
+
+    assert res == {"status": "error", "message": "backend.database.log_not_found"}
+
+def test_db_get_log_content_native_postgres_not_available(db_mgr):
+    """Postgres tidak punya log native (logging_collector default off) -- harus error yang jelas, bukan crash."""
+    with patch('core.services.database.read_json', return_value=[{"id": "db_1", "engine": "postgres", "dataDir": "C:\\data"}]):
+        res = db_mgr.get_log_content("db_1", "native")
+
+    assert res == {"status": "error", "message": "backend.database.log_not_available"}
+
+def test_db_get_log_content_db_not_found(db_mgr):
+    with patch('core.services.database.read_json', return_value=[]):
+        res = db_mgr.get_log_content("missing_id", "startup")
+
+    assert res == {"status": "error", "message": "backend.database.not_found"}
+
+def test_db_get_log_content_handles_exception(db_mgr):
+    with patch('core.services.database.read_json', side_effect=RuntimeError("boom")):
+        res = db_mgr.get_log_content("db_1", "startup")
+
+    assert res == {"status": "error", "message": "backend.error.unexpected", "args": {"e": "boom"}}
+
+# ==========================================
+# tail_new_logs — menyalurkan baris baru db_startup.log/*.err ke System Logs
+# ==========================================
+
+def test_tail_new_logs_skips_instances_that_are_not_running(db_mgr):
+    with patch('core.services.database.read_json', return_value=[{"id": "db_1", "engine": "mysql", "dataDir": "C:\\data", "port": 3306}]):
+        with patch('core.services.database.check_port_in_use', return_value=False):
+            db_mgr.tail_new_logs()
+
+    db_mgr.api.emit_log.assert_not_called()
+
+def test_tail_new_logs_baselines_offset_on_first_call_without_emitting(db_mgr):
+    startup_log = os.path.join("C:\\data", "db_startup.log")
+    with patch('core.services.database.read_json', return_value=[{"id": "db_1", "engine": "postgres", "dataDir": "C:\\data", "port": 5432}]):
+        with patch('core.services.database.check_port_in_use', return_value=True):
+            with patch('core.services.database.os.path.exists', return_value=True), \
+                 patch('core.services.database.os.path.getsize', return_value=42):
+                db_mgr.tail_new_logs()
+
+    db_mgr.api.emit_log.assert_not_called()
+    assert db_mgr._log_offsets[startup_log] == 42
+
+def test_tail_new_logs_emits_new_lines_with_error_level_heuristic(db_mgr):
+    startup_log = os.path.join("C:\\data", "db_startup.log")
+    db_mgr._log_offsets = {startup_log: 10}
+
+    with patch('core.services.database.read_json', return_value=[{"id": "db_1", "engine": "postgres", "dataDir": "C:\\data", "port": 5432}]):
+        with patch('core.services.database.check_port_in_use', return_value=True):
+            with patch('core.services.database.read_new_lines', return_value=(["FATAL: something failed", "routine startup message"], 80)):
+                db_mgr.tail_new_logs()
+
+    db_mgr.api.emit_log.assert_any_call("routine startup message", "info", {}, source_override='DatabaseFileLog')
+    assert db_mgr._log_offsets[startup_log] == 80
+    # "failed" tidak mengandung kata "error", tapi baris FATAL memang tidak match heuristik --
+    # heuristik ini sengaja sederhana (cek substring "error"), jadi verifikasi levelnya apa adanya:
+    assert db_mgr.api.emit_log.call_args_list[0].args[1] == "info"
+
+def test_tail_new_logs_flags_lines_containing_error_as_error_level(db_mgr):
+    startup_log = os.path.join("C:\\data", "db_startup.log")
+    db_mgr._log_offsets = {startup_log: 10}
+
+    with patch('core.services.database.read_json', return_value=[{"id": "db_1", "engine": "postgres", "dataDir": "C:\\data", "port": 5432}]):
+        with patch('core.services.database.check_port_in_use', return_value=True):
+            with patch('core.services.database.read_new_lines', return_value=(["ERROR: connection refused"], 50)):
+                db_mgr.tail_new_logs()
+
+    db_mgr.api.emit_log.assert_called_once_with("ERROR: connection refused", "error", {}, source_override='DatabaseFileLog')
+
+def test_tail_new_logs_also_tails_native_err_file_for_mysql_only(db_mgr):
+    startup_log = os.path.join("C:\\data", "db_startup.log")
+    err_log = os.path.join("C:\\data", "HOST.err")
+    db_mgr._log_offsets = {startup_log: 5, err_log: 5}
+
+    with patch('core.services.database.read_json', return_value=[{"id": "db_1", "engine": "mysql", "dataDir": "C:\\data", "port": 3306}]):
+        with patch('core.services.database.check_port_in_use', return_value=True):
+            with patch('core.services.database.glob.glob', return_value=[err_log]):
+                with patch('core.services.database.os.path.getmtime', return_value=1):
+                    with patch('core.services.database.read_new_lines', return_value=(["some line"], 20)):
+                        db_mgr.tail_new_logs()
+
+    assert db_mgr.api.emit_log.call_count == 2
+    assert err_log in db_mgr._log_offsets
+
+def test_tail_new_logs_swallows_exceptions_silently(db_mgr):
+    with patch('core.services.database.read_json', side_effect=RuntimeError("boom")):
+        db_mgr.tail_new_logs()  # tidak boleh raise
 
 # ==========================================
 # get_db_config — engine PostgreSQL

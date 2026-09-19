@@ -5,6 +5,10 @@ data
 dist
 build
 .scannerwork
+.scannerwork_be
+.scannerwork_fe
+.claude
+.pytest_cache
 .env
 .coverage
 gitleaks.json

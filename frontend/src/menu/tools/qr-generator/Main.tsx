@@ -115,8 +115,8 @@ export default function QrMain() {
                             {/* Dynamic Inputs */}
                             {contentType === 'url' && (
                                 <div className="flex flex-col gap-1">
-                                    <label className="text-xs font-medium text-slate-500 uppercase">{t('tools.qr.enter_url')}</label>
-                                    <input type="url" value={inputUrl} onChange={(e) => setInputUrl(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-sm outline-none focus:border-primary text-slate-900 dark:text-white" />
+                                    <label htmlFor="qr_input_url" className="text-xs font-medium text-slate-500 uppercase">{t('tools.qr.enter_url')}</label>
+                                    <input id="qr_input_url" type="url" value={inputUrl} onChange={(e) => setInputUrl(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-sm outline-none focus:border-primary text-slate-900 dark:text-white" />
                                 </div>
                             )}
 
@@ -130,16 +130,16 @@ export default function QrMain() {
                             {contentType === 'email' && (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="flex flex-col gap-1 md:col-span-2">
-                                        <label className="text-xs font-medium text-slate-500 uppercase">{t('tools.qr.email_to')}</label>
-                                        <input type="email" value={emailData.to} onChange={(e) => setEmailData({...emailData, to: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-sm outline-none focus:border-primary text-slate-900 dark:text-white" />
+                                        <label htmlFor="qr_email_to" className="text-xs font-medium text-slate-500 uppercase">{t('tools.qr.email_to')}</label>
+                                        <input id="qr_email_to" type="email" value={emailData.to} onChange={(e) => setEmailData({...emailData, to: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-sm outline-none focus:border-primary text-slate-900 dark:text-white" />
                                     </div>
                                     <div className="flex flex-col gap-1 md:col-span-2">
-                                        <label className="text-xs font-medium text-slate-500 uppercase">{t('tools.qr.email_subject')}</label>
-                                        <input type="text" value={emailData.subject} onChange={(e) => setEmailData({...emailData, subject: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-sm outline-none focus:border-primary text-slate-900 dark:text-white" />
+                                        <label htmlFor="qr_email_subject" className="text-xs font-medium text-slate-500 uppercase">{t('tools.qr.email_subject')}</label>
+                                        <input id="qr_email_subject" type="text" value={emailData.subject} onChange={(e) => setEmailData({...emailData, subject: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-sm outline-none focus:border-primary text-slate-900 dark:text-white" />
                                     </div>
                                     <div className="flex flex-col gap-1 md:col-span-2">
-                                        <label className="text-xs font-medium text-slate-500 uppercase">{t('tools.qr.email_body')}</label>
-                                        <textarea value={emailData.body} onChange={(e) => setEmailData({...emailData, body: e.target.value})} rows={2} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-sm outline-none focus:border-primary text-slate-900 dark:text-white resize-none"></textarea>
+                                        <label htmlFor="qr_email_body" className="text-xs font-medium text-slate-500 uppercase">{t('tools.qr.email_body')}</label>
+                                        <textarea id="qr_email_body" value={emailData.body} onChange={(e) => setEmailData({...emailData, body: e.target.value})} rows={2} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-sm outline-none focus:border-primary text-slate-900 dark:text-white resize-none"></textarea>
                                     </div>
                                 </div>
                             )}
@@ -147,12 +147,12 @@ export default function QrMain() {
                             {contentType === 'wifi' && (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="flex flex-col gap-1 md:col-span-2">
-                                        <label className="text-xs font-medium text-slate-500 uppercase">{t('tools.qr.wifi_ssid')}</label>
-                                        <input type="text" value={wifiData.ssid} onChange={(e) => setWifiData({...wifiData, ssid: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-sm outline-none focus:border-primary text-slate-900 dark:text-white" />
+                                        <label htmlFor="qr_wifi_ssid" className="text-xs font-medium text-slate-500 uppercase">{t('tools.qr.wifi_ssid')}</label>
+                                        <input id="qr_wifi_ssid" type="text" value={wifiData.ssid} onChange={(e) => setWifiData({...wifiData, ssid: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-sm outline-none focus:border-primary text-slate-900 dark:text-white" />
                                     </div>
                                     <div className="flex flex-col gap-1">
-                                        <label className="text-xs font-medium text-slate-500 uppercase">{t('tools.qr.password')}</label>
-                                        <input type="text" value={wifiData.password} onChange={(e) => setWifiData({...wifiData, password: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-sm outline-none focus:border-primary text-slate-900 dark:text-white" />
+                                        <label htmlFor="qr_wifi_password" className="text-xs font-medium text-slate-500 uppercase">{t('tools.qr.password')}</label>
+                                        <input id="qr_wifi_password" type="text" value={wifiData.password} onChange={(e) => setWifiData({...wifiData, password: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-sm outline-none focus:border-primary text-slate-900 dark:text-white" />
                                     </div>
                                     <div className="flex flex-col gap-1">
                                         <label className="text-xs font-medium text-slate-500 uppercase">{t('tools.qr.security')}</label>
@@ -222,11 +222,11 @@ export default function QrMain() {
                             <input type="file" accept="image/png, image/jpeg, image/svg+xml" onChange={handleLogoUpload} className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-primary hover:file:bg-blue-100 dark:file:bg-blue-900/30 dark:file:text-blue-400 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-950 cursor-pointer" />
                             
                             <div className="flex flex-col gap-2 w-full min-w-0">
-                                <label className="flex justify-between text-xs font-medium text-slate-500 uppercase">
+                                <label htmlFor="qr_logo_scale" className="flex justify-between text-xs font-medium text-slate-500 uppercase">
                                     <span>{t('tools.qr.logo_scale')}</span>
                                     <span className="font-mono text-primary">{logoSize}</span>
                                 </label>
-                                <input type="range" min="0.1" max="0.4" step="0.05" value={logoSize} onChange={(e) => setLogoSize(Number(e.target.value))} disabled={!logo} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer dark:bg-slate-700 disabled:opacity-50" />
+                                <input id="qr_logo_scale" type="range" min="0.1" max="0.4" step="0.05" value={logoSize} onChange={(e) => setLogoSize(Number(e.target.value))} disabled={!logo} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer dark:bg-slate-700 disabled:opacity-50" />
                             </div>
                         </div>
                     </Card>
