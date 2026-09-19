@@ -4,6 +4,8 @@ from typing import Dict, Any
 from core.utils.system_utils import get_project_root
 from core.utils.file_utils import read_json, write_json
 
+MSG_UNEXPECTED_ERROR = "backend.error.unexpected"
+
 class SettingsManager:
     """
     Manager untuk menangani konfigurasi preferensi global aplikasi (seperti bahasa, tema, dsb).
@@ -24,7 +26,16 @@ class SettingsManager:
         try:
             # Default settings. Mudah diextend di kemudian hari.
             default_config = {
-                "language": "en" # 'en' atau 'id'
+                "language": "en", # 'en' atau 'id'
+                "default_apache_install_location": "", # lokasi folder terakhir dipakai di modal New Project
+                # None = belum pernah dikustomisasi user -> tampilkan semua level/source.
+                # SENGAJA bukan array kosong ([]) -- array kosong dipakai sebagai nilai TERSIMPAN
+                # yang SAH kalau user secara eksplisit meng-uncheck semua checkbox (artinya "jangan
+                # tampilkan apa pun"). Kalau None dan [] dianggap sama, "uncheck semua lalu Save"
+                # tidak bisa dibedakan dari "belum pernah diatur", sehingga preferensi user seolah
+                # tidak pernah tersimpan (lihat docs/known_bugs.md).
+                "system_log_levels": None,
+                "system_log_sources": None
             }
             
             data = read_json(self.config_path, default_type=dict)
@@ -37,8 +48,8 @@ class SettingsManager:
             
         except Exception as e:
             if hasattr(self, 'api'):
-                self.api.emit_log("backend.error.unexpected", "error", {"e": str(e)})
-            return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+                self.api.emit_log(MSG_UNEXPECTED_ERROR, "error", {"e": str(e)})
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
     def save_settings(self, data: dict) -> Dict[str, str]:
         """
@@ -58,5 +69,5 @@ class SettingsManager:
                 
         except Exception as e:
             if hasattr(self, 'api'):
-                self.api.emit_log("backend.error.unexpected", "error", {"e": str(e)})
-            return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+                self.api.emit_log(MSG_UNEXPECTED_ERROR, "error", {"e": str(e)})
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}

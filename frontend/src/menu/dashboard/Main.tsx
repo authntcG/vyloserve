@@ -358,11 +358,12 @@ function DatabaseServiceCard({ included, onToggleIncluded, dbInstances, selected
                     <span className={`material-symbols-outlined shrink-0 transition-colors ${included ? 'text-primary' : 'text-slate-400'}`}>database</span>
                     <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 truncate">{t('sidebar.menu_database')}</span>
                 </div>
-                <label aria-label={t('sidebar.menu_database')} className="relative inline-flex items-center cursor-pointer shrink-0">
+                <label className="relative inline-flex items-center cursor-pointer shrink-0">
                     <input
                         type="checkbox"
                         checked={included}
                         onChange={(e) => onToggleIncluded(e.target.checked)}
+                        aria-label={t('sidebar.toggle_service', 'Toggle {{service}}', { service: t('sidebar.menu_database') })}
                         className="sr-only peer"
                     />
                     <div className="w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
@@ -579,10 +580,12 @@ export default function DashboardMain() {
             fetchServicesStatus();
         };
         window.addEventListener('service_status_changed', handleStatusSync);
+        window.addEventListener('project_list_updated', fetchRecentProjects);
 
         return () => {
             clearInterval(interval);
             window.removeEventListener('service_status_changed', handleStatusSync);
+            window.removeEventListener('project_list_updated', fetchRecentProjects);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -607,7 +610,7 @@ export default function DashboardMain() {
             }
 
             fetchServicesStatus();
-            window.dispatchEvent(new Event('service_status_changed'));
+            window.dispatchEvent(new CustomEvent('service_status_changed', { detail: { service: 'all' } }));
         } catch (error){ console.error(error);
             console.error("Dashboard Toggle Error:", error);
             showToast(t('dashboard.toggle_error'), "error");

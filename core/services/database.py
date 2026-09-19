@@ -1,5 +1,6 @@
 import os
 import sys
+import glob
 import urllib.request
 import re
 import shutil
@@ -10,13 +11,15 @@ from typing import Optional
 
 # ---> IMPORT UTILITIES (DRY PRINCIPLE) <---
 from core.utils.system_utils import get_project_root, check_port_in_use, start_silent_process, run_silent_command
-from core.utils.file_utils import read_json, write_json, download_advanced, extract_archive
+from core.utils.file_utils import read_json, write_json, download_advanced, extract_archive, read_log_tail, read_new_lines
 
 DB_NOT_FOUND_MSG = "backend.database.not_found"
+MSG_UNEXPECTED_ERROR = "backend.error.unexpected"
 USER_AGENT_MOZILLA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
 MY_INI = "my.ini"
 POSTGRESQL_CON = "postgresql.conf"
 MYSQLD_SECTION = "[mysqld]"
+DB_STARTUP_LOG = "db_startup.log"
 
 class DatabaseManager:
     """Manager untuk siklus hidup Engine Database (MySQL, MariaDB, PostgreSQL)"""
@@ -27,7 +30,8 @@ class DatabaseManager:
         self.bin_dir = os.path.join(self.root_dir, 'bin', 'database') 
         self.config_path = os.path.join(self.data_dir, 'databases.json')
         self.processes = {}
-        
+        self._log_offsets: dict = {}
+
         os.makedirs(self.data_dir, exist_ok=True)
         os.makedirs(self.bin_dir, exist_ok=True)
         if not os.path.exists(self.config_path):
@@ -60,14 +64,14 @@ class DatabaseManager:
 
             return {"status": "success", "data": data}
         except Exception as e:
-            return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
     # ==========================================
     # START / STOP CONTROLLER (SILENT SUBPROCESS)
     # ==========================================
     def _wait_for_startup(self, db_obj: dict, log_f) -> dict:
         db_id = db_obj['id']
-        log_path = os.path.join(db_obj['dataDir'], "db_startup.log")
+        log_path = os.path.join(db_obj['dataDir'], DB_STARTUP_LOG)
         
         for _ in range(150):
             if check_port_in_use(db_obj['port']):
@@ -103,7 +107,7 @@ class DatabaseManager:
 
         try:
             _, cmd = self._build_startup_cmd(db_obj)
-            log_path = os.path.join(db_obj['dataDir'], "db_startup.log")
+            log_path = os.path.join(db_obj['dataDir'], DB_STARTUP_LOG)
             log_f = open(log_path, 'w', encoding='utf-8')
             
             import subprocess
@@ -207,7 +211,7 @@ class DatabaseManager:
     def _fetch_mariadb_versions(self):
         req = urllib.request.Request("https://archive.mariadb.org/", headers={'User-Agent': USER_AGENT_MOZILLA})
         try: html = urllib.request.urlopen(req, timeout=10).read().decode('utf-8')
-        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+        except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
         raw_versions = list(set(re.findall(r'href="mariadb-(\d+\.\d+\.\d+)/"', html)))
         latest_versions_dict = {}
@@ -253,7 +257,7 @@ class DatabaseManager:
     def _fetch_postgres_versions(self):
         req = urllib.request.Request("https://www.enterprisedb.com/download-postgresql-binaries", headers={'User-Agent': USER_AGENT_MOZILLA})
         try: html = urllib.request.urlopen(req, timeout=10).read().decode('utf-8')
-        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+        except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
         if sys.platform == 'win32': os_target = "Windows x86-64"
         elif sys.platform == 'darwin': os_target = "Mac OS X"
@@ -356,7 +360,7 @@ class DatabaseManager:
                 
             self._progress(-1, str(e))
             self._log("backend.database.install_failed_log", "error", {"e": str(e)})
-            return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
     def uninstall_database(self, db_id: str, delete_data: bool = False):
         try:
@@ -377,7 +381,7 @@ class DatabaseManager:
             self._log("backend.database.engine_removed_log", "success", {"name": db_to_remove["name"]})
             return {"status": "success", "message": "backend.database.removed_success"}
         except Exception as e:
-            return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
         
     # ==========================================
     # DATABASE CONFIGURATION & CREDENTIALS
@@ -400,7 +404,75 @@ class DatabaseManager:
             elif sys.platform == 'darwin': subprocess.Popen(['open', target])
             else: subprocess.Popen(['xdg-open', target])
             return {"status": "success", "message": "backend.database.opened_success"}
-        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+        except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def get_log_content(self, db_id: str, log_type: str = 'startup'):
+        """
+        Membaca isi (tail) file log sebuah instance database untuk ditampilkan di dalam aplikasi.
+        'startup': log proses start/crash milik VyloServe sendiri (db_startup.log, semua engine).
+        'native': log error native milik engine (saat ini hanya MySQL/MariaDB yang menulis file *.err sendiri;
+        Postgres tidak punya log native karena logging_collector default off).
+        """
+        try:
+            db_obj = next((db for db in read_json(self.config_path) if db['id'] == db_id), None)
+            if not db_obj: return {"status": "error", "message": DB_NOT_FOUND_MSG}
+
+            if log_type == 'startup':
+                log_path = os.path.join(db_obj['dataDir'], DB_STARTUP_LOG)
+            elif log_type == 'native' and db_obj.get('engine') == 'mysql':
+                err_files = glob.glob(os.path.join(db_obj['dataDir'], '*.err'))
+                if not err_files: return {"status": "error", "message": "backend.database.log_not_found"}
+                log_path = max(err_files, key=os.path.getmtime)
+            else:
+                return {"status": "error", "message": "backend.database.log_not_available"}
+
+            content = read_log_tail(log_path)
+            return {"status": "success", "data": content}
+        except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def _emit_new_db_logs(self, log_path: str):
+        if log_path not in self._log_offsets:
+            self._log_offsets[log_path] = os.path.getsize(log_path) if os.path.exists(log_path) else 0
+            return
+
+        lines, new_offset = read_new_lines(log_path, self._log_offsets[log_path])
+        self._log_offsets[log_path] = new_offset
+        for line in lines:
+            level = 'error' if 'error' in line.lower() else 'info'
+            # source_override='DatabaseFileLog' (BUKAN auto-detect 'DatabaseManager') supaya
+            # baris dari file log bisa difilter terpisah dari pesan sistem Database biasa
+            # di modal "System Logs".
+            self.api.emit_log(line, level, {}, source_override='DatabaseFileLog')
+
+    def _tail_db_instance_logs(self, db: dict):
+        db_id = db.get('id')
+        is_running = (db_id in self.processes and self.processes[db_id].poll() is None) or check_port_in_use(db.get('port'))
+        if not is_running:
+            return
+
+        log_paths = [os.path.join(db['dataDir'], DB_STARTUP_LOG)]
+        if db.get('engine') == 'mysql':
+            err_files = glob.glob(os.path.join(db['dataDir'], '*.err'))
+            if err_files:
+                log_paths.append(max(err_files, key=os.path.getmtime))
+
+        for log_path in log_paths:
+            self._emit_new_db_logs(log_path)
+
+    def tail_new_logs(self):
+        """
+        Menyalurkan baris BARU di db_startup.log (semua engine) dan native .err
+        (MySQL/MariaDB saja) sejak polling terakhir ke System Logs lewat
+        emit_log() -- dipanggil berkala oleh Api.start_log_watcher() (lihat
+        docs/backend_services.md §11.2). Hanya untuk instance yang sedang
+        berjalan; file yang baru pertama kali dipantau mulai dihitung dari
+        AKHIR-nya (gaya `tail -f`), bukan me-replay seluruh histori lama.
+        """
+        try:
+            for db in read_json(self.config_path):
+                self._tail_db_instance_logs(db)
+        except Exception:
+            pass
 
     def _parse_mysql_config(self, conf_file: str, config: dict):
         if not os.path.exists(conf_file): return

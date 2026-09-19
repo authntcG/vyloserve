@@ -1,12 +1,13 @@
 import os
 import json
+import time
 import zipfile
 import tarfile
 import urllib.request
 import urllib.error
 import concurrent.futures
 import threading
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, List, Optional, Tuple, Union
 USER_AGENT_MOZILLA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
 
 def read_json(file_path: str, default_type: type = list) -> Any:
@@ -58,6 +59,80 @@ def write_json(file_path: str, data: Any) -> bool:
         return True
     except Exception:
         return False
+
+def read_log_tail(file_path: str, max_lines: int = 300, chunk_size: int = 8192, max_retries: int = 3) -> str:
+    """
+    Membaca N baris terakhir sebuah file log tanpa memuat seluruh isi file ke memori --
+    aman dipakai untuk file yang bisa tumbuh tanpa batas (mis. Apache `error_log`,
+    `access_log`, native error log MySQL) yang tidak punya rotasi otomatis di aplikasi ini.
+    Melakukan retry singkat kalau file sedang dikunci proses lain di Windows
+    (PermissionError/OSError) alih-alih gagal diam-diam. Lihat docs/known_bugs.md #12
+    untuk kasus lampau di mana error penguncian file Windows tertelan diam-diam.
+    """
+    if not os.path.exists(file_path):
+        return ""
+
+    last_error: Optional[Exception] = None
+    for _ in range(max_retries):
+        try:
+            with open(file_path, 'rb') as f:
+                f.seek(0, os.SEEK_END)
+                remaining = f.tell()
+                block = b''
+                newline_count = 0
+
+                while remaining > 0 and newline_count <= max_lines:
+                    read_size = min(chunk_size, remaining)
+                    remaining -= read_size
+                    f.seek(remaining)
+                    block = f.read(read_size) + block
+                    newline_count = block.count(b'\n')
+
+            text = block.decode('utf-8', errors='replace')
+            return '\n'.join(text.splitlines()[-max_lines:])
+        except OSError as e:
+            last_error = e
+            time.sleep(0.2)
+
+    raise last_error
+
+def read_new_lines(file_path: str, offset: int) -> Tuple[List[str], int]:
+    """
+    Membaca baris-baris BARU yang ditambahkan ke sebuah file sejak `offset` byte
+    terakhir (gaya `tail -f`) -- dipakai untuk menyalurkan isi file log Apache/
+    Database (error_log/access_log/db_startup.log/*.err) ke System Logs secara
+    berkala lewat emit_log() (lihat ApacheManager/DatabaseManager.tail_new_logs()
+    dan docs/backend_services.md §11.2).
+
+    Kalau file lebih kecil dari `offset` sebelumnya (mis. db_startup.log ditulis
+    ulang mode 'w' setiap start baru), offset direset ke 0 supaya tidak salah baca.
+    Kalau file sedang terkunci proses lain, mengembalikan offset yang SAMA (bukan
+    melempar error) -- pemanggil dipanggil berkala jadi otomatis dicoba lagi di
+    polling berikutnya, tidak perlu retry sendiri di sini.
+
+    Simplifikasi yang disengaja: baris dianggap "baru" berdasarkan pemisah baris
+    di dalam potongan byte yang terbaca, tanpa buffering baris yang terpotong di
+    tengah penulisan -- risiko ini diterima karena penulisan log per baris di
+    Apache/MySQL pada praktiknya selalu ter-flush utuh, dan fitur ini murni untuk
+    tampilan (bukan jalur data kritikal).
+    """
+    if not os.path.exists(file_path):
+        return [], 0
+    try:
+        size = os.path.getsize(file_path)
+        if size < offset:
+            offset = 0
+        if size <= offset:
+            return [], offset
+        with open(file_path, 'rb') as f:
+            f.seek(offset)
+            chunk = f.read()
+    except OSError:
+        return [], offset
+
+    text = chunk.decode('utf-8', errors='replace')
+    lines = [line for line in text.splitlines() if line.strip()]
+    return lines, offset + len(chunk)
 
 def _is_safe_extract_path(base_dir: str, member_name: str) -> bool:
     """

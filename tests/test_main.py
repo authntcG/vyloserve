@@ -52,6 +52,7 @@ def test_perform_exit_stops_all_engines_before_exiting(mock_os_exit, mock_api):
 
     lifecycle.perform_exit()
 
+    mock_api.stop_log_watcher.assert_called_once()
     mock_api.apache.stop_server.assert_called_once()
     mock_api.php.stop_all.assert_called_once()
     mock_api.database.stop_all.assert_called_once()
@@ -59,6 +60,18 @@ def test_perform_exit_stops_all_engines_before_exiting(mock_os_exit, mock_api):
     mock_window.destroy.assert_called_once()
     mock_os_exit.assert_called_once_with(0)
     assert lifecycle.is_real_exit is True
+
+@patch('os._exit')
+def test_perform_exit_swallows_log_watcher_stop_failure(mock_os_exit, mock_api):
+    """Kegagalan menghentikan log watcher tidak boleh menghalangi cleanup engine lainnya."""
+    lifecycle = AppLifecycle(mock_api, is_production=True)
+    lifecycle.set_window(MagicMock())
+    mock_api.stop_log_watcher.side_effect = RuntimeError("watcher already stopped")
+
+    lifecycle.perform_exit()
+
+    mock_api.apache.stop_server.assert_called_once()
+    mock_os_exit.assert_called_once_with(0)
 
 @patch('os._exit')
 def test_perform_exit_swallows_individual_engine_failures(mock_os_exit, mock_api):
@@ -231,6 +244,7 @@ def test_main_wires_api_window_and_quit_callback(mock_api_class, mock_webview):
         main_module.main()
 
     mock_api_instance.set_window.assert_called_once_with(mock_window)
+    mock_api_instance.start_log_watcher.assert_called_once()
     assert mock_api_instance.quit_callback is not None
     mock_webview.start.assert_called_once()
 

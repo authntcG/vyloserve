@@ -129,6 +129,7 @@ sequenceDiagram
 ### 2.4 `Sidebar.tsx`
 
 - 3 grup menu hardcoded: `MAIN_MENU` (dashboard), `SERVICES` (apache/php/database/runtimes), `TOOLS` (qr/base64/url-encode-decode/git dalam dropdown collapsible).
+- **Dipecah jadi sub-komponen** (pola sama dengan `ApacheStatusSection`/`ApacheProjectCard` di `apache/Main.tsx`, lihat §5.1): `SidebarHeader`, `ServiceNavItem`, `ToolsNavItem`, `SidebarFooter` — masing-masing fungsi terpisah di file yang sama, menerima data lewat props, dirender dari `Sidebar()`. Awalnya seluruh JSX ditulis inline di satu fungsi `Sidebar()` dan Cognitive Complexity-nya menembus 19 (batas SonarQube 15) karena akumulasi percabangan `isDesktopCollapsed` di banyak blok berbeda; ekstraksi ini menurunkannya tanpa mengubah perilaku (setiap sub-komponen dipindah verbatim, cuma dibungkus fungsi + props). Kalau menambah percabangan baru ke salah satu blok ini, pertimbangkan dulu apakah blok itu masih pantas tetap di `Sidebar()` langsung atau perlu diekstrak lagi.
 - **Toggle switch di tiap Service card** memanggil endpoint generik `api.start_service(id)`/`api.stop_service(id)` (bukan `start_apache_server()` spesifik) → sukses → `dispatchEvent('service_status_changed', {detail: {service, running}})` agar Dashboard & halaman modul lain ikut sinkron tanpa saling mengimpor state.
 - Polling mandiri tiap 2 detik: `api.get_all_services_status()` → isi badge status tiap service + CPU% di footer sidebar.
 - Search bar filter live berdasarkan nama menu ter-translate.
@@ -160,26 +161,31 @@ flowchart LR
 
     subgraph Frontend["Frontend (dispatchEvent manual antar komponen)"]
         SidebarToggle["Sidebar toggle switch<br/>start_service/stop_service"] -->|dispatch| SSC(("service_status_changed"))
+        ModuleToggles["apache/php/database Main.tsx<br/>toggle start/stop sendiri"] -->|dispatch| SSC
+        DashToggle["dashboard/Main.tsx<br/>'Start/Stop Selected'"] -->|dispatch service:'all'| SSC
         ApacheCRUD["Apache NewProject/ProjectSettings<br/>create/update/delete_project"] -->|dispatch| PLU(("project_list_updated"))
         ApacheSettings["Apache Settings.tsx<br/>set_apache_active_version"] -->|dispatch| AVC(("apache_version_changed"))
+        LogSettingsModal["SettingsModals.tsx<br/>'System Logs' modal Apply"] -->|dispatch| VLSC(("vylo_log_settings_changed"))
     end
 
-    VLOG --> LogsPanel[LogsPanel.tsx]
+    VLOG --> LogsPanel[LogsPanel.tsx — filter level/source dari settings.json]
     VPROG --> AllPages["SEMUA halaman modul yang sedang mounted<br/>(Apache/PHP/Database/Runtimes/Git Main.tsx)"]
     PWR --> App[App.tsx bootstrap]
-    SSC --> Sidebar2[Sidebar.tsx] & Dashboard2[DashboardMain]
-    PLU --> ApacheMain2[ApacheMain — refresh daftar project]
+    SSC --> Sidebar2[Sidebar.tsx] & Dashboard2[DashboardMain] & ModulePages["apache/php/database Main.tsx<br/>(cocokkan service ATAU 'all')"]
+    PLU --> ApacheMain2[ApacheMain — refresh daftar project] & Dashboard3[DashboardMain — refresh recent projects]
     AVC --> ApacheMain3[ApacheMain — refresh status versi]
+    VLSC --> LogsPanel
 ```
 
 | Event | Emitter | Listener | Payload |
 |---|---|---|---|
-| `vylo_log` | Backend `emit_log()` | `LogsPanel.tsx` (belum memfilter `source` — menampilkan log dari semua modul apa adanya, sesuai fungsinya sebagai timeline global) | `{message, level, args, source}` |
+| `vylo_log` | Backend `emit_log()` — dipanggil langsung di titik-titik kode tertentu (install, error, dsb., `source` auto-detect nama class) **dan** otomatis secara berkala oleh `Api`'s log watcher thread (`ApacheManager`/`DatabaseManager.tail_new_logs()`, tiap 2 detik, lihat `docs/backend_services.md` §11.2) yang menyalurkan baris baru di `error_log`/`access_log`/`db_startup.log`/`*.err` dengan `source` di-*override* eksplisit jadi `'ApacheFileLog'`/`'DatabaseFileLog'` — **kategori terpisah** dari pesan sistem `'ApacheManager'`/`'DatabaseManager'` biasa, supaya bisa difilter independen (lihat `docs/known_bugs.md` #26) | `LogsPanel.tsx` — **memfilter** berdasarkan `level`/`source` sesuai preferensi tersimpan di `data/settings.json` (`system_log_levels`/`system_log_sources`, diatur lewat modal "System Logs" — gear icon di Sidebar). `null`/tidak ada = belum dikustomisasi, tampilkan semua; array APAPUN (termasuk array kosong) = daftar eksplisit tersimpan, dipakai apa adanya — **bukan** array kosong berarti "tampilkan semua" (itu bug lama, lihat `docs/known_bugs.md` #26). Buffer dibatasi 500 entri terakhir (`MAX_LOG_ENTRIES`) agar tidak tumbuh tanpa batas di sesi panjang. | `{message, level, args, source}` |
 | `vylo_progress` | Backend `emit_progress()` | Halaman modul yang sedang *mounted* — kini **memfilter berdasarkan `source`** (lihat §3.3) | `{percent, text, args, source}` |
 | `pywebviewready` | Runtime pywebview (native) | `App.tsx` (bootstrap) | — |
-| `service_status_changed` | `Sidebar.tsx` toggle switch | `Sidebar.tsx` (self-refresh), `DashboardMain` | `{service, running}` |
-| `project_list_updated` | `NewProject.tsx`, `ProjectSettings.tsx` (Apache) | `ApacheMain.tsx` | — |
+| `service_status_changed` | `Sidebar.tsx` toggle switch, toggle start/stop di `apache/php/database Main.tsx` masing-masing, `dashboard/Main.tsx` "Start/Stop Selected" (`service: 'all'`) | `Sidebar.tsx` (self-refresh), `DashboardMain`, dan `apache/php/database Main.tsx` (masing-masing mencocokkan `e.detail.service` terhadap namanya sendiri ATAU `'all'`) | `{service, running?}` — **wajib** selalu sertakan `detail.service`; dispatch tanpa `detail` pernah jadi bug nyata, lihat `docs/known_bugs.md` #22 |
+| `project_list_updated` | `NewProject.tsx`, `ProjectSettings.tsx` (Apache) | `ApacheMain.tsx`, `DashboardMain` (refresh recent projects — lihat `docs/known_bugs.md` #23) | — |
 | `apache_version_changed` | `Settings.tsx` (Apache) | `ApacheMain.tsx` | — |
+| `vylo_log_settings_changed` | Modal "System Logs" (`SettingsModals.tsx`) setelah "Save" | `LogsPanel.tsx` (re-fetch preferensi filter tanpa perlu remount) | — |
 
 ### 3.2 Kontrak Toast: `showToast` Menerima String yang Sudah Diterjemahkan
 
@@ -243,9 +249,12 @@ flowchart TD
 Klik di mana saja menutup context menu custom. Copy handler pakai `navigator.clipboard.writeText` dengan fallback try/catch + toast.
 
 ### 4.3 `LogsPanel.tsx`
-Panel log **fixed di bawah layout**, collapsible & resizable (drag strip 1.5px, clamp 100px–80% tinggi viewport). Listener: `window.addEventListener('vylo_log', handler)` → `t(detail.message, detail.args)` (i18next fallback aman ke string asli jika key tidak ditemukan). Auto-scroll ke bawah kecuali user sudah scroll manual (`onWheel` mematikan `isAutoScroll`). Tombol: copy semua log (fallback `document.execCommand('copy')` untuk non-secure-context), toggle auto-scroll, clear, expand/collapse.
+Panel log **fixed di bawah layout**, collapsible & resizable (drag strip 1.5px, clamp 100px–80% tinggi viewport). Listener: `window.addEventListener('vylo_log', handler)` → `t(detail.message, detail.args)` (i18next fallback aman ke string asli jika key tidak ditemukan). Auto-scroll ke bawah kecuali user sudah scroll manual (`onWheel` mematikan `isAutoScroll`). Tombol: copy semua log (fallback `document.execCommand('copy')` untuk non-secure-context), toggle auto-scroll, clear, expand/collapse. Memfilter tampilan berdasarkan `level`/`source` sesuai `data/settings.json` (lihat §3.1) dan membatasi buffer ke 500 entri terakhir.
 
-> Catatan: `LogsPanel` adalah **timeline log**, bukan progress bar. Progress bar ada terpisah di `BackgroundProgressWidget` + progress bar inline per form instalasi.
+> Catatan: `LogsPanel` adalah **timeline log runtime** (event `vylo_log`), bukan progress bar, dan juga beda dari `LogFileViewerModal` di bawah (yang membaca isi FILE log tersimpan di disk, bukan event runtime).
+
+### 4.3.1 `LogFileViewerModal.tsx`
+Modal generik untuk menampilkan isi (tail) sebuah **file log persisten** langsung di dalam aplikasi — dipakai `apache/Settings.tsx` (`error_log`/`access_log`) dan `database/Main.tsx` (`db_startup.log`/native `.err` MySQL). Props: `{isOpen, onClose, title, fetchContent}` — `fetchContent` adalah fungsi yang dipanggil parent (biasanya `useCallback` yang membungkus `window.pywebview.api.get_apache_log_content(...)`/`get_database_log_content(...)`), sehingga komponen ini sendiri tidak tahu API spesifik apa yang dipanggil. Menampilkan state loading/error/empty/konten, plus tombol Refresh untuk fetch ulang manual. Lihat `docs/known_bugs.md` #25 untuk bug double-fetch yang sempat terjadi di komponen ini (fix: `t` dari `useTranslation()` tidak boleh masuk ke deps `useCallback` yang memicu efek samping otomatis).
 
 ### 4.4 `BackgroundProgressWidget.tsx`
 Widget mengambang generik (pojok kanan-bawah) untuk kondisi "modal instalasi diminimize/ditutup tapi proses backend masih jalan". **Murni presentational** — props `{isOpen, progress, progressText, title?, onRestore}`, tidak mendengarkan event sendiri (parent yang dengar `vylo_progress` lalu meneruskan sebagai props). Auto-hide jika `progress <= 0 || progress >= 100` (guard internal komponen ini). Klik → `onRestore()` membuka kembali modal.
@@ -449,7 +458,13 @@ Struktur sama seperti Runtimes (deteksi eksternal/native, PATH toggle terkunci j
 **100% client-side** — tidak ada pemanggilan `window.pywebview.api` sama sekali kecuali clipboard/toast. Base64: `TextEncoder`/`TextDecoder` + `btoa`/`atob` (UTF-8 safe), mendukung mode file (drag-drop → `FileReader.readAsDataURL`, deteksi otomatis preview image dari data-URI). Logic encode/decode diekstrak jadi pure function `encodeTextToBase64()`/`decodeBase64Input()`, dan panel kiri/kanan jadi `EditorSection`/`PayloadInfoCard` — lihat §5.1. URL tool: parsing native `URL` API untuk visualisasi hierarki protocol/host/path/query.
 
 ### `SettingsModals.tsx`
-3 modal terpusat (language/about/quit) dari footer Sidebar. Language modal menyimpan ke **dua sumber kebenaran**: `i18n.changeLanguage()` (runtime) **dan** `api.save_app_settings({language})` (persisted) — disinkronkan ulang saat `App.tsx` mount via `get_app_settings()`.
+4 modal terpusat (language/about/quit/**logs**) dari footer Sidebar. Language modal menyimpan ke **dua sumber kebenaran**: `i18n.changeLanguage()` (runtime) **dan** `api.save_app_settings({language})` (persisted) — disinkronkan ulang saat `App.tsx` mount via `get_app_settings()`.
+
+**Modal "logs" (System Logs)** — filter level/kategori untuk `LogsPanel.tsx`, dipecah 2 section:
+- **Level Log**: 4 toggle (Info/Warning/Error/Success), masing-masing dengan dot indikator warna (`dotClass` per level di array `LOG_LEVELS`, warna sama seperti `LogsPanel.getColorClass()`).
+- **Kategori Modul**: `LOG_SOURCE_GROUPS` — array *grouped* (bukan flat) supaya Apache & Database masing-masing bisa render **dua toggle independen dalam satu baris** ("Log Sistem" vs "Log File", lihat `docs/known_bugs.md` #26 untuk kenapa dua kategori ini perlu dipisah); modul tanpa file log (PHP, Project, Runtimes, Git, SSL, Dashboard, App Settings) cukup satu toggle "Log Sistem" (field `fileKey` di-omit dari entry group-nya, JSX menyembunyikan toggle kedua secara kondisional).
+- Semua toggle memakai komponen lokal `ToggleSwitch` (pill kecil, `w-8 h-4`) — markup identik dengan toggle start/stop service di `Sidebar.tsx` (`<label aria-label>` membungkus `<input type="checkbox" className="sr-only peer">` + div `peer-checked:bg-emerald-500`), disengaja disamakan supaya tidak menambah pola toggle baru di aplikasi ini.
+- State `logLevels`/`logSources` (array literal, bukan lagi checkbox-per-row) di-load dari `get_app_settings()` saat modal dibuka dan disimpan apa adanya ke `save_app_settings()` saat "Save" — lihat `docs/known_bugs.md` #26 untuk semantik `null` vs array kosong.
 
 ---
 
@@ -474,7 +489,7 @@ Struktur sama seperti Runtimes (deteksi eksternal/native, PATH toggle terkunci j
 | 5 | "Golden Standard" hanya disebut untuk Apache & PHP | Pola identik juga diterapkan di Database, Runtimes, Git | 🟢 Penyempitan cakupan di dokumentasi lama |
 | 6 | Tidak ada dokumentasi soal event `vylo_progress` yang bisa "bocor" ke modul lain | Bug nyata yang ditemukan saat audit — **sudah diperbaiki** dengan field `source` + filter di listener (§3.3) | ✅ Diperbaiki |
 | 7 | Custom event bus (`service_status_changed`, `project_list_updated`, `apache_version_changed`) tidak disebut sama sekali | Ini mekanisme state-sync utama antar komponen di seluruh aplikasi | 🟡 Gap dokumentasi signifikan — sudah dilengkapi di §3 |
-| 8 | Tidak disebutkan pemakaian `localStorage` | Dipakai 1 tempat: `NewProject.tsx` (`vylo_install_loc`) | 🟢 Minor gap |
+| 8 | Tidak disebutkan pemakaian `localStorage` | ~~Dulu dipakai 1 tempat: `NewProject.tsx` (`vylo_install_loc`)~~ — **SUDAH DIPERBAIKI**: `localStorage` tidak reliable di shell pywebview/EdgeChromium (profil WebView2 ephemeral), diganti `get_app_settings()`/`save_app_settings()`. `localStorage` sekarang tidak dipakai sama sekali di `frontend/src`. Lihat `docs/known_bugs.md` #24 | ✅ Diperbaiki |
 | 9 | Tidak disebutkan dual source-of-truth bahasa (i18next runtime vs `settings.json`) | Dikonfirmasi ada, disinkronkan saat bootstrap | 🟢 Minor gap |
 | 10 | File-file berikut tidak disebut sama sekali di dokumentasi lama | `NewProject.tsx`, `ProjectSettings.tsx`, `InstallWizard.tsx`, `NewInstance.tsx` (PHP/Database), `ChangePassword.tsx`, `InstallNode/Python/Java/Go.tsx`, `RuntimeVersionSelect.tsx`, `SettingsModals.tsx`, `qr-generator/Main.tsx` | 🟡 Cakupan dokumentasi lama terlalu sempit |
 
@@ -498,7 +513,8 @@ Proyek ini pakai Tailwind v4 (`@import "tailwindcss";` di `src/index.css`), yang
    @import "package/file.css" layer(base); /* atau layer(components) */
    ```
    Ini membuat CSS pihak ketiga ikut sistem cascade layer Tailwind (layer `base`/`components` selalu kalah dari layer `utilities`), sehingga utility Tailwind (termasuk `text-[Npx]`) bisa benar-benar menindihnya sesuai ekspektasi developer.
-3. Kalau butuh override inline satu elemen saja (bukan aturan global), **inline style `style={{ fontSize: 'Npx' }}` tetap aman dipakai** — inline style selalu menang atas layer manapun tanpa perlu utak-atik cascade, jadi valid sebagai override lokal per-elemen (lihat contoh pasangan ikon "Tools" di sidebar collapsed, §2.4, yang sengaja dikecilkan sama-sama ke 18px lewat inline style supaya muat berdampingan di rail 80px).
+3. **WAJIB** posisikan `@import` baru itu **paling atas file**, tepat setelah `@import "tailwindcss";` dan **sebelum** rule non-`@import` apa pun (termasuk `@tailwind base/components/utilities;` yang lama, `@theme`, dsb) — spesifikasi CSS mewajibkan semua `@import` berada di awal stylesheet (kecuali `@charset`); `@import` yang ditaruh setelah rule lain dianggap invalid dan **diabaikan browser** (linter: `css:S8778`). Ini bukan teori — pernah kejadian nyata saat menambahkan `@import ... layer(base)` di atas, taruh setelah `@tailwind base/components/utilities;` karena "terasa" lebih logis dikelompokkan dekat `@theme`, dan baru ketahuan lewat SonarQube (lihat `docs/known_bugs.md` #20, bagian *Follow-up bug*).
+4. Kalau butuh override inline satu elemen saja (bukan aturan global), **inline style `style={{ fontSize: 'Npx' }}` tetap aman dipakai** — inline style selalu menang atas layer manapun tanpa perlu utak-atik cascade, jadi valid sebagai override lokal per-elemen (lihat contoh pasangan ikon "Tools" di sidebar collapsed, §2.4, yang sengaja dikecilkan sama-sama ke 18px lewat inline style supaya muat berdampingan di rail 80px).
 
 ### 15.2 Cara Verifikasi Cepat (Sebelum Menyalahkan "Class Tidak Jalan")
 

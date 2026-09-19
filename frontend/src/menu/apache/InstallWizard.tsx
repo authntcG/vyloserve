@@ -144,8 +144,9 @@ export default function ApacheInstallWizard({
 
                 <div className="grid grid-cols-2 gap-4">
                     <div className="flex flex-col gap-2">
-                        <label className="text-xs font-medium text-slate-700 dark:text-slate-300">{t('apache.http_port')}</label>
+                        <label htmlFor="apache_http_port" className="text-xs font-medium text-slate-700 dark:text-slate-300">{t('apache.http_port')}</label>
                         <input
+                            id="apache_http_port"
                             type="number"
                             value={httpPort}
                             onChange={(e) => setHttpPort(Number.parseInt(e.target.value) || 80)}
@@ -154,8 +155,9 @@ export default function ApacheInstallWizard({
                         />
                     </div>
                     <div className="flex flex-col gap-2">
-                        <label className="text-xs font-medium text-slate-700 dark:text-slate-300">{t('apache.https_port')}</label>
+                        <label htmlFor="apache_https_port" className="text-xs font-medium text-slate-700 dark:text-slate-300">{t('apache.https_port')}</label>
                         <input
+                            id="apache_https_port"
                             type="number"
                             value={httpsPort}
                             onChange={(e) => setHttpsPort(Number.parseInt(e.target.value) || 443)}

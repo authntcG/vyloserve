@@ -70,7 +70,7 @@ export default function PhpMain() {
 
     useEffect(() => {
         fetchInstalledInstances();
-        const handleStatusChange = (e: any) => { if (e.detail.service === 'php') fetchInstalledInstances(); };
+        const handleStatusChange = (e: any) => { if (['php', 'all'].includes(e.detail?.service)) fetchInstalledInstances(); };
         window.addEventListener('service_status_changed', handleStatusChange);
         return () => window.removeEventListener('service_status_changed', handleStatusChange);
     // eslint-disable-next-line react-hooks/exhaustive-deps

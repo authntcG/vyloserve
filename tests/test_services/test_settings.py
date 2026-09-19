@@ -18,6 +18,23 @@ def test_get_settings_default(settings_manager):
     res = settings_manager.get_settings()
     assert res['status'] == 'success'
     assert res['data']['language'] == 'en'
+    assert res['data']['default_apache_install_location'] == ''
+    assert res['data']['system_log_levels'] is None
+    assert res['data']['system_log_sources'] is None
+
+def test_save_settings_preserves_an_explicitly_empty_list_distinct_from_never_customized(settings_manager):
+    """
+    Regresi: 'system_log_levels'/'system_log_sources' TIDAK BOLEH pakai array kosong ([])
+    sebagai default -- array kosong harus tetap berarti "user sengaja uncheck semua", bukan
+    disamakan dengan "belum pernah diatur" (None). Kalau tertukar, uncheck-semua-lalu-Save
+    akan terlihat seperti gagal tersimpan saat modal dibuka lagi. Lihat docs/known_bugs.md.
+    """
+    res_save = settings_manager.save_settings({"system_log_levels": [], "system_log_sources": []})
+    assert res_save['status'] == 'success'
+
+    res_get = settings_manager.get_settings()
+    assert res_get['data']['system_log_levels'] == []
+    assert res_get['data']['system_log_sources'] == []
 
 def test_save_and_get_settings(settings_manager):
     """Test saving settings and then retrieving the merged settings."""

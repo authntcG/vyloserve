@@ -46,10 +46,10 @@ const ChangePassword = forwardRef<ChangePasswordRef, Props>(({ instance }, ref) 
                 if (api && typeof api.change_db_credentials === 'function') {
                     const response = await api.change_db_credentials(instance.id, credUser, credOld, credNew);
                     if (response.status === 'success') {
-                        showToast(t(response.message, response.args || {}), 'success');
+                        showToast((t(response.message, response.args || {}) as string), 'success');
                         return true;
                     } else {
-                        showToast(t(response.message, response.args || {}), 'error');
+                        showToast((t(response.message, response.args || {}) as string), 'error');
                         return false;
                     }
                 }
@@ -74,8 +74,9 @@ const ChangePassword = forwardRef<ChangePasswordRef, Props>(({ instance }, ref) 
             </div>
 
             <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('database.username')}</label>
+                <label htmlFor="db_cred_user" className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('database.username')}</label>
                 <input
+                    id="db_cred_user"
                     type="text"
                     value={credUser}
                     onChange={(e) => setCredUser(e.target.value)}
@@ -83,8 +84,9 @@ const ChangePassword = forwardRef<ChangePasswordRef, Props>(({ instance }, ref) 
                 />
             </div>
             <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('database.current_password')}</label>
+                <label htmlFor="db_cred_old" className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('database.current_password')}</label>
                 <input
+                    id="db_cred_old"
                     type="password"
                     placeholder={t('database.leave_empty_no_password')}
                     value={credOld}
@@ -93,8 +95,9 @@ const ChangePassword = forwardRef<ChangePasswordRef, Props>(({ instance }, ref) 
                 />
             </div>
             <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('database.new_password')}</label>
+                <label htmlFor="db_cred_new" className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('database.new_password')}</label>
                 <input
+                    id="db_cred_new"
                     type="password"
                     placeholder={t('database.enter_new_password')}
                     value={credNew}

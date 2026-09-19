@@ -16,11 +16,21 @@ interface SidebarProps {
     readonly onSelectMenu: (id: string) => void;
 }
 
-const MAIN_MENU = [
+interface NavItemConfig {
+    id: string;
+    name: string;
+    icon: string;
+}
+
+interface ServiceConfig extends NavItemConfig {
+    hasToggle: boolean;
+}
+
+const MAIN_MENU: NavItemConfig[] = [
     { id: 'dashboard', name: 'Dashboard', icon: 'space_dashboard' }
 ];
 
-const SERVICES = [
+const SERVICES: ServiceConfig[] = [
     { id: 'apache', name: 'Apache', icon: 'dns', hasToggle: true },
     { id: 'php', name: 'PHP', icon: 'code', hasToggle: true },
     { id: 'database', name: 'Database', icon: 'database', hasToggle: true },
@@ -30,12 +40,220 @@ const SERVICES = [
     { id: 'runtimes', name: 'Runtimes', icon: 'terminal', hasToggle: false }
 ];
 
-const TOOLS = [
+const TOOLS: NavItemConfig[] = [
     { id: 'qr', name: 'QR Generator', icon: 'qr_code_2' },
     { id: 'base64', name: 'Base64 Encoder', icon: 'code_blocks' },
     { id: 'url-encode-decode', name: 'URL Encode/Decode', icon: 'link' },
     { id: 'git', name: 'Git', icon: 'merge' },
 ];
+
+interface SidebarHeaderProps {
+    readonly isDesktopCollapsed: boolean;
+    readonly onToggleDesktop: () => void;
+    readonly onCloseMobile: () => void;
+}
+
+function SidebarHeader({ isDesktopCollapsed, onToggleDesktop, onCloseMobile }: SidebarHeaderProps) {
+    return (
+        <div className={`flex items-center border-b border-slate-200 dark:border-slate-800 h-[72px] ${isDesktopCollapsed ? 'justify-center px-1 py-2' : 'justify-between px-4 py-4'}`}>
+            <div className={`transition-all duration-300 overflow-hidden flex items-center shrink-0 ${isDesktopCollapsed ? 'max-w-0 opacity-0 h-0 ml-0 hidden' : 'max-w-[150px] opacity-100 ml-1'}`}>
+                <img src={brandNavLight} alt="VyloServe" className="h-7 w-auto object-contain block dark:hidden" draggable="false" />
+                <img src={brandNavDark} alt="VyloServe" className="h-7 w-auto object-contain hidden dark:block" draggable="false" />
+            </div>
+
+            <div className={`flex items-center shrink-0 ${isDesktopCollapsed ? '' : 'gap-2 mx-auto md:mx-0'}`}>
+                <button type="button" onClick={onToggleDesktop} className="p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors hidden md:flex items-center justify-center outline-none">
+                    <span className={`material-symbols-outlined transition-transform duration-300 ${isDesktopCollapsed ? 'scale-x-[-1]' : ''}`}>menu_open</span>
+                </button>
+                <button type="button" onClick={onCloseMobile} className="p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors md:hidden flex items-center justify-center outline-none">
+                    <span className="material-symbols-outlined">close</span>
+                </button>
+            </div>
+        </div>
+    );
+}
+
+interface ServiceNavItemProps {
+    readonly service: ServiceConfig;
+    readonly isSelected: boolean;
+    readonly isDesktopCollapsed: boolean;
+    readonly isChecked: boolean;
+    readonly onSelect: () => void;
+    readonly onToggleClick: (e: React.MouseEvent) => void;
+    readonly t: any;
+}
+
+function ServiceNavItem({ service, isSelected, isDesktopCollapsed, isChecked, onSelect, onToggleClick, t }: ServiceNavItemProps) {
+    return (
+        <div className={`flex items-center justify-between gap-3 rounded-md px-3 py-2.5 transition-colors ${isSelected ? 'bg-slate-100 dark:bg-slate-800 text-primary' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
+            <button type="button" onClick={onSelect} className="flex items-center gap-3 min-w-0 flex-1 text-left cursor-pointer">
+                <span className="material-symbols-outlined shrink-0" style={{ fontVariationSettings: isSelected ? "'FILL' 1" : "'FILL' 0" }}>{service.icon}</span>
+                <span className={`font-medium text-sm truncate transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[150px] opacity-100'}`}>{t(`sidebar.menu_${service.id}`, service.name)}</span>
+            </button>
+
+            {service.hasToggle && (
+                <label
+                    className={`relative inline-flex items-center cursor-pointer transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[40px] opacity-100'}`}
+                    aria-label={t('sidebar.toggle_service', 'Toggle {{service}}', { service: t(`sidebar.menu_${service.id}`, service.name) })}
+                >
+                    <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onClick={onToggleClick}
+                        onChange={() => {}}
+                        className="sr-only peer"
+                    />
+                    <div className="w-8 h-4 bg-slate-300 dark:bg-slate-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                </label>
+            )}
+        </div>
+    );
+}
+
+interface ToolsNavItemProps {
+    readonly tools: NavItemConfig[];
+    readonly isDesktopCollapsed: boolean;
+    readonly showToolsDropdown: boolean;
+    readonly onToggleOpen: () => void;
+    readonly activeMenu: string;
+    readonly onSelectMenu: (id: string) => void;
+    readonly t: any;
+}
+
+function ToolsNavItem({ tools, isDesktopCollapsed, showToolsDropdown, onToggleOpen, activeMenu, onSelectMenu, t }: ToolsNavItemProps) {
+    if (tools.length === 0) return null;
+    return (
+        <div className="relative group mt-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+            <button
+                type="button"
+                className="w-full text-left flex items-center justify-between gap-3 rounded-md px-3 py-2.5 cursor-pointer text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                onClick={onToggleOpen}
+                aria-expanded={showToolsDropdown}
+            >
+                <div className={`flex items-center ${isDesktopCollapsed ? 'gap-0' : 'gap-3'}`}>
+                    <span className="material-symbols-outlined shrink-0" style={isDesktopCollapsed ? { fontSize: '18px' } : undefined}>construction</span>
+                    {isDesktopCollapsed && (
+                        <span
+                            className="material-symbols-outlined shrink-0 ml-0.5 text-slate-400 group-hover:text-primary transition-colors"
+                            style={{ fontSize: '18px' }}
+                        >
+                            chevron_right
+                        </span>
+                    )}
+                    <span className={`font-medium text-sm whitespace-nowrap overflow-hidden transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[150px] opacity-100'}`}>{t('sidebar.tools')}</span>
+                </div>
+                {!isDesktopCollapsed && (
+                    <span className="material-symbols-outlined text-[20px] transition-transform duration-300" style={{ transform: showToolsDropdown ? 'rotate(180deg)' : 'rotate(0deg)' }}>expand_more</span>
+                )}
+            </button>
+
+            {/* Dropdown Menu */}
+            {!isDesktopCollapsed && showToolsDropdown && (
+                <div className="flex flex-col gap-1 ml-4 pl-2 border-l border-slate-200 dark:border-slate-700 my-1">
+                    {tools.map(tool => (
+                        <button
+                            type="button"
+                            key={tool.id}
+                            onClick={() => onSelectMenu(tool.id)}
+                            className={`w-full text-left flex items-center gap-3 rounded-md px-3 py-2 cursor-pointer transition-colors ${activeMenu === tool.id ? 'text-primary bg-slate-50 dark:bg-slate-800/50' : 'text-slate-500 dark:text-slate-400 hover:text-primary'}`}
+                        >
+                            <span className="material-symbols-outlined text-[18px] shrink-0">{tool.icon}</span>
+                            <span className="font-medium text-sm">{t(`sidebar.menu_${tool.id}`, tool.name)}</span>
+                        </button>
+                    ))}
+                </div>
+            )}
+
+            {/* Flyout jika Collapsed */}
+            {isDesktopCollapsed && (
+                <div className="absolute left-[calc(100%+4px)] top-0 w-48 flex-col gap-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl p-2 z-[60] opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
+                    <div className="px-3 pt-1 pb-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 mb-1">{t('sidebar.tools')}</div>
+                    {tools.map(tool => (
+                        <button
+                            type="button"
+                            key={tool.id}
+                            onClick={() => onSelectMenu(tool.id)}
+                            className={`w-full text-left flex items-center gap-3 rounded-md px-3 py-2 cursor-pointer ${activeMenu === tool.id ? 'text-primary bg-slate-50 dark:bg-slate-800' : 'text-slate-600 dark:text-slate-300'}`}
+                        >
+                            <span className="material-symbols-outlined text-[18px]">{tool.icon}</span>
+                            <span className="font-medium text-sm truncate">{t(`sidebar.menu_${tool.id}`, tool.name)}</span>
+                        </button>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
+interface SidebarFooterProps {
+    readonly isDesktopCollapsed: boolean;
+    readonly systemLoad: number;
+    readonly systemLoadColorClass: string;
+    readonly isSettingsOpen: boolean;
+    readonly onToggleSettings: () => void;
+    readonly onOpenModal: (modal: SettingsModalType) => void;
+    readonly settingsRef: React.RefObject<HTMLDivElement | null>;
+    readonly t: any;
+}
+
+function SidebarFooter({ isDesktopCollapsed, systemLoad, systemLoadColorClass, isSettingsOpen, onToggleSettings, onOpenModal, settingsRef, t }: SidebarFooterProps) {
+    return (
+        <div className="p-4 border-t border-slate-200 dark:border-slate-800 mt-auto flex justify-between items-center relative" ref={settingsRef}>
+            <div className={`flex items-center text-slate-500 dark:text-slate-400 ${isDesktopCollapsed ? 'w-full flex-col justify-center gap-0.5' : 'gap-2'}`}>
+                <span className={`material-symbols-outlined text-[20px] ${systemLoadColorClass}`}>memory</span>
+                {isDesktopCollapsed ? (
+                    <span className={`text-[10px] font-bold leading-none ${systemLoadColorClass}`}>{systemLoad}%</span>
+                ) : (
+                    <span className="text-xs font-medium uppercase tracking-wider transition-all duration-300 overflow-hidden whitespace-nowrap max-w-[150px] opacity-100">
+                        {t('sidebar.system_load')} <span className={systemLoad > 80 ? 'text-red-500 font-bold' : ''}>{systemLoad}%</span>
+                    </span>
+                )}
+            </div>
+
+            {!isDesktopCollapsed && (
+                <button type="button"
+                    onClick={onToggleSettings}
+                    className={`p-1.5 rounded-md flex items-center justify-center transition-colors ${isSettingsOpen ? 'bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                >
+                    <span className="material-symbols-outlined text-[18px]">settings</span>
+                </button>
+            )}
+
+            {isSettingsOpen && !isDesktopCollapsed && (
+                <div className="absolute bottom-full mb-2 right-4 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 overflow-hidden text-sm font-medium">
+                    <button type="button"
+                        onClick={() => onOpenModal('language')}
+                        className="w-full text-left px-4 py-3 flex items-center gap-3 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-100 dark:border-slate-800"
+                    >
+                        <span className="material-symbols-outlined text-[18px] text-slate-400">translate</span>
+                        {t('settings.change_language')}
+                    </button>
+                    <button type="button"
+                        onClick={() => onOpenModal('logs')}
+                        className="w-full text-left px-4 py-3 flex items-center gap-3 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-100 dark:border-slate-800"
+                    >
+                        <span className="material-symbols-outlined text-[18px] text-slate-400">filter_list</span>
+                        {t('settings.system_logs')}
+                    </button>
+                    <button type="button"
+                        onClick={() => onOpenModal('about')}
+                        className="w-full text-left px-4 py-3 flex items-center gap-3 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-100 dark:border-slate-800"
+                    >
+                        <span className="material-symbols-outlined text-[18px] text-slate-400">info</span>
+                        {t('settings.about')}
+                    </button>
+                    <button type="button"
+                        onClick={() => onOpenModal('quit')}
+                        className="w-full text-left px-4 py-3 flex items-center gap-3 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                    >
+                        <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
+                        {t('settings.quit')}
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+}
 
 export default function Sidebar({
     isMobileOpen,
@@ -124,9 +342,13 @@ export default function Sidebar({
         }
     };
 
+    const handleOpenSettingsModal = (modal: SettingsModalType) => {
+        setActiveSettingsModal(modal);
+        setIsSettingsOpen(false);
+    };
+
     const sidebarWidthClass = isDesktopCollapsed ? 'w-20' : 'w-sidebar-width';
     const mobileTranslateClass = isMobileOpen ? 'translate-x-0' : '-translate-x-full';
-
 
     const getSystemLoadColor = () => {
         if (systemLoad > 80) return 'text-red-500';
@@ -134,7 +356,7 @@ export default function Sidebar({
         return 'text-emerald-500';
     };
 
-    const filterQuery = (item: { id: string; name: string }) => {
+    const filterQuery = (item: NavItemConfig) => {
         // Fallback to name if key doesn't exist, though we defined all keys
         const translatedName = t(`sidebar.menu_${item.id}`, item.name);
         return translatedName.toLowerCase().includes(searchQuery.toLowerCase());
@@ -158,22 +380,7 @@ export default function Sidebar({
 
             <nav className={`bg-surface dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col h-[calc(100vh-64px)] md:h-screen fixed left-0 top-[64px] md:top-0 z-50 transition-all duration-300 ease-in-out md:translate-x-0 ${sidebarWidthClass} ${mobileTranslateClass}`}>
 
-                {/* Header Logo */}
-                <div className={`flex items-center border-b border-slate-200 dark:border-slate-800 h-[72px] ${isDesktopCollapsed ? 'justify-center px-1 py-2' : 'justify-between px-4 py-4'}`}>
-                    <div className={`transition-all duration-300 overflow-hidden flex items-center shrink-0 ${isDesktopCollapsed ? 'max-w-0 opacity-0 h-0 ml-0 hidden' : 'max-w-[150px] opacity-100 ml-1'}`}>
-                        <img src={brandNavLight} alt="VyloServe" className="h-7 w-auto object-contain block dark:hidden" draggable="false" />
-                        <img src={brandNavDark} alt="VyloServe" className="h-7 w-auto object-contain hidden dark:block" draggable="false" />
-                    </div>
-
-                    <div className={`flex items-center shrink-0 ${isDesktopCollapsed ? '' : 'gap-2 mx-auto md:mx-0'}`}>
-                        <button type="button" onClick={onToggleDesktop} className="p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors hidden md:flex items-center justify-center outline-none">
-                            <span className={`material-symbols-outlined transition-transform duration-300 ${isDesktopCollapsed ? 'scale-x-[-1]' : ''}`}>menu_open</span>
-                        </button>
-                        <button type="button" onClick={onCloseMobile} className="p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors md:hidden flex items-center justify-center outline-none">
-                            <span className="material-symbols-outlined">close</span>
-                        </button>
-                    </div>
-                </div>
+                <SidebarHeader isDesktopCollapsed={isDesktopCollapsed} onToggleDesktop={onToggleDesktop} onCloseMobile={onCloseMobile} />
 
                 {/* Search Bar */}
                 <div className={`transition-all duration-300 overflow-hidden ${isDesktopCollapsed ? 'max-h-0 opacity-0' : 'max-h-[80px] opacity-100'}`}>
@@ -213,154 +420,45 @@ export default function Sidebar({
                             {t('sidebar.services')}
                         </div>
                     )}
-                    {filteredServices.map(service => {
-                        const isSelected = activeMenu === service.id;
-                        return (
-                            <div
-                                key={service.id}
-                                className={`flex items-center justify-between gap-3 rounded-md px-3 py-2.5 transition-colors ${isSelected ? 'bg-slate-100 dark:bg-slate-800 text-primary' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-                            >
-                                <button type="button" onClick={() => onSelectMenu(service.id)} className="flex items-center gap-3 min-w-0 flex-1 text-left cursor-pointer">
-                                    <span className="material-symbols-outlined shrink-0" style={{ fontVariationSettings: isSelected ? "'FILL' 1" : "'FILL' 0" }}>{service.icon}</span>
-                                    <span className={`font-medium text-sm truncate transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[150px] opacity-100'}`}>{t(`sidebar.menu_${service.id}`, service.name)}</span>
-                                </button>
+                    {filteredServices.map(service => (
+                        <ServiceNavItem
+                            key={service.id}
+                            service={service}
+                            isSelected={activeMenu === service.id}
+                            isDesktopCollapsed={isDesktopCollapsed}
+                            isChecked={serviceStatus[service.id] || false}
+                            onSelect={() => onSelectMenu(service.id)}
+                            onToggleClick={(e) => handleToggleClick(service.id, e)}
+                            t={t}
+                        />
+                    ))}
 
-                                {service.hasToggle && (
-                                    <label
-                                        className={`relative inline-flex items-center cursor-pointer transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[40px] opacity-100'}`}
-                                        aria-label={t('sidebar.toggle_service', 'Toggle {{service}}', { service: t(`sidebar.menu_${service.id}`, service.name) })}
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            checked={serviceStatus[service.id] || false}
-                                            onClick={(e) => handleToggleClick(service.id, e)}
-                                            onChange={() => {}}
-                                            className="sr-only peer"
-                                        />
-                                        <div className="w-8 h-4 bg-slate-300 dark:bg-slate-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
-                                    </label>
-                                )}
-                            </div>
-                        );
-                    })}
-
-                    {/* Utilities Tools */}
-                    {filteredTools.length > 0 && (
-                        <div className="relative group mt-2 pt-2 border-t border-slate-200 dark:border-slate-800">
-                            <button
-                                type="button"
-                                className="w-full text-left flex items-center justify-between gap-3 rounded-md px-3 py-2.5 cursor-pointer text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                                onClick={() => !isDesktopCollapsed && setIsToolsOpen(!isToolsOpen)}
-                                aria-expanded={showToolsDropdown}
-                            >
-                                <div className={`flex items-center ${isDesktopCollapsed ? 'gap-0' : 'gap-3'}`}>
-                                    <span className="material-symbols-outlined shrink-0" style={isDesktopCollapsed ? { fontSize: '18px' } : undefined}>construction</span>
-                                    {isDesktopCollapsed && (
-                                        <span
-                                            className="material-symbols-outlined shrink-0 ml-0.5 text-slate-400 group-hover:text-primary transition-colors"
-                                            style={{ fontSize: '18px' }}
-                                        >
-                                            chevron_right
-                                        </span>
-                                    )}
-                                    <span className={`font-medium text-sm whitespace-nowrap overflow-hidden transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[150px] opacity-100'}`}>{t('sidebar.tools')}</span>
-                                </div>
-                                {!isDesktopCollapsed && (
-                                    <span className="material-symbols-outlined text-[20px] transition-transform duration-300" style={{ transform: showToolsDropdown ? 'rotate(180deg)' : 'rotate(0deg)' }}>expand_more</span>
-                                )}
-                            </button>
-
-                            {/* Dropdown Menu */}
-                            {!isDesktopCollapsed && showToolsDropdown && (
-                                <div className="flex flex-col gap-1 ml-4 pl-2 border-l border-slate-200 dark:border-slate-700 my-1">
-                                    {filteredTools.map(tool => (
-                                        <button
-                                            type="button"
-                                            key={tool.id}
-                                            onClick={() => onSelectMenu(tool.id)}
-                                            className={`w-full text-left flex items-center gap-3 rounded-md px-3 py-2 cursor-pointer transition-colors ${activeMenu === tool.id ? 'text-primary bg-slate-50 dark:bg-slate-800/50' : 'text-slate-500 dark:text-slate-400 hover:text-primary'}`}
-                                        >
-                                            <span className="material-symbols-outlined text-[18px] shrink-0">{tool.icon}</span>
-                                            <span className="font-medium text-sm">{t(`sidebar.menu_${tool.id}`, tool.name)}</span>
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-
-                            {/* Flyout jika Collapsed */}
-                            {isDesktopCollapsed && (
-                                <div className="absolute left-[calc(100%+4px)] top-0 w-48 flex-col gap-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl p-2 z-[60] opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
-                                    <div className="px-3 pt-1 pb-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 mb-1">{t('sidebar.tools')}</div>
-                                    {filteredTools.map(tool => (
-                                        <button
-                                            type="button"
-                                            key={tool.id}
-                                            onClick={() => onSelectMenu(tool.id)}
-                                            className={`w-full text-left flex items-center gap-3 rounded-md px-3 py-2 cursor-pointer ${activeMenu === tool.id ? 'text-primary bg-slate-50 dark:bg-slate-800' : 'text-slate-600 dark:text-slate-300'}`}
-                                        >
-                                            <span className="material-symbols-outlined text-[18px]">{tool.icon}</span>
-                                            <span className="font-medium text-sm truncate">{t(`sidebar.menu_${tool.id}`, tool.name)}</span>
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    )}
+                    <ToolsNavItem
+                        tools={filteredTools}
+                        isDesktopCollapsed={isDesktopCollapsed}
+                        showToolsDropdown={showToolsDropdown}
+                        onToggleOpen={() => !isDesktopCollapsed && setIsToolsOpen(!isToolsOpen)}
+                        activeMenu={activeMenu}
+                        onSelectMenu={onSelectMenu}
+                        t={t}
+                    />
                 </div>
 
-                {/* Footer System Load */}
-                <div className="p-4 border-t border-slate-200 dark:border-slate-800 mt-auto flex justify-between items-center relative" ref={settingsRef}>
-                    <div className={`flex items-center text-slate-500 dark:text-slate-400 ${isDesktopCollapsed ? 'w-full flex-col justify-center gap-0.5' : 'gap-2'}`}>
-                        <span className={`material-symbols-outlined text-[20px] ${getSystemLoadColor()}`}>memory</span>
-                        {isDesktopCollapsed ? (
-                            <span className={`text-[10px] font-bold leading-none ${getSystemLoadColor()}`}>{systemLoad}%</span>
-                        ) : (
-                            <span className="text-xs font-medium uppercase tracking-wider transition-all duration-300 overflow-hidden whitespace-nowrap max-w-[150px] opacity-100">
-                                {t('sidebar.system_load')} <span className={systemLoad > 80 ? 'text-red-500 font-bold' : ''}>{systemLoad}%</span>
-                            </span>
-                        )}
-                    </div>
-
-                    {!isDesktopCollapsed && (
-                        <button type="button"
-                            onClick={() => setIsSettingsOpen(!isSettingsOpen)}
-                            className={`p-1.5 rounded-md flex items-center justify-center transition-colors ${isSettingsOpen ? 'bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-                        >
-                            <span className="material-symbols-outlined text-[18px]">settings</span>
-                        </button>
-                    )}
-
-                    {isSettingsOpen && !isDesktopCollapsed && (
-                        <div className="absolute bottom-full mb-2 right-4 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 overflow-hidden text-sm font-medium">
-                            <button type="button"
-                                onClick={() => { setActiveSettingsModal('language'); setIsSettingsOpen(false); }}
-                                className="w-full text-left px-4 py-3 flex items-center gap-3 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-100 dark:border-slate-800"
-                            >
-                                <span className="material-symbols-outlined text-[18px] text-slate-400">translate</span>
-                                {t('settings.change_language')}
-                            </button>
-                            <button type="button"
-                                onClick={() => { setActiveSettingsModal('about'); setIsSettingsOpen(false); }}
-                                className="w-full text-left px-4 py-3 flex items-center gap-3 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-100 dark:border-slate-800"
-                            >
-                                <span className="material-symbols-outlined text-[18px] text-slate-400">info</span>
-                                {t('settings.about')}
-                            </button>
-                            <button type="button"
-                                onClick={() => { setActiveSettingsModal('quit'); setIsSettingsOpen(false); }}
-                                className="w-full text-left px-4 py-3 flex items-center gap-3 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                            >
-                                <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
-                                {t('settings.quit')}
-                            </button>
-                        </div>
-                    )}
-                </div>
+                <SidebarFooter
+                    isDesktopCollapsed={isDesktopCollapsed}
+                    systemLoad={systemLoad}
+                    systemLoadColorClass={getSystemLoadColor()}
+                    isSettingsOpen={isSettingsOpen}
+                    onToggleSettings={() => setIsSettingsOpen(!isSettingsOpen)}
+                    onOpenModal={handleOpenSettingsModal}
+                    settingsRef={settingsRef}
+                    t={t}
+                />
             </nav>
 
-            <SettingsModals 
-                activeModal={activeSettingsModal} 
-                onClose={() => setActiveSettingsModal(null)} 
+            <SettingsModals
+                activeModal={activeSettingsModal}
+                onClose={() => setActiveSettingsModal(null)}
             />
         </>
     );

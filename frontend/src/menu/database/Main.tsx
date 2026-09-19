@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import Card from '../../components/Card';
 import Modal from '../../components/Modal';
 import { useToast } from '../../components/ToastContext';
 import BackgroundProgressWidget from '../../components/BackgroundProgressWidget';
+import LogFileViewerModal from '../../components/LogFileViewerModal';
 
 import PageHeader from '../../components/PageHeader';
 import SkeletonCard from '../../components/SkeletonCard';
@@ -33,6 +34,7 @@ export default function DatabaseMain() {
 
     const [isNewInstanceOpen, setIsNewInstanceOpen] = useState(false);
     const [selectedDbId, setSelectedDbId] = useState<string | null>(null);
+    const [logViewer, setLogViewer] = useState<{ dbId: string; type: 'startup' | 'native' } | null>(null);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [settingsConfig, setSettingsConfig] = useState<any>({});
     const [isLoadingSettings, setIsLoadingSettings] = useState(false);
@@ -69,7 +71,7 @@ export default function DatabaseMain() {
 
     useEffect(() => {
         fetchDatabases();
-        const handleStatus = (e: any) => { if (['database', 'all'].includes(e.detail.service)) fetchDatabases(); };
+        const handleStatus = (e: any) => { if (['database', 'all'].includes(e.detail?.service)) fetchDatabases(); };
         window.addEventListener('service_status_changed', handleStatus);
         return () => window.removeEventListener('service_status_changed', handleStatus);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -146,6 +148,11 @@ export default function DatabaseMain() {
         } catch (e){ console.error(e); showToast(t('database.delete_error'), "error"); }
         finally { setIsDeleting(false); }
     };
+
+    const fetchDbLogContent = useCallback(() => {
+        if (!logViewer) return Promise.resolve(undefined);
+        return window.pywebview?.api?.get_database_log_content(logViewer.dbId, logViewer.type);
+    }, [logViewer]);
 
     const handleOpenSettings = async (db: DbInstance) => {
         setSelectedDbId(db.id); setIsSettingsOpen(true); setIsLoadingSettings(true);
@@ -239,6 +246,10 @@ export default function DatabaseMain() {
                                                 {db.engine === 'postgres' ? t('database.open_postgres_conf') : t('database.open_my_ini')}
                                             </button>
                                             <button type="button" onClick={() => window.pywebview?.api?.open_db_dir(db.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700">{t('database.open_data_folder')}</button>
+                                            <button type="button" onClick={() => setLogViewer({ dbId: db.id, type: 'startup' })} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700">{t('settings.log_file_startup')}</button>
+                                            {db.engine === 'mysql' && (
+                                                <button type="button" onClick={() => setLogViewer({ dbId: db.id, type: 'native' })} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700">{t('settings.log_file_native')}</button>
+                                            )}
 
                                             {/* ---> MENU BARU: CHANGE PASSWORD <--- */}
                                             <button type="button" onClick={() => { setSelectedDbId(db.id); setIsPasswordModalOpen(true); }} className="w-full flex items-center justify-between px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700">
@@ -270,6 +281,13 @@ export default function DatabaseMain() {
                     );
                 })()}
             </div>
+
+            <LogFileViewerModal
+                isOpen={logViewer !== null}
+                onClose={() => setLogViewer(null)}
+                title={logViewer?.type === 'native' ? t('settings.log_file_native') : t('settings.log_file_startup')}
+                fetchContent={fetchDbLogContent}
+            />
 
             <BackgroundProgressWidget isOpen={isInstalling && !isNewInstanceOpen} progress={progress} progressText={progressText} title={t('database.installing_db')} onRestore={() => setIsNewInstanceOpen(true)} />
 

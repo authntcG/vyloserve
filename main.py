@@ -66,6 +66,10 @@ class AppLifecycle:
         self.is_real_exit = True
 
         try:
+            self.api.stop_log_watcher()
+        except Exception:
+            pass
+        try:
             self.api.apache.stop_server()
         except Exception:
             pass
@@ -179,6 +183,7 @@ def main():
         )
         api.set_window(window)
         lifecycle.set_window(window)
+        api.start_log_watcher()
 
         api.quit_callback = lifecycle.perform_exit
 

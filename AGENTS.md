@@ -86,29 +86,31 @@ Aturan "dilarang hardcode" di atas **tidak hanya berlaku untuk field `"message"`
    Ketika melakukan patch/edit terhadap React Hooks (*useEffect*, *useContext*, *useTranslation*), deklarasikan di baris paling atas fungsi komponen untuk mencegah pelanggaran urutan aturan eksekusi Hooks bawaan React.
 5. **🚨 WAJIB: Import CSS Pihak Ketiga Global Harus Pakai `layer()`:**
    Tailwind v4 membungkus semua utility class-nya (`text-[Npx]`, dll) di dalam CSS Cascade Layer (`@layer utilities`). Rule CSS yang **tidak** berada di dalam layer apa pun **selalu menang** atas rule di dalam layer, tidak peduli urutan importnya. **DILARANG** `import 'package/file.css'` polos di file `.tsx` untuk CSS global pihak ketiga (font, icon set, dll) — **WAJIB** lewat CSS `@import "package/file.css" layer(base);` di `src/index.css` agar ikut sistem layer Tailwind dan bisa ditimpa utility. Bug nyata akibat pelanggaran ini: `docs/known_bugs.md` #20 (semua `text-[Npx]` pada ikon Material Symbols diam-diam tidak berfungsi). Detail & cara verifikasi lewat `getComputedStyle()`: `docs/frontend_ui.md` §15.
+6. **🚨 WAJIB: Setiap `<label>` Harus Terhubung ke Input Pasangannya lewat `htmlFor`/`id`:**
+   Pola berulang yang ditemukan di banyak form (`InstallWizard.tsx`, `ChangePassword.tsx`, `ProjectSettings.tsx`, kedua `NewInstance.tsx` PHP & Database, `Settings.tsx` PHP, `NewProject.tsx`, `qr-generator/Main.tsx` — 8 kemunculan terpisah): `<label>` ditulis bersebelahan dengan `<input>`/`<select>` secara visual, tapi TANPA `htmlFor` pada label dan `id` pada input/select pasangannya. Secara visual terlihat benar, tapi screen reader tidak bisa mengasosiasikan label dengan kontrolnya (pelanggaran a11y nyata), dan query `getByLabelText()` di test (lihat `docs/development_testing.md` §3) gagal menemukan elemennya. **WAJIB** setiap pasangan `<label>`+`<input>`/`<select>`/`<textarea>` baru diberi `htmlFor="id_unik"` pada label dan `id="id_unik"` pada kontrolnya — jangan andalkan kedekatan visual di JSX saja. Detail: `docs/known_bugs.md` #21.
 
 ### 🧹 Clean Code & DRY (Backend & Frontend)
-6. **Fungsi Tunggal, Tanggung Jawab Tunggal (SRP):**
+7. **Fungsi Tunggal, Tanggung Jawab Tunggal (SRP):**
    - Setiap fungsi Python harus memiliki **satu tujuan yang jelas**. Jika sebuah fungsi panjangnya melebihi 40 baris atau memiliki lebih dari 2 tingkat indentasi *nested*, pertimbangkan untuk memecahnya.
    - Ekstrak logika yang berulang ke fungsi *helper* atau *private method* (prefix `_`).
    - Di frontend React, pisahkan logika bisnis dari logika presentasi (gunakan custom hooks jika diperlukan).
-7. **Naming Convention:**
+8. **Naming Convention:**
    - **Python (Backend):** Gunakan `snake_case` untuk variabel dan fungsi, `PascalCase` untuk kelas.
    - **TypeScript (Frontend):** Gunakan `camelCase` untuk variabel/fungsi, `PascalCase` untuk komponen React dan tipe/interface.
    - Hindari singkatan yang tidak jelas (`mgr`, `tmp`, `d`). Gunakan nama yang *self-documenting* (`manager`, `temp_dir`, `database`).
-8. **Hindari Magic Number & Magic String:**
+9. **Hindari Magic Number & Magic String:**
    - Ekstrak nilai konstan ke variabel bernama (`MAX_RETRY = 5`, `DEFAULT_PORT = 80`).
    - Jangan hardcode path, port, atau konfigurasi langsung di dalam logika fungsi.
-9. **Komentar Kontekstual, Bukan Komentar Deskriptif:**
+10. **Komentar Kontekstual, Bukan Komentar Deskriptif:**
    - Tulis komentar yang menjelaskan **MENGAPA**, bukan **APA** (kode sudah cukup menjelaskan *apa*).
    - Hapus kode yang di-*comment-out* — gunakan Git untuk histori perubahan.
 
 ### 🔒 Security (Keamanan)
-10. **Validasi Input dari Frontend:**
+11. **Validasi Input dari Frontend:**
    - Setiap argumen yang diterima fungsi backend di `core/api.py` dari panggilan JavaScript **WAJIB** divalidasi tipe dan nilainya sebelum diproses lebih lanjut.
    - Jangan pernah langsung menggunakan string dari frontend sebagai bagian dari *shell command* (rentan **Command Injection**).
    - Gunakan `shlex.quote()` atau passing argumen sebagai *list* ke `subprocess` (bukan string).
-11. **Proteksi Path Traversal:**
+12. **Proteksi Path Traversal:**
     - Setiap kali backend menerima *path* dari input user, gunakan `os.path.realpath()` / `os.path.abspath()` dan validasi bahwa path tersebut berada di dalam direktori yang diizinkan (misal: `bin/`, `www/`, `data/`).
     - **Contoh BENAR:**
       ```python
@@ -117,10 +119,10 @@ Aturan "dilarang hardcode" di atas **tidak hanya berlaku untuk field `"message"`
       if not target.startswith(safe_root):
           return {"status": "error", "message": "backend.error.path_traversal"}
       ```
-12. **Tidak Menyimpan Kredensial di Kode:**
+13. **Tidak Menyimpan Kredensial di Kode:**
     - Password, token, atau kunci sensitif **DILARANG** di-*hardcode* dalam source code.
     - Gunakan file konfigurasi di `data/` yang sudah masuk `.gitignore`.
-13. **Sanitasi Output ke JavaScript (XSS Prevention):**
+14. **Sanitasi Output ke JavaScript (XSS Prevention):**
     - Saat menggunakan `window.evaluate_js()` di backend Python, pastikan nilai dinamis di dalam string JS di-*escape* dengan benar untuk mencegah injeksi skrip.
     - Gunakan `json.dumps()` untuk mengonversi data Python ke format aman sebelum disisipkan ke JS.
     - **Contoh BENAR:**
@@ -131,43 +133,43 @@ Aturan "dilarang hardcode" di atas **tidak hanya berlaku untuk field `"message"`
       ```
 
 ### 🧪 Unit Testing (Wajib untuk Setiap Fitur Baru)
-14. **Test Wajib untuk Setiap Fitur:**
+15. **Test Wajib untuk Setiap Fitur:**
     - Setiap fungsi publik baru di `core/services/` atau `core/utils/` **WAJIB** disertai *unit test* di folder `tests/`.
     - Setiap perubahan logika signifikan pada fungsi yang sudah ada juga **WAJIB** memiliki test yang meng-cover perubahan tersebut.
-15. **Struktur Test yang Wajib Dicover:**
+16. **Struktur Test yang Wajib Dicover:**
     - ✅ **Happy path:** Skenario berhasil (input valid, output sesuai).
     - ✅ **Edge case:** Input kosong, nilai batas, tipe data salah.
     - ✅ **Error path:** Simulasi kegagalan OS (file tidak ada, port ditolak, proses crash).
     - ✅ **Mock wajib:** Semua operasi OS (*subprocess*, *registry*, *urllib*, *file I/O*) HARUS di-mock.
-16. **Lokasi & Penamaan Test:**
+17. **Lokasi & Penamaan Test:**
     - Test untuk `core/services/xxx.py` → `tests/test_services/test_xxx.py`
     - Test untuk `core/utils/xxx.py` → `tests/test_utils/test_xxx.py`
     - Nama fungsi test harus deskriptif: `test_start_server_success()`, `test_start_server_port_already_in_use()`.
-17. **Menjalankan Test sebelum Serah Terima:**
+18. **Menjalankan Test sebelum Serah Terima:**
     - Pastikan `python -m pytest tests/ --cov=. --cov-report=xml` berjalan **tanpa error** sebelum menyerahkan perubahan.
-18. **Patch Target Harus Presisi (Pelajaran dari Audit Coverage Backend):**
+19. **Patch Target Harus Presisi (Pelajaran dari Audit Coverage Backend):**
     - Saat mock dengan `@patch(...)`, selalu patch **path modul spesifik tempat fungsi itu dipakai** (contoh: `core.services.apache.os.path.exists`), **BUKAN** `os.path.exists` global secara serampangan tanpa mengecek apakah target-nya benar.
     - Patch yang salah sasaran membuat test "lulus" padahal tidak menguji apa-apa — ini persis penyebab bug typo `conf`/`con` di `sync_apache_vhosts()` lolos ke production selama berbulan-bulan tanpa terdeteksi (lihat `docs/known_bugs.md` #3).
-19. **Assert Perilaku Nyata, Bukan Sekadar "Dipanggil":**
+20. **Assert Perilaku Nyata, Bukan Sekadar "Dipanggil":**
     - `mock.assert_called_once()` saja **tidak cukup**. Assert juga **argumen persis** (`call_args`) dan **return value/state akhir** yang benar-benar dihasilkan.
     - Untuk fungsi yang menulis path/file, assert path lengkap yang sebenarnya dipakai (`os.path.join(...)` yang sama), bukan hanya "makedirs terpanggil".
-20. **Validasi Regression Test dengan Sengaja Merusak Kode:**
+21. **Validasi Regression Test dengan Sengaja Merusak Kode:**
     - Untuk test yang khusus dibuat menjaga sebuah bug fix (regression test), **wajib divalidasi dulu**: sengaja kembalikan kode ke versi buggy → jalankan test → **harus GAGAL** → kembalikan lagi ke versi fix → jalankan test → **harus LULUS**. Jangan percaya test hanya dari lulus sekali di kode yang sudah benar.
-21. **Jangan Kejar Coverage 100% secara Buta:**
+22. **Jangan Kejar Coverage 100% secara Buta:**
     - Blok `except Exception: pass` yang sifatnya *best-effort swallow* murni (tanpa perbedaan perilaku yang bisa diverifikasi) **boleh dibiarkan tidak ter-cover** — menulis test untuknya hanya menaikkan angka tanpa nilai regresi nyata ("test palsu").
     - Prioritaskan cakupan pada fungsi dengan logika bercabang nyata, alur error yang punya pesan/state berbeda, dan kode yang baru saja diperbaiki bug-nya.
-22. **Selesai Menambah Test ≠ Selesai — Verifikasi ke SonarQube:**
+23. **Selesai Menambah Test ≠ Selesai — Verifikasi ke SonarQube:**
     - Setelah menambah/mengubah test, jalankan ulang suite penuh + coverage, **lalu** minta scan SonarQube dijalankan (atau jalankan sendiri jika diizinkan) untuk memastikan **tidak ada temuan baru** (bug/code smell) dari test yang ditulis, sebelum menyerahkan pekerjaan sebagai selesai.
-23. **Entrypoint Aplikasi Harus Tetap Testable:**
+24. **Entrypoint Aplikasi Harus Tetap Testable:**
     - Logika penting (exit handler, lifecycle window, dsb.) di `main.py` **DILARANG** ditulis sebagai closure di dalam `if __name__ == '__main__':` — itu membuatnya mustahil di-import dan ditest (`pytest` mengimpor modul sebagai `main`, bukan `__main__`, sehingga blok itu tidak pernah jalan).
     - Gunakan class/fungsi level-modul yang menerima dependency (`api`, `window`, dsb.) sebagai parameter/atribut, lalu `if __name__ == '__main__': main()` cukup memanggil wiring-nya. Lihat `main.py` (class `AppLifecycle`) sebagai contoh pola yang benar.
-24. **Jangan Asumsikan Tipe Data dari I/O Tanpa Validasi:**
+25. **Jangan Asumsikan Tipe Data dari I/O Tanpa Validasi:**
     - Nilai hasil baca file/JSON/registry bisa saja bertipe berbeda dari yang diasumsikan (file lama/rusak/edit manual). `read_json(path, default_type)` di `core/utils/file_utils.py` **menjamin** hasilnya selalu bertipe `default_type` (sudah divalidasi `isinstance` di dalamnya) — pakai fungsi ini alih-alih `json.load()` mentah, dan tetap jangan panggil `.get()`/iterasi pada hasil pemrosesan JSON lain (mis. hasil `api.xxx()` yang belum tentu `dict`) tanpa `isinstance` check kalau sumbernya bisa dikontrol pengguna/file eksternal. Insiden nyata: `docs/known_bugs.md` #17.
-25. **Penempatan Komentar `// NOSONAR` Harus Presisi:**
+26. **Penempatan Komentar `// NOSONAR` Harus Presisi:**
     - Komentar `// NOSONAR <rule-id>` hanya menekan temuan SonarQube jika berada **persis di baris yang dilaporkan** — untuk tag JSX multi-baris, itu berarti baris **pembuka tag** (`<div // NOSONAR ...`), BUKAN baris atribut (`role="..."`) di dalamnya walau atribut itu penyebab temuannya. Verifikasi dengan scan ulang, bukan asumsi — sempat salah taruh sekali di `database/NewInstance.tsx` dan temuan tetap muncul di scan berikutnya.
-26. **Utamakan `Edit` Daripada `Write` Full-File untuk File yang Sudah Ada:**
+27. **Utamakan `Edit` Daripada `Write` Full-File untuk File yang Sudah Ada:**
     - Menulis ulang seluruh isi file (lewat `Write`) padahal hanya sebagian yang berubah membuat git-blame menganggap **semua baris** sebagai "baru", bukan cuma baris yang benar-benar diubah. Ini memicu tool berbasis blame (SonarQube "new code period", `git blame` untuk investigasi bug) salah mengklasifikasikan baris lama yang tidak tersentuh sebagai perubahan baru — pernah terjadi pada `base64/Main.tsx`, menyebabkan temuan SonarQube lama muncul lagi sebagai "new violation". Pakai `Edit` (diff bertarget) untuk file yang sudah ada; `Write` penuh hanya untuk file baru atau saat benar-benar seluruh isi berubah drastis.
-27. **Test yang Tiba-Tiba Lambat = Curigai I/O Nyata yang Lolos dari Mock:**
+28. **Test yang Tiba-Tiba Lambat = Curigai I/O Nyata yang Lolos dari Mock:**
     - Kalau `pytest` untuk satu file/fungsi tiba-tiba jauh lebih lambat dari biasanya (detik → puluhan detik), itu tanda kuat ada panggilan jaringan/subprocess/file-system yang lolos dari mock (rule 14), bukan sekadar "mesin sedang lambat". Insiden nyata: `test_php_install_version` diam-diam mengunduh `composer.phar` sungguhan dari internet setiap kali dijalankan (~80 detik) karena `_install_composer()` tidak di-mock — baru ketahuan dari anomali durasi run, bukan dari assertion yang gagal.
 
 ---
@@ -192,3 +194,5 @@ Untuk orientasi cepat dan pengembangan yang efektif, ikuti **urutan bacaan** ber
    - Konvensi/pola yang sudah mapan berubah (mis. cara import CSS global, cara emit log/progress, cara membangun translation key) — perbarui bagian dokumentasi yang mendeskripsikan pola lama tersebut supaya tidak menyesatkan pembaca berikutnya (manusia maupun AI).
    - Ditemukan gotcha arsitektur yang berpotensi terulang di kode lain (mis. Cascade Layers CSS, kontrak `percent` absolut di `emit_progress`) — catat sebagai aturan eksplisit di `AGENTS.md` dan/atau dokumen `docs/*.md` yang relevan, bukan cuma diperbaiki di satu tempat lalu dilupakan.
    - Nama file/struktur yang direferensikan dokumentasi lain berubah (seperti rename `GEMINI.md` → `AGENTS.md` ini sendiri) — grep seluruh `docs/*.md` dan file root untuk referensi nama lama, perbarui semuanya dalam perubahan yang sama, jangan biarkan sebagian dokumen menyebut nama yang sudah tidak ada.
+6. **WAJIB** merespons pengguna menggunakan bahasa yang sama dengan bahasa yang dipakai pada prompt pengguna — kalau prompt ditulis dalam Bahasa Indonesia, respons juga dalam Bahasa Indonesia; kalau dalam Bahasa Inggris, respons dalam Bahasa Inggris; berlaku sama untuk bahasa lain. Aturan ini berlaku untuk semua sesi ke depannya, bukan cuma saat instruksi ini diberikan.
+7. **WAJIB** menerapkan prinsip Clean Code dan DRY (Don't Repeat Yourself) pada setiap *development* kode baru maupun modifikasi. Perhatikan ketat aturan SonarQube: DILARANG membuat kode yang memicu temuan baru (Code Smells, Bugs, Vulnerabilities, atau Duplications) pada hasil *scan* (Zero-Tolerance untuk temuan baru). Kode yang dihasilkan harus memiliki standar keandalan tinggi, minim bug, dan berkinerja optimal.

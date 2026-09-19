@@ -151,7 +151,7 @@ Semua state aplikasi disimpan di folder `data/` (di-ignore git). Format **selalu
 |-----------|-----|-------------|
 | `data/apache.json` | `{"active_version": "2.4.62", "port": 80}` | `ApacheManager` |
 | `data/database.json` | List of database instances `[{id, engine, version, port}]` | `DatabaseManager` |
-| `data/settings.json` | `{"language": "en", "theme": "dark"}` | `SettingsManager` |
+| `data/settings.json` | `{"language": "en", "default_apache_install_location": "", "system_log_levels": null, "system_log_sources": null}` — preferensi UI generik, mudah diperluas lewat `default_config` di `SettingsManager.get_settings()`. `system_log_*`: `null` = belum dikustomisasi (tampilkan semua), array APAPUN (termasuk `[]`) = daftar eksplisit tersimpan — **jangan** pakai `[]` sebagai default, itu bug lama yang bikin "uncheck semua lalu Save" terlihat gagal tersimpan (lihat `docs/known_bugs.md` #26). JANGAN pakai `localStorage` browser untuk apa pun yang perlu bertahan antar sesi (lihat `docs/known_bugs.md` #24) | `SettingsManager` |
 | `data/dashboard.json` | Toggle config mana service yang tampil | `DashboardManager` |
 | `data/db_startup.log` | Error log saat daemon DB gagal start | `DatabaseManager` |
 | `data/VyloServeRootCA.key` | SSL private key | `SslManager` |
@@ -511,6 +511,11 @@ Sebelum menyerahkan perubahan, pastikan seluruh checklist ini terpenuhi:
 - [ ] Loading state (`isLoading`) ditangani dengan benar (disable tombol saat loading)
 - [ ] Error dari backend ditangkap dan ditampilkan via `showToast`
 - [ ] Tidak ada `dangerouslySetInnerHTML` yang memuat konten dinamis dari backend
+- [ ] Unit test Vitest tersedia untuk komponen baru/yang berubah signifikan — lihat `docs/development_testing.md` §3
+- [ ] Test baru pakai helper bersama `tests/test-utils.tsx` dan `it.each`/`describe.each` untuk variasi data, BUKAN copy-paste blok test yang mirip antar file (lihat `docs/development_testing.md` §3.1) — proyek ini menjaga *new code duplication* SonarQube di bawah 3%
+- [ ] `npm run test` (di `frontend/`) lulus tanpa error
+- [ ] `npm run test:coverage` tidak menurunkan coverage statement keseluruhan di bawah 95%
+- [ ] **`npx tsc -b` (BUKAN `tsc --noEmit -p tsconfig.json`, lihat `docs/development_testing.md` §3.5) lulus tanpa error** — perintah tanpa `-b` vakum/tidak benar-benar men-type-check apa pun di project ini
 
 ### Umum
 - [ ] Tidak ada file scratch/generator yang tertinggal (gen_*.py, parse_*.py, check_*.py)

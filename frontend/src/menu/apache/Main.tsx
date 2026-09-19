@@ -306,7 +306,12 @@ export default function ApacheMain() {
     };
 
     useEffect(() => {
-        const handleStatus = (e: any) => { if (e.detail.service === 'apache') setIsApacheRunning(e.detail.running); };
+        const handleStatus = (e: any) => {
+            const service = e.detail?.service;
+            if (service !== 'apache' && service !== 'all') return;
+            if (typeof e.detail.running === 'boolean') setIsApacheRunning(e.detail.running);
+            else fetchApacheStatus();
+        };
         const handleProg = (e: any) => {
             // Halaman ini menampilkan progress utk 2 sumber: instalasi Apache sendiri (ApacheManager)
             // dan pembuatan project baru (ProjectManager). Filter sumber lain agar tidak "bocor"
@@ -367,7 +372,9 @@ export default function ApacheMain() {
             const api = window.pywebview?.api;
             const res = isApacheRunning ? await api?.stop_apache_server() : await api?.start_apache_server();
             if (res?.status === 'success') {
-                showToast(t(res.message || '', res.args || {}) as string, 'success'); setIsApacheRunning(!isApacheRunning);
+                showToast(t(res.message || '', res.args || {}) as string, 'success');
+                setIsApacheRunning(!isApacheRunning);
+                window.dispatchEvent(new CustomEvent('service_status_changed', { detail: { service: 'apache', running: !isApacheRunning } }));
             } else showToast(t(res?.message || '', res?.args || {}) as string, 'error');
         } catch (e) { console.error(e); showToast(t('apache.toggle_error'), "error"); }
         finally { setIsTogglingServer(false); }

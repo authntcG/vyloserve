@@ -10,6 +10,8 @@ from typing import Optional
 from core.utils.system_utils import get_project_root, get_silent_flags
 from core.utils.file_utils import read_json, write_json
 
+MSG_UNEXPECTED_ERROR = "backend.error.unexpected"
+
 class ProjectManager:
     """Manager untuk setup Virtual Host, Auto-Framework, dan .htaccess"""
     def __init__(self, api_ref):
@@ -311,7 +313,7 @@ class ProjectManager:
 
         except Exception as e:
             self._log("backend.project.critical_error", "error", {"e": str(e)})
-            return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
     def sync_windows_hosts(self):
         hosts_path = r"C:\Windows\System32\drivers\etc\hosts"
@@ -392,7 +394,7 @@ class ProjectManager:
 
             with open(vhosts_file, 'w', encoding='utf-8') as f: f.write(vhost_content)
             return {"status": "success", "message": "backend.project.vhosts_written"}
-        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+        except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
     
     def get_projects(self):
         try:
@@ -400,7 +402,7 @@ class ProjectManager:
             for p in projects:
                 if 'pretty_url_synced' not in p: p['pretty_url_synced'] = p.get('framework', 'raw') == 'raw'
             return {"status": "success", "data": projects}
-        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+        except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
     def _delete_ssl_cert(self, domain: str):
         if hasattr(self.api, 'ssl'):
@@ -437,7 +439,7 @@ class ProjectManager:
             self._log("backend.project.project_deleted", "info", {"domain": project_to_delete['domain']})
             return {"status": "success", "message": "backend.project.project_deleted"}
         except Exception as e:
-            return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
     def retry_sync_host(self, project_id: str):
         try:
@@ -451,7 +453,7 @@ class ProjectManager:
             self._save_projects(projects)
             
             return {"status": "success", "message": "backend.project.domain_synced"}
-        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+        except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
     def open_in_explorer(self, path: str):
         try:
@@ -460,7 +462,7 @@ class ProjectManager:
                 os.startfile(norm_path)
                 return {"status": "success"}
             return {"status": "error", "message": "backend.project.dir_not_found"}
-        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+        except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
     def update_project(self, payload: dict):
         try:
@@ -484,4 +486,4 @@ class ProjectManager:
                     self.api.apache.restart_server()
 
             return {"status": "success", "message": "backend.project.settings_saved"}
-        except Exception as e: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+        except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
