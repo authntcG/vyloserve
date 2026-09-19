@@ -18,7 +18,8 @@ vyloserve/
 │       ├── git_manager.py      # Instalasi PortableGit
 │       ├── ssl_manager.py      # Pembuatan Certificate Authority (CA) lokal
 │       ├── dashboard.py        # Menyimpan Status Toggle UI Dashboard
-│       └── settings.py         # Menyimpan Preferensi Aplikasi (Bahasa, Tema)
+│       ├── settings.py         # Menyimpan Preferensi Aplikasi (Bahasa, Tema, filter log, opsi update)
+│       └── updater.py          # Auto-Updater: cek/unduh/pasang rilis baru dari GitHub Releases
 ├── frontend/                   # Repositori UI berbasis React (Vite + TS)
 │   ├── src/
 │   │   ├── components/         # Komponen UI Reusable, struktur FLAT (Modal, Card, PageHeader, dll — TIDAK ada subfolder ui/)

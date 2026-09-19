@@ -1,6 +1,6 @@
 # Backend Services (Logika Python) — Dokumentasi Mendalam
 
-> **Metodologi dokumen ini:** Setiap bagian di bawah ditulis berdasarkan audit langsung terhadap source code (`core/api.py`, `core/services/*.py`, `core/utils/*.py`, `main.py`), bukan asumsi dari dokumentasi sebelumnya. Setiap *workflow* (install, start, stop, dsb) disertai diagram Mermaid yang menggambarkan urutan langkah persis seperti yang terjadi di kode — termasuk percabangan error dan pemanggilan lintas-service. Bagian [§13](#13-known-issues--temuan-audit-backend) mendaftar semua ketidaksesuaian antara dokumentasi lama dan kode nyata yang ditemukan saat audit ini, termasuk **bug fungsional yang masih aktif**.
+> **Metodologi dokumen ini:** Setiap bagian di bawah ditulis berdasarkan audit langsung terhadap source code (`core/api.py`, `core/services/*.py`, `core/utils/*.py`, `main.py`), bukan asumsi dari dokumentasi sebelumnya. Setiap *workflow* (install, start, stop, dsb) disertai diagram Mermaid yang menggambarkan urutan langkah persis seperti yang terjadi di kode — termasuk percabangan error dan pemanggilan lintas-service. Bagian [§14](#14-known-issues--temuan-audit-backend) mendaftar semua ketidaksesuaian antara dokumentasi lama dan kode nyata yang ditemukan saat audit ini, termasuk **bug fungsional yang masih aktif**.
 >
 > Dokumen ini ditujukan untuk dibaca developer maupun AI Assistant. Setiap service dijelaskan secara *atomic* (satu tanggung jawab per bagian) dengan urutan: Dependency → State/Storage → API Publik → Workflow (diagram) → Helper Privat → Ketergantungan Lintas-Service.
 
@@ -19,8 +19,9 @@
 9. [`GitManager` (`git_manager.py`)](#9-gitmanager-git_managerpy)
 10. [`SslManager` (`ssl_manager.py`)](#10-sslmanager-ssl_managerpy)
 11. [`DashboardManager` & `SettingsManager`](#11-dashboardmanager--settingsmanager)
-12. [`main.py` — App Bootstrap & `AppLifecycle`](#12-mainpy--app-bootstrap--applifecycle)
-13. [Known Issues — Temuan Audit Backend](#13-known-issues--temuan-audit-backend)
+12. [`UpdaterManager` (`updater.py`) — Auto-Updater](#12-updatermanager-updaterpy--auto-updater)
+13. [`main.py` — App Bootstrap & `AppLifecycle`](#13-mainpy--app-bootstrap--applifecycle)
+14. [Known Issues — Temuan Audit Backend](#14-known-issues--temuan-audit-backend)
 
 ---
 
@@ -580,7 +581,7 @@ Keduanya CRUD sederhana tanpa efek samping OS (tidak ada subprocess/registry/net
 | | `DashboardManager` | `SettingsManager` |
 |---|---|---|
 | File state | `data/dashboard.json` | `data/settings.json` |
-| Isi | Toggle tampilan (`apache`/`php`/`database`), array `selected_php`/`selected_database` (dibaca oleh `PhpManager`/`DatabaseManager` untuk fitur "Start Selected") | `language`, `default_apache_install_location` (lihat `docs/known_bugs.md` #24), `system_log_levels`/`system_log_sources` (filter panel System Logs — `None`/`null` = belum dikustomisasi, tampilkan semua; array APAPUN termasuk array kosong = daftar eksplisit tersimpan, dipakai apa adanya. **Jangan** pakai array kosong sebagai default — lihat `docs/known_bugs.md` #26) |
+| Isi | Toggle tampilan (`apache`/`php`/`database`), array `selected_php`/`selected_database` (dibaca oleh `PhpManager`/`DatabaseManager` untuk fitur "Start Selected") | `language`, `default_apache_install_location` (lihat `docs/known_bugs.md` #24), `system_log_levels`/`system_log_sources` (filter panel System Logs — `None`/`null` = belum dikustomisasi, tampilkan semua; array APAPUN termasuk array kosong = daftar eksplisit tersimpan, dipakai apa adanya. **Jangan** pakai array kosong sebagai default — lihat `docs/known_bugs.md` #26), `receive_prerelease_updates` (boolean, default `False` — dibaca `UpdaterManager.check_for_updates()` untuk memutuskan apakah rilis prerelease GitHub ikut ditawarkan, lihat §12) |
 | **Semantik `save_config`/`save_settings`** | ⚠️ **Overwrite total** — frontend wajib kirim objek config lengkap, bukan partial patch | **Merge** — membaca dulu isi lama, hanya menimpa key yang dikirim |
 
 > Perbedaan semantik ini penting untuk developer frontend: mengirim `save_dashboard_config({apache: true})` saja akan **menghapus** key lain yang sebelumnya ada (`php`, `database`, `selected_php`, dst), sedangkan `save_app_settings({language: "id"})` aman dikirim parsial.
@@ -606,11 +607,39 @@ Selain dibaca manual lewat §11.1, isi file `error_log`/`access_log` (Apache) da
 
 ---
 
-## 12. `main.py` — App Bootstrap & `AppLifecycle`
+## 12. `UpdaterManager` (`updater.py`) — Auto-Updater
+
+Mengecek, mengunduh, dan menjalankan installer versi baru VyloServe dari GitHub Releases (`https://api.github.com/repos/authntcG/vyloserve/releases`), tanpa dependency eksternal (`urllib.request` bawaan Python, bukan `requests`).
+
+### 12.1 Dependency & State
+- Bergantung pada `SettingsManager` (baca preferensi `receive_prerelease_updates`) dan `main.APP_VERSION` (**diimpor lokal di dalam method**, bukan di top-level module — lihat catatan patch-target di §12.4).
+- State internal (`self.state`) disimpan di memori instance, **bukan** file JSON — cukup untuk kebutuhan "resume tampilan modal kalau user menutup lalu membuka lagi modal Updates saat download masih berjalan", karena `UpdaterManager` hidup selama proses `Api` hidup (satu instance per sesi aplikasi, tidak perlu persist antar restart).
+- `_cleanup_temp()` dipanggil sekali di `__init__` — menghapus sisa file `.exe`/`.bat`/`.tmp` di folder `temp/` dari sesi sebelumnya (kontrak "wajib unduh ulang bila keluar aplikasi", bukan cache installer antar sesi).
+
+### 12.2 Ringkasan API Publik
+| Method | Fungsi |
+|---|---|
+| `check_for_updates()` | Fetch daftar releases GitHub, filter draft & (opsional) prerelease sesuai setting, bandingkan versi lewat `_parse_version()` (tuple `(major, minor, patch, prerelease_tag)`, `prerelease_tag='z'` untuk stable supaya stable > semua prerelease pada versi numerik yang sama). Mengembalikan `is_update_available`, `version`, `changelog`, `asset_url`/`asset_name` (dari `_find_installer_asset()` — prioritas nama asset yang mengandung `"Setup"` dan berakhiran `.exe`, fallback ke `.exe` apapun). |
+| `get_update_status()` | Return `self.state` apa adanya — dipanggil frontend saat modal Updates dibuka, untuk resume progress bar kalau download sedang berjalan di background. |
+| `start_download_update(asset_url, asset_name)` | Validasi belum ada download lain berjalan, lalu spawn `threading.Thread(target=self._download_thread, daemon=True)` dan **langsung return** (non-blocking) — progress dikirim lewat `emit_progress()` biasa dari thread tersebut. |
+| `install_update()` | Validasi `state.is_ready` dan file installer masih ada di disk, lalu `subprocess.Popen([installer_path, '/SILENT', '/SUPPRESSMSGBOXES'], creationflags=CREATE_NEW_PROCESS_GROUP \| DETACHED_PROCESS)` — installer Inno Setup berjalan independen dari proses VyloServe (survive walau VyloServe keluar duluan). |
+
+### 12.3 Kenapa Bukan `download_advanced()`
+`core/utils/file_utils.download_advanced()` (dipakai modul Runtimes) menyuntikkan persentase progress bar *hardcode* (10–60%) yang hanya masuk akal untuk alur install Runtimes multi-tahap. Updater hanya perlu unduh 1 file 0–100% murni, jadi `_download_thread()` menghitung sendiri `percent = int((downloaded / total_size) * 100)` dari `Content-Length` header — lihat AGENTS.md aturan *"DILARANG Menggunakan `download_advanced` untuk Unduhan Reguler"*.
+
+### 12.4 ✅ Bug Ditemukan & Diperbaiki (sebelum fitur ini sempat di-commit)
+Ditemukan saat audit kode sebelum serah terima — lihat `docs/known_bugs.md` untuk detail lengkap ketiganya:
+1. **`Api.install_update()` memanggil method yang tidak ada** — `UpdaterManager` awalnya bernama method-nya `execute_update()`, sementara `core/api.py`, frontend, dan test semua sudah memanggil `install_update()`. Akan `AttributeError` di runtime tiap kali user menekan tombol install. Diperbaiki dengan menyamakan nama jadi `install_update()`.
+2. **String hardcode Bahasa Inggris di `emit_progress()`** — `"Ready to install"` dan `"Error"` dikirim langsung sebagai `text`, melanggar aturan WAJIB translation-key di AGENTS.md (§ "Log & Progress Real-Time Juga Wajib Pakai Translation Key"). Diperbaiki dengan menambah key `backend.updater.ready_to_install` dan `backend.updater.download_failed` di kedua locale.
+3. **Test `patch()` menyasar target yang salah** — `tests/test_services/test_updater.py` awalnya melakukan `patch('core.services.updater.APP_VERSION', ..., create=True)`, padahal kode produksi melakukan `from main import APP_VERSION` **di dalam** method `check_for_updates()` (bukan di top-level module) — patch tersebut tidak pernah benar-benar dibaca (lihat AGENTS.md aturan #19, *Patch Target Harus Presisi*). Kebetulan test tetap "lulus" karena `main.APP_VERSION` sungguhan sudah sama dengan nilai yang di-patch, bukan karena patch-nya bekerja. Diperbaiki jadi `patch('main.APP_VERSION', ...)`, ditambah test regresi yang mem-patch ke dua nilai berbeda untuk memastikan hasilnya benar-benar berubah sesuai patch.
+
+---
+
+## 13. `main.py` — App Bootstrap & `AppLifecycle`
 
 > ✅ **Update:** `main.py` sebelumnya punya coverage 0% karena seluruh logic exit (`perform_exit`, `on_closing`) terjebak sebagai closure di dalam `if __name__ == '__main__':`, sehingga tidak bisa di-import untuk ditest. Sudah di-refactor menjadi class `AppLifecycle` — lihat detail di bawah.
 
-### 12.1 Alur Bootstrap
+### 13.1 Alur Bootstrap
 1. `main()` membuat instance `Api()`, lalu `AppLifecycle(api, IS_PRODUCTION)`.
 2. `webview.create_window(...)` membuat window → `api.set_window(window)` **dan** `lifecycle.set_window(window)` (keduanya perlu tahu window: `api` untuk `emit_log`/`emit_progress`, `lifecycle` untuk hide/destroy).
 3. `api.quit_callback = lifecycle.perform_exit` — inilah yang membuat `Api.close_app()` (dipanggil dari tombol Quit UI) benar-benar memicu cleanup.
@@ -618,7 +647,7 @@ Selain dibaca manual lewat §11.1, isi file `error_log`/`access_log` (Apache) da
 5. Jika `IS_PRODUCTION`, `setup_systray(lifecycle, icon_path)` dipanggil untuk mengaktifkan ikon System Tray.
 6. `webview.start(...)` — blocking call, baru return saat window benar-benar ditutup.
 
-### 12.2 `AppLifecycle` — Satu Sumber Kebenaran untuk Exit/Hide
+### 13.2 `AppLifecycle` — Satu Sumber Kebenaran untuk Exit/Hide
 
 ```mermaid
 flowchart TD
@@ -644,12 +673,12 @@ flowchart TD
 
 **Kedua jalur exit (tombol Quit UI dan menu Tray "Exit Engine") kini memanggil `perform_exit()` yang sama** — sebelumnya menu Tray punya jalur pintas terpisah yang melewatkan cleanup engine (lihat `docs/known_bugs.md` #15).
 
-### 12.3 Kenapa Diekstrak Jadi Class
+### 13.3 Kenapa Diekstrak Jadi Class
 `AppLifecycle` menyimpan `api`, `window`, `tray_icon`, `is_real_exit` sebagai atribut instance (bukan variabel global `is_real_exit`/`global_tray_icon` + closure seperti sebelumnya). Ini membuatnya bisa diinstansiasi langsung di unit test dengan `MagicMock()` sebagai pengganti `api`/`window`/`tray_icon`, tanpa perlu menjalankan `pywebview`/`webview.start()` sungguhan. Lihat `tests/test_main.py` untuk cakupan penuh (bootstrap, exit, hide-to-tray, system tray).
 
 ---
 
-## 13. Known Issues — Temuan Audit Backend
+## 14. Known Issues — Temuan Audit Backend
 
 Tabel ini adalah hasil audit langsung terhadap kode per tanggal dokumen ini ditulis. Status diperbarui secara jujur — beberapa klaim "sudah fixed" di dokumentasi sebelumnya **terbukti salah** saat kode benar-benar dibaca ulang.
 

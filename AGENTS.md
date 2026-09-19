@@ -15,7 +15,8 @@ vyloserve/
 │   ├── utils/              # Helper untuk proses eksekusi OS, regex, file system
 │   └── services/           # Modul Manager spesifik (Single Responsibility Principle)
 │       ├── apache.py, php.py, database.py, runtimes_manager.py
-│       └── project.py, git_manager.py, ssl_manager.py, dashboard.py
+│       ├── project.py, git_manager.py, ssl_manager.py, dashboard.py
+│       └── settings.py, updater.py
 ├── frontend/               # Kode React UI
 │   ├── src/
 │   │   ├── components/     # Reusable UI (Modal.tsx, PageHeader.tsx, dll)
@@ -171,9 +172,14 @@ Aturan "dilarang hardcode" di atas **tidak hanya berlaku untuk field `"message"`
     - Menulis ulang seluruh isi file (lewat `Write`) padahal hanya sebagian yang berubah membuat git-blame menganggap **semua baris** sebagai "baru", bukan cuma baris yang benar-benar diubah. Ini memicu tool berbasis blame (SonarQube "new code period", `git blame` untuk investigasi bug) salah mengklasifikasikan baris lama yang tidak tersentuh sebagai perubahan baru — pernah terjadi pada `base64/Main.tsx`, menyebabkan temuan SonarQube lama muncul lagi sebagai "new violation". Pakai `Edit` (diff bertarget) untuk file yang sudah ada; `Write` penuh hanya untuk file baru atau saat benar-benar seluruh isi berubah drastis.
 28. **Test yang Tiba-Tiba Lambat = Curigai I/O Nyata yang Lolos dari Mock:**
     - Kalau `pytest` untuk satu file/fungsi tiba-tiba jauh lebih lambat dari biasanya (detik → puluhan detik), itu tanda kuat ada panggilan jaringan/subprocess/file-system yang lolos dari mock (rule 14), bukan sekadar "mesin sedang lambat". Insiden nyata: `test_php_install_version` diam-diam mengunduh `composer.phar` sungguhan dari internet setiap kali dijalankan (~80 detik) karena `_install_composer()` tidak di-mock — baru ketahuan dari anomali durasi run, bukan dari assertion yang gagal.
+29. **DILARANG Menggunakan `download_advanced` untuk Unduhan Reguler:**
+    - Fungsi `download_advanced` di `core/utils/file_utils.py` menginjeksi persentase *progress bar* buatan secara *hardcode* (10-60%) yang hanya cocok untuk modul *Runtimes*. Untuk fitur yang hanya butuh mengunduh file 0-100% murni (seperti fitur *Auto-Updater* di `core/services/updater.py`), buat rutin `urllib.request.urlopen` sendiri dengan perhitungan murni `percent = int((downloaded / total_size) * 100)`.
+30. **🚨 WAJIB: JANGAN Edit File `.md`/Teks Berisi Emoji via PowerShell `Set-Content`/`Add-Content`/`Out-File` Tanpa `-Encoding utf8` Eksplisit:**
+    - PowerShell 5.1 secara default menulis file lewat `Set-Content`/`Add-Content` memakai *system ANSI code page* (BUKAN UTF-8), sehingga setiap emoji/simbol non-ASCII (📌, 🚨, │, →, §, — dsb.) di file `.md` yang diedit lewat cara ini akan berubah jadi *mojibake* yang secara diam-diam tetap valid UTF-8 secara teknis — command `file <nama>` masih bisa melaporkannya "UTF-8 text" walau isinya sudah rusak, jadi jangan mengandalkan itu sebagai pembuktian encoding benar. Bug nyata: `AGENTS.md` dan 3 file `docs/*.md` sempat rusak seperti ini di working tree, dan satu entri di `docs/known_bugs.md` bahkan sempat ter-*commit* dalam kondisi rusak (byte NULL tersisip + tanda kutip-balik berubah jadi backslash/karakter TAB). Lihat `docs/known_bugs.md` #29 untuk detail forensik lengkap.
+    - **WAJIB** gunakan tool baca-tulis file yang sudah terverifikasi UTF-8-safe (tool `Edit`/`Write` Claude Code, atau `[System.IO.File]::WriteAllText($path, $text, (New-Object System.Text.UTF8Encoding($false)))` kalau harus lewat PowerShell) untuk file apa pun yang mengandung karakter non-ASCII. Setelah editing besar-besaran ke file dokumentasi, verifikasi cepat dengan memastikan tidak ada byte `\x00` atau karakter `U+FFFD` tersisa sebelum commit.
 
 ---
-*File ini dirancang khusus untuk dibaca oleh AI Assistant (Gemini) untuk langsung memahami ekosistem VyloServe tanpa perlu menganalisa ulang seluruh repositori secara manual dari awal setiap memulai percakapan atau sesi baru.*
+*File ini adalah sumber rujukan utama lintas-vendor untuk AI Assistant (Claude Code, OpenAI Codex CLI, Cursor, Amp, Jules, Gemini, dan tool lain yang mendukung standar terbuka [agents.md](https://agents.md)) agar bisa langsung memahami ekosistem VyloServe tanpa perlu menganalisa ulang seluruh repositori secara manual dari awal setiap memulai percakapan atau sesi baru.*
 
 ## 📖 Dokumentasi Ekstensif & Urutan Bacaan untuk AI
 

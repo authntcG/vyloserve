@@ -110,6 +110,15 @@
 | `test_connection(data)` | `test_connection()` | Return ping |
 | `close_app()` | `close_app()` | `quit_callback()` (jika di-set `main.py`) atau `os._exit(0)` langsung — lihat `docs/known_bugs.md` #6 untuk isu cleanup proses child |
 
+### Updater Endpoints
+| Endpoint (JS) | Handler Python | Delegasi ke |
+|--------------|----------------|-------------|
+| `get_app_version()` | `get_app_version()` | `main.APP_VERSION` (satu-satunya sumber kebenaran versi — lihat AGENTS.md rule 11) |
+| `check_for_updates()` | `check_for_updates()` | `updater.check_for_updates()` |
+| `get_update_status()` | `get_update_status()` | `updater.get_update_status()` |
+| `start_download_update(asset_url, asset_name)` | `start_download_update()` | `updater.start_download_update()` (non-blocking, thread background) |
+| `install_update()` | `install_update()` | `updater.install_update()` |
+
 ---
 
 ## 2. Peta File & Tanggung Jawab
@@ -117,19 +126,20 @@
 ### Backend Files
 | File | Ukuran | Tanggung Jawab |
 |------|--------|----------------|
-| `core/api.py` | ~361 baris | Facade/Router — meneruskan semua panggilan JS ke manager |
-| `core/services/apache.py` | ~448 baris | Instalasi, konfigurasi, dan lifecycle httpd.exe |
-| `core/services/php.py` | ~392 baris | Multi-version PHP-CGI, extensions, php.ini management |
-| `core/services/database.py` | ~608 baris | MySQL/MariaDB dan PostgreSQL daemon management |
-| `core/services/project.py` | ~488 baris | VirtualHost, Composer, UAC hosts injection |
-| `core/services/runtimes_manager.py` | ~758 baris | Node, Python, Java, Go — Windows Registry PATH injection |
-| `core/services/git_manager.py` | ~363 baris | PortableGit installer dan PATH management |
+| `core/api.py` | ~458 baris | Facade/Router — meneruskan semua panggilan JS ke manager |
+| `core/services/apache.py` | ~507 baris | Instalasi, konfigurasi, dan lifecycle httpd.exe |
+| `core/services/php.py` | ~404 baris | Multi-version PHP-CGI, extensions, php.ini management |
+| `core/services/database.py` | ~684 baris | MySQL/MariaDB dan PostgreSQL daemon management |
+| `core/services/project.py` | ~489 baris | VirtualHost, Composer, UAC hosts injection |
+| `core/services/runtimes_manager.py` | ~772 baris | Node, Python, Java, Go — Windows Registry PATH injection |
+| `core/services/git_manager.py` | ~367 baris | PortableGit installer dan PATH management |
 | `core/services/ssl_manager.py` | ~101 baris | Root CA generation via OpenSSL |
-| `core/services/dashboard.py` | ~65 baris | CRUD konfigurasi dashboard (JSON) |
-| `core/services/settings.py` | ~62 baris | CRUD preferensi aplikasi (bahasa, tema) |
-| `core/utils/file_utils.py` | ~188 baris | JSON I/O, download multi-part, ekstraksi ZIP/TAR |
+| `core/services/dashboard.py` | ~64 baris | CRUD konfigurasi dashboard (JSON) |
+| `core/services/settings.py` | ~74 baris | CRUD preferensi aplikasi (bahasa, log filter, `receive_prerelease_updates`) |
+| `core/services/updater.py` | ~224 baris | Auto-Updater: cek/unduh/pasang rilis baru dari GitHub Releases |
+| `core/utils/file_utils.py` | ~291 baris | JSON I/O, download multi-part, ekstraksi ZIP/TAR |
 | `core/utils/system_utils.py` | - | subprocess silent, port checker, path resolver |
-| `main.py` | - | Entrypoint: PyWebView window + System Tray setup |
+| `main.py` | ~213 baris | Entrypoint: PyWebView window, System Tray setup, `APP_VERSION` |
 
 ### Frontend Files (Halaman Utama)
 | File | Ukuran | Konten |
@@ -499,6 +509,9 @@ Sebelum menyerahkan perubahan, pastikan seluruh checklist ini terpenuhi:
       `"message": "backend.error.unexpected", "args": {"e": str(e)}` atau key spesifik
 - [ ] Jika membuat/mengubah wrapper `_log()`/`_progress()` di service, signature-nya
       menerima & meneruskan `args: dict = None` ke `self.api.emit_log/emit_progress`
+- [ ] Nama method di `Api` facade yang mendelegasikan ke service (`self.xxx.method_name()`)
+      **cocok persis** dengan nama method yang benar-benar ada di service tersebut — cek
+      langsung ke file service, jangan asumsikan dari nama endpoint JS (lihat `docs/known_bugs.md` #28)
 - [ ] Subprocess menggunakan list argument, bukan string
 - [ ] Unit test tersedia dan cover: happy path, edge case, error path
 - [ ] `python -m pytest tests/ --cov=. --cov-report=xml` lulus tanpa error
@@ -520,3 +533,6 @@ Sebelum menyerahkan perubahan, pastikan seluruh checklist ini terpenuhi:
 ### Umum
 - [ ] Tidak ada file scratch/generator yang tertinggal (gen_*.py, parse_*.py, check_*.py)
 - [ ] Tidak ada `git commit` yang dilakukan sebelum mendapat persetujuan eksplisit
+- [ ] File `.md`/teks berisi emoji yang diedit besar-besaran (terutama lewat PowerShell)
+      diverifikasi bebas byte `\x00`/karakter `U+FFFD` sebelum commit — lihat AGENTS.md
+      rule 30 & `docs/known_bugs.md` #29

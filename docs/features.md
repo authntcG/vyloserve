@@ -38,3 +38,8 @@ Mengelola instalasi engine pemrograman pihak ketiga. Path sistem (Windows Regist
 ## 7. Multi-Language & Tema (Dashboard)
 - **i18n Frontend:** Antarmuka mendukung multi-bahasa (Inggris dan Indonesia) yang diterjemahkan langsung melalui frontend React.
 - **Dashboard Modular:** Menyimpan preferensi pengguna mengenai layanan mana saja yang perlu ditampilkan di *Home Dashboard*.
+
+## 8. Auto-Updater
+- **Cek Otomatis:** Memeriksa rilis terbaru dari GitHub Releases secara otomatis di setiap startup aplikasi, dan menawarkan pengecekan manual kapan saja lewat modal "Updates".
+- **Opsi Pre-release:** Pengguna dapat memilih menerima versi *alpha*/*beta* lebih awal lewat toggle "Terima Pembaruan Pre-release" — default hanya rilis stabil.
+- **Download & Instal Satu Klik:** Mengunduh installer (`.exe`) di latar belakang dengan progress bar real-time (bisa ditutup modalnya, unduhan tetap berlanjut), lalu menjalankan installer Inno Setup mode silent (`/SILENT /SUPPRESSMSGBOXES`) yang otomatis menggantikan versi lama.
