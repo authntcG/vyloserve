@@ -489,7 +489,10 @@
         "log_file_empty": "This log file is empty.",
         "log_file_loading": "Loading log content...",
         "log_file_fetch_error": "Failed to read the log file content.",
-        "refresh": "Refresh"
+        "refresh": "Refresh",
+        "updates": "Updates",
+        "receive_prerelease": "Receive Pre-release Updates",
+        "receive_prerelease_desc": "Get early access to alpha and beta versions."
     },
     "tools": {
         "base64": {
@@ -947,6 +950,34 @@
             "project_module_not_loaded": "Project module not loaded.",
             "closing_app": "Closing application...",
             "ping_received": "Received ping from UI: {{data}}"
+        },
+        "updater": {
+            "network_error": "Network error while checking for updates.",
+            "no_releases": "No releases found.",
+            "already_latest": "You are already using the latest version.",
+            "no_installer": "No installer asset found in the latest release.",
+            "already_downloading": "An update download is already in progress.",
+            "not_ready": "Update installer is not yet downloaded or ready.",
+            "download_error": "Failed to download update: {{e}}",
+            "downloading": "Downloading update {{file}}...",
+            "restarting": "Restarting application to apply update...",
+            "ready_to_install": "Ready to install",
+            "download_failed": "Update download failed"
+        }
+    },
+    "ui": {
+        "update": {
+            "current_version": "Current Version",
+            "check": "Check for Updates",
+            "checking": "Checking...",
+            "available": "New Update Available!",
+            "downloading": "Downloading & Restarting...",
+            "downloading_fallback": "Downloading...",
+            "download_restart": "Download & Install",
+            "close_hint_background": "You can close this modal, the download will continue in the background.",
+            "download_complete": "Download Complete. Ready to install!",
+            "install_restart": "Install & Restart",
+            "no_changelog": "No changelog provided."
         }
     }
 }

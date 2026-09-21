@@ -18,6 +18,7 @@ function mockPywebviewApi(overrides: Partial<Record<string, unknown>> = {}) {
             database: false,
             cpu_load: 42,
         }),
+        get_app_version: vi.fn().mockResolvedValue('0.0.3-beta'),
         start_service: vi.fn().mockResolvedValue({ status: 'success' }),
         stop_service: vi.fn().mockResolvedValue({ status: 'success' }),
         ...overrides,

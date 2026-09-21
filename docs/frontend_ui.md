@@ -139,6 +139,7 @@ sequenceDiagram
   - Item nav yang punya flyout submenu (pola "Tools") menandai keberadaan submenu lewat **ikon `chevron_right` di sebelah ikon utama, ukuran SAMA** (kedua ikon `style={{ fontSize: '18px' }}`, `ml-0.5` di antaranya, `gap-0` pada container supaya total lebar `18+2+18=38px` muat dalam ~40px ruang konten rail) — **bukan** badge kecil menumpuk di sudut ikon (pola lama, terlihat seperti "ikon kecil nyasar di bawah", sudah diganti karena sulit dibaca sebagai penanda submenu).
   - Header collapsed **hanya menampilkan tombol toggle** (`menu_open`, di-mirror `scale-x-[-1]` supaya panahnya mengarah ke kanan/"expand"), logo aplikasi **disembunyikan total** saat collapsed (bukan diganti versi icon-only). Keputusan desain (lihat diskusi UI/UX terkait): logo tidak clickable/tidak fungsional saat collapsed, sementara tombol toggle adalah satu-satunya kontrol untuk kembali ke expanded — di ruang rail 80px yang sempit, prioritaskan elemen fungsional (Fitts's Law) daripada elemen dekoratif; efek sampingnya, dengan cuma 1 elemen tersisa, ikon toggle otomatis center tanpa perlu extra layout trick.
   - Item nav yang **tidak punya kontrol start/stop yang valid** di backend (mis. `runtimes` — tidak ada endpoint `start_service`/`stop_service('runtimes')` di `core/api.py`, jadi toggle switch di baris itu dulu selalu gagal diam-diam) **WAJIB** ditandai `hasToggle: false` di array `SERVICES`, bukan tetap menampilkan toggle yang tidak pernah berfungsi. Toggle switch di render dibungkus `{service.hasToggle && (...)}`.
+- **Item menu "Updates"** di `SidebarFooter` (antara "System Logs" dan "About") membuka modal `updates` (`onOpenModal('updates')` → `activeSettingsModal` di `Sidebar.tsx`). Selain klik manual, modal ini juga bisa terbuka **otomatis** lewat dua listener `window` yang dipasang di `Sidebar.tsx`: `vylo_open_settings_modal` (dipicu `App.tsx` saat auto-check update di startup menemukan versi baru — lihat §3.1) dan `vylo_update_ready` (dipicu backend `UpdaterManager` lewat `evaluate_js` setelah download selesai, agar user diarahkan langsung ke tombol install walau modalnya sudah tertutup saat download berjalan). Lihat `docs/backend_services.md` §12 untuk sisi backend fitur Auto-Updater ini.
 
 ### 2.5 `HeaderMobile.tsx`
 Header untuk layar mobile (`md:hidden`) — tombol hamburger memicu `onMenuClick` dari `App.tsx` untuk membuka overlay sidebar.
@@ -166,6 +167,11 @@ flowchart LR
         ApacheCRUD["Apache NewProject/ProjectSettings<br/>create/update/delete_project"] -->|dispatch| PLU(("project_list_updated"))
         ApacheSettings["Apache Settings.tsx<br/>set_apache_active_version"] -->|dispatch| AVC(("apache_version_changed"))
         LogSettingsModal["SettingsModals.tsx<br/>'System Logs' modal Apply"] -->|dispatch| VLSC(("vylo_log_settings_changed"))
+        AppStartupCheck["App.tsx bootstrap<br/>check_for_updates() otomatis"] -->|dispatch| VOSM(("vylo_open_settings_modal"))
+    end
+
+    subgraph BackendUpdater["Backend (UpdaterManager, via evaluate_js)"]
+        DLThread["_download_thread() sukses"] -->|native window event| VUR(("vylo_update_ready"))
     end
 
     VLOG --> LogsPanel[LogsPanel.tsx — filter level/source dari settings.json]
@@ -175,6 +181,8 @@ flowchart LR
     PLU --> ApacheMain2[ApacheMain — refresh daftar project] & Dashboard3[DashboardMain — refresh recent projects]
     AVC --> ApacheMain3[ApacheMain — refresh status versi]
     VLSC --> LogsPanel
+    VOSM --> Sidebar3["Sidebar.tsx — buka modal 'updates'"]
+    VUR --> Sidebar3 & UpdatesModal2["UpdatesModal (SettingsModals.tsx) — set isReadyToInstall"]
 ```
 
 | Event | Emitter | Listener | Payload |
@@ -186,6 +194,8 @@ flowchart LR
 | `project_list_updated` | `NewProject.tsx`, `ProjectSettings.tsx` (Apache) | `ApacheMain.tsx`, `DashboardMain` (refresh recent projects — lihat `docs/known_bugs.md` #23) | — |
 | `apache_version_changed` | `Settings.tsx` (Apache) | `ApacheMain.tsx` | — |
 | `vylo_log_settings_changed` | Modal "System Logs" (`SettingsModals.tsx`) setelah "Save" | `LogsPanel.tsx` (re-fetch preferensi filter tanpa perlu remount) | — |
+| `vylo_open_settings_modal` | `App.tsx` bootstrap — setelah `get_app_settings()` sukses, memanggil `check_for_updates()` di latar belakang; jika `is_update_available: true`, dispatch event ini | `Sidebar.tsx` — set `activeSettingsModal` sesuai `detail.modal` (saat ini selalu `'updates'`) sehingga modal Auto-Updater terbuka otomatis tanpa user perlu klik menu | `{modal: 'updates'}` |
+| `vylo_update_ready` | Backend `UpdaterManager._download_thread()` lewat `window.evaluate_js()` langsung (bukan lewat `emit_progress`/`emit_log`, karena ini bukan pesan log melainkan sinyal state selesai) setelah file installer selesai diunduh | `Sidebar.tsx` (buka modal `updates` kalau belum terbuka) **dan** `UpdatesModal` sendiri kalau modalnya sudah terbuka (refresh `get_update_status()`, set `isReadyToInstall=true`) | — |
 
 ### 3.2 Kontrak Toast: `showToast` Menerima String yang Sudah Diterjemahkan
 
@@ -458,13 +468,24 @@ Struktur sama seperti Runtimes (deteksi eksternal/native, PATH toggle terkunci j
 **100% client-side** — tidak ada pemanggilan `window.pywebview.api` sama sekali kecuali clipboard/toast. Base64: `TextEncoder`/`TextDecoder` + `btoa`/`atob` (UTF-8 safe), mendukung mode file (drag-drop → `FileReader.readAsDataURL`, deteksi otomatis preview image dari data-URI). Logic encode/decode diekstrak jadi pure function `encodeTextToBase64()`/`decodeBase64Input()`, dan panel kiri/kanan jadi `EditorSection`/`PayloadInfoCard` — lihat §5.1. URL tool: parsing native `URL` API untuk visualisasi hierarki protocol/host/path/query.
 
 ### `SettingsModals.tsx`
-4 modal terpusat (language/about/quit/**logs**) dari footer Sidebar. Language modal menyimpan ke **dua sumber kebenaran**: `i18n.changeLanguage()` (runtime) **dan** `api.save_app_settings({language})` (persisted) — disinkronkan ulang saat `App.tsx` mount via `get_app_settings()`.
+5 modal terpusat (language/about/quit/logs/**updates**) dari footer Sidebar. Language modal menyimpan ke **dua sumber kebenaran**: `i18n.changeLanguage()` (runtime) **dan** `api.save_app_settings({language})` (persisted) — disinkronkan ulang saat `App.tsx` mount via `get_app_settings()`.
 
 **Modal "logs" (System Logs)** — filter level/kategori untuk `LogsPanel.tsx`, dipecah 2 section:
 - **Level Log**: 4 toggle (Info/Warning/Error/Success), masing-masing dengan dot indikator warna (`dotClass` per level di array `LOG_LEVELS`, warna sama seperti `LogsPanel.getColorClass()`).
 - **Kategori Modul**: `LOG_SOURCE_GROUPS` — array *grouped* (bukan flat) supaya Apache & Database masing-masing bisa render **dua toggle independen dalam satu baris** ("Log Sistem" vs "Log File", lihat `docs/known_bugs.md` #26 untuk kenapa dua kategori ini perlu dipisah); modul tanpa file log (PHP, Project, Runtimes, Git, SSL, Dashboard, App Settings) cukup satu toggle "Log Sistem" (field `fileKey` di-omit dari entry group-nya, JSX menyembunyikan toggle kedua secara kondisional).
 - Semua toggle memakai komponen lokal `ToggleSwitch` (pill kecil, `w-8 h-4`) — markup identik dengan toggle start/stop service di `Sidebar.tsx` (`<label aria-label>` membungkus `<input type="checkbox" className="sr-only peer">` + div `peer-checked:bg-emerald-500`), disengaja disamakan supaya tidak menambah pola toggle baru di aplikasi ini.
 - State `logLevels`/`logSources` (array literal, bukan lagi checkbox-per-row) di-load dari `get_app_settings()` saat modal dibuka dan disimpan apa adanya ke `save_app_settings()` saat "Save" — lihat `docs/known_bugs.md` #26 untuk semantik `null` vs array kosong.
+
+**Modal "updates" (Auto-Updater)** — diekstrak jadi komponen terpisah `UpdatesModal` (bukan inline seperti modal lain) karena kompleksitas state-nya jauh lebih besar (7 `useState`, 1 `useEffect` dengan 2 listener event). Alur lengkap:
+1. **Saat dibuka** (`isOpen` berubah jadi `true`): fetch `api.get_app_version()` (tampilkan versi terpasang saat ini — satu-satunya sumber kebenaran adalah `APP_VERSION` di `main.py`, lihat AGENTS.md aturan *Single Source of Truth*), `api.get_app_settings()` (state toggle "Terima Pembaruan Pre-release"), dan `api.get_update_status()` (resume state jika user sempat menutup modal saat download sedang berjalan — backend menyimpan progress di `UpdaterManager.state`, bukan cuma di memori komponen React yang hilang saat unmount).
+2. **Cek manual** (`handleCheckUpdate`) → `api.check_for_updates()` → render salah satu dari 3 kondisi lewat `renderUpdateStatus()`: error jaringan/no-installer, "sudah versi terbaru", atau kartu hijau "update tersedia" berisi changelog + tombol download.
+3. **Download** (`handleDownloadUpdate`) → `api.start_download_update(asset_url, asset_name)` — backend langsung `return` (thread berjalan di background), progress masuk lewat event `vylo_progress` biasa (difilter di `handleProgress` dengan mengecek `detail.text.includes('backend.updater')`, **bukan** filter `source` seperti halaman modul lain, karena `UpdaterManager` tidak melewati `_resolve_event_source()` — perhatikan ini kalau menambah filter event baru di modal ini).
+4. **Selesai** (`vylo_update_ready`) → `isReadyToInstall=true`, tombol berubah jadi "Instal & Mulai Ulang" (`handleInstallUpdate` → `api.install_update()`, memicu installer Inno Setup mode silent dan proses VyloServe akan exit/restart di luar kendali React).
+5. **Toggle Pre-release** (`handleTogglePrerelease`) langsung memanggil ulang `handleCheckUpdate()` setelah menyimpan setting, supaya user tidak perlu klik "Check" dua kali untuk melihat efek toggle-nya.
+
+⚠️ **Bug ditemukan & diperbaiki (sebelum fitur ini sempat di-commit)** — lihat `docs/known_bugs.md` entri Auto-Updater untuk detail lengkap:
+- `api.install_update()` sempat memanggil method backend yang **tidak ada** (`UpdaterManager` hanya punya `execute_update()`, bukan `install_update()`) — akan `AttributeError` tiap kali user menekan tombol install. Diperbaiki dengan menyamakan nama method di backend jadi `install_update()`.
+- Beberapa teks di `UpdatesModal` (hint "boleh tutup modal saat download", "Download Complete. Ready to install!", "Install & Restart", "Checking...") sempat **hardcode Bahasa Inggris tanpa translation key**, sehingga tidak ikut berubah walau bahasa aplikasi di-set ke Indonesia. Diperbaiki dengan menambah key baru di bawah `ui.update.*` (kedua locale) dan membungkusnya dengan `t()`.
 
 ---
 

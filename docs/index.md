@@ -3,7 +3,7 @@
 Selamat datang di Dokumentasi Resmi **VyloServe**.
 VyloServe adalah aplikasi desktop pengelola server lokal (mirip XAMPP/Laragon) yang mengatur modul seperti Apache, PHP, Database, serta berbagai Runtimes (Node.js, Python, Java, Go). Aplikasi ini dibuat menggunakan Python untuk backend (menjalankan command tingkat OS) dan React untuk antarmuka pengguna (UI) modern.
 
-Dokumentasi ini telah dipecah menjadi beberapa modul spesifik agar lebih mudah dibaca dan dikelola, baik oleh manusia maupun AI (seperti Gemini).
+Dokumentasi ini telah dipecah menjadi beberapa modul spesifik agar lebih mudah dibaca dan dikelola, baik oleh manusia maupun AI Assistant apa pun (Claude Code, OpenAI Codex CLI, Cursor, Gemini, dsb).
 
 ## Persyaratan Sistem (System Requirements)
 Target spesifikasi untuk menjalankan aplikasi VyloServe secara optimal:
@@ -39,4 +39,6 @@ Target spesifikasi untuk menjalankan aplikasi VyloServe secara optimal:
 > 2. `docs/ai_development_guide.md` (peta API + pola kerja)
 > 3. `docs/development_testing.md` (standar test + security)
 > 4. Dokumen spesifik sesuai modul yang dikerjakan
+>
+> **Jaring pengaman untuk tool yang belum mendukung standar `agents.md` secara native:** repositori ini juga menyediakan file "pointer" tipis di root/`.github/` (`CLAUDE.md`, `GEMINI.md`, `.github/copilot-instructions.md`, `.cursorrules`, `.windsurfrules`) yang isinya **hanya** mengarahkan balik ke `AGENTS.md` — bukan duplikasi aturan. Ini memastikan AI Assistant apa pun (termasuk yang secara default mencari nama file konvensinya sendiri, bukan `AGENTS.md`) tidak pernah "berjalan buta" tanpa membaca aturan projek ini lebih dulu. Kalau menambah dukungan untuk tool AI baru di masa depan, cek dulu apakah tool tersebut sudah mendukung standar `agents.md`; jika belum, tambahkan pointer tipis serupa alih-alih menyalin ulang isi `AGENTS.md`.
 

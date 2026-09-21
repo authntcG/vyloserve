@@ -25,6 +25,7 @@ export function mockPywebviewApi(overrides: MockApi = {}): MockApi {
         test_connection: vi.fn().mockResolvedValue({ status: 'success' }),
         get_app_settings: vi.fn().mockResolvedValue({ status: 'success', data: { language: 'en' } }),
         get_all_services_status: vi.fn().mockResolvedValue({ apache: false, php: false, database: false, cpu_load: 0 }),
+        get_app_version: vi.fn().mockResolvedValue('0.0.3-beta'),
         open_browser: vi.fn(),
         open_in_explorer: vi.fn(),
         browse_directory: vi.fn().mockResolvedValue(''),
