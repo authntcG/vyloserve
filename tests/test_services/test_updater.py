@@ -272,7 +272,7 @@ def test_start_download_update_spawns_background_thread(mock_thread, updater):
     assert kwargs["args"] == ("http://url/setup.exe", "setup.exe")
     assert kwargs["daemon"] is True
     mock_thread.return_value.start.assert_called_once()
-    updater.api.emit_progress.assert_called_once_with(0, "backend.updater.downloading", {"file": "setup.exe"}, "UpdaterManager")
+    updater.api.emit_progress.assert_called_once_with(0, "backend.updater.downloading", {"file": "setup.exe"})
 
 @patch('builtins.open')
 @patch('core.services.updater.os.makedirs')
@@ -290,7 +290,7 @@ def test_download_thread_success_marks_ready_and_notifies_ui(mock_urlopen, mock_
     assert updater.state["is_downloading"] is False
     assert updater.state["progress_percent"] == 100
     assert updater.state["progress_text"] == "backend.updater.ready_to_install"
-    updater.api.emit_progress.assert_called_with(100, "backend.updater.ready_to_install", {}, "UpdaterManager")
+    updater.api.emit_progress.assert_called_with(100, "backend.updater.ready_to_install", {})
     updater.api._window.evaluate_js.assert_called_once()
     assert "vylo_update_ready" in updater.api._window.evaluate_js.call_args[0][0]
 
@@ -305,9 +305,9 @@ def test_download_thread_network_failure_resets_state_and_logs_error(mock_urlope
     assert updater.state["progress_percent"] == 0
     assert updater.state["progress_text"] == "backend.updater.download_failed"
     updater.api.emit_log.assert_called_once_with(
-        "backend.updater.download_error", "error", {"e": "connection reset"}, source="UpdaterManager"
+        "backend.updater.download_error", "error", {"e": "connection reset"}
     )
-    updater.api.emit_progress.assert_called_with(100, "backend.updater.download_failed", {}, "UpdaterManager")
+    updater.api.emit_progress.assert_called_with(100, "backend.updater.download_failed", {})
 
 def test_install_update_not_ready_returns_error(updater):
     updater.state["is_ready"] = False
@@ -325,9 +325,10 @@ def test_install_update_missing_file_on_disk_returns_error(mock_exists, updater)
     assert res["status"] == "error"
     assert res["message"] == "backend.updater.not_ready"
 
+@patch('builtins.open')
 @patch('core.services.updater.subprocess.Popen')
 @patch('core.services.updater.os.path.exists')
-def test_install_update_success_launches_silent_installer(mock_exists, mock_popen, updater):
+def test_install_update_success_launches_silent_installer(mock_exists, mock_popen, mock_open, updater):
     updater.state["is_ready"] = True
     updater.state["asset_name"] = "setup.exe"
     mock_exists.return_value = True
@@ -336,15 +337,16 @@ def test_install_update_success_launches_silent_installer(mock_exists, mock_pope
 
     assert res["status"] == "success"
     assert res["message"] == "backend.updater.restarting"
-    expected_path = os.path.join(updater.base_dir, "temp", "setup.exe")
     args, kwargs = mock_popen.call_args
-    assert args[0][0] == expected_path
-    assert "/SILENT" in args[0]
-    assert "/SUPPRESSMSGBOXES" in args[0]
+    expected_path = os.path.join(updater.base_dir, "temp", "launcher.vbs")
+    cmd_list = args[0]
+    assert cmd_list[0] == 'wscript.exe'
+    assert cmd_list[1] == expected_path
 
+@patch('builtins.open')
 @patch('core.services.updater.subprocess.Popen', side_effect=OSError("permission denied"))
 @patch('core.services.updater.os.path.exists')
-def test_install_update_launch_failure_returns_generic_error(mock_exists, mock_popen, updater):
+def test_install_update_launch_failure_returns_generic_error(mock_exists, mock_popen, mock_open, updater):
     updater.state["is_ready"] = True
     updater.state["asset_name"] = "setup.exe"
     mock_exists.return_value = True

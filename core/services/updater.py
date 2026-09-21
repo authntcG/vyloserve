@@ -150,7 +150,7 @@ class UpdaterManager:
         self.state["progress_percent"] = 0
         self.state["progress_text"] = MSG_DOWNLOADING
         
-        self.api.emit_progress(0, MSG_DOWNLOADING, {"file": asset_name}, "UpdaterManager")
+        self.api.emit_progress(0, MSG_DOWNLOADING, {"file": asset_name})
         
         # Jalankan di background daemon thread
         threading.Thread(target=self._download_thread, args=(asset_url, asset_name), daemon=True).start()
@@ -180,7 +180,7 @@ class UpdaterManager:
                             percent = int((downloaded / total_size) * 100)
                             self.state["progress_percent"] = percent
                             # Emit real-time progress ke UI via event window global
-                            self.api.emit_progress(percent, MSG_DOWNLOADING, {"file": asset_name}, "UpdaterManager")
+                            self.api.emit_progress(percent, MSG_DOWNLOADING, {"file": asset_name})
                             
             self.state["is_ready"] = True
             self.state["is_downloading"] = False
@@ -188,7 +188,7 @@ class UpdaterManager:
             self.state["progress_percent"] = 100
 
             # Emit final progress untuk menghilangkan widget loading di UI
-            self.api.emit_progress(100, MSG_READY_TO_INSTALL, {}, "UpdaterManager")
+            self.api.emit_progress(100, MSG_READY_TO_INSTALL, {})
 
             # Beri tahu UI bahwa update sudah siap di-install (pop modal)
             if self.api._window:
@@ -198,11 +198,11 @@ class UpdaterManager:
             self.state["is_downloading"] = False
             self.state["progress_text"] = MSG_DOWNLOAD_FAILED
             self.state["progress_percent"] = 0
-            self.api.emit_log("backend.updater.download_error", "error", {"e": str(e)}, source="UpdaterManager")
+            self.api.emit_log("backend.updater.download_error", "error", {"e": str(e)})
             # percent=100 dipakai di sini bukan sebagai "selesai sukses", melainkan sinyal
             # bagi frontend untuk auto-hide widget progress (kontrak percent>=100 di AGENTS.md);
             # status gagal sesungguhnya dibawa oleh progress_text/key, bukan oleh percent.
-            self.api.emit_progress(100, MSG_DOWNLOAD_FAILED, {}, "UpdaterManager")
+            self.api.emit_progress(100, MSG_DOWNLOAD_FAILED, {})
 
     def install_update(self):
         if not self.state["is_ready"] or not self.state["asset_name"]:
@@ -215,10 +215,21 @@ class UpdaterManager:
             return {"status": "error", "message": "backend.updater.not_ready"}
             
         try:
-            # Gunakan subprocess.Popen agar proses bisa berlanjut meskipun VyloServe ditutup
-            # Inno Setup mendukung /SILENT atau /VERYSILENT untuk update di tempat.
-            subprocess.Popen([installer_path, '/SILENT', '/SUPPRESSMSGBOXES'], 
-                           creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS)
+            # Buat script .vbs temporer untuk memberikan jeda waktu dan 
+            # mengeksekusi installer dengan izin UAC (ShellExecute "runas").
+            # Hal ini mencegah kegagalan eksekusi jika CreateProcess biasa ditolak oleh Windows.
+            vbs_path = os.path.join(temp_dir, 'launcher.vbs')
+            with open(vbs_path, 'w') as f:
+                f.write(f'WScript.Sleep 2000\n')
+                f.write(f'Set UAC = CreateObject("Shell.Application")\n')
+                f.write(f'UAC.ShellExecute "{installer_path}", "/SILENT /SUPPRESSMSGBOXES", "", "runas", 1\n')
+            
+            subprocess.Popen(['wscript.exe', vbs_path], creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS)
+            
+            # Matikan VyloServe setelah jeda kecil agar response ke frontend terkirim
+            import threading
+            threading.Timer(0.5, self.api.close_app).start()
+            
             return {"status": "success", "message": "backend.updater.restarting"}
         except Exception as e:
             return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
