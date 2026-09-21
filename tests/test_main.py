@@ -232,9 +232,10 @@ def test_setup_systray_run_tray_swallows_icon_run_exception(mock_exists, mock_im
 # main() — wiring end-to-end (semua dependensi eksternal di-mock)
 # ==========================================
 
+@patch('main.check_single_instance', return_value=(True, None))
 @patch('main.webview')
 @patch('core.api.Api')
-def test_main_wires_api_window_and_quit_callback(mock_api_class, mock_webview):
+def test_main_wires_api_window_and_quit_callback(mock_api_class, mock_webview, mock_check_single):
     mock_api_instance = MagicMock()
     mock_api_class.return_value = mock_api_instance
     mock_window = MagicMock()
@@ -248,10 +249,11 @@ def test_main_wires_api_window_and_quit_callback(mock_api_class, mock_webview):
     assert mock_api_instance.quit_callback is not None
     mock_webview.start.assert_called_once()
 
+@patch('main.check_single_instance', return_value=(True, None))
 @patch('main.setup_systray')
 @patch('main.webview')
 @patch('core.api.Api')
-def test_main_sets_up_systray_only_in_production(mock_api_class, mock_webview, mock_setup_systray):
+def test_main_sets_up_systray_only_in_production(mock_api_class, mock_webview, mock_setup_systray, mock_check_single):
     mock_webview.create_window.return_value = MagicMock()
 
     with patch('main.IS_PRODUCTION', False):
@@ -262,9 +264,10 @@ def test_main_sets_up_systray_only_in_production(mock_api_class, mock_webview, m
         main_module.main()
     mock_setup_systray.assert_called_once()
 
+@patch('main.check_single_instance', return_value=(True, None))
 @patch('main.webview')
 @patch('core.api.Api', side_effect=RuntimeError("Api init failed"))
-def test_main_handles_unexpected_startup_exception_without_crashing(mock_api_class, mock_webview):
+def test_main_handles_unexpected_startup_exception_without_crashing(mock_api_class, mock_webview, mock_check_single):
     """Kegagalan tak terduga saat startup harus tertangkap rapi, bukan membuat proses crash."""
     main_module.main()  # tidak boleh melempar exception ke pemanggil
     # Pastikan exception itu benar berasal dari upaya nyata memanggil Api(), bukan main() no-op

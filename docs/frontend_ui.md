@@ -9,23 +9,24 @@
 ## Daftar Isi
 
 1. [Struktur Direktori Aktual](#1-struktur-direktori-aktual)
-2. [Routing & Layout Global (`App.tsx`)](#2-routing--layout-global-apptsx)
-3. [Global Event Bus — Mekanisme Komunikasi Antar Komponen](#3-global-event-bus--mekanisme-komunikasi-antar-komponen)
-4. [Provider & Komponen Cross-Cutting](#4-provider--komponen-cross-cutting)
-5. [Anatomi Halaman "Golden Standard"](#5-anatomi-halaman-golden-standard)
-6. [Sequence Diagram: Alur Install Service](#6-sequence-diagram-alur-install-service)
-7. [Sequence Diagram: Alur Toggle Start/Stop](#7-sequence-diagram-alur-toggle-startstop)
-8. [Modul: Apache](#8-modul-apache)
-9. [Modul: PHP](#9-modul-php)
-10. [Modul: Database](#10-modul-database)
-11. [Modul: Dashboard](#11-modul-dashboard)
-12. [Modul: Runtimes & Tools](#12-modul-runtimes--tools)
-13. [Sistem i18n (Terjemahan)](#13-sistem-i18n-terjemahan)
-14. [Known Issues — Ketidaksesuaian dengan Dokumentasi Lama](#14-known-issues--ketidaksesuaian-dengan-dokumentasi-lama)
-15. [Styling: Tailwind CSS v4, Cascade Layers & Ikon Material Symbols](#15-styling-tailwind-css-v4-cascade-layers--ikon-material-symbols)
+2. [Sistem Desain & Palet Warna (Design System)](#2-sistem-desain--palet-warna-design-system)
+3. [Struktur Komponen Berbasis Atomic Design](#3-struktur-komponen-berbasis-atomic-design)
+4. [Routing & Layout Global (`App.tsx`)](#4-routing--layout-global-apptsx)
+5. [Global Event Bus — Mekanisme Komunikasi Antar Komponen](#5-global-event-bus--mekanisme-komunikasi-antar-komponen)
+6. [Provider & Komponen Cross-Cutting](#6-provider--komponen-cross-cutting)
+7. [Anatomi Halaman "Golden Standard"](#7-anatomi-halaman-golden-standard)
+8. [Sequence Diagram: Alur Install Service](#8-sequence-diagram-alur-install-service)
+9. [Sequence Diagram: Alur Toggle Start/Stop](#9-sequence-diagram-alur-toggle-startstop)
+10. [Modul: Apache](#10-modul-apache)
+11. [Modul: PHP](#11-modul-php)
+12. [Modul: Database](#12-modul-database)
+13. [Modul: Dashboard](#13-modul-dashboard)
+14. [Modul: Runtimes & Tools](#14-modul-runtimes--tools)
+15. [Sistem i18n (Terjemahan)](#15-sistem-i18n-terjemahan)
+16. [Known Issues — Ketidaksesuaian dengan Dokumentasi Lama](#16-known-issues--ketidaksesuaian-dengan-dokumentasi-lama)
+17. [Styling: Tailwind CSS v4, Cascade Layers & Ikon Material Symbols](#17-styling-tailwind-css-v4-cascade-layers--ikon-material-symbols)
 
 ---
-
 ## 1. Struktur Direktori Aktual
 
 ```text
@@ -70,7 +71,65 @@ frontend/src/
 
 ---
 
-## 2. Routing & Layout Global (`App.tsx`)
+## 2. Sistem Desain & Palet Warna (Design System)
+
+VyloServe menerapkan antarmuka **Dark Mode murni** modern (tanpa light mode) yang memanfaatkan integrasi warna *slate* (abu-abu kebiruan) untuk memberikan kesan profesional seperti alat-alat *developer/server management* pada umumnya.
+
+### Palet Warna Utama (Tailwind CSS)
+
+| Peran Warna | Kode Tailwind | Kode HEX | Penggunaan Utama |
+|---|---|---|---|
+| **Background Aplikasi** | `bg-slate-900` | `#0f172a` | Warna dasar kanvas jendela aplikasi utama (sesuai *background_color* `main.py`). |
+| **Surface & Card** | `bg-slate-800` | `#1e293b` | Elemen melayang seperti Sidebar, Header, Modal, dan Container Card. |
+| **Elevated Surface** | `bg-slate-700` | `#334155` | Elemen interaktif saat di-hover, *border*, atau pemisah (*divider*). |
+| **Primary Accent (Aksi/Aktif)**| `bg-emerald-600` / `500` | `#059669` / `#10b981` | Tombol primer ("Install", "Save"), Toggle aktif (seperti `ToggleSwitch`), indikator status "Running/Active". |
+| **Danger / Error** | `bg-red-500` | `#ef4444` | Tombol destruktif ("Delete", "Stop"), Indikator status "Error/Offline". |
+| **Warning / Perhatian** | `text-amber-500` | `#f59e0b` | Log warning, *banner* peringatan konflik *port* atau ekstensi. |
+| **Info / System** | `text-blue-500` | `#3b82f6` | Teks informasional dan lencana penanda komponen sistem bawaan OS (*Native/System*). |
+| **Teks Utama (Primary)** | `text-slate-100` | `#f1f5f9` | Judul halaman, teks tombol utama, nilai konfigurasi. |
+| **Teks Sekunder (Muted)** | `text-slate-400` | `#94a3b8` | Deskripsi tambahan, teks pembantu (*help text*), placeholder *input*. |
+
+### Tata Letak (Layout) & Gaya (Style)
+- **Spasial & Bentuk:** Menggunakan sudut melengkung moderat (`rounded-lg` / `rounded-xl`) dengan drop shadow halus (`shadow-md`, `shadow-lg`) untuk memberi kedalaman pada Modal dan *Card*.
+- **Tipografi:** Menggunakan font *sans-serif* bawaan sistem OS (standar Tailwind) agar *render* UI terasa natif di Windows.
+- **Ikonografi:** Sepenuhnya ditenagai oleh **Material Symbols Outlined** yang dikendalikan proporsinya via utility class `text-[Npx]`.
+
+---
+
+## 3. Struktur Komponen Berbasis *Atomic Design*
+
+Arsitektur *frontend* di proyek ini mematuhi paradigma **Atomic Design**, yang mengurai kompleksitas UI ke dalam 5 lapisan komposisional:
+
+### 1. Atoms (Atom)
+Elemen antarmuka terkecil dan paling dasar, yang tidak dapat dipecah lagi. Atom di proyek ini sering di-*render* langsung lewat kelas Tailwind.
+- **`ToggleSwitch`**: Komponen pill kecil `w-8 h-4` untuk sakelar On/Off (digunakan di setelan log dan sidebar).
+- **Tombol (Buttons)**: Tombol standar (Primer hijau, Sekunder abu-abu, Destruktif merah).
+- **Ikon**: `<span className="material-symbols-outlined">...</span>`.
+- **Elemen Form Dasar**: `<input>`, `<select>` yang telah dibumbui class Tailwind (*ring*, *outline-none*).
+
+### 2. Molecules (Molekul)
+Kumpulan Atom yang disatukan menjadi komponen UI sederhana dengan 1 fungsi spesifik.
+- **`PageHeader.tsx`**: Menyatukan judul teks (Atom) dan sub-deskripsi (Atom) atau tombol aksi di ujung kanan.
+- **`SkeletonCard.tsx`**: Molekul *loading state* pengganti Card sebelum data tersedia.
+- **Form Fields (Pasangan Label + Input)**: Penggabungan `<label>` dengan *accessibility* `htmlFor` dan `<input>` ber-id sama (kewajiban standar *accessibility* VyloServe).
+
+### 3. Organisms (Organisme)
+Gabungan dari Molekul dan Atom yang membentuk satu bagian (blok) UI kompleks dan memiliki konteks bisnis mandiri.
+- **`Card.tsx`**: Organisme standar pembungkus modul (menyatukan Molekul header Card, Atom tombol aksi, dan lencana status *auto-theming* warna berdasar status "running/error").
+- **`Modal.tsx`**: Komponen kontainer dialog *popup* terpusat dengan *backdrop* gelap.
+- **`LogsPanel.tsx` / `UpdatesModal.tsx`**: Organisme super-kompleks dengan berbagai *state internal*, tab filter, dan mekanisme *event listener*.
+
+### 4. Templates (Templat)
+Pola tata letak layar ("Golden Standard") yang belum diisi data nyata, mengatur susunan letak Organisme di dalam halaman.
+- **Golden Standard Module Template**: Pola `PageHeader + SkeletonCard + EmptyState + (Mapping n-Card)`. Dipakai secara seragam oleh seluruh modul (Apache, PHP, Database, Runtimes, Git). 
+
+### 5. Pages (Halaman / Layar)
+Implementasi dari Template dengan memuat data (Logika Bisnis/State) dari *Backend API* dan memberikan konteks utuh. Ini adalah file-file `Main.tsx` di dalam folder `src/menu/`.
+- `Apache/Main.tsx`, `Php/Main.tsx`, `Database/Main.tsx`.
+
+---
+
+## 6. Routing & Layout Global (`App.tsx`)
 
 ### 2.1 Routing Manual (Bukan React Router)
 
@@ -146,7 +205,7 @@ Header untuk layar mobile (`md:hidden`) — tombol hamburger memicu `onMenuClick
 
 ---
 
-## 3. Global Event Bus — Mekanisme Komunikasi Antar Komponen
+## 5. Global Event Bus — Mekanisme Komunikasi Antar Komponen
 
 VyloServe **tidak memakai Redux/Zustand/Context global untuk state lintas-komponen** — sebagai gantinya, komunikasi antar komponen yang tidak punya hubungan parent-child memakai **native browser `CustomEvent` di level `window`**. Ini adalah mekanisme paling penting untuk dipahami sebelum menambah fitur baru.
 
@@ -239,7 +298,7 @@ Sebagai pengaman tambahan di sisi frontend (karena kontrak di atas bergantung pa
 
 ---
 
-## 4. Provider & Komponen Cross-Cutting
+## 6. Provider & Komponen Cross-Cutting
 
 ### 4.1 `ToastContext.tsx`
 Context + Provider standar. `useToast()` → `showToast(message, type)`. 4 tipe (`success|error|warning|info`), auto-hilang 4000ms, container `fixed bottom-6 right-6`. **Menerima string yang sudah diterjemahkan** (lihat §3.2) — tidak terhubung langsung ke sistem i18n.
@@ -281,7 +340,7 @@ Komponen presentational murni. `Card` auto-tema warna badge berdasarkan substrin
 
 ---
 
-## 5. Anatomi Halaman "Golden Standard"
+## 7. Anatomi Halaman "Golden Standard"
 
 > ⚠️ Koreksi dari dokumentasi lama: pola ini **bukan eksklusif milik Apache & PHP** — pola identik (`PageHeader + SkeletonCard + EmptyState + Card + Modal`) diterapkan konsisten di **Apache, PHP, Database, Runtimes, dan Git**.
 
@@ -325,7 +384,7 @@ Elemen yang bisa diklik/di-*focus* harus berupa elemen HTML native yang semantik
 
 ---
 
-## 6. Sequence Diagram: Alur Install Service
+## 8. Sequence Diagram: Alur Install Service
 
 Contoh konkret: **Install Apache** — pola yang sama berlaku untuk install PHP/Database/Node/Python/Java/Go/Git.
 
@@ -371,7 +430,7 @@ sequenceDiagram
 
 ---
 
-## 7. Sequence Diagram: Alur Toggle Start/Stop
+## 9. Sequence Diagram: Alur Toggle Start/Stop
 
 Identik untuk Apache/PHP/Database (via Card footer button) maupun via Sidebar toggle switch.
 
@@ -401,7 +460,7 @@ sequenceDiagram
 
 ---
 
-## 8. Modul: Apache
+## 10. Modul: Apache
 
 | File | Peran |
 |---|---|
@@ -413,7 +472,7 @@ sequenceDiagram
 
 ---
 
-## 9. Modul: PHP
+## 11. Modul: PHP
 
 | File | Peran |
 |---|---|
@@ -423,7 +482,7 @@ sequenceDiagram
 
 ---
 
-## 10. Modul: Database
+## 12. Modul: Database
 
 | File | Peran |
 |---|---|
@@ -434,7 +493,7 @@ sequenceDiagram
 
 ---
 
-## 11. Modul: Dashboard
+## 13. Modul: Dashboard
 
 `Main.tsx` bukan sekadar tampilan read-only — berisi **mini Global Control Panel**:
 
@@ -456,7 +515,7 @@ Kartu ringkasan tiap service (Apache/PHP/Database) diekstrak ke `ApacheServiceCa
 
 ---
 
-## 12. Modul: Runtimes & Tools
+## 14. Modul: Runtimes & Tools
 
 ### Runtimes
 Tab-based (Node/Python/Java/Go), tiap engine punya komponen `InstallX.tsx` terpisah (dipanggil via `ref.current.submit()`). Jika `external.exists` terdeteksi (native install di OS), toggle "Add to PATH" **dikunci (disabled)** dengan pesan warning untuk mencegah konflik PATH. Pola "minimize modal" dengan `isMinimized` state terpisah dari `isNewInstanceOpen` (bisa diminimize manual, tidak hanya auto saat modal ditutup). Ke-4 tab engine dirender lewat satu komponen `RuntimeEnginePanel` yang sama (parameterized per engine) — lihat §5.1, bukan 4 blok JSX terpisah yang identik.
@@ -489,7 +548,7 @@ Struktur sama seperti Runtimes (deteksi eksternal/native, PATH toggle terkunci j
 
 ---
 
-## 13. Sistem i18n (Terjemahan)
+## 15. Sistem i18n (Terjemahan)
 
 - Konfigurasi murni di `src/i18n.ts` via `react-i18next` + `i18next-browser-languagedetector` (fallback `en`).
 - **Kontrak universal:** backend selalu return `{status, message: "translation.key", args?}` → frontend selalu `t(res.message, res.args || {})` sebelum `showToast(...)`.
@@ -499,7 +558,7 @@ Struktur sama seperti Runtimes (deteksi eksternal/native, PATH toggle terkunci j
 
 ---
 
-## 14. Known Issues — Ketidaksesuaian dengan Dokumentasi Lama
+## 16. Known Issues — Ketidaksesuaian dengan Dokumentasi Lama
 
 | # | Klaim dokumentasi lama | Realita di kode | Dampak |
 |---|---|---|---|
@@ -518,7 +577,7 @@ Struktur sama seperti Runtimes (deteksi eksternal/native, PATH toggle terkunci j
 
 ---
 
-## 15. Styling: Tailwind CSS v4, Cascade Layers & Ikon Material Symbols
+## 17. Styling: Tailwind CSS v4, Cascade Layers & Ikon Material Symbols
 
 ### 15.1 🚨 WAJIB: Import CSS Pihak Ketiga Global Harus Pakai `layer()`
 
