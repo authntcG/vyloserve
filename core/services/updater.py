@@ -220,8 +220,8 @@ class UpdaterManager:
             # Hal ini mencegah kegagalan eksekusi jika CreateProcess biasa ditolak oleh Windows.
             vbs_path = os.path.join(temp_dir, 'launcher.vbs')
             with open(vbs_path, 'w') as f:
-                f.write(f'WScript.Sleep 2000\n')
-                f.write(f'Set UAC = CreateObject("Shell.Application")\n')
+                f.write('WScript.Sleep 2000\n')
+                f.write('Set UAC = CreateObject("Shell.Application")\n')
                 f.write(f'UAC.ShellExecute "{installer_path}", "/SILENT /SUPPRESSMSGBOXES", "", "runas", 1\n')
             
             subprocess.Popen(['wscript.exe', vbs_path], creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS)
