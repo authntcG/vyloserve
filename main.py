@@ -6,16 +6,48 @@ import threading
 import pystray
 import ssl
 import certifi
+import ctypes
 from PIL import Image
 from pystray import MenuItem as item
+
+# --- KONSTANTA WINDOWS API ---
+SW_SHOW = 5
+SW_RESTORE = 9
+ERROR_ALREADY_EXISTS = 183
+
+# --- SINGLE INSTANCE & WINDOW MANAGEMENT ---
+def bring_existing_instance_to_front():
+    """ 
+    Mencari window VyloServe yang sudah berjalan dan memaksanya ke depan (foreground). 
+    Juga mengembalikan window dari mode minimized jika diperlukan.
+    """
+    hwnd = ctypes.windll.user32.FindWindowW(None, "VyloServe")
+    if hwnd:
+        ctypes.windll.user32.ShowWindow(hwnd, SW_SHOW)
+        ctypes.windll.user32.ShowWindow(hwnd, SW_RESTORE)
+        ctypes.windll.user32.SetForegroundWindow(hwnd)
+
+def check_single_instance():
+    """
+    Mengecek apakah VyloServe sudah berjalan menggunakan OS Mutex.
+    Mengembalikan (True, mutex) jika ini adalah instance pertama.
+    Mengembalikan (False, None) jika instance lain sudah berjalan.
+    """
+    mutex_name = "VyloServe_App_Mutex_v1"
+    mutex = ctypes.windll.kernel32.CreateMutexW(None, False, mutex_name)
+    last_error = ctypes.windll.kernel32.GetLastError()
+    
+    if last_error == ERROR_ALREADY_EXISTS:
+        return False, None
+    return True, mutex
 
 # SSL Global Configuration
 ssl._create_default_https_context = lambda: ssl.create_default_context(cafile=certifi.where())
 
 # --- KONFIGURASI ENVIRONMENT ---
 # Ubah menjadi True jika ingin melakukan build (.exe) atau Alpha Testing
-IS_PRODUCTION = False
-APP_VERSION = "0.0.3-beta"
+IS_PRODUCTION = True
+APP_VERSION = "0.0.4-beta"
 
 # --- FUNGSI RESOLUSI PATH PYINSTALLER ---
 def resource_path(relative_path):
@@ -163,6 +195,13 @@ def setup_systray(lifecycle: AppLifecycle, icon_path: str):
 
 
 def main():
+    # 1. Cek apakah VyloServe sudah berjalan
+    is_first_instance, _ = check_single_instance()
+    if not is_first_instance:
+        print("[INFO] VyloServe sudah berjalan. Menampilkan window yang ada...")
+        bring_existing_instance_to_front()
+        sys.exit(0)
+
     try:
         print("[DEBUG] Membuat instance API...")
         from core.api import Api
