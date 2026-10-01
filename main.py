@@ -7,6 +7,7 @@ import pystray
 import ssl
 import certifi
 import ctypes
+from core.utils.system_utils import get_project_root
 from PIL import Image
 from pystray import MenuItem as item
 
@@ -16,6 +17,32 @@ SW_RESTORE = 9
 ERROR_ALREADY_EXISTS = 183
 
 # --- SINGLE INSTANCE & WINDOW MANAGEMENT ---
+
+def get_theme_bg_color():
+    settings_path = os.path.join(get_project_root(), 'data', 'settings.json')
+    theme = "vyloserve-dark"
+    if os.path.exists(settings_path):
+        try:
+            import json
+            with open(settings_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                theme = data.get("theme", "vyloserve-dark")
+        except Exception:
+            pass
+    mapping = {
+        "vyloserve-dark": "#0f172a",
+        "vyloserve-light": "#f8fafc",
+        "darcula-dark": "#2b2b2b",
+        "solarized-dark": "#002b36",
+        "solarized-light": "#fdf6e3",
+        "high-contrast-dark": "#000000",
+        "high-contrast-light": "#ffffff",
+        "monokai-dark": "#272822",
+        "dracula-dark": "#282a36",
+        "nord-dark": "#2e3440"
+    }
+    return mapping.get(theme, "#0f172a")
+
 def bring_existing_instance_to_front():
     """ 
     Mencari window VyloServe yang sudah berjalan dan memaksanya ke depan (foreground). 
@@ -46,8 +73,8 @@ ssl._create_default_https_context = lambda: ssl.create_default_context(cafile=ce
 
 # --- KONFIGURASI ENVIRONMENT ---
 # Ubah menjadi True jika ingin melakukan build (.exe) atau Alpha Testing
-IS_PRODUCTION = True
-APP_VERSION = "0.0.4-beta"
+IS_PRODUCTION = False
+APP_VERSION = "0.0.3-beta"
 
 # --- FUNGSI RESOLUSI PATH PYINSTALLER ---
 def resource_path(relative_path):
@@ -219,7 +246,7 @@ def main():
             width=1200,
             height=800,
             min_size=(900, 600),
-            background_color='#0f172a'
+            background_color=get_theme_bg_color()
         )
         api.set_window(window)
         lifecycle.set_window(window)

@@ -14,6 +14,7 @@
    berada paling atas file, sebelum rule lain (kecuali @charset/@import lain). Taruh
    di posisi lain = @import tersebut invalid dan diabaikan browser (SonarQube css:S8778). */
 @import "material-symbols/outlined.css" layer(base);
+@custom-variant dark (&:is(.dark *));
 
 @tailwind base;
 @tailwind components;
@@ -79,5 +80,147 @@
   }
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-slate-400 dark:bg-slate-600;
+  }
+}
+@theme {
+  --color-slate-50: var(--theme-slate-50, #f8fafc);
+  --color-slate-100: var(--theme-slate-100, #f1f5f9);
+  --color-slate-200: var(--theme-slate-200, #e2e8f0);
+  --color-slate-300: var(--theme-slate-300, #cbd5e1);
+  --color-slate-400: var(--theme-slate-400, #94a3b8);
+  --color-slate-500: var(--theme-slate-500, #64748b);
+  --color-slate-600: var(--theme-slate-600, #475569);
+  --color-slate-700: var(--theme-slate-700, #334155);
+  --color-slate-800: var(--theme-slate-800, #1e293b);
+  --color-slate-900: var(--theme-slate-900, #0f172a);
+  --color-slate-950: var(--theme-slate-950, #020617);
+  
+  --color-emerald-400: var(--theme-emerald-400, #34d399);
+  --color-emerald-500: var(--theme-emerald-500, #10b981);
+  --color-emerald-600: var(--theme-emerald-600, #059669);
+  
+  --color-primary: var(--theme-primary, #3b82f6);
+}
+
+@layer base {
+
+  [data-theme="darcula-dark"] {
+    --theme-slate-950: #1e1e1e;
+    --theme-slate-900: #2b2b2b;
+    --theme-slate-800: #3c3f41;
+    --theme-slate-700: #4b5054;
+    --theme-slate-600: #5c6165;
+    --theme-slate-500: #88939e;
+    --theme-slate-400: #a9b7c6;
+    --theme-slate-300: #bbbbbb;
+    --theme-slate-200: #d4d4d4;
+    --theme-slate-100: #eeeeee;
+    --theme-slate-50:  #ffffff;
+    --theme-emerald-600: #6a8759;
+    --theme-emerald-500: #629755;
+    --theme-primary: #2f65ca;
+  }
+  
+  [data-theme="solarized-dark"] {
+    --theme-slate-950: #001e26;
+    --theme-slate-900: #002b36;
+    --theme-slate-800: #073642;
+    --theme-slate-700: #0b4b5c;
+    --theme-slate-600: #586e75;
+    --theme-slate-500: #657b83;
+    --theme-slate-400: #839496;
+    --theme-slate-300: #93a1a1;
+    --theme-slate-200: #eee8d5;
+    --theme-slate-100: #fdf6e3;
+    --theme-emerald-600: #2aa198;
+    --theme-emerald-500: #268bd2;
+    --theme-primary: #268bd2;
+  }
+  
+  [data-theme="solarized-light"] {
+    --theme-slate-50: #fdf6e3;
+    --theme-slate-100: #eee8d5;
+    --theme-slate-200: #e0d9c6;
+    --theme-slate-300: #d3c6aa;
+    --theme-slate-400: #93a1a1;
+    --theme-slate-500: #839496;
+    --theme-slate-600: #657b83;
+    --theme-slate-700: #586e75;
+    --theme-slate-800: #073642;
+    --theme-slate-900: #002b36;
+    --theme-slate-950: #001e26;
+    --theme-emerald-600: #2aa198;
+    --theme-emerald-500: #268bd2;
+    --theme-primary: #268bd2;
+  }
+
+  [data-theme="high-contrast-dark"] {
+    --theme-slate-950: #000000;
+    --theme-slate-900: #000000;
+    --theme-slate-800: #000000;
+    --theme-slate-700: #333333;
+    --theme-slate-600: #666666;
+    --theme-slate-500: #999999;
+    --theme-slate-400: #cccccc;
+    --theme-slate-300: #ffffff;
+    --theme-slate-200: #ffffff;
+    --theme-slate-100: #ffffff;
+    --theme-emerald-600: #00ff00;
+    --theme-emerald-500: #00cc00;
+    --theme-primary: #00ffff;
+  }
+
+  [data-theme="high-contrast-light"] {
+    --theme-slate-50: #ffffff;
+    --theme-slate-100: #ffffff;
+    --theme-slate-200: #ffffff;
+    --theme-slate-300: #cccccc;
+    --theme-slate-400: #999999;
+    --theme-slate-500: #666666;
+    --theme-slate-600: #333333;
+    --theme-slate-700: #000000;
+    --theme-slate-800: #000000;
+    --theme-slate-900: #000000;
+    --theme-slate-950: #000000;
+    --theme-emerald-600: #0000ff;
+    --theme-emerald-500: #0000cc;
+    --theme-primary: #ff0000;
+  }
+  
+  [data-theme="monokai-dark"] {
+    --theme-slate-950: #1a1a1a;
+    --theme-slate-900: #272822;
+    --theme-slate-800: #3e3d32;
+    --theme-slate-700: #49483e;
+    --theme-slate-600: #75715e;
+    --theme-slate-400: #f8f8f2;
+    --theme-emerald-600: #a6e22e;
+    --theme-emerald-500: #f92672;
+    --theme-primary: #66d9ef;
+  }
+
+  [data-theme="dracula-dark"] {
+    --theme-slate-950: #191a21;
+    --theme-slate-900: #282a36;
+    --theme-slate-800: #44475a;
+    --theme-slate-700: #6272a4;
+    --theme-slate-400: #f8f8f2;
+    --theme-emerald-600: #ff79c6;
+    --theme-emerald-500: #bd93f9;
+    --theme-primary: #8be9fd;
+  }
+  
+  [data-theme="nord-dark"] {
+    --theme-slate-950: #242933;
+    --theme-slate-900: #2e3440;
+    --theme-slate-800: #3b4252;
+    --theme-slate-700: #434c5e;
+    --theme-slate-600: #4c566a;
+    --theme-slate-400: #d8dee9;
+    --theme-slate-300: #e5e9f0;
+    --theme-slate-200: #eceff4;
+    --theme-emerald-600: #88c0d0;
+    --theme-emerald-500: #81a1c1;
+    --theme-primary: #5e81ac;
   }
 }

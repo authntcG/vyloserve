@@ -25,7 +25,8 @@ class UpdaterManager:
             "is_ready": False,
             "asset_name": None,
             "progress_percent": 0,
-            "progress_text": MSG_DOWNLOADING
+            "progress_text": MSG_DOWNLOADING,
+            "progress_args": None
         }
         self._cleanup_temp()
 
@@ -149,6 +150,7 @@ class UpdaterManager:
         self.state["asset_name"] = asset_name
         self.state["progress_percent"] = 0
         self.state["progress_text"] = MSG_DOWNLOADING
+        self.state["progress_args"] = {"file": asset_name}
         
         self.api.emit_progress(0, MSG_DOWNLOADING, {"file": asset_name})
         

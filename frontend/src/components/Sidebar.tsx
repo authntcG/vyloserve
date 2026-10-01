@@ -222,32 +222,11 @@ function SidebarFooter({ isDesktopCollapsed, systemLoad, systemLoadColorClass, i
             {isSettingsOpen && !isDesktopCollapsed && (
                 <div className="absolute bottom-full mb-2 right-4 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 overflow-hidden text-sm font-medium">
                     <button type="button"
-                        onClick={() => onOpenModal('language')}
+                        onClick={() => onOpenModal('settings')}
                         className="w-full text-left px-4 py-3 flex items-center gap-3 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-100 dark:border-slate-800"
                     >
-                        <span className="material-symbols-outlined text-[18px] text-slate-400">translate</span>
-                        {t('settings.change_language')}
-                    </button>
-                    <button type="button"
-                        onClick={() => onOpenModal('logs')}
-                        className="w-full text-left px-4 py-3 flex items-center gap-3 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-100 dark:border-slate-800"
-                    >
-                        <span className="material-symbols-outlined text-[18px] text-slate-400">filter_list</span>
-                        {t('settings.system_logs')}
-                    </button>
-                    <button type="button"
-                        onClick={() => onOpenModal('updates')}
-                        className="w-full text-left px-4 py-3 flex items-center gap-3 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-100 dark:border-slate-800"
-                    >
-                        <span className="material-symbols-outlined text-[18px] text-slate-400">system_update</span>
-                        {t('settings.updates')}
-                    </button>
-                    <button type="button"
-                        onClick={() => onOpenModal('about')}
-                        className="w-full text-left px-4 py-3 flex items-center gap-3 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-100 dark:border-slate-800"
-                    >
-                        <span className="material-symbols-outlined text-[18px] text-slate-400">info</span>
-                        {t('settings.about')}
+                        <span className="material-symbols-outlined text-[18px] text-slate-400">settings</span>
+                        {t('settings.settings')}
                     </button>
                     <button type="button"
                         onClick={() => onOpenModal('quit')}
@@ -275,6 +254,7 @@ export default function Sidebar({
     const [isToolsOpen, setIsToolsOpen] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [activeSettingsModal, setActiveSettingsModal] = useState<SettingsModalType>(null);
+    const [activeSettingsTab, setActiveSettingsTab] = useState<'general' | 'logs' | 'updates' | 'about'>('general');
     const settingsRef = useRef<HTMLDivElement>(null);
     const [systemLoad, setSystemLoad] = useState<number>(0);
     const [serviceStatus, setServiceStatus] = useState<Record<string, boolean>>({
@@ -310,15 +290,22 @@ export default function Sidebar({
         };
 
         const handleOpenSettingsModalEvent = (e: Event) => {
-            const customEvent = e as CustomEvent;
-            if (customEvent.detail?.modal) {
-                setActiveSettingsModal(customEvent.detail.modal);
+        const customEvent = e as CustomEvent;
+        if (customEvent.detail?.modal) {
+            const m = customEvent.detail.modal;
+            if (m === 'updates' || m === 'about' || m === 'logs' || m === 'general') {
+                setActiveSettingsTab(m);
+                setActiveSettingsModal('settings');
+            } else {
+                setActiveSettingsModal(m);
             }
-        };
+        }
+    };
 
         const handleUpdateReadyGlobal = () => {
-            setActiveSettingsModal('updates');
-        };
+        setActiveSettingsTab('updates');
+        setActiveSettingsModal('settings');
+    };
 
         const handleClickOutside = (event: MouseEvent) => {
             if (settingsRef.current && !settingsRef.current.contains(event.target as Node)) {
@@ -480,6 +467,7 @@ export default function Sidebar({
 
             <SettingsModals
                 activeModal={activeSettingsModal}
+                defaultTab={activeSettingsTab}
                 onClose={() => setActiveSettingsModal(null)}
             />
         </>

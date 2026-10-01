@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import HeaderMobile from './components/HeaderMobile';
 import Sidebar from './components/Sidebar';
@@ -41,6 +41,13 @@ function AppContent() {
                     if (res.data?.language) {
                         import('./i18n').then(({ default: i18n }) => {
                             i18n.changeLanguage(res.data.language);
+                const theme = res.data.theme || 'vyloserve-dark';
+                document.documentElement.dataset.theme = theme;
+                if (theme.includes('-light')) {
+                    document.documentElement.classList.remove('dark');
+                } else {
+                    document.documentElement.classList.add('dark');
+                }
                         });
                     }
                     
@@ -96,7 +103,7 @@ function AppContent() {
   const mainContentMargin = isDesktopCollapsed ? 'md:ml-20' : 'md:ml-sidebar-width';
 
   return (
-    <div className="flex flex-col h-screen relative overflow-hidden bg-background dark:bg-slate-900">
+    <div className="flex flex-col h-screen relative overflow-hidden bg-slate-50 dark:bg-slate-900">
       <HeaderMobile onMenuClick={() => setIsMobileOpen(true)} />
 
       <div className="flex flex-1 relative w-full h-[calc(100vh-64px)] md:h-screen">

@@ -150,6 +150,10 @@
 | `menu/apache/Main.tsx` | ~391 baris | Apache server UI (Golden Standard) |
 | `menu/apache/NewProject.tsx` | ~346 baris | Form buat proyek baru |
 | `menu/database/Main.tsx` | ~307+ baris | Database instance cards |
+| `menu/tools/base64-encode-decode/Main.tsx` | ~250+ baris | UI alat Base64 Encode/Decode (Client-side) |
+| `menu/tools/url-encode-decode/Main.tsx` | ~150+ baris | UI alat URL Encode/Decode (Client-side) |
+| `menu/tools/qr-generator/Main.tsx` | ~100+ baris | UI alat QR Generator (Client-side) |
+| `menu/tools/settings/SettingsModals.tsx` | ~300+ baris | Kumpulan modal pengaturan terpusat (Language, Logs, Auto-Updater) |
 
 ---
 

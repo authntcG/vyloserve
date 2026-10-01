@@ -19,6 +19,8 @@ function mockPywebviewApi(overrides: Partial<Record<string, unknown>> = {}) {
             cpu_load: 42,
         }),
         get_app_version: vi.fn().mockResolvedValue('0.0.3-beta'),
+        get_app_settings: vi.fn().mockResolvedValue({ status: 'success', data: { theme: 'vyloserve-dark', language: 'en', log_levels: [], log_sources: [] } }),
+        close_app: vi.fn().mockResolvedValue({ status: 'success' }),
         start_service: vi.fn().mockResolvedValue({ status: 'success' }),
         stop_service: vi.fn().mockResolvedValue({ status: 'success' }),
         ...overrides,
@@ -171,53 +173,31 @@ describe('Sidebar', () => {
         expect(onSelectMenu).toHaveBeenCalledWith('git');
     });
 
-    it('opens the settings dropdown and shows the language/system logs/about/quit options', async () => {
+    it('opens the settings dropdown and shows the settings and quit options', async () => {
         mockPywebviewApi();
         const user = userEvent.setup();
         renderSidebar();
 
         await user.click(screen.getByText('settings'));
 
-        expect(screen.getByText('settings.change_language')).toBeInTheDocument();
-        expect(screen.getByText('settings.system_logs')).toBeInTheDocument();
-        expect(screen.getByText('settings.about')).toBeInTheDocument();
+        expect(screen.getByText('settings.settings')).toBeInTheDocument();
         expect(screen.getByText('settings.quit')).toBeInTheDocument();
     });
 
-    it('opens the System Logs settings modal when "system logs" is clicked', async () => {
+    it('opens the general settings modal when "settings" is clicked', async () => {
         mockPywebviewApi();
         const user = userEvent.setup();
         renderSidebar();
         await user.click(screen.getByText('settings'));
 
-        await user.click(screen.getByText('settings.system_logs'));
+        await user.click(screen.getByText('settings.settings'));
 
-        expect(screen.getByText('settings.system_logs_desc')).toBeInTheDocument();
-        expect(screen.queryByText('settings.about')).not.toBeInTheDocument();
+        expect(screen.getByText('settings.theme')).toBeInTheDocument();
     });
 
-    it('opens the language modal, and closes the settings dropdown, when "change language" is clicked', async () => {
-        mockPywebviewApi();
-        const user = userEvent.setup();
-        renderSidebar();
-        await user.click(screen.getByText('settings'));
+    
 
-        await user.click(screen.getByText('settings.change_language'));
-
-        expect(screen.getByText('settings.language_desc')).toBeInTheDocument();
-        expect(screen.queryByText('settings.about')).not.toBeInTheDocument();
-    });
-
-    it('opens the about modal when "about" is clicked', async () => {
-        mockPywebviewApi();
-        const user = userEvent.setup();
-        renderSidebar();
-        await user.click(screen.getByText('settings'));
-
-        await user.click(screen.getByText('settings.about'));
-
-        expect(screen.getByText('settings.about_desc')).toBeInTheDocument();
-    });
+    
 
     it('opens the quit-confirmation modal when "quit" is clicked', async () => {
         mockPywebviewApi();
@@ -258,12 +238,12 @@ describe('Sidebar', () => {
         const user = userEvent.setup();
         renderSidebar();
         await user.click(screen.getByText('settings'));
-        await user.click(screen.getByText('settings.about'));
-        expect(screen.getByText('settings.about_desc')).toBeInTheDocument();
+        await user.click(screen.getByText('settings.settings'));
+        expect(screen.getByText('settings.theme')).toBeInTheDocument();
 
         await user.click(screen.getAllByTitle('Close')[0]);
 
-        expect(screen.queryByText('settings.about_desc')).not.toBeInTheDocument();
+        expect(screen.queryByText('settings.theme')).not.toBeInTheDocument();
     });
 
     it('does not crash and keeps the previous status when fetching service statuses throws', async () => {
