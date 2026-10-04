@@ -1,112 +1,99 @@
 <div align="center">
 
-# 🚀 VyloServe
-**The Modern, High-Performance Local Web Development Environment**
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="frontend/src/assets/brand-dark.png">
+  <img alt="VyloServe" src="frontend/src/assets/brand-nobg.png" width="360">
+</picture>
 
-[![React](https://img.shields.io/badge/Frontend-React_18-61DAFB?logo=react&style=flat-square)](https://reactjs.org/)
-[![Vite](https://img.shields.io/badge/Bundler-Vite-646CFF?logo=vite&style=flat-square)](https://vitejs.dev/)
-[![Tailwind CSS](https://img.shields.io/badge/Style-Tailwind_CSS-38B2AC?logo=tailwind-css&style=flat-square)](https://tailwindcss.com/)
-[![Python](https://img.shields.io/badge/Backend-Python_3-3776AB?logo=python&style=flat-square)](https://www.python.org/)
-[![SonarQube Passed](https://img.shields.io/badge/SonarQube-Passed-success?logo=sonarqube&style=flat-square)]()
-[![Status](https://img.shields.io/badge/Status-Active_Development-emerald?style=flat-square)]()
+**A one-click local web server manager for Windows.**
 
-**VyloServe** is an enterprise-grade local web server manager designed as a faster, more beautiful, and native-feeling alternative to traditional tools like XAMPP, WAMP, or Laragon. 
+[![Latest Release](https://img.shields.io/github/v/release/authntcG/vyloserve?label=latest%20release&style=flat-square)](https://github.com/authntcG/vyloserve/releases/latest)
+[![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE)
+![Platform](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows&style=flat-square)
 
-[Features](#-key-features) • [Tech Stack](#%EF%B8%8F-tech-stack) • [Roadmap](#-roadmap) • [Getting Started](#-getting-started)
+[Download](#download--installation) • [Features](#features) • [Documentation](#documentation)
 
 </div>
 
-## 💡 What is VyloServe?
+## What is VyloServe?
 
-VyloServe is a meticulously crafted local server manager designed for modern web developers. Moving away from the clunky, outdated interfaces of traditional local environments, VyloServe provides a sleek, enterprise-grade Dashboard to manage your Apache Virtual Hosts, Multi-Version PHP (FastCGI), Local Databases, Workspace Repositories, and Runtimes seamlessly.
+VyloServe runs Apache, PHP, MySQL/MariaDB, and PostgreSQL on your own Windows machine — without installing Windows Services, editing config files by hand, or juggling separate installers for each piece. Everything is controlled from one dashboard: start and stop services, switch PHP versions, create virtual hosts, install language runtimes, and more.
 
-Built on top of **PyWebView**, VyloServe offers a 100% native desktop application feel—complete with custom context menus, blocked browser shortcuts, and hardware-accelerated UI rendering, all powered by **React**, **Vite**, and **Tailwind CSS**.
+It's built for web developers who want the convenience of tools like XAMPP or Laragon, with a native desktop app (Python + pywebview) instead of a browser-based control panel.
 
-## ✨ Key Features
+## Download & Installation
 
-### 🎛️ Smart Global Dashboard
-* **The Big Switch:** Start or stop all your configured services (Apache & PHP) with a single click. VyloServe intelligently orchestrates the execution order (PHP FastCGI first, then Apache) to prevent gateway crashes.
-* **Zero-CPU Sparkline Monitors:** Real-time CPU and Memory usage tracking utilizing native SVG cubic-bezier sparklines. It delivers a fluid, Datadog-like monitoring experience with dynamic vertical gradients without consuming hardware resources.
-* **Persistent Workspace:** Your selections, from the active Apache version to multiple running PHP versions, are saved securely in `data/dashboard.json` and restored exactly as you left them.
+Get the latest build from the [Releases page](https://github.com/authntcG/vyloserve/releases/latest). Each release ships two options:
 
-### 🌐 Apache Web Server Automation
-* **Automated Virtual Hosts:** Create, edit, and delete local `.test` or `.loc` domains instantly.
-* **Instant Explorer & Browser Access:** One-click shortcuts to open your project directories or launch the browser directly from the UI.
-* **Version Control:** Effortlessly switch between different Apache versions installed on your machine.
+- **`VyloServe_Setup_vX.X.X.exe`** — standard installer, adds VyloServe to your Start Menu.
+- **`vyloserve_portable.exe`** — no installation, just run it from anywhere.
 
-### 🐘 Advanced PHP FastCGI
-* **True Multi-Version Support:** Run PHP 7.4 and PHP 8.2 simultaneously. VyloServe handles port assignment (e.g., 9000, 9001, 9002) and prevents port collision automatically.
-* **Automated ProxyPass:** Binds Apache Virtual Hosts to specific PHP FastCGI ports behind the scenes.
-* **One-Click Extensions:** Toggle PHP extensions directly from the UI with an integrated search bar—no more manual `php.ini` editing!
+**Requirements:** Windows 10 (version 1809 or later) or Windows 11, plus the [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/). WebView2 is pre-installed on most up-to-date Windows 10/11 systems — VyloServe will prompt you to install it if it's missing.
 
-### 🗄️ Multi-Engine Database Management
-* **Native Integration:** Support for MySQL, MariaDB, and PostgreSQL.
-* **Smart Polling & Parsing:** Automatically detect and map `my.ini` and `postgresql.conf` for safe configuration overrides directly from the UI.
-* **Startup Logging:** Dedicated file logs to trace specific database errors independently from the main system logs.
+## Features
 
-### ⚙️ Multi-Runtime Support & Utilities
-* **Global Runtimes:** Manage Node.js, Python, Java, and Go installations globally, or link them to your projects.
-* **Workspace Git Manager:** Built-in git status dashboard for local projects.
-* **Developer Tools:** Built-in QR Code Generator, Base64 Encoder, URL Decoder, and SSL Auto-generation for `https://` access.
-* **Native i18n:** Full bilingual support (English and Indonesian) built straight into the UI components.
-* **Auto-Updater:** Automatic startup check against GitHub Releases, with an optional pre-release opt-in, one-click background download with live progress, and silent self-install on restart.
+### Web Server (Apache)
+- Portable install — no separate Apache download needed.
+- Auto-detects a free port and configures Apache to listen on it.
+- Routes `.php` requests to PHP automatically through a built-in reverse proxy.
+- Runs as a background process — no Windows Service required.
 
-## 🏗️ Architecture & Tech Stack
+### PHP
+- Install and run multiple PHP versions side by side.
+- Enable or disable PHP extensions from the UI — no manual `php.ini` editing.
+- Change `memory_limit`, `upload_max_filesize`, and other settings from the UI.
 
-VyloServe separates the heavy lifting from the presentation layer to ensure maximum performance and maintainability. **Every piece of code is strictly guarded by SonarQube quality gates (Zero-Tolerance for bugs and code smells).**
+### Database (MariaDB & PostgreSQL)
+- Install MariaDB (MySQL-compatible) or PostgreSQL, independently or side by side.
+- Runs silently in the background without Windows Services, and avoids port conflicts with any database already on your machine.
+- Auto-tunes memory settings on install.
 
-* **Backend (`/core`):** Pure Python. Handles OS-level operations, process management (`psutil`), binary downloads, and configuration patching (`httpd.conf`, `php.ini`). Tested rigorously with `pytest`.
-* **Frontend (`/frontend`):** React 18 + TypeScript + Vite. Styled with Tailwind CSS for a dark-mode-first, responsive, and gorgeous UI.
-* **Bridge:** `pywebview` establishes a fast, bidirectional, native window bridge between Python and React.
+### Runtimes Manager
+- Install Node.js (portable, with Corepack/Yarn/pnpm support), Python (embeddable distribution with pip), Java (OpenJDK/Temurin), and Go.
+- Automatically registers each runtime to your system PATH.
 
-## 🚀 Roadmap & Future Features
+### Project Manager
+- One-click scaffolding for PHP projects (Laravel, CodeIgniter 4, and more) via a bundled Composer.
+- Auto-creates an Apache virtual host with a `.local` domain for every project.
+- Auto-registers the domain in your Windows `hosts` file (with an admin-elevation prompt when needed).
 
-VyloServe is actively in development. Here is what we have built and what is coming next:
+### Git & SSL
+- Portable Git install, integrated with a built-in terminal.
+- Generates a local trusted Root CA, so your `.local` domains get a valid HTTPS lock in the browser.
 
-* [x] **Core Engine:** PyWebView bridging and UI scaffolding.
-* [x] **Apache Module:** Virtual host generator, version management, directory linking.
-* [x] **PHP Module:** FastCGI integration, extension toggling, multi-port collision detection.
-* [x] **Dashboard:** Global control panel, smart suggestions, and real-time resource polling.
-* [x] **Database Module:** Support for MariaDB, MySQL, and PostgreSQL.
-* [x] **Runtimes Module:** Multi-runtime environments (Node.js, Python, Java, Go).
-* [x] **Git Manager & SSL Manager:** Local repo management and auto-generated trusted SSL certificates.
-* [x] **Developer Utilities:** Built-in QR Code Generator, Base64 Encoder, and URL Decoder.
-* [x] **i18n Multi-Language:** Built-in support for English and Indonesian.
-* [x] **Auto-Updater:** Startup update check, background download, and silent self-install via GitHub Releases.
-* [ ] **Redis / Memcached:** In-memory data structure store management.
+### Customization
+- 10 built-in color themes (VyloServe Dark/Light, Darcula, Solarized Dark/Light, High Contrast Dark/Light, Monokai, Dracula, Nord).
+- English and Indonesian language support.
+- Choose which services show up on your dashboard.
+- Launching VyloServe while it's already running brings the existing window to the front instead of opening a duplicate.
 
-## 🛠️ Getting Started (Development)
+### System Logs
+- A centralized, real-time log panel covering every module — installs, service start/stop, errors.
+- Live-tails the actual Apache and database log files (`error_log`, `access_log`, `db_startup.log`) into the same panel.
+- Filter by log level or category, and view full log files without leaving the app.
 
-Want to contribute or run VyloServe from the source?
+### Tunnels (Zrok)
+- Share a running Apache project, or any `localhost:<port>` address, to a public URL.
+- Run multiple shares at once, each stoppable independently from an Active Shares list.
 
-1. **Clone the repository:**
-```bash
-git clone https://github.com/authntcG/vyloserve.git
-cd vyloserve
-```
+### Auto-Updater
+- Checks GitHub Releases automatically on startup, with a manual check available in Settings.
+- Optional opt-in for pre-release (alpha/beta) builds.
+- One-click background download with a progress bar, then a silent install on restart.
 
-2. **Setup Frontend:**
-```bash
-cd frontend
-npm install
-npm run dev
-```
+### Developer Tools
+- Base64 encode/decode, for text and drag-and-drop files.
+- URL encode/decode with a full URI structure breakdown.
+- QR code generator with image download.
 
-3. **Setup Backend:**
-Open a new terminal in the root directory.
-```bash
-pip install -r requirements.txt
-python main.py
-```
+## Documentation
 
-## 🤝 Contributing
+This README covers what VyloServe does and how to install it. For anything about how it's built — architecture, backend/frontend internals, testing standards, or running it from source — see [`docs/index.md`](docs/index.md), the entry point to the full documentation set.
 
-Contributions, issues, and feature requests are welcome! Feel free to check the issues page. If you have ideas to make VyloServe better, please fork the repo and create a pull request.
+## Contributing
 
-## 📝 License
+Issues and pull requests are welcome. Before opening one, please read [`docs/index.md`](docs/index.md) and [`docs/development_testing.md`](docs/development_testing.md) for the project's setup, testing, and coding standards.
 
-This project is licensed under the GNU General Public License v3.0 (GPL-3.0) - see the [LICENSE](LICENSE) file for details.
+## License
 
----
-
-*Built with ❤️ for Developers who love clean, fast, and beautiful local environments.*
+GPL-3.0 — see [LICENSE](LICENSE) for the full text.

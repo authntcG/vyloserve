@@ -37,7 +37,7 @@ Mengelola instalasi engine pemrograman pihak ketiga. Path sistem (Windows Regist
 
 ## 7. Multi-Language, Tema & Aplikasi Satu-Instance
 - **i18n Frontend:** Antarmuka mendukung multi-bahasa (Inggris dan Indonesia) yang diterjemahkan langsung melalui frontend React.
-- **9 Pilihan Tema:** Modal "Settings" (tab General) menyediakan 9 skema warna (VyloServe Dark/Light, Darcula, Solarized Dark/Light, High Contrast Dark/Light, Monokai, Dracula, Nord) yang tersimpan persisten dan ikut menentukan warna latar jendela saat aplikasi pertama kali dibuka (sebelum React sempat me-render apa pun).
+- **10 Pilihan Tema:** Modal "Settings" (tab General) menyediakan 10 skema warna (VyloServe Dark/Light, Darcula, Solarized Dark/Light, High Contrast Dark/Light, Monokai, Dracula, Nord) yang tersimpan persisten dan ikut menentukan warna latar jendela saat aplikasi pertama kali dibuka (sebelum React sempat me-render apa pun).
 - **Dashboard Modular:** Menyimpan preferensi pengguna mengenai layanan mana saja yang perlu ditampilkan di *Home Dashboard*.
 - **Satu Instance Aplikasi (Single Instance):** Membuka VyloServe saat sudah ada instance yang berjalan tidak akan membuka window baru — aplikasi yang sudah berjalan otomatis dibawa ke depan (foreground) dan di-*restore* dari minimized, dideteksi lewat Windows Mutex.
 
