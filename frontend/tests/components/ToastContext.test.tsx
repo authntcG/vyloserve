@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { useEffect } from 'react';
 import userEvent from '@testing-library/user-event';
-import { act, render, screen } from '../test-utils';
+import { act, render, screen, waitFor } from '../test-utils';
 import { useToast, ToastProvider } from '../../src/components/ToastContext';
 
 function ToastTrigger({ message, type }: { readonly message: string; readonly type: 'success' | 'error' | 'warning' | 'info' }) {
@@ -49,7 +49,7 @@ describe('ToastContext', () => {
             expect(screen.getByText('auto-dismiss me')).toBeInTheDocument();
 
             act(() => {
-                vi.advanceTimersByTime(4000);
+                vi.advanceTimersByTime(4300);
             });
 
             expect(screen.queryByText('auto-dismiss me')).not.toBeInTheDocument();
@@ -68,7 +68,9 @@ describe('ToastContext', () => {
 
         await user.click(screen.getByText('close'));
 
-        expect(screen.queryByText('dismiss me')).not.toBeInTheDocument();
+        await waitFor(() => {
+            expect(screen.queryByText('dismiss me')).not.toBeInTheDocument();
+        });
     });
 
     it('renders multiple simultaneous toasts independently', () => {

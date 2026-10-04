@@ -79,10 +79,30 @@ export default function QrMain() {
     };
 
     // --- HANDLER: DOWNLOAD ---
-    const handleDownload = () => {
+    const handleDownload = async () => {
         if (qrCode.current) {
-            qrCode.current.download({ name: `vyloserve_qr_${Date.now()}`, extension: downloadExt });
-            showToast(`${t('tools.qr.download_success')} ${downloadExt.toUpperCase()}!`, "success");
+            try {
+                const blob = await qrCode.current.getRawData(downloadExt);
+                if (!blob) return;
+                const reader = new FileReader();
+                reader.onloadend = async () => {
+                    const base64data = (reader.result as string).split(',')[1];
+                    let fileTypes = ['All files (*.*)'];
+                    if (downloadExt === 'png') fileTypes = ['PNG Image (*.png)', 'All files (*.*)'];
+                    else if (downloadExt === 'jpeg') fileTypes = ['JPEG Image (*.jpeg;*.jpg)', 'All files (*.*)'];
+                    else if (downloadExt === 'svg') fileTypes = ['SVG Vector (*.svg)', 'All files (*.*)'];
+                    
+                    const res = await (window as any).pywebview.api.save_base64_file(`vyloserve_qr_${Date.now()}.${downloadExt}`, base64data, fileTypes);
+                    if (res?.status === 'success') {
+                        showToast(t(res.message, res.args) as string, "success");
+                    } else if (res?.status === 'error') {
+                        showToast(t(res.message, res.args) as string, "error");
+                    }
+                };
+                reader.readAsDataURL(blob as Blob);
+            } catch (err) {
+                console.error("Failed to generate QR blob:", err);
+            }
         }
     };
 

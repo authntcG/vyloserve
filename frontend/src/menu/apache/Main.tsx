@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import Card from '../../components/Card';
 import Modal from '../../components/Modal';
 import { useToast } from '../../components/ToastContext';
+import { useAlert } from '../../components/AlertContext';
 import BackgroundProgressWidget from '../../components/BackgroundProgressWidget';
 
 // ---> IMPORT UI KIT COMPONENTS <---
@@ -198,6 +199,7 @@ function ApacheProjectsSection({ isFetching, projects, onOpenDocumentRoot, onOpe
 export default function ApacheMain() {
     const { t } = useTranslation();
     const { showToast } = useToast();
+    const { confirm } = useAlert();
 
     // State Global & Instalasi
     const [isFetchingApacheStatus, setIsFetchingApacheStatus] = useState(true);
@@ -205,8 +207,7 @@ export default function ApacheMain() {
     const [installedApacheVersion, setInstalledApacheVersion] = useState<string | null>(null);
     const [apachePath, setApachePath] = useState<string>(t('apache.not_installed'));
     const [isApacheRunning, setIsApacheRunning] = useState(false);
-    const [isUninstalling, setIsUninstalling] = useState(false);
-    const [isTogglingServer, setIsTogglingServer] = useState(false);
+        const [isTogglingServer, setIsTogglingServer] = useState(false);
 
     const [isInstallServerOpen, setIsInstallServerOpen] = useState(false);
     const [availableVersions, setAvailableVersions] = useState<ApacheVersionData[]>([]);
@@ -225,7 +226,6 @@ export default function ApacheMain() {
     const [projects, setProjects] = useState<ProjectData[]>([]);
     const [isFetchingProjects, setIsFetchingProjects] = useState(true);
     const [isOptionsOpen, setIsOptionsOpen] = useState(false);
-    const [isUninstallServerOpen, setIsUninstallServerOpen] = useState(false);
     const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
     const [isProjectSettingsOpen, setIsProjectSettingsOpen] = useState(false);
     const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
@@ -412,13 +412,18 @@ export default function ApacheMain() {
     };
 
     const handleUninstall = async () => {
-        setIsUninstalling(true);
+        if (!await confirm({
+            title: t('apache.uninstall_apache'),
+            message: <p className="text-slate-700 dark:text-slate-300">{t('apache.confirm_uninstall')} <strong className="text-slate-900 dark:text-white">Apache Web Server</strong>?</p>,
+            type: 'danger',
+            confirmText: t('apache.yes_uninstall')
+        })) return;
+
         try {
             const res = await window.pywebview?.api?.uninstall_apache();
             showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
-            if (res?.status === 'success') { setIsUninstallServerOpen(false); fetchApacheStatus(); }
+            if (res?.status === 'success') { fetchApacheStatus(); }
         } catch (e) { console.error(e); showToast(t('apache.uninstall_error'), "error"); }
-        finally { setIsUninstalling(false); }
     };
 
     return (
@@ -452,7 +457,7 @@ export default function ApacheMain() {
                     onOpenOptions={() => setIsOptionsOpen(true)}
                     onOpenConfig={() => window.pywebview?.api?.open_apache_config()}
                     onOpenDirectory={() => window.pywebview?.api?.open_apache_directory()}
-                    onUninstallClick={() => setIsUninstallServerOpen(true)}
+                    onUninstallClick={handleUninstall}
                     onInstallClick={handleOpenInstallModal}
                     t={t}
                 />
@@ -487,11 +492,9 @@ export default function ApacheMain() {
 
             <Modal isOpen={isOptionsOpen} onClose={() => setIsOptionsOpen(false)} title={t('apache.global_apache_config')} icon="tune" onApply={() => setIsOptionsOpen(false)}><ApacheSettings /></Modal>
             <Modal isOpen={isNewProjectModalOpen} keepMounted={isCreatingProject} onClose={() => setIsNewProjectModalOpen(false)} title={t('apache.create_new_project')} icon="add_box" onApply={handleCreateSubmit} applyText={isCreatingProject ? t('apache.installing_start') : t('apache.create_project')} isApplyDisabled={isCreatingProject}><NewApacheProject ref={projectFormRef} isCreatingExternal={isCreatingProject} /></Modal>
-            <Modal isOpen={isProjectSettingsOpen} onClose={() => !isUpdatingProject && setIsProjectSettingsOpen(false)} title={`${t('apache.vhost_settings_modal')}: ${selectedProject?.name}`} icon="settings" onApply={handleUpdateProjectSubmit} applyText={isUpdatingProject ? t('apache.saving') : t('apache.save_changes')} isApplyDisabled={isUpdatingProject} isLoading={isUpdatingProject}>{selectedProject && <ProjectSettings project={selectedProject as any} ref={projectSettingsRef} />}</Modal>
+            <Modal isOpen={isProjectSettingsOpen} onClose={() => !isUpdatingProject && setIsProjectSettingsOpen(false)} title={`${t('apache.vhost_settings_modal')}: ${selectedProject?.name}`} icon="settings" onApply={handleUpdateProjectSubmit} applyText={isUpdatingProject ? t('apache.saving') : t('apache.save_changes')} isApplyDisabled={isUpdatingProject} isLoading={isUpdatingProject}>{selectedProject && <ProjectSettings project={selectedProject} ref={projectSettingsRef} />}</Modal>
 
-            <Modal isOpen={isUninstallServerOpen} onClose={() => !isUninstalling && setIsUninstallServerOpen(false)} title={t('apache.uninstall_apache')} icon="warning" onApply={handleUninstall} applyText={isUninstalling ? t('apache.deleting') : t('apache.yes_uninstall')} isApplyDisabled={isUninstalling} isDestructive={true} isLoading={isUninstalling}>
-                <p className="text-slate-700 dark:text-slate-300">{t('apache.confirm_uninstall')} <strong className="text-slate-900 dark:text-white">Apache Web Server</strong>?</p>
-            </Modal>
+
 
             <Modal isOpen={isDeleteConfirmOpen} onClose={() => !isDeletingProject && setIsDeleteConfirmOpen(false)} title={t('apache.delete_virtual_host')} icon="delete" onApply={handleDeleteProjectSubmit} applyText={isDeletingProject ? t('apache.deleting') : t('apache.delete_project')} isApplyDisabled={isDeletingProject} isDestructive={true} isLoading={isDeletingProject}>
                 <p className="text-slate-700 dark:text-slate-300 mb-2">{t('apache.delete_project')} <strong className="text-slate-900 dark:text-white">{selectedProject?.domain}</strong>?</p>

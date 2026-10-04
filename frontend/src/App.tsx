@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import HeaderMobile from './components/HeaderMobile';
 import Sidebar from './components/Sidebar';
@@ -6,6 +6,7 @@ import ApacheMain from './menu/apache/Main';
 import PhpMain from './menu/php/Main';
 import LogsPanel from './components/LogsPanel';
 import { ToastProvider } from './components/ToastContext';
+import { AlertProvider } from './components/AlertContext';
 import DatabaseMain from './menu/database/Main';
 import DashboardMain from './menu/dashboard/Main';
 import GlobalAppInterceptor from './components/AppInterceptor';
@@ -14,6 +15,8 @@ import GitMain from './menu/tools/git/Main';
 import UrlEncodeDecodeMain from './menu/tools/url-encode-decode/Main';
 import Base64Main from './menu/tools/base64-encode-decode/Main';
 import QrMain from './menu/tools/qr-generator/Main';
+import TunnelsMain from './menu/tools/tunnels/Main';
+import { applyTheme } from './utils/theme';
 
 declare global {
   interface Window {
@@ -28,12 +31,11 @@ function AppContent() {
   const [activeMenu, setActiveMenu] = useState('dashboard');
 
   const [isApiReady, setIsApiReady] = useState(false);
+  const [isSettingsLoaded, setIsSettingsLoaded] = useState(false);
 
   useEffect(() => {
     const checkApi = () => {
       if (window.pywebview?.api?.test_connection) {
-        setIsApiReady(true);
-        
         // --- LOAD GLOBAL SETTINGS ---
         if (window.pywebview.api.get_app_settings) {
             window.pywebview.api.get_app_settings().then((res: any) => {
@@ -41,16 +43,11 @@ function AppContent() {
                     if (res.data?.language) {
                         import('./i18n').then(({ default: i18n }) => {
                             i18n.changeLanguage(res.data.language);
-                const theme = res.data.theme || 'vyloserve-dark';
-                document.documentElement.dataset.theme = theme;
-                if (theme.includes('-light')) {
-                    document.documentElement.classList.remove('dark');
-                } else {
-                    document.documentElement.classList.add('dark');
-                }
                         });
                     }
-                    
+                    const theme = res.data?.theme || 'vyloserve-dark';
+                    applyTheme(theme);
+
                     // Cek update otomatis di latar belakang
                     if (window.pywebview.api.check_for_updates) {
                         window.pywebview.api.check_for_updates().then((upd: any) => {
@@ -63,7 +60,16 @@ function AppContent() {
                         }).catch((e: any) => console.error("Gagal mengecek pembaruan:", e));
                     }
                 }
-            }).catch((err: any) => console.error("Gagal memuat setting:", err));
+                setIsSettingsLoaded(true);
+                setIsApiReady(true);
+            }).catch((err: any) => {
+                console.error("Gagal memuat setting:", err);
+                setIsSettingsLoaded(true);
+                setIsApiReady(true);
+            });
+        } else {
+            setIsSettingsLoaded(true);
+            setIsApiReady(true);
         }
 
         return true;
@@ -89,9 +95,9 @@ function AppContent() {
     }
   }, []);
 
-  if (!isApiReady) {
+  if (!isApiReady || !isSettingsLoaded) {
     return (
-      <div className="h-screen w-screen bg-slate-50 dark:bg-slate-900 flex flex-col items-center justify-center gap-4">
+      <div className="h-screen w-screen bg-transparent flex flex-col items-center justify-center gap-4">
         <span className="material-symbols-outlined animate-spin text-4xl text-primary">sync</span>
         <p className="text-sm font-medium text-slate-500 dark:text-slate-400 animate-pulse">
           {t('common.connecting_engine')}
@@ -129,6 +135,7 @@ function AppContent() {
             <div className={activeMenu === 'url-encode-decode' ? 'block' : 'hidden'}><UrlEncodeDecodeMain /></div>
             <div className={activeMenu === 'base64' ? 'block' : 'hidden'}><Base64Main /></div>
             <div className={activeMenu === 'qr' ? 'block' : 'hidden'}><QrMain /></div>
+            <div className={activeMenu === 'tunnels' ? 'block' : 'hidden'}><TunnelsMain /></div>
           </div>
 
           <div className="flex-none z-10 relative">
@@ -143,8 +150,10 @@ function AppContent() {
 export default function App() {
   return (
     <ToastProvider>
-      <GlobalAppInterceptor />
-      <AppContent />
+      <AlertProvider>
+        <GlobalAppInterceptor />
+        <AppContent />
+      </AlertProvider>
     </ToastProvider>
   );
 }

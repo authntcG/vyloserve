@@ -26,6 +26,7 @@
 | `open_apache_file(type)` | `open_apache_file()` | `apache.open_apache_file()` |
 | `open_apache_directory()` | `open_apache_directory()` | `apache.open_directory()` |
 | `open_apache_config()` | `open_apache_config()` | `apache.open_config()` |
+| `get_apache_log_content(log_type)` | `get_apache_log_content()` | `apache.get_log_content()` — baca tail `error_log`/`access_log`, lihat `docs/backend_services.md` §11.1 |
 
 ### PHP Endpoints
 | Endpoint (JS) | Handler Python | Delegasi ke |
@@ -56,6 +57,7 @@
 | `check_port_in_use(port)` | `check_port_in_use()` | `database.is_port_in_use()` |
 | `open_db_config_file(db_id)` | `open_db_config_file()` | `database.open_path(is_file=True)` |
 | `open_db_dir(db_id)` | `open_db_dir()` | `database.open_path(is_file=False)` |
+| `get_database_log_content(db_id, log_type='startup')` | `get_database_log_content()` | `database.get_log_content()` — baca tail `db_startup.log`/`*.err`, lihat `docs/backend_services.md` §11.1 |
 
 ### Runtimes Endpoints
 | Endpoint (JS) | Handler Python | Delegasi ke |
@@ -94,6 +96,7 @@
 | `toggle_git_path(enable)` | `toggle_git_path()` | `git_manager.toggle_user_path()` |
 | `get_git_config()` | `get_git_config()` | `git_manager.get_git_config()` |
 | `set_git_config(name, email)` | `set_git_config()` | `git_manager.set_git_config()` |
+| `get_available_git_versions()` | `get_available_git_versions()` | `git_manager.get_available_git_versions()` |
 
 ### System & Utility Endpoints
 | Endpoint (JS) | Handler Python | Delegasi ke |
@@ -109,6 +112,9 @@
 | `open_browser(url)` | `open_browser()` | `webbrowser.open()` |
 | `test_connection(data)` | `test_connection()` | Return ping |
 | `close_app()` | `close_app()` | `quit_callback()` (jika di-set `main.py`) atau `os._exit(0)` langsung — lihat `docs/known_bugs.md` #6 untuk isu cleanup proses child |
+| `save_base64_file(filename, base64_data, file_types?)` | `save_base64_file()` | `window.create_file_dialog(SAVE_DIALOG)` lalu tulis file hasil decode base64 langsung — satu-satunya endpoint yang tidak melalui Manager manapun |
+
+> **Catatan:** `Api.start_log_watcher()`/`stop_log_watcher()` **bukan** endpoint yang dipanggil dari JS — ini method internal yang dipanggil sekali oleh `main.py` saat window dibuat/ditutup untuk menjalankan thread background yang menyalurkan file log Apache/Database ke System Logs. Detail: `docs/backend_services.md` §11.2.
 
 ### Updater Endpoints
 | Endpoint (JS) | Handler Python | Delegasi ke |
@@ -119,6 +125,28 @@
 | `start_download_update(asset_url, asset_name)` | `start_download_update()` | `updater.start_download_update()` (non-blocking, thread background) |
 | `install_update()` | `install_update()` | `updater.install_update()` |
 
+### Tunnels Endpoints (zrok)
+Fitur *public tunnel* berbasis [zrok](https://zrok.io) (OpenZiti) — expose project lokal/`localhost:port` apa pun ke internet. `TunnelsManager` tidak menyimpan state ke `data/*.json` sendiri (share aktif cuma disimpan in-memory di `self.active_shares`, hilang saat aplikasi restart); satu-satunya jejak persisten adalah field `tunnel_url` yang disisipkan ke record project terkait di `data/projects.json` saat share dimulai/dihentikan (lewat `Api.project`).
+
+| Endpoint (JS) | Handler Python | Delegasi ke |
+|--------------|----------------|-------------|
+| `get_available_zrok_versions()` | `get_available_zrok_versions()` | `tunnels.get_available_zrok_versions()` |
+| `get_zrok_status()` | `get_zrok_status()` | `tunnels.get_zrok_status()` |
+| `install_zrok(version='latest')` | `install_zrok()` | `tunnels.install_zrok()` |
+| `uninstall_zrok()` | `uninstall_zrok()` | `tunnels.uninstall_zrok()` |
+| `enable_zrok(token)` | `enable_zrok()` | `tunnels.enable_zrok()` |
+| `disable_zrok()` | `disable_zrok()` | `tunnels.disable_zrok()` |
+| `start_zrok_share(project_id_or_'localhost:port')` | `start_zrok_share()` | `tunnels.start_zrok_share()` |
+| `stop_zrok_share(share_id)` | `stop_zrok_share()` | `tunnels.stop_zrok_share()` |
+
+> ✅ **Sudah diperbaiki (sebelumnya dicatat di sini sebagai item belum diselesaikan):** Ke-7 handler delegasi di atas (selain `get_available_zrok_versions`) sempat ditulis dengan pola defensif `getattr(self, "tunnels").xxx() if hasattr(self, "tunnels") else {}` — sudah disederhanakan jadi `self.tunnels.xxx()` langsung, konsisten dengan seluruh delegasi lain di `core/api.py`.
+>
+> ✅ **Sudah diperbaiki:** `start_zrok_share()` sempat membaca `self.api.settings.get_settings().get("apache_port", 80)` — key yang **tidak pernah ada** di `SettingsManager.default_config`, sehingga selalu fallback ke `80` berapa pun port Apache sesungguhnya. Sekarang memakai `ApacheManager.get_http_port()` (parsing `Listen <port>` langsung dari `httpd.conf` aktif, abaikan `Listen 443`). Lihat `docs/known_bugs.md` #31.
+>
+> ✅ **Sudah diperbaiki — root cause fungsional yang jauh lebih serius dari dua di atas:** `start_zrok_share()` mendeteksi URL publik zrok lewat regex yang mencari pola teks `"access your zrok share:\s+https?://..."` — tapi `zrok.exe` v2 ternyata mencetak log sebagai **JSON satu baris per entry** dengan frasa berbeda dan domain TANPA skema http(s), sehingga regex lama **tidak pernah bisa match sama sekali**, menyebabkan fitur share gagal 100% dari waktu dengan pesan "url_not_found" meski share sebenarnya berhasil dibuat di sisi cloud zrok. Ditemukan dengan menjalankan `zrok.exe` v2.0.7 asli secara langsung (binary sudah ada di `bin/zrok/zrok.exe`), bukan dari membaca kode saja. Diperbaiki via `TunnelsManager._extract_zrok_public_url()` (parsing JSON dulu, baru cari frasa endpoint). Diverifikasi end-to-end sungguhan: share server lokal, akses URL publiknya dari internet, dapat response 200 (bukan Bad Gateway). Lihat `docs/known_bugs.md` #34 dan #35 (termasuk koreksi jujur bahwa diagnosis awal #34 ternyata salah arah).
+>
+> ✅ **Enhancement:** Setiap tahap di `TunnelsManager` (instal, enable/disable, mulai/stop share, uninstall, termasuk SEMUA precondition-failure dan blok `except`) sekarang memanggil `self._log(...)` ke System Logs — sebelumnya banyak jalur error hanya memakai `traceback.print_exc()` yang tidak pernah terlihat user di build production tanpa console window.
+
 ---
 
 ## 2. Peta File & Tanggung Jawab
@@ -126,34 +154,36 @@
 ### Backend Files
 | File | Ukuran | Tanggung Jawab |
 |------|--------|----------------|
-| `core/api.py` | ~458 baris | Facade/Router — meneruskan semua panggilan JS ke manager |
-| `core/services/apache.py` | ~507 baris | Instalasi, konfigurasi, dan lifecycle httpd.exe |
+| `core/api.py` | ~490 baris | Facade/Router — meneruskan semua panggilan JS ke manager; juga memiliki `start_log_watcher()`/`stop_log_watcher()` (thread background, bukan endpoint JS — lihat §1) |
+| `core/services/apache.py` | ~533 baris | Instalasi, konfigurasi, dan lifecycle httpd.exe; `tail_new_logs()`/`get_log_content()` untuk System Logs (lihat `docs/backend_services.md` §11); `get_http_port()` untuk resolusi port HTTP aktif (dipakai `TunnelsManager`) |
 | `core/services/php.py` | ~404 baris | Multi-version PHP-CGI, extensions, php.ini management |
-| `core/services/database.py` | ~684 baris | MySQL/MariaDB dan PostgreSQL daemon management |
-| `core/services/project.py` | ~489 baris | VirtualHost, Composer, UAC hosts injection |
-| `core/services/runtimes_manager.py` | ~772 baris | Node, Python, Java, Go — Windows Registry PATH injection |
-| `core/services/git_manager.py` | ~367 baris | PortableGit installer dan PATH management |
+| `core/services/database.py` | ~690 baris | MySQL/MariaDB dan PostgreSQL daemon management; `tail_new_logs()`/`get_log_content()` untuk System Logs |
+| `core/services/project.py` | ~496 baris | VirtualHost, Composer, UAC hosts injection |
+| `core/services/runtimes_manager.py` | ~782 baris | Node, Python, Java, Go — Windows Registry PATH injection |
+| `core/services/git_manager.py` | ~362 baris | PortableGit installer dan PATH management |
 | `core/services/ssl_manager.py` | ~101 baris | Root CA generation via OpenSSL |
 | `core/services/dashboard.py` | ~64 baris | CRUD konfigurasi dashboard (JSON) |
-| `core/services/settings.py` | ~74 baris | CRUD preferensi aplikasi (bahasa, log filter, `receive_prerelease_updates`) |
-| `core/services/updater.py` | ~224 baris | Auto-Updater: cek/unduh/pasang rilis baru dari GitHub Releases |
-| `core/utils/file_utils.py` | ~291 baris | JSON I/O, download multi-part, ekstraksi ZIP/TAR |
-| `core/utils/system_utils.py` | - | subprocess silent, port checker, path resolver |
-| `main.py` | ~213 baris | Entrypoint: PyWebView window, System Tray setup, `APP_VERSION` |
+| `core/services/settings.py` | ~75 baris | CRUD preferensi aplikasi (`language`, `theme`, `receive_prerelease_updates`, `default_apache_install_location`, `system_log_levels`/`system_log_sources`) |
+| `core/services/updater.py` | ~237 baris | Auto-Updater: cek/unduh/pasang rilis baru dari GitHub Releases |
+| `core/services/tunnels.py` | ~500 baris | Public tunnel berbasis zrok (install/enable/disable/share) — lihat §1 "Tunnels Endpoints". Termasuk `_extract_zrok_public_url()`/`_parse_zrok_log_line()`/`_log_zrok_line()` (parsing output JSON `zrok.exe` v2 — lihat `docs/known_bugs.md` #35) |
+| `core/utils/file_utils.py` | ~291 baris | JSON I/O, download multi-part, ekstraksi ZIP/TAR, `read_log_tail()`/`read_new_lines()` untuk System Logs |
+| `core/utils/system_utils.py` | ~102 baris | subprocess silent, port checker, path resolver |
+| `main.py` | ~279 baris | Entrypoint: PyWebView window, single-instance lock via OS Mutex (`check_single_instance()`), System Tray setup, tema-aware `background_color` window (`get_theme_bg_color()` baca `data/settings.json`), `APP_VERSION` |
 
 ### Frontend Files (Halaman Utama)
 | File | Ukuran | Konten |
 |------|--------|--------|
-| `menu/dashboard/Main.tsx` | ~740 baris | ⚠️ File terbesar — Dashboard cards, hardware monitor |
-| `menu/runtimes/Main.tsx` | ~505 baris | Runtime cards (Node, Python, Java, Go) |
-| `menu/tools/git/Main.tsx` | ~432 baris | Git manager UI |
-| `menu/apache/Main.tsx` | ~391 baris | Apache server UI (Golden Standard) |
-| `menu/apache/NewProject.tsx` | ~346 baris | Form buat proyek baru |
-| `menu/database/Main.tsx` | ~307+ baris | Database instance cards |
-| `menu/tools/base64-encode-decode/Main.tsx` | ~250+ baris | UI alat Base64 Encode/Decode (Client-side) |
-| `menu/tools/url-encode-decode/Main.tsx` | ~150+ baris | UI alat URL Encode/Decode (Client-side) |
-| `menu/tools/qr-generator/Main.tsx` | ~100+ baris | UI alat QR Generator (Client-side) |
-| `menu/tools/settings/SettingsModals.tsx` | ~300+ baris | Kumpulan modal pengaturan terpusat (Language, Logs, Auto-Updater) |
+| `menu/dashboard/Main.tsx` | ~860 baris | ⚠️ File terbesar — Dashboard cards, hardware monitor |
+| `menu/runtimes/Main.tsx` | ~620 baris | Runtime cards (Node, Python, Java, Go) |
+| `menu/tools/git/Main.tsx` | ~434 baris | Git manager UI |
+| `menu/apache/Main.tsx` | ~507 baris | Apache server UI (Golden Standard) |
+| `menu/apache/NewProject.tsx` | ~467 baris | Form buat proyek baru |
+| `menu/database/Main.tsx` | ~332 baris | Database instance cards |
+| `menu/tools/base64-encode-decode/Main.tsx` | ~298 baris | UI alat Base64 Encode/Decode (Client-side) |
+| `menu/tools/url-encode-decode/Main.tsx` | ~161 baris | UI alat URL Encode/Decode (Client-side) |
+| `menu/tools/qr-generator/Main.tsx` | ~283 baris | UI alat QR Generator (Client-side) |
+| `menu/tools/settings/SettingsModals.tsx` | ~638 baris | **Satu modal bertab** (General/Logs/Updates/About) — bukan lagi beberapa modal terpisah, lihat `docs/known_bugs.md` untuk histori redesign-nya |
+| `menu/tools/tunnels/Main.tsx` + `InstallZrok.tsx` | - | UI tunnel publik berbasis zrok (lihat §1 "Tunnels Endpoints"); deskripsi detail ada di `docs/frontend_ui.md` §14 |
 
 ---
 
@@ -163,14 +193,16 @@ Semua state aplikasi disimpan di folder `data/` (di-ignore git). Format **selalu
 
 | File JSON | Isi | Dibaca oleh |
 |-----------|-----|-------------|
-| `data/apache.json` | `{"active_version": "2.4.62", "port": 80}` | `ApacheManager` |
-| `data/database.json` | List of database instances `[{id, engine, version, port}]` | `DatabaseManager` |
-| `data/settings.json` | `{"language": "en", "default_apache_install_location": "", "system_log_levels": null, "system_log_sources": null}` — preferensi UI generik, mudah diperluas lewat `default_config` di `SettingsManager.get_settings()`. `system_log_*`: `null` = belum dikustomisasi (tampilkan semua), array APAPUN (termasuk `[]`) = daftar eksplisit tersimpan — **jangan** pakai `[]` sebagai default, itu bug lama yang bikin "uncheck semua lalu Save" terlihat gagal tersimpan (lihat `docs/known_bugs.md` #26). JANGAN pakai `localStorage` browser untuk apa pun yang perlu bertahan antar sesi (lihat `docs/known_bugs.md` #24) | `SettingsManager` |
+| `data/apache.json` | `{"active_version": "2.4.68"}` — **hanya** versi aktif, TIDAK menyimpan `port` (port Apache dikonfigurasi langsung di `httpd.conf`, bukan JSON ini) | `ApacheManager` |
+| `data/databases.json` *(plural — bukan `database.json`)* | List instance database `[{id, name, engine, version, port, dataDir, installDir}]` | `DatabaseManager` |
+| `data/projects.json` | List virtual host project Apache `[{id, name, domain, path, php_version, php_port, framework, host_synced, tunnel_url?}]` — field `tunnel_url` ditambahkan dinamis oleh `TunnelsManager` saat share zrok aktif untuk project tsb, dihapus lagi saat share dihentikan | `ProjectManager` (ditulis juga oleh `TunnelsManager` lewat `Api.project`) |
+| `data/settings.json` | `{"language": "en", "theme": "vyloserve-dark", "receive_prerelease_updates": false, "default_apache_install_location": "", "system_log_levels": null, "system_log_sources": null}` — preferensi UI generik, mudah diperluas lewat `default_config` di `SettingsManager.get_settings()`. `theme`: salah satu dari 10 preset (`vyloserve-dark/light`, `darcula-dark`, `solarized-dark/light`, `high-contrast-dark/light`, `monokai-dark`, `dracula-dark`, `nord-dark`) — dipetakan ke warna background window pywebview oleh `main.py` `get_theme_bg_color()`. `system_log_*`: `null` = belum dikustomisasi (tampilkan semua), array APAPUN (termasuk `[]`) = daftar eksplisit tersimpan — **jangan** pakai `[]` sebagai default, itu bug lama yang bikin "uncheck semua lalu Save" terlihat gagal tersimpan (lihat `docs/known_bugs.md` #26). JANGAN pakai `localStorage` browser untuk apa pun yang perlu bertahan antar sesi (lihat `docs/known_bugs.md` #24) | `SettingsManager`; `theme` juga dibaca langsung (bukan lewat `SettingsManager`/`read_json`) oleh `main.py` `get_theme_bg_color()` lewat `json.load()` mentah — lihat catatan di bawah |
 | `data/dashboard.json` | Toggle config mana service yang tampil | `DashboardManager` |
-| `data/db_startup.log` | Error log saat daemon DB gagal start | `DatabaseManager` |
+| `data/db_startup.log` | Error log saat daemon DB gagal start (per-instance, di dalam `dataDir` masing-masing, bukan satu file global di `data/`) | `DatabaseManager` |
 | `data/VyloServeRootCA.key` | SSL private key | `SslManager` |
+| `data/temp/*.exe/.bat/.tmp` | Installer update yang sedang/sudah diunduh — dibersihkan otomatis saat aplikasi start (`UpdaterManager._cleanup_temp()`) | `UpdaterManager` |
 
-> **Catatan AI:** Gunakan `core/utils/file_utils.read_json(path, dict)` untuk membaca. Jangan buka manual dengan `open()`.
+> **Catatan AI:** Gunakan `core/utils/file_utils.read_json(path, dict)` untuk membaca. Jangan buka manual dengan `open()`. **Pengecualian yang sudah ada dan belum diperbaiki:** `main.py` `get_theme_bg_color()` membaca `data/settings.json` lewat `json.load()` mentah (bukan `read_json()`) karena dipanggil SEBELUM `Api`/`SettingsManager` diinstansiasi (dibutuhkan untuk `background_color` saat `webview.create_window()` dibuat) — ini melanggar konvensi di atas secara sengaja/tak terhindarkan untuk kasus ini, tapi tetap berisiko kalau `settings.json` korup (sudah dibungkus `try/except` sendiri jadi tidak crash, hanya fallback ke tema default). Jangan jadikan contoh pola untuk kode lain.
 
 ---
 

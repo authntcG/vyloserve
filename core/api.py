@@ -16,6 +16,7 @@ from core.services.runtimes_manager import RuntimesManager
 from core.services.git_manager import GitManager
 from core.services.settings import SettingsManager
 from core.services.updater import UpdaterManager
+from core.services.tunnels import TunnelsManager
 
 PROJECT_NOT_LOADED_MSG = "backend.error.project_module_not_loaded"
 
@@ -36,6 +37,7 @@ class Api:
         self.git_manager = GitManager(self)
         self.settings = SettingsManager(self)
         self.updater = UpdaterManager(self)
+        self.tunnels = TunnelsManager(self)
         self._log_watcher_thread: Optional[threading.Thread] = None
         self._log_watcher_stop = threading.Event()
 
@@ -62,6 +64,11 @@ class Api:
 
         def _loop():
             while not self._log_watcher_stop.is_set():
+                # Sengaja diam (tanpa emit_log) -- loop ini jalan setiap `interval` detik
+                # selamanya, jadi melaporkan tiap kegagalan lewat System Logs akan membanjiri
+                # panel user kalau errornya persisten (mis. file log terkunci terus-menerus).
+                # tail_new_logs() di masing-masing manager sudah punya try/except sendiri untuk
+                # kegagalan baca-file yang wajar; except di sini murni jaring pengaman terakhir.
                 try:
                     self.apache.tail_new_logs()
                 except Exception:
@@ -240,8 +247,26 @@ class Api:
         return self.apache.stop_server()
     
     # ==========================================
-    # PROJECT SECTIONS
+    # FILE / DIRECTORY DIALOG
     # ==========================================
+    def save_base64_file(self, filename: str, base64_data: str, file_types: tuple = ('All files (*.*)',)):
+        if not self._window: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": "No window"}}
+        result = self._window.create_file_dialog(
+            webview.SAVE_DIALOG, 
+            save_filename=filename,
+            file_types=file_types
+        )
+        if result and len(result) > 0:
+            filepath = result[0]
+            try:
+                import base64
+                with open(filepath, 'wb') as f:
+                    f.write(base64.b64decode(base64_data))
+                return {"status": "success", "message": "backend.common.file_saved", "args": {"path": filepath}}
+            except Exception as e:
+                return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+        return {"status": "cancelled", "message": ""}
+
     def browse_directory(self) -> Optional[str]:
         if self._window:
             result = self._window.create_file_dialog(webview.FOLDER_DIALOG)
@@ -456,3 +481,15 @@ class Api:
 
     def install_update(self):
         return self.updater.install_update()
+
+    # --- TUNNELS MANAGER ---
+    def get_available_zrok_versions(self):
+        return self.tunnels.get_available_zrok_versions()
+
+    def get_zrok_status(self): return self.tunnels.get_zrok_status()
+    def install_zrok(self, version: str = "latest"): return self.tunnels.install_zrok(version)
+    def uninstall_zrok(self): return self.tunnels.uninstall_zrok()
+    def enable_zrok(self, token: str): return self.tunnels.enable_zrok(token)
+    def disable_zrok(self): return self.tunnels.disable_zrok()
+    def start_zrok_share(self, project_id: str): return self.tunnels.start_zrok_share(project_id)
+    def stop_zrok_share(self, share_id: str): return self.tunnels.stop_zrok_share(share_id)

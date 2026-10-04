@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 export interface ModalProps {
@@ -39,6 +39,27 @@ export default function Modal({
     bodyPaddingClass = 'p-6'
 }: ModalProps) {
     const { t } = useTranslation();
+    const [isRendered, setIsRendered] = useState(isOpen);
+    const [isVisible, setIsVisible] = useState(isOpen);
+
+    useEffect(() => {
+        let timer: number;
+        if (isOpen) {
+            setIsRendered(true);
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    setIsVisible(true);
+                });
+            });
+        } else {
+            setIsVisible(false);
+            timer = setTimeout(() => setIsRendered(false), 300);
+        }
+        return () => {
+            if (timer) clearTimeout(timer);
+        };
+    }, [isOpen]);
+
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape' && !isDestructive && !isLoading && isOpen) {
@@ -56,27 +77,27 @@ export default function Modal({
         ? "bg-red-600 hover:bg-red-700 disabled:bg-red-400 dark:disabled:bg-red-900/40 disabled:cursor-not-allowed text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
         : "bg-primary hover:bg-blue-600 disabled:bg-slate-400 dark:disabled:bg-slate-800 disabled:cursor-not-allowed text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2";
 
-    if (!isOpen && !keepMounted) return null;
+    if (!isRendered && !keepMounted) return null;
 
     // native <dialog> mengubah semantik focus-trap/backdrop-close/ESC (showModal()/close(),
     // ::backdrop) yang berbeda dari implementasi keepMounted+animasi opacity di komponen ini.
     // Migrasi ditunda (butuh smoke-test manual menyeluruh); lihat docs/known_bugs.md.
     return (
-        <div className={`fixed inset-0 z-[100] flex items-center justify-center p-4 transition-all duration-300 ${isOpen ? 'opacity-100 visible' : 'opacity-0 invisible pointer-events-none'}`} role="dialog" aria-modal="true"> {/* NOSONAR typescript:S6819 */}
+        <div className={`fixed inset-0 z-[100] flex items-center justify-center p-4 transition-all duration-300 ${isVisible ? 'opacity-100 visible' : 'opacity-0 invisible pointer-events-none'}`} role="dialog" aria-modal="true"> {/* NOSONAR typescript:S6819 */}
 
             {/* OVERLAY DENGAN ANIMASI OPACITY */}
             <button
                 type="button"
-                className={`absolute inset-0 bg-slate-950/70 backdrop-blur-sm transition-opacity duration-300 outline-none ${isOpen ? 'opacity-100' : 'opacity-0'}`}
+                className={`absolute inset-0 bg-slate-950/70 backdrop-blur-sm transition-opacity duration-300 outline-none ${isVisible ? 'opacity-100' : 'opacity-0'}`}
                 onClick={(e) => {
                     e.stopPropagation();
-                    if (!isLoading && isOpen) onClose();
+                    if (!isLoading && isVisible) onClose();
                 }}
                 aria-label={t('common.close', 'Close')}
             />
 
             {/* KOTAK MODAL DENGAN ANIMASI SCALE & SLIDE */}
-            <div className={`relative w-full ${maxWidthClass} bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl flex flex-col transition-all duration-300 ${isOpen ? 'scale-100 translate-y-0' : 'scale-95 translate-y-4'} overflow-hidden`}>
+            <div className={`relative w-full ${maxWidthClass} bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl flex flex-col transition-all duration-300 ${isVisible ? 'scale-100 translate-y-0' : 'scale-95 translate-y-4'} overflow-hidden`}>
                 
                 {customHeader || (
                     <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 rounded-t-xl">

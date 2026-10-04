@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import Card from '../../components/Card';
 import Modal from '../../components/Modal';
 import { useToast } from '../../components/ToastContext';
+import { useAlert } from '../../components/AlertContext';
 import BackgroundProgressWidget from '../../components/BackgroundProgressWidget';
 import LogFileViewerModal from '../../components/LogFileViewerModal';
 
@@ -25,6 +26,7 @@ interface DbInstance {
 export default function DatabaseMain() {
     const { t } = useTranslation();
     const { showToast } = useToast();
+    const { confirm } = useAlert();
 
     const [dbInstances, setDbInstances] = useState<DbInstance[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -39,10 +41,7 @@ export default function DatabaseMain() {
     const [settingsConfig, setSettingsConfig] = useState<any>({});
     const [isLoadingSettings, setIsLoadingSettings] = useState(false);
     const [isSavingSettings, setIsSavingSettings] = useState(false);
-    const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
-    const [isDeleting, setIsDeleting] = useState(false);
-    const [deleteData, setDeleteData] = useState(false);
-
+    
     // ---> STATE BARU UNTUK PASSWORD MODAL <---
     const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
     const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
@@ -138,15 +137,30 @@ export default function DatabaseMain() {
         } catch (e){ console.error(e); showToast(t('database.install_error'), "error"); setIsInstalling(false); setProgress(0); }
     };
 
-    const handleConfirmUninstall = async () => {
-        if (!selectedDbId) return;
-        setIsDeleting(true);
+    const handleConfirmUninstall = async (db: DbInstance) => {
+        if (!await confirm({
+            title: t('database.drop_db_title'),
+            message: (
+                <div className="flex flex-col gap-4">
+                    <p className="text-slate-700 dark:text-slate-300">
+                        {t('database.completely_remove')}<strong className="text-slate-900 dark:text-white">{db.name}</strong>?
+                    </p>
+                    <label className="flex items-start gap-2 bg-red-50 dark:bg-red-900/10 p-3 rounded-lg border border-red-200 cursor-pointer">
+                        <input type="checkbox" id={`database-delete-data-${db.id}`} aria-label={t('database.delete_raw_data')} className="mt-0.5" />
+                        <div className="flex flex-col"><span className="text-sm font-semibold text-red-800">{t('database.delete_raw_data')}</span></div>
+                    </label>
+                </div>
+            ),
+            type: 'danger',
+            confirmText: t('database.yes_drop')
+        })) return;
+
+        const shouldDeleteData = (document.getElementById(`database-delete-data-${db.id}`) as HTMLInputElement)?.checked || false;
         try {
-            const res = await window.pywebview?.api?.uninstall_database(selectedDbId, deleteData);
+            const res = await window.pywebview?.api?.uninstall_database(db.id, shouldDeleteData);
             showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
-            if (res?.status === 'success') { setIsDeleteConfirmOpen(false); setSelectedDbId(null); setDeleteData(false); fetchDatabases(); }
+            if (res?.status === 'success') { fetchDatabases(); }
         } catch (e){ console.error(e); showToast(t('database.delete_error'), "error"); }
-        finally { setIsDeleting(false); }
     };
 
     const fetchDbLogContent = useCallback(() => {
@@ -257,7 +271,7 @@ export default function DatabaseMain() {
                                             </button>
 
                                             <div className="border-t border-slate-200 dark:border-slate-700 my-1"></div>
-                                            <button type="button" onClick={() => { setSelectedDbId(db.id); setDeleteData(false); setIsDeleteConfirmOpen(true); }} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20">{t('database.drop_engine')}</button>
+                                            <button type="button" onClick={() => handleConfirmUninstall(db)} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20">{t('database.drop_engine')}</button>
                                         </>
                                     }
                                     footerActions={
@@ -313,13 +327,7 @@ export default function DatabaseMain() {
                 {selectedDb && <DbSettings instance={selectedDb} config={settingsConfig} onChange={handleConfigChange} isLoading={isLoadingSettings} />}
             </Modal>
 
-            <Modal isOpen={isDeleteConfirmOpen} onClose={() => !isDeleting && setIsDeleteConfirmOpen(false)} title={t('database.drop_db_title')} icon="warning" onApply={handleConfirmUninstall} applyText={isDeleting ? t('database.dropping') : t('database.yes_drop')} isApplyDisabled={isDeleting} isDestructive={true} isLoading={isDeleting}>
-                <p className="text-slate-700 dark:text-slate-300 mb-2">{t('database.completely_remove')}<strong className="text-slate-900 dark:text-white">{selectedDb?.name}</strong>?</p>
-                <label className="flex items-start gap-2 bg-red-50 dark:bg-red-900/10 p-3 rounded-lg border border-red-200 cursor-pointer">
-                    <input type="checkbox" checked={deleteData} onChange={(e) => setDeleteData(e.target.checked)} disabled={isDeleting} aria-label={t('database.delete_raw_data')} className="mt-0.5" />
-                    <div className="flex flex-col"><span className="text-sm font-semibold text-red-800">{t('database.delete_raw_data')}</span></div>
-                </label>
-            </Modal>
+
         </>
     );
 }

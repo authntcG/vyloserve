@@ -19,13 +19,17 @@ vyloserve/
 │       ├── ssl_manager.py      # Pembuatan Certificate Authority (CA) lokal
 │       ├── dashboard.py        # Menyimpan Status Toggle UI Dashboard
 │       ├── settings.py         # Menyimpan Preferensi Aplikasi (Bahasa, Tema, filter log, opsi update)
-│       └── updater.py          # Auto-Updater: cek/unduh/pasang rilis baru dari GitHub Releases
+│       ├── updater.py          # Auto-Updater: cek/unduh/pasang rilis baru dari GitHub Releases
+│       └── tunnels.py          # Logika tunnel (zrok) — instal binary & expose port lokal ke URL publik
 ├── frontend/                   # Repositori UI berbasis React (Vite + TS)
 │   ├── src/
 │   │   ├── components/         # Komponen UI Reusable, struktur FLAT (Modal, Card, PageHeader, dll — TIDAK ada subfolder ui/)
+│   │   │                       # Termasuk DUA context provider terpisah: ToastContext (notifikasi sekilas/auto-dismiss)
+│   │   │                       # dan AlertContext (dialog alert()/confirm() modal, menggantikan window.alert/confirm native)
 │   │   ├── locales/            # Berkas i18n JSON untuk bahasa (en, id)
 │   │   ├── menu/                # Halaman utama aplikasi: apache/ (termasuk CRUD Project & Virtual Host,
-│   │   │                        # TIDAK ada folder project/ terpisah), php/, database/, dashboard/, runtimes/, tools/
+│   │   │                        # TIDAK ada folder project/ terpisah), php/, database/, dashboard/, runtimes/,
+│   │   │                        # tools/ (git/, qr-generator/, base64-encode-decode/, url-encode-decode/, tunnels/, settings/)
 │   │   ├── utils/               # Helper murni lintas-halaman (BUKAN komponen React) — lihat docs/frontend_ui.md §1
 │   │   │   ├── a11y.ts          # onEnterOrSpace() — keyboard support (Enter/Space) utk elemen non-native
 │   │   │   └── progress.ts      # clampPercent() — clamp nilai progress vylo_progress ke [0, 100]

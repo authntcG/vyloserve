@@ -5,7 +5,8 @@ VyloServe dibangun dengan arsitektur **Desktop Hybrid** di mana Backend dikendal
 ## 1. Konsep Jembatan PyWebView (API Bridge)
 Tidak seperti aplikasi web tradisional yang berkomunikasi lewat HTTP (REST API), VyloServe menggunakan *JavaScript Interop* melalui objek window browser.
 
-1. **Inisialisasi Backend:** Di `main.py`, Python membuat kelas `Api` (dari `core/api.py`). Objek ini diekspos ke antarmuka saat *window* dibuat.
+0. **Single-Instance Check (sebelum apa pun lain):** `main()` di `main.py` memanggil `check_single_instance()` (Windows Mutex bernama `VyloServe_App_Mutex_v1`) **sebelum** membuat `Api()`/window apa pun. Kalau mutex sudah dimiliki proses lain, proses baru ini tidak membuat window sama sekali — cukup memanggil `bring_existing_instance_to_front()` (via `user32.FindWindowW`/`SetForegroundWindow`) lalu `sys.exit(0)`. Warna latar window awal (`background_color` di `webview.create_window()`) juga sudah ditentukan di titik ini lewat `get_theme_bg_color()`, yang membaca key `theme` dari `data/settings.json` — ini mencegah "kedipan putih/hitam" sebelum CSS tema React sempat dimuat.
+1. **Inisialisasi Backend:** Di `main.py`, Python membuat kelas `Api` (dari `core/api.py`). Objek ini diekspos ke antarmuka saat *window* dibuat. Segera setelah `api.set_window(window)`, `main()` juga memanggil `api.start_log_watcher()` — lihat §6 di bawah.
 2. **Reaksi Frontend:** Di React, objek tersebut diakses melalui `(window as any).pywebview.api`.
 3. **Panggilan Fungsi:** Saat frontend memanggil fungsi `api.start_apache_server()`, perintah ini dieksekusi **secara langsung** di runtime Python (Synchronous/Asynchronous).
 4. **Respon (Return):** Fungsi Python wajib mengembalikan (return) sebuah Dictionary (JSON) yang berisikan kunci `status` (`"success"` / `"error"`) dan `message` (berupa **Translation Key**).
@@ -67,3 +68,14 @@ Alur seperti instalasi Apache/PHP/Database/Runtimes **bukan** sekadar satu `awai
 2. **Selama** proses itu berjalan di backend, event `vylo_progress` dan `vylo_log` ditembakkan berkali-kali secara independen ke `window` — komponen frontend (halaman modul + `LogsPanel`) mendengarkan event ini secara terpisah dari `await` di atas, sehingga progress bar/log ter-update *real-time* walau response akhir baru diterima setelah proses selesai total.
 
 Lihat `docs/frontend_ui.md` §6 untuk sequence diagram lengkap alur ini, termasuk pola "minimize modal" (`BackgroundProgressWidget`) dan potensi *event leak* lintas modul (`docs/known_bugs.md` #7).
+
+## 6. Pola Async Ketiga: Background Push Berkelanjutan (Log Watcher)
+
+Berbeda dari §5 (event yang hanya mengalir **selama** satu aksi user tertentu berjalan, mis. instalasi), ada satu mekanisme yang **tidak pernah berhenti dan tidak dipicu aksi user apa pun**: *log watcher*.
+
+- `Api.start_log_watcher(interval=2.0)` (dipanggil sekali saat bootstrap, §1 poin 1) menjalankan **satu thread daemon** yang berjalan sepanjang hidup aplikasi — pola yang sama seperti thread System Tray di §4, bukan `asyncio`/event loop.
+- Tiap `interval` detik (default 2 detik), thread ini memanggil `ApacheManager.tail_new_logs()` dan `DatabaseManager.tail_new_logs()`, yang membaca baris **baru** (sejak polling terakhir) di `logs/error_log`/`logs/access_log` Apache dan `db_startup.log`/`*.err` Database — **hanya** untuk servis yang sedang berjalan.
+- Setiap baris baru diteruskan lewat `emit_log(line, level, {}, source_override='ApacheFileLog'|'DatabaseFileLog')` — parameter `source_override` memaksa kategori tertentu, mem-bypass auto-detection nama class pemanggil (`_resolve_event_source()`, §2), supaya baris file log bisa difilter terpisah dari pesan sistem biasa di panel Log (lihat `docs/known_bugs.md` #26).
+- `Api.stop_log_watcher()` menghentikannya dengan bersih saat `AppLifecycle.perform_exit()` (§4).
+
+Detail lengkap mekanisme tail-file (offset tracking, retry saat file terkunci Windows, dsb.): `docs/backend_services.md` §11.2. Detail sisi frontend (filter level/kategori, UI toggle): `docs/frontend_ui.md` §12.

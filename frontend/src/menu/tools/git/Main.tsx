@@ -200,7 +200,7 @@ export default function GitMain() {
             if (event.detail?.source && event.detail.source !== 'GitManager') return;
             const { percent, text } = event.detail;
             setProgress(clampPercent(percent));
-            setProgressText(text);
+            setProgressText(t(text, event.detail.args || {}) as string);
         };
         window.addEventListener('vylo_progress', handleProgress);
         return () => window.removeEventListener('vylo_progress', handleProgress);

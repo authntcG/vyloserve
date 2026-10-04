@@ -69,6 +69,7 @@ tests/
 │   ├── test_dashboard.py                 # Unit test untuk core/services/dashboard.py
 │   ├── test_settings.py                  # Unit test untuk core/services/settings.py
 │   ├── test_updater.py                   # Unit test untuk core/services/updater.py (Auto-Updater)
+│   ├── test_tunnels.py                   # Unit test untuk core/services/tunnels.py (zrok public tunnel)
 │   ├── test_runtimes_manager.py          # Unit test untuk core/services/runtimes_manager.py
 │   ├── test_service_lifecycles.py        # Unit test orkestrasi start/stop antar service
 │   └── test_<nama_service>.py            # Pola: test_<nama_file_source>.py
@@ -186,7 +187,7 @@ frontend/
 ├── tests/
 │   ├── setup.ts                      # Global setup: mock react-i18next, jest-dom matchers, jsdom polyfills
 │   ├── test-utils.tsx                # Helper bersama: mockPywebviewApi(), renderWithToast(), re-export RTL
-│   ├── i18n.test.ts                  # Smoke test untuk src/i18n.ts asli (vi.unmock react-i18next)
+│   ├── i18n.test.ts                  # Smoke test src/i18n.ts asli (vi.unmock react-i18next) + parity penuh key en/id
 │   ├── components/                   # Mirror src/components/*.tsx
 │   └── menu/                         # Mirror src/menu/**/*.tsx (apache/, php/, database/, runtimes/, dashboard/, tools/)
 ├── tsconfig.test.json                # tsconfig khusus untuk src/ + tests/ (types vitest/globals, testing-library)
@@ -196,7 +197,9 @@ Pola: `tests/<mirror-struktur-src>/<NamaKomponen>.test.tsx`.
 
 Helper bersama ada di `tests/test-utils.tsx` (re-export semua dari `@testing-library/react` ditambah `mockPywebviewApi()` dan `renderWithToast()`) — **selalu pakai helper ini, jangan tulis ulang boilerplate mock `window.pywebview.api` atau `<ToastProvider>` wrapper di tiap file test**. Untuk sekelompok komponen yang bentuknya identik (mis. empat form `InstallGo/Java/Node/Python.tsx` yang sama-sama forwardRef + `submit()` + fetch-versions-on-mount), buat SATU factory function bersama (lihat `tests/menu/runtimes/installRuntimeTestKit.tsx`) lalu panggil dari tiap file test dengan config berbeda, dan gunakan `it.each`/`describe.each` untuk variasi data (lihat `tests/menu/database/Settings.test.tsx` untuk field MySQL/PostgreSQL, atau `tests/menu/runtimes/Main.test.tsx` untuk keempat engine). Pola ini WAJIB diikuti untuk suite test baru — proyek ini menjaga *new code duplication* SonarQube di bawah 3%, dan test suite yang tidak DRY adalah kontributor terbesar untuk duplication findings.
 
-Per audit test coverage (2026), seluruh `src/**/*.{ts,tsx}` frontend punya coverage statement **>95%** (~460 test case di 39 file test) — jalankan `npm run test:coverage` untuk laporan terbaru per file. Beberapa baris tetap sengaja tidak dicover karena secara nyata *unreachable* lewat UI (mis. validasi `if (!x) return` di dalam handler yang tombol pemicunya sendiri sudah `disabled` oleh kondisi yang sama — pola berulang yang ditemukan di banyak form Modal proyek ini; lihat commit history test untuk contoh).
+Per audit test coverage (2026), seluruh `src/**/*.{ts,tsx}` frontend punya coverage statement **>95%** (~492 test case di 41 file test, per `npx vitest run` — angka ini bergerak seiring fitur baru ditambahkan; jalankan `npm run test:coverage` untuk laporan terbaru per file, jangan andalkan angka statis di dokumen ini). Beberapa baris tetap sengaja tidak dicover karena secara nyata *unreachable* lewat UI (mis. validasi `if (!x) return` di dalam handler yang tombol pemicunya sendiri sudah `disabled` oleh kondisi yang sama — pola berulang yang ditemukan di banyak form Modal proyek ini; lihat commit history test untuk contoh).
+
+> ✅ **Sudah diperbaiki:** Test `tests/components/Sidebar.test.tsx` ("opens the Tools dropdown and shows tool items when clicked...") sempat gagal deterministik — menguji interaksi dropdown "Tools" (klik untuk expand) yang ternyata sudah dihapus dari UI (menu Tools sekarang selalu tampil flat, tidak perlu diklik untuk dibuka). Test ditulis ulang untuk mencerminkan perilaku sebenarnya, plus satu test lain dengan pola `.closest('button')` serupa yang ternyata "lulus diam-diam tanpa menguji apa-apa" (`user.click(null!)` jadi no-op) juga dibersihkan. Diverifikasi 3x run `vitest run` berturut-turut tanpa kegagalan — indikasi *flakiness* yang sempat dilaporkan tidak muncul lagi setelah fix. Detail lengkap: `docs/known_bugs.md` #33.
 
 ### 3.2 Mock `react-i18next` Secara Global
 `tests/setup.ts` men-mock `useTranslation()` secara global untuk SEMUA test — `t(key, fallback)` mengembalikan `fallback` apa adanya (dengan interpolasi `{{var}}` sederhana), `t(key)` tanpa fallback mengembalikan `key` literal. Ini **disengaja**: test komponen tidak boleh ikut gagal kalau teks terjemahan di `locales/*.json` berubah — itu tanggung jawab `tests/test_i18n_keys.py` (backend) dan review manual, bukan test komponen. Kalau sebuah test benar-benar perlu memverifikasi teks terjemahan asli, override mock global ini per-file dengan `vi.mock('react-i18next', ...)` di file test yang bersangkutan.
@@ -374,6 +377,8 @@ Detail parameter (dibanding perintah lama yang cuma `sonar.sources=.` tanpa `son
 ```powershell
 sonar-scanner.bat -D"sonar.projectKey=vyloserve-be" -D"sonar.sources=core,main.py" -D"sonar.tests=tests" -D"sonar.host.url=http://127.0.0.1:9000" -D"sonar.token=%SONAR_TOKEN_BE%" -D"sonar.exclusions=frontend/**,bin/**,build/**,data/**,dist/**,docs/**,www/**,**/__pycache__/**,**/*.pyc,.coverage" -D"sonar.test.exclusions=**/__pycache__/**,**/*.pyc" -D"sonar.python.version=3.10" -D"sonar.scm.disabled=true" -D"sonar.python.coverage.reportPaths=coverage.xml"
 ```
+
+**Menandai *false positive* dengan `# NOSONAR` (Python):** marker `# NOSONAR` **WAJIB** berada di baris kode yang sama persis dengan baris yang dilaporkan temuan, BUKAN di baris komentar terpisah sebelumnya — SonarQube tidak mengenalinya kalau ditaruh di atas kode (lihat `docs/known_bugs.md` #37/#38 untuk kejadian nyata: komentar penjelasan di baris terpisah di atas kode tetap membuat temuan S7504 dilaporkan ulang di scan berikutnya). Pola yang benar: tulis penjelasan lengkap di komentar baris-baris sebelumnya seperti biasa, lalu tempelkan `# NOSONAR (python:RULEID): <ringkasan singkat>` di akhir baris kode yang sama dengan temuan.
 
 ## 7. Proses Kompilasi Produksi (Build Project)
 Untuk membuat aplikasi mandiri (Standalone Windows Executable `.exe`) yang bisa didistribusikan ke pengguna akhir:

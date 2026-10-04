@@ -79,13 +79,9 @@ class GitManager:
 
     def _validate_git_binary(self, found_path: str):
         try:
-            is_windows_script = found_path.lower().endswith(('.cmd', '.bat'))
             creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
             
-            if is_windows_script:
-                result = subprocess.run(f'"{found_path}" --version', capture_output=True, text=True, shell=True, creationflags=creation_flags)
-            else:
-                result = subprocess.run([found_path, '--version'], capture_output=True, text=True, creationflags=creation_flags)
+            result = subprocess.run([found_path, '--version'], capture_output=True, text=True, creationflags=creation_flags)
             
             version_out = result.stdout.strip() or result.stderr.strip()
             
@@ -225,9 +221,8 @@ class GitManager:
             return {'status': 'error', 'message': "backend.git.fetch_failed"}
 
     def _extract_sfx(self, exe_path: str, git_dir: str):
-        extraction_cmd = f'"{exe_path}" -y -o"{git_dir}"'
         creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
-        res = subprocess.run(extraction_cmd, shell=True, capture_output=True, creationflags=creation_flags)
+        res = subprocess.run([exe_path, "-y", f"-o{git_dir}"], capture_output=True, creationflags=creation_flags)
         if res.returncode != 0:
             raise RuntimeError("Gagal mengekstrak PortableGit. File instalasi mungkin korup.")
         if os.path.exists(exe_path):
@@ -256,7 +251,7 @@ class GitManager:
 
             if os.path.exists(git_dir): shutil.rmtree(git_dir, ignore_errors=True)
 
-            log_cb("Mulai mengunduh PortableGit dari GitHub...", "info")
+            log_cb("backend.git.starting_download", "info")
             download_advanced(download_url, exe_path, log_cb=log_cb, progress_cb=download_prog_cb)
 
             # 3. FASE EKSTRAKSI SFX

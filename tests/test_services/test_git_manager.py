@@ -200,13 +200,14 @@ def test_find_via_hardcoded_returns_none_on_non_windows(git_manager):
 # _validate_git_binary — cabang tambahan
 # ==========================================
 
-def test_validate_git_binary_uses_shell_for_windows_script(git_manager):
+def test_validate_git_binary_uses_list_for_windows_script(git_manager):
     with patch('sys.platform', 'win32'):
         with patch('subprocess.run') as mock_run:
             mock_run.return_value = MagicMock(stdout="git version 2.45.1.windows.1\n", stderr="")
             res = git_manager._validate_git_binary("C:\\Git\\cmd\\git.cmd")
     assert res == {"exists": True, "version": "2.45.1", "path": "C:\\Git\\cmd\\git.cmd"}
-    assert mock_run.call_args.kwargs.get('shell') is True
+    assert mock_run.call_args.kwargs.get('shell') is not True
+    assert mock_run.call_args.args[0] == ["C:\\Git\\cmd\\git.cmd", "--version"]
 
 def test_validate_git_binary_returns_none_when_version_unrecognized(git_manager):
     with patch('subprocess.run') as mock_run:

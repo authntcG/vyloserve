@@ -321,6 +321,8 @@ describe('GitMain', () => {
         await user.click(screen.getAllByLabelText('Close')[0]);
 
         expect(uninstall).not.toHaveBeenCalled();
-        expect(screen.queryByText('tools.git.uninstall_title')).not.toBeInTheDocument();
+        await waitFor(() => {
+            expect(screen.queryByText('tools.git.uninstall_title')).not.toBeInTheDocument();
+        });
     });
 });

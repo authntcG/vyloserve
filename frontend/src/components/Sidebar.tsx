@@ -41,10 +41,11 @@ const SERVICES: ServiceConfig[] = [
 ];
 
 const TOOLS: NavItemConfig[] = [
+    { id: 'git', name: 'Git', icon: 'merge' },
+    { id: 'tunnels', name: 'Tunnels', icon: 'router' },
     { id: 'qr', name: 'QR Generator', icon: 'qr_code_2' },
     { id: 'base64', name: 'Base64 Encoder', icon: 'code_blocks' },
     { id: 'url-encode-decode', name: 'URL Encode/Decode', icon: 'link' },
-    { id: 'git', name: 'Git', icon: 'merge' },
 ];
 
 interface SidebarHeaderProps {
@@ -110,80 +111,7 @@ function ServiceNavItem({ service, isSelected, isDesktopCollapsed, isChecked, on
     );
 }
 
-interface ToolsNavItemProps {
-    readonly tools: NavItemConfig[];
-    readonly isDesktopCollapsed: boolean;
-    readonly showToolsDropdown: boolean;
-    readonly onToggleOpen: () => void;
-    readonly activeMenu: string;
-    readonly onSelectMenu: (id: string) => void;
-    readonly t: any;
-}
 
-function ToolsNavItem({ tools, isDesktopCollapsed, showToolsDropdown, onToggleOpen, activeMenu, onSelectMenu, t }: ToolsNavItemProps) {
-    if (tools.length === 0) return null;
-    return (
-        <div className="relative group mt-2 pt-2 border-t border-slate-200 dark:border-slate-800">
-            <button
-                type="button"
-                className="w-full text-left flex items-center justify-between gap-3 rounded-md px-3 py-2.5 cursor-pointer text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                onClick={onToggleOpen}
-                aria-expanded={showToolsDropdown}
-            >
-                <div className={`flex items-center ${isDesktopCollapsed ? 'gap-0' : 'gap-3'}`}>
-                    <span className="material-symbols-outlined shrink-0" style={isDesktopCollapsed ? { fontSize: '18px' } : undefined}>construction</span>
-                    {isDesktopCollapsed && (
-                        <span
-                            className="material-symbols-outlined shrink-0 ml-0.5 text-slate-400 group-hover:text-primary transition-colors"
-                            style={{ fontSize: '18px' }}
-                        >
-                            chevron_right
-                        </span>
-                    )}
-                    <span className={`font-medium text-sm whitespace-nowrap overflow-hidden transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[150px] opacity-100'}`}>{t('sidebar.tools')}</span>
-                </div>
-                {!isDesktopCollapsed && (
-                    <span className="material-symbols-outlined text-[20px] transition-transform duration-300" style={{ transform: showToolsDropdown ? 'rotate(180deg)' : 'rotate(0deg)' }}>expand_more</span>
-                )}
-            </button>
-
-            {/* Dropdown Menu */}
-            {!isDesktopCollapsed && showToolsDropdown && (
-                <div className="flex flex-col gap-1 ml-4 pl-2 border-l border-slate-200 dark:border-slate-700 my-1">
-                    {tools.map(tool => (
-                        <button
-                            type="button"
-                            key={tool.id}
-                            onClick={() => onSelectMenu(tool.id)}
-                            className={`w-full text-left flex items-center gap-3 rounded-md px-3 py-2 cursor-pointer transition-colors ${activeMenu === tool.id ? 'text-primary bg-slate-50 dark:bg-slate-800/50' : 'text-slate-500 dark:text-slate-400 hover:text-primary'}`}
-                        >
-                            <span className="material-symbols-outlined text-[18px] shrink-0">{tool.icon}</span>
-                            <span className="font-medium text-sm">{t(`sidebar.menu_${tool.id}`, tool.name)}</span>
-                        </button>
-                    ))}
-                </div>
-            )}
-
-            {/* Flyout jika Collapsed */}
-            {isDesktopCollapsed && (
-                <div className="absolute left-[calc(100%+4px)] top-0 w-48 flex-col gap-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl p-2 z-[60] opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
-                    <div className="px-3 pt-1 pb-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 mb-1">{t('sidebar.tools')}</div>
-                    {tools.map(tool => (
-                        <button
-                            type="button"
-                            key={tool.id}
-                            onClick={() => onSelectMenu(tool.id)}
-                            className={`w-full text-left flex items-center gap-3 rounded-md px-3 py-2 cursor-pointer ${activeMenu === tool.id ? 'text-primary bg-slate-50 dark:bg-slate-800' : 'text-slate-600 dark:text-slate-300'}`}
-                        >
-                            <span className="material-symbols-outlined text-[18px]">{tool.icon}</span>
-                            <span className="font-medium text-sm truncate">{t(`sidebar.menu_${tool.id}`, tool.name)}</span>
-                        </button>
-                    ))}
-                </div>
-            )}
-        </div>
-    );
-}
 
 interface SidebarFooterProps {
     readonly isDesktopCollapsed: boolean;
@@ -251,7 +179,6 @@ export default function Sidebar({
 }: SidebarProps) {
     const { t } = useTranslation();
     const [searchQuery, setSearchQuery] = useState('');
-    const [isToolsOpen, setIsToolsOpen] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [activeSettingsModal, setActiveSettingsModal] = useState<SettingsModalType>(null);
     const [activeSettingsTab, setActiveSettingsTab] = useState<'general' | 'logs' | 'updates' | 'about'>('general');
@@ -374,7 +301,6 @@ export default function Sidebar({
     const filteredMain = MAIN_MENU.filter(filterQuery);
     const filteredServices = SERVICES.filter(filterQuery);
     const filteredTools = TOOLS.filter(filterQuery);
-    const showToolsDropdown = isToolsOpen || (searchQuery !== '' && filteredTools.length > 0);
 
     return (
         <>
@@ -442,15 +368,32 @@ export default function Sidebar({
                         />
                     ))}
 
-                    <ToolsNavItem
-                        tools={filteredTools}
-                        isDesktopCollapsed={isDesktopCollapsed}
-                        showToolsDropdown={showToolsDropdown}
-                        onToggleOpen={() => !isDesktopCollapsed && setIsToolsOpen(!isToolsOpen)}
-                        activeMenu={activeMenu}
-                        onSelectMenu={onSelectMenu}
-                        t={t}
-                    />
+                    {/* Tools */}
+                    {filteredTools.length > 0 && (
+                        <div className={`px-3 pb-1 text-xs font-semibold text-slate-400 uppercase tracking-wider transition-all ${isDesktopCollapsed ? 'hidden' : 'pt-4 border-t border-slate-200 dark:border-slate-800 mt-2'}`}>
+                            {t('sidebar.tools')}
+                        </div>
+                    )}
+                    {filteredTools.map(tool => (
+                        <button
+                            key={tool.id}
+                            type="button"
+                            onClick={() => onSelectMenu(tool.id)}
+                            className={`w-full text-left flex items-center gap-3 rounded-md px-3 py-2.5 cursor-pointer transition-colors ${
+                                activeMenu === tool.id
+                                    ? 'bg-slate-100 dark:bg-slate-800 text-primary'
+                                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                            }`}
+                            title={isDesktopCollapsed ? t(`sidebar.menu_${tool.id}`, tool.name) : undefined}
+                        >
+                            <span className="material-symbols-outlined shrink-0" style={{ fontVariationSettings: activeMenu === tool.id ? "'FILL' 1" : "'FILL' 0" }}>
+                                {tool.icon}
+                            </span>
+                            <span className={`font-medium text-sm whitespace-nowrap overflow-hidden transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[150px] opacity-100'}`}>
+                                {t(`sidebar.menu_${tool.id}`, tool.name)}
+                            </span>
+                        </button>
+                    ))}
                 </div>
 
                 <SidebarFooter

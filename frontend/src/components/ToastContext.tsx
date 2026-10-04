@@ -7,6 +7,7 @@ interface ToastMessage {
     id: number;
     message: string;
     type: ToastType;
+    isClosing?: boolean;
 }
 
 interface ToastContextType {
@@ -36,7 +37,10 @@ export function ToastProvider({ children }: Readonly<{ children: ReactNode }>) {
     }, []);
 
     const removeToast = (id: number) => {
-        setToasts((prev) => prev.filter((toast) => toast.id !== id));
+        setToasts((prev) => prev.map(t => t.id === id ? { ...t, isClosing: true } : t));
+        setTimeout(() => {
+            setToasts((prev) => prev.filter((toast) => toast.id !== id));
+        }, 300);
     };
 
     const contextValue = useMemo(() => ({ showToast }), [showToast]);
@@ -50,20 +54,20 @@ export function ToastProvider({ children }: Readonly<{ children: ReactNode }>) {
                 {toasts.map((toast) => {
 
                     // Penyesuaian warna dan ikon berdasarkan tipe
-                    let bgColor = 'bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-300';
+                    let bgColor = 'bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl border-blue-200/50 dark:border-blue-800/50 text-blue-800 dark:text-blue-300';
                     let icon = 'info';
                     let iconColor = 'text-blue-500 dark:text-blue-400';
 
                     if (toast.type === 'success') {
-                        bgColor = 'bg-emerald-50 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300';
+                        bgColor = 'bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl border-emerald-200/50 dark:border-emerald-800/50 text-emerald-800 dark:text-emerald-300';
                         icon = 'check_circle';
                         iconColor = 'text-emerald-500 dark:text-emerald-400';
                     } else if (toast.type === 'error') {
-                        bgColor = 'bg-red-50 dark:bg-red-900/30 border-red-200 dark:border-red-800 text-red-800 dark:text-red-300';
+                        bgColor = 'bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl border-red-200/50 dark:border-red-800/50 text-red-800 dark:text-red-300';
                         icon = 'error';
                         iconColor = 'text-red-500 dark:text-red-400';
                     } else if (toast.type === 'warning') {
-                        bgColor = 'bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300';
+                        bgColor = 'bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl border-amber-200/50 dark:border-amber-800/50 text-amber-800 dark:text-amber-300';
                         icon = 'warning';
                         iconColor = 'text-amber-500 dark:text-amber-400';
                     }
@@ -71,7 +75,7 @@ export function ToastProvider({ children }: Readonly<{ children: ReactNode }>) {
                     return (
                         <div
                             key={toast.id}
-                            className={`flex items-start gap-3 p-4 rounded-xl border shadow-lg pointer-events-auto transition-all animate-in slide-in-from-bottom-5 fade-in duration-300 w-80 max-w-full ${bgColor}`}
+                            className={`flex items-start gap-3 p-4 rounded-xl border shadow-lg pointer-events-auto w-80 max-w-full ${bgColor} ${toast.isClosing ? 'animate-toast-out' : 'animate-toast-in'}`}
                         >
                             <span className={`material-symbols-outlined shrink-0 ${iconColor}`} style={{ fontVariationSettings: "'FILL' 1" }}>
                                 {icon}

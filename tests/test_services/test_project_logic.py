@@ -211,7 +211,7 @@ def test_rollback_dir_removes_directory_and_reports_progress(mock_exists, mock_r
     project_manager._rollback_dir("C:\\target_dir")
 
     mock_rmtree.assert_called_once_with("C:\\target_dir", ignore_errors=True)
-    project_manager.api.emit_progress.assert_called_once_with(100, "backend.project.rolling_back")
+    project_manager.api.emit_progress.assert_called_once_with(100, "backend.project.rolling_back", None)
 
 @patch('os.path.exists', return_value=False)
 def test_rollback_dir_noop_when_directory_missing(mock_exists, project_manager):
@@ -237,7 +237,7 @@ def test_stream_composer_output_reports_progress_per_line(project_manager):
     ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
 
     final_percent, error_log = project_manager._stream_composer_output(
-        fake_process, current_percent=10.0, max_percent=60.0, prefix="Composer", ansi_escape=ansi_escape
+        fake_process, current_percent=10.0, max_percent=60.0, msg_key="backend.project.composer_create_project", ansi_escape=ansi_escape
     )
 
     assert final_percent == 11.0  # 2 baris non-kosong x +0.5
@@ -245,7 +245,8 @@ def test_stream_composer_output_reports_progress_per_line(project_manager):
     assert "Installing deps" in error_log  # kode ANSI berhasil dibersihkan
     assert project_manager.api.emit_progress.call_count == 2
     last_call_args = project_manager.api.emit_progress.call_args[0]
-    assert last_call_args[1].startswith("Composer: ")
+    assert last_call_args[1] == "backend.project.composer_create_project"
+    assert last_call_args[2]["line"].startswith("Installing deps")
 
 @patch('os.makedirs')
 @patch('urllib.request.urlretrieve')

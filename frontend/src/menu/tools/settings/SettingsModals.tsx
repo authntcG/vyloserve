@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import Modal from '../../../components/Modal';
 import appIcon from '../../../assets/icons-nobg.png';
+import { applyTheme } from '../../../utils/theme';
 
 export type SettingsModalType = 'settings' | 'quit' | null;
 
@@ -19,9 +20,10 @@ const LOG_SOURCE_GROUPS = [
     { icon: 'folder', labelKey: 'settings.log_source_project', systemKey: 'ProjectManager' },
     { icon: 'terminal', labelKey: 'settings.log_source_runtimes', systemKey: 'RuntimesManager' },
     { icon: 'merge', labelKey: 'settings.log_source_git', systemKey: 'GitManager' },
-    { icon: 'lock', labelKey: 'settings.log_source_ssl', systemKey: 'SSLManager' },
+    { icon: 'lock', labelKey: 'settings.log_source_ssl', systemKey: 'SslManager' },
     { icon: 'grid_view', labelKey: 'settings.log_source_dashboard', systemKey: 'DashboardManager' },
     { icon: 'settings', labelKey: 'settings.log_source_settings', systemKey: 'SettingsManager' },
+    { icon: 'router', labelKey: 'settings.log_source_tunnels', systemKey: 'TunnelsManager' },
 ];
 
 const ALL_LOG_LEVEL_KEYS = LOG_LEVELS.map(l => l.key);
@@ -347,12 +349,7 @@ export default function SettingsModals({ activeModal, defaultTab = 'general', on
 
     const handleThemeChange = (theme: string) => {
         setSelectedTheme(theme);
-        document.documentElement.dataset.theme = theme;
-        if (theme.includes('-light')) {
-            document.documentElement.classList.remove('dark');
-        } else {
-            document.documentElement.classList.add('dark');
-        }
+        applyTheme(theme);
         saveSettingsInstantly({ theme });
     };
 

@@ -123,19 +123,14 @@ describe('Sidebar', () => {
         expect(api.stop_service).not.toHaveBeenCalled();
     });
 
-    it('opens the Tools dropdown and shows tool items when clicked (expanded mode)', async () => {
+    it('always shows the Tools section items without needing any toggle interaction (expanded mode)', async () => {
         mockPywebviewApi();
-        const user = userEvent.setup();
         renderSidebar({ isDesktopCollapsed: false });
 
-        const toolsButton = screen.getByText('sidebar.tools').closest('button')!;
-        expect(toolsButton).toHaveAttribute('aria-expanded', 'false');
-
-        await user.click(toolsButton);
-
-        expect(toolsButton).toHaveAttribute('aria-expanded', 'true');
+        expect(screen.getByText('sidebar.tools')).toBeInTheDocument();
         expect(screen.getByText('Git')).toBeInTheDocument();
         expect(screen.getByText('QR Generator')).toBeInTheDocument();
+        expect(screen.getByText('Tunnels')).toBeInTheDocument();
     });
 
     it('filters main menu, services, and tools by search query', async () => {
@@ -150,13 +145,12 @@ describe('Sidebar', () => {
         expect(screen.queryByText('Apache')).not.toBeInTheDocument();
     });
 
-    it('calls onSelectMenu when a tool item in the expanded dropdown is clicked', async () => {
+    it('calls onSelectMenu when a tool item in the expanded Tools section is clicked', async () => {
         mockPywebviewApi();
         const onSelectMenu = vi.fn();
         const user = userEvent.setup();
         renderSidebar({ onSelectMenu });
 
-        await user.click(screen.getByText('sidebar.tools').closest('button')!);
         await user.click(screen.getByText('Git'));
 
         expect(onSelectMenu).toHaveBeenCalledWith('git');
@@ -243,7 +237,9 @@ describe('Sidebar', () => {
 
         await user.click(screen.getAllByTitle('Close')[0]);
 
-        expect(screen.queryByText('settings.theme')).not.toBeInTheDocument();
+        await waitFor(() => {
+            expect(screen.queryByText('settings.theme')).not.toBeInTheDocument();
+        });
     });
 
     it('does not crash and keeps the previous status when fetching service statuses throws', async () => {

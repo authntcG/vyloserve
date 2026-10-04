@@ -14,7 +14,13 @@
         "apache_version": "Apache {{version}}",
         "php_version": "PHP {{version}}",
         "open_externally": "Buka di aplikasi luar",
-        "yes": "Ya"
+        "yes": "Ya",
+        "edit": "Edit",
+        "enable": "Aktifkan",
+        "installing": "Menginstal...",
+        "installation_progress": "Progres Instalasi",
+        "preparing": "Menyiapkan...",
+        "uninstall": "Hapus Instalasi"
     },
     "sidebar": {
         "search": "Cari...",
@@ -31,7 +37,8 @@
         "menu_url-encode-decode": "URL Enkode/Dekode",
         "menu_git": "Manajer Git",
         "close_menu": "Tutup menu",
-        "toggle_service": "Aktifkan/matikan {{service}}"
+        "toggle_service": "Aktifkan/matikan {{service}}",
+        "menu_tunnels": "Tunnels"
     },
     "apache": {
         "fetch_projects_error": "Gagal memuat daftar proyek.",
@@ -496,6 +503,7 @@
         "log_source_ssl": "SSL",
         "log_source_dashboard": "Dashboard",
         "log_source_settings": "Pengaturan Aplikasi",
+        "log_source_tunnels": "Tunnels",
         "view_log_file": "Lihat File Log",
         "log_file_error": "Error Log",
         "log_file_access": "Access Log",
@@ -689,6 +697,49 @@
             "mode_decoded": "Terdekode",
             "placeholder_encode": "https://example.com/api?search=hello world",
             "placeholder_decode": "https%3A%2F%2Fexample.com%2Fapi%3Fsearch%3Dhello%20world"
+        },
+        "zrok": {
+            "version": "Versi Zrok",
+            "retrieving": "Mengambil daftar versi...",
+            "failed": "Gagal mengambil daftar versi",
+            "select": "Pilih versi",
+            "find": "Cari versi...",
+            "no_versions": "Versi tidak ditemukan",
+            "title": "Tunnels (Zrok)",
+            "subtitle": "Bagikan project lokal Anda ke internet secara aman.",
+            "install_tunnel": "Instal Tunnel",
+            "tab_all": "Semua Tunnel",
+            "tab_zrok": "Zrok (OpenZiti)",
+            "not_installed_title": "Zrok belum terinstal",
+            "not_installed_desc": "Anda perlu menginstal biner Zrok untuk membagikan project Anda ke internet.",
+            "install_zrok": "Instal Zrok",
+            "engine_card_title": "Mesin Zrok (OpenZiti)",
+            "account_card_title": "Akun Zrok",
+            "enable_account": "Aktifkan Akun Zrok",
+            "enable_desc": "Buat akun gratis di myzrok.io untuk mendapatkan token aktivasi Anda.",
+            "token_label": "Token Zrok",
+            "token_placeholder": "Tempel token Zrok Anda di sini...",
+            "account_enabled": "Akun Zrok Anda sedang aktif dan siap membagikan project.",
+            "disable_account": "Nonaktifkan Zrok",
+            "share_card_title": "Bagikan Project Lokal",
+            "select_project": "Pilih Project untuk Dibagikan",
+            "no_projects": "Tidak ada project ditemukan",
+            "start_share": "Mulai Bagikan",
+            "active_shares": "Share Aktif",
+            "no_active_shares": "Belum ada share yang aktif saat ini.",
+            "stop_share": "Hentikan Share",
+            "fetch_versions_failed": "Gagal mengambil versi Zrok.",
+            "install_success": "Zrok berhasil diinstal.",
+            "install_failed": "Gagal menginstal Zrok.",
+            "install_info_1": "Zrok akan diunduh langsung dari repositori resmi GitHub openziti/zrok.",
+            "install_info_2": "Versi Zrok untuk Windows (amd64) yang dipilih akan diinstal.",
+            "uninstall": "Hapus Zrok",
+            "uninstall_confirm_title": "Hapus Zrok",
+            "uninstall_confirm_desc": "Apakah Anda yakin ingin menghapus Zrok? Semua share aktif akan dihentikan dan mesin Anda akan dinonaktifkan dari akun.",
+            "uninstall_success": "Zrok telah dihapus.",
+            "mode_project": "Project VyloServe",
+            "mode_custom": "Alamat Kustom",
+            "custom_target": "Alamat Target (mis. localhost:3000)"
         }
     },
     "components": {
@@ -864,11 +915,13 @@
             "registry_error": "Registry Error: {{e}}",
             "read_config_failed": "Gagal membaca konfigurasi Git.",
             "config_updated": "Global Git Config berhasil diperbarui.",
-            "config_error": "Gagal mengatur konfigurasi: {{e}}"
+            "config_error": "Gagal mengatur konfigurasi: {{e}}",
+            "starting_download": "Mulai mengunduh PortableGit dari GitHub..."
         },
         "runtimes": {
             "scanning_external": "Memindai instalasi eksternal untuk engine '{{engine}}'...",
             "external_detected": "Instalasi eksternal {{engine}} ({{version}}) terdeteksi pada sistem.",
+            "version_check_failed": "Gagal memeriksa versi {{engine}}: {{e}}",
             "engine_unsupported": "Engine tidak didukung.",
             "path_updated": "Global PATH {{engine}} diperbarui.",
             "path_error_log": "Gagal mengatur PATH {{engine}}: {{e}}",
@@ -914,7 +967,12 @@
             "go_install_error": "Gagal menginstal Go Compiler: {{e}}",
             "go_uninstalled": "Go Compiler berhasil dihapus dari sistem.",
             "install_error_named": "Gagal memasang {{name}}: {{e}}",
-            "starting_binary_download": "Mulai mengunduh binary {{engine}} dari peladen resmi..."
+            "starting_binary_download": "Mulai mengunduh binary {{engine}} dari peladen resmi...",
+            "download_multipart_support": "Server mendukung 'Range Bytes'. Memulai Akselerasi Multi-Part (8 Koneksi)...",
+            "downloading_multipart": "Mengunduh (Multi-Part)... {{percent}}%",
+            "download_single_stream": "Server tidak mendukung Multi-Part. Melanjutkan dengan mode Single-Stream standar.",
+            "downloading": "Mengunduh... {{percent}}%",
+            "downloading_anonymous": "Mengunduh... {{mb}} MB (ukuran server anonim)"
         },
         "project": {
             "save_json_failed": "Gagal menyimpan ke projects.json",
@@ -965,7 +1023,9 @@
             "retry_update": "Percobaan update ke-{{attempt}} gagal. Mencoba lagi...",
             "configuring_php": "Mengonfigurasi PHP...",
             "install_complete_perfect": "Instalasi selesai sempurna!",
-            "starting_setup": "Memulai setup project untuk {{domain}}..."
+            "starting_setup": "Memulai setup project untuk {{domain}}...",
+            "composer_vendor_install": "Instalasi Vendor: {{line}}",
+            "composer_create_project": "Composer: {{line}}"
         },
         "ssl": {
             "creating_root_ca": "Membuat VyloServe Root CA (Otoritas Sertifikat Lokal)...",
@@ -995,6 +1055,42 @@
             "restarting": "Memulai ulang aplikasi untuk menerapkan pembaruan...",
             "ready_to_install": "Siap untuk diinstal",
             "download_failed": "Gagal mengunduh pembaruan"
+        },
+        "common": {
+            "file_saved": "File berhasil disimpan ke {{path}}",
+            "extracting_files": "Mengekstrak... ({{index}}/{{total}} berkas)",
+            "extract_complete": "Selesai mengekstrak arsip TAR.GZ..."
+        },
+        "zrok": {
+            "fetching_latest": "Mengambil rilis Zrok terbaru...",
+            "release_not_found": "Rilis Zrok tidak ditemukan.",
+            "downloading": "Mengunduh Zrok dari {{url}}...",
+            "download_failed": "Gagal mengunduh Zrok: {{err}}",
+            "extracting": "Mengekstrak Zrok...",
+            "extract_failed": "Gagal mengekstrak Zrok.",
+            "install_success": "Zrok berhasil diinstal.",
+            "enabling": "Mengaktifkan Zrok...",
+            "enable_success": "Zrok berhasil diaktifkan.",
+            "enable_failed": "Gagal mengaktifkan Zrok: {{err}}",
+            "not_installed": "Zrok belum terinstal.",
+            "disabling": "Menonaktifkan Zrok...",
+            "disable_success": "Zrok berhasil dinonaktifkan.",
+            "disable_failed": "Gagal menonaktifkan Zrok: {{err}}",
+            "uninstalling": "Menghapus instalasi Zrok...",
+            "uninstalled": "Zrok berhasil dihapus.",
+            "fetching_versions": "Mengambil daftar versi Zrok yang tersedia...",
+            "versions_fetched": "Ditemukan {{count}} versi Zrok yang tersedia.",
+            "starting_share": "Memulai share Zrok untuk {{project}}...",
+            "resolved_target": "Target share diselesaikan ke: {{target}}",
+            "detect_timeout": "Waktu habis setelah {{seconds}} detik menunggu URL publik Zrok.",
+            "url_not_found": "Tidak dapat menemukan URL publik dari Zrok.",
+            "share_active": "Share Zrok aktif: {{url}}",
+            "syncing_vhost": "Menghubungkan URL publik {{url}} ke virtual host lokal...",
+            "share_not_found": "Share tidak ditemukan.",
+            "share_stopped": "Share Zrok berhasil dihentikan.",
+            "process_log": "[Zrok] {{msg}}",
+            "process_error": "[Zrok Error] {{msg}}",
+            "status_log": "Konfigurasi Zrok: {{msg}}"
         }
     },
     "ui": {
@@ -1011,11 +1107,5 @@
             "install_restart": "Instal & Mulai Ulang",
             "no_changelog": "Tidak ada catatan perubahan yang disediakan."
         }
-    },
-    "git": {
-        "installed_version": "Versi Terinstal",
-        "register_path": "Daftarkan ke System PATH",
-        "register_path_desc": "Izinkan VSCode dan CMD untuk menggunakan instalasi Git ini secara global.",
-        "install_engine": "Instal Git"
     }
 }

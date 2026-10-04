@@ -4,11 +4,11 @@ import { screen, waitFor, fireEvent } from '../../../test-utils';
 import { renderWithToast } from '../../../test-utils';
 import QrMain from '../../../../src/menu/tools/qr-generator/Main';
 
-const qrInstances: Array<{ append: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn>; download: ReturnType<typeof vi.fn> }> = [];
+const qrInstances: Array<{ append: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn>; getRawData: ReturnType<typeof vi.fn> }> = [];
 
 vi.mock('qr-code-styling', () => ({
     default: vi.fn().mockImplementation(function MockQRCodeStyling(this: unknown) {
-        const instance = { append: vi.fn(), update: vi.fn(), download: vi.fn() };
+        const instance = { append: vi.fn(), update: vi.fn(), getRawData: vi.fn().mockResolvedValue(new Blob(['dummy'], {type: 'image/png'})) };
         qrInstances.push(instance);
         return instance;
     }),
@@ -92,11 +92,20 @@ describe('QrMain', () => {
         renderWithToast(<QrMain />);
         const instance = qrInstances.at(-1)!;
 
+        if (!window.pywebview) window.pywebview = { api: {} } as any;
+        if (!window.pywebview.api) window.pywebview.api = {};
+        window.pywebview.api.save_base64_file = vi.fn().mockResolvedValue({ 
+            status: 'success', 
+            message: 'backend.common.file_saved',
+            args: { path: 'C:\\test\\qr.svg' }
+        });
+
         await user.selectOptions(screen.getByDisplayValue('PNG'), 'svg');
         await user.click(screen.getByText('tools.qr.download'));
 
-        expect(instance.download).toHaveBeenCalledWith(expect.objectContaining({ extension: 'svg' }));
-        expect(await screen.findByText(/SVG!/)).toBeInTheDocument();
+        expect(instance.getRawData).toHaveBeenCalledWith('svg');
+        expect(await screen.findByText(/backend.common.file_saved/)).toBeInTheDocument();
+        expect(window.pywebview.api.save_base64_file).toHaveBeenCalled();
     });
 
     it('disables the logo-scale slider until a logo is uploaded', async () => {

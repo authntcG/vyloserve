@@ -39,6 +39,11 @@ class UpdaterManager:
                     try:
                         os.remove(os.path.join(temp_dir, f))
                     except Exception:
+                        # Sengaja diam, bukan sekadar lupa logging: _cleanup_temp() dipanggil
+                        # dari __init__ sebelum window pywebview terpasang, jadi emit_log() di
+                        # titik ini selalu no-op (lihat guard `if self._window` di Api.emit_log)
+                        # -- menambah pemanggilan emit_log di sini tidak akan pernah benar-benar
+                        # terlihat oleh user.
                         pass
 
     def _parse_version(self, version_str: str) -> tuple:

@@ -260,7 +260,7 @@ def test_extract_archive_tar_gz(mock_tarfile):
 
     assert success is True
     mock_tar_instance.extractall.assert_called_once_with('/dest', members=[])
-    progress_mock.assert_called_once_with(80, "Selesai mengekstrak TAR.GZ...")
+    progress_mock.assert_called_once_with(80, "backend.common.extract_complete")
 
 @patch('core.utils.file_utils.tarfile.open')
 def test_extract_archive_tar_gz_blocks_path_traversal(mock_tarfile):
@@ -303,7 +303,7 @@ def test_download_advanced_single_stream(mock_urlopen, tmp_path):
         assert f.read() == b'data1data2'
         
     log_mock.assert_any_call("Memeriksa kapabilitas peladen unduhan...", "info")
-    log_mock.assert_any_call("Server memblokir Multi-Part. Melanjutkan dengan mode Single-Stream standar.", "warn")
+    log_mock.assert_any_call("backend.runtimes.download_single_stream", "warn")
 
 @patch('core.utils.file_utils.urllib.request.urlopen')
 def test_download_advanced_multi_part(mock_urlopen, tmp_path):
@@ -323,7 +323,7 @@ def test_download_advanced_multi_part(mock_urlopen, tmp_path):
     assert success is True
     assert os.path.exists(dest_path)
     assert os.path.getsize(dest_path) == 100
-    log_mock.assert_any_call("Server mendukung 'Range Bytes'. Memulai Akselerasi Multi-Part (8 Koneksi)...", "success")
+    log_mock.assert_any_call("backend.runtimes.download_multipart_support", "success")
 
 @patch('core.utils.file_utils.urllib.request.urlopen')
 def test_download_advanced_404(mock_urlopen):
@@ -366,4 +366,4 @@ def test_download_advanced_head_check_failure_falls_back_to_unknown_size(mock_ur
     success = download_advanced('http://example.com/file.zip', dest_path, progress_cb=progress_mock)
 
     assert success is True
-    progress_mock.assert_any_call(35, "Mengunduh... 1.0 MB (Ukuran server anonim)")
+    progress_mock.assert_any_call(35, "backend.runtimes.downloading_anonymous", {"mb": "1.0"})

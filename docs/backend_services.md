@@ -1,6 +1,6 @@
 # Backend Services (Logika Python) — Dokumentasi Mendalam
 
-> **Metodologi dokumen ini:** Setiap bagian di bawah ditulis berdasarkan audit langsung terhadap source code (`core/api.py`, `core/services/*.py`, `core/utils/*.py`, `main.py`), bukan asumsi dari dokumentasi sebelumnya. Setiap *workflow* (install, start, stop, dsb) disertai diagram Mermaid yang menggambarkan urutan langkah persis seperti yang terjadi di kode — termasuk percabangan error dan pemanggilan lintas-service. Bagian [§14](#14-known-issues--temuan-audit-backend) mendaftar semua ketidaksesuaian antara dokumentasi lama dan kode nyata yang ditemukan saat audit ini, termasuk **bug fungsional yang masih aktif**.
+> **Metodologi dokumen ini:** Setiap bagian di bawah ditulis berdasarkan audit langsung terhadap source code (`core/api.py`, `core/services/*.py`, `core/utils/*.py`, `main.py`), bukan asumsi dari dokumentasi sebelumnya. Setiap *workflow* (install, start, stop, dsb) disertai diagram Mermaid yang menggambarkan urutan langkah persis seperti yang terjadi di kode — termasuk percabangan error dan pemanggilan lintas-service. Bagian [§15](#15-known-issues--temuan-audit-backend) mendaftar semua ketidaksesuaian antara dokumentasi lama dan kode nyata yang ditemukan saat audit ini, termasuk **bug fungsional yang masih aktif**.
 >
 > Dokumen ini ditujukan untuk dibaca developer maupun AI Assistant. Setiap service dijelaskan secara *atomic* (satu tanggung jawab per bagian) dengan urutan: Dependency → State/Storage → API Publik → Workflow (diagram) → Helper Privat → Ketergantungan Lintas-Service.
 
@@ -20,8 +20,9 @@
 10. [`SslManager` (`ssl_manager.py`)](#10-sslmanager-ssl_managerpy)
 11. [`DashboardManager` & `SettingsManager`](#11-dashboardmanager--settingsmanager)
 12. [`UpdaterManager` (`updater.py`) — Auto-Updater](#12-updatermanager-updaterpy--auto-updater)
-13. [`main.py` — App Bootstrap & `AppLifecycle`](#13-mainpy--app-bootstrap--applifecycle)
-14. [Known Issues — Temuan Audit Backend](#14-known-issues--temuan-audit-backend)
+13. [`TunnelsManager` (`tunnels.py`) — Akses Publik via Zrok](#13-tunnelsmanager-tunnelspy--akses-publik-via-zrok)
+14. [`main.py` — App Bootstrap & `AppLifecycle`](#14-mainpy--app-bootstrap--applifecycle)
+15. [Known Issues — Temuan Audit Backend](#15-known-issues--temuan-audit-backend)
 
 ---
 
@@ -42,6 +43,8 @@ graph TD
     API -->|owns| Ssl[SslManager]
     API -->|owns| Dashboard[DashboardManager]
     API -->|owns| Settings[SettingsManager]
+    API -->|owns| Updater[UpdaterManager]
+    API -->|owns| Tunnels[TunnelsManager]
 
     Php -.->|"update_global_php_proxy(port)<br/>saat start_php/save_config/uninstall"| Apache
     Project -.->|"sync_apache_vhosts()<br/>saat create/update/delete project"| Apache
@@ -53,6 +56,9 @@ graph TD
     Database -.->|"TIDAK ada dependency ke service lain"| Database
     Runtimes -.->|"TIDAK ada dependency ke service lain"| Runtimes
     Git -.->|"TIDAK ada dependency ke service lain"| Git
+    Tunnels -.->|"update_project(tunnel_url)<br/>_read_projects() -- resolusi project"| Project
+    Tunnels -.->|"get_http_port() -- resolusi port HTTP aktif<br/>(dulu salah baca dari Settings, lihat §15 poin 18)"| Apache
+    Updater -.->|"get_settings() -- baca receive_prerelease_updates"| Settings
 
     style Database fill:#1a3,color:#fff
     style Runtimes fill:#1a3,color:#fff
@@ -71,7 +77,7 @@ graph TD
 `Api` adalah satu-satunya class yang diekspos ke `window.pywebview.api` di frontend. Semua fungsi JS masuk lewat sini, lalu didelegasikan ke manager yang sesuai.
 
 ### 2.1 Constructor
-Menginisialisasi 9 manager (`self.apache`, `self.php`, `self.database`, `self.project`, `self.runtimes`, `self.git`, `self.ssl`, `self.dashboard`, `self.settings`), masing-masing menerima `self` (instance `Api`) sebagai referensi balik. `self._window = None` (di-set belakangan oleh `main.py` via `set_window()`). `self.quit_callback = None` (di-set oleh `main.py` agar `close_app()` bisa memicu pembersihan sebelum keluar — lihat [§13](#13-known-issues--temuan-audit-backend) untuk status nyata pembersihan ini).
+Menginisialisasi 9 manager (`self.apache`, `self.php`, `self.database`, `self.project`, `self.runtimes`, `self.git`, `self.ssl`, `self.dashboard`, `self.settings`), masing-masing menerima `self` (instance `Api`) sebagai referensi balik. `self._window = None` (di-set belakangan oleh `main.py` via `set_window()`). `self.quit_callback = None` (di-set oleh `main.py` agar `close_app()` bisa memicu pembersihan sebelum keluar — lihat [§15](#15-known-issues--temuan-audit-backend) untuk status nyata pembersihan ini).
 
 ### 2.2 Event Emitter — Mekanisme Inti Komunikasi Real-Time
 
@@ -99,12 +105,12 @@ def emit_progress(self, percent: int, text: str = "", args: dict = None):
 
 | Endpoint | Perilaku |
 |---|---|
-| `close_app()` | Jika `self.quit_callback` di-set → panggil callback tersebut. Jika tidak → `os._exit(0)` langsung. **Lihat §13 untuk bug terkait fungsi ini.** |
+| `close_app()` | Jika `self.quit_callback` di-set → panggil callback tersebut. Jika tidak → `os._exit(0)` langsung. **Lihat §15 untuk bug terkait fungsi ini.** |
 | `browse_directory()` | Membuka native folder picker via `self._window.create_file_dialog(webview.FOLDER_DIALOG)`. |
 | `start_service(id)` / `stop_service(id)` | Dispatcher generik dipakai oleh toggle switch di Sidebar & Dashboard — merutekan ke `apache`/`php`/`database` manager berdasarkan `id`. |
 | `get_all_services_status()` | Menggabungkan `psutil.cpu_percent()` + `psutil.virtual_memory().percent` dengan status running tiap service — dipoll frontend tiap 2 detik. |
 
-> ⚠️ Endpoint ini **tidak tercantum** di peta API lama `docs/ai_development_guide.md` §1 — lihat §13 poin 4–6 untuk daftar lengkap endpoint yang belum terdokumentasi.
+> ⚠️ Endpoint ini **tidak tercantum** di peta API lama `docs/ai_development_guide.md` §1 — lihat §15 poin 7 untuk daftar lengkap endpoint yang belum terdokumentasi.
 
 ---
 
@@ -119,7 +125,7 @@ def emit_progress(self, percent: int, text: str = "", args: dict = None):
 | `read_json(path, default_type=list)` | Baca JSON dengan aman. **Selalu mengembalikan tipe `default_type`** — jika file tidak ada/kosong/JSON tidak valid, ATAU jika isi file valid JSON tapi bertipe berbeda dari `default_type` (mis. file berisi string top-level padahal caller minta `dict`), otomatis fallback ke `default_type()` kosong. Lihat catatan kontrak di bawah. |
 | `write_json(path, data)` | Tulis `data` sebagai JSON (`indent=4`), `os.makedirs` otomatis. Return `bool` sukses/gagal — **tidak validasi tipe `data`**, jadi caller tetap bertanggung jawab hanya mengirim `dict`/`list` yang sesuai konvensi file targetnya. |
 
-> ✅ **Temuan audit (sudah diperbaiki):** dokumentasi versi lama mengklaim fungsi ini "mencegah *zip slip vulnerability*", padahal saat itu belum ada validasi path traversal apapun di `_extract_zip`/`_extract_tar_gz`. Sekarang sudah ditambahkan `_is_safe_extract_path()` — setiap member arsip divalidasi dengan `os.path.realpath()` sebelum diekstrak; member yang keluar dari direktori tujuan (mis. `../../evil.exe`) akan menggagalkan seluruh ekstraksi dengan `RuntimeError`. Detail di §13.
+> ✅ **Temuan audit (sudah diperbaiki):** dokumentasi versi lama mengklaim fungsi ini "mencegah *zip slip vulnerability*", padahal saat itu belum ada validasi path traversal apapun di `_extract_zip`/`_extract_tar_gz`. Sekarang sudah ditambahkan `_is_safe_extract_path()` — setiap member arsip divalidasi dengan `os.path.realpath()` sebelum diekstrak; member yang keluar dari direktori tujuan (mis. `../../evil.exe`) akan menggagalkan seluruh ekstraksi dengan `RuntimeError`. Detail di §15.
 
 > ⚠️ **Kontrak tipe `read_json()`:** parameter `default_type` dulu **hanya** dipakai sebagai nilai fallback saat file tidak ada — bukan jaminan tipe hasil baca. Kalau file ADA dan isinya JSON valid tapi bukan `default_type` (mis. sisa string dari file lama/rusak/edit manual), fungsi lama meneruskan nilai itu apa adanya, sehingga caller yang langsung memanggil `.get()`/iterasi pada hasilnya (tanpa `isinstance` check sendiri) bisa crash. Sekarang `read_json()` sudah memvalidasi `isinstance(data, default_type)` setelah parsing — **hasilnya dijamin bertipe `default_type`**, jadi caller baru tidak perlu lagi menambahkan `isinstance` check sendiri untuk kasus ini. Detail insiden nyata di `docs/known_bugs.md` #17.
 
@@ -181,7 +187,7 @@ sequenceDiagram
     end
 ```
 
-> ✅ **Catatan (sudah diperbaiki):** `sync_apache_vhosts()` yang dipanggil di sini sebelumnya menulis ke folder yang salah (`con/extra` bukan `conf/extra`) — lihat §13 poin 1 dan §7.3. Sudah dikoreksi ke `conf/extra`, sehingga virtual host project kini ikut ter-*load* dengan benar saat Apache di-start.
+> ✅ **Catatan (sudah diperbaiki):** `sync_apache_vhosts()` yang dipanggil di sini sebelumnya menulis ke folder yang salah (`con/extra` bukan `conf/extra`) — lihat §15 poin 1 dan §7.3. Sudah dikoreksi ke `conf/extra`, sehingga virtual host project kini ikut ter-*load* dengan benar saat Apache di-start.
 
 ### 4.4 Workflow: `install_version(version, url, port)`
 
@@ -445,7 +451,7 @@ flowchart LR
     Wrong -.->|"dulu tidak pernah terbaca"| HttpdConf
 ```
 
-**Dampak sebelum diperbaiki:** Virtual host yang dibuat lewat `create_project`/`update_project`/`delete_project`, atau saat ganti versi Apache aktif, kemungkinan tidak pernah benar-benar termuat oleh Apache karena ditulis ke folder yang berbeda dari yang di-*include* `httpd.conf`. `docs/known_bugs.md` versi lama sempat salah mengklaim bug jenis ini ("conf" vs "con") sudah diperbaiki di seluruh proyek, padahal regresi ini masih ada di `project.py`. **Sudah dikoreksi ulang** pada audit ini — lihat §13 dan `docs/known_bugs.md` #3.
+**Dampak sebelum diperbaiki:** Virtual host yang dibuat lewat `create_project`/`update_project`/`delete_project`, atau saat ganti versi Apache aktif, kemungkinan tidak pernah benar-benar termuat oleh Apache karena ditulis ke folder yang berbeda dari yang di-*include* `httpd.conf`. `docs/known_bugs.md` versi lama sempat salah mengklaim bug jenis ini ("conf" vs "con") sudah diperbaiki di seluruh proyek, padahal regresi ini masih ada di `project.py`. **Sudah dikoreksi ulang** pada audit ini — lihat §15 dan `docs/known_bugs.md` #3.
 
 ### 7.4 `delete_project(id, delete_files)` — Urutan Rollback Aman
 
@@ -468,6 +474,8 @@ flowchart TD
 
 ### 7.5 Ketergantungan Lintas-Service
 `ProjectManager` adalah **konsumen terbesar** service lain: `ApacheManager` (sync vhost + restart), `SslManager` (cert per-domain), dan `Api.get_installed_php()` (resolusi port PHP aktif). Ia juga satu-satunya modul yang menyentuh file sistem Windows di luar direktori aplikasi (`C:\Windows\System32\drivers\etc\hosts`), sehingga satu-satunya sumber UAC prompt di aplikasi ini.
+
+**Dependency terbalik (konsumen `ProjectManager`):** `TunnelsManager.start_zrok_share()`/`stop_zrok_share()` (§13) memanggil `_read_projects()`/`update_project({tunnel_url})` untuk menyuntikkan (atau menghapus) field `tunnel_url` pada sebuah project — `update_project()` otomatis memicu `sync_apache_vhosts()` sehingga `_generate_vhost_block()` bisa menambahkan `ServerAlias` untuk hostname publik zrok begitu `tunnel_url` terisi (lihat `project.py` baris sekitar `tunnel_url = p.get('tunnel_url')`).
 
 ---
 
@@ -532,7 +540,7 @@ Semua broadcast `WM_SETTINGCHANGE` setelah menulis registry (pola sama seperti `
 
 Bentuk paling mirip `RuntimesManager`, dengan tambahan **lapis deteksi ke-4**: `_find_via_hardcoded()` — mengecek path instalasi umum (`%PROGRAMFILES%\Git\cmd\git.exe`, `%PROGRAMFILES(X86)%\...`, `%LOCALAPPDATA%\Programs\Git\cmd\git.exe`) sebagai upaya terakhir setelah `where` dan registry gagal.
 
-**`install_git`**: mengunduh installer self-extracting `.7z.exe` dari rilis GitHub, lalu `_extract_sfx()` menjalankannya dengan flag `-y -o"{git_dir}"` (`shell=True`). ⚠️ **Tidak ada verifikasi checksum/signature** terhadap binary yang diunduh sebelum dieksekusi — pola risiko yang sama berlaku untuk semua unduhan binary di proyek ini (Apache, PHP, Node, Java, Go) — lihat §13.
+**`install_git`**: mengunduh installer self-extracting `.7z.exe` dari rilis GitHub, lalu `_extract_sfx()` menjalankannya dengan flag `-y -o"{git_dir}"` (`shell=True`). ⚠️ **Tidak ada verifikasi checksum/signature** terhadap binary yang diunduh sebelum dieksekusi — pola risiko yang sama berlaku untuk semua unduhan binary di proyek ini (Apache, PHP, Node, Java, Go, Zrok di §13) — lihat §15.
 
 **`get_git_config`/`set_git_config`**: wrapper `git config --global user.name/user.email`, dengan fallback ke `git` sistem jika PortableGit VyloServe belum terinstall.
 
@@ -581,7 +589,7 @@ Keduanya CRUD sederhana tanpa efek samping OS (tidak ada subprocess/registry/net
 | | `DashboardManager` | `SettingsManager` |
 |---|---|---|
 | File state | `data/dashboard.json` | `data/settings.json` |
-| Isi | Toggle tampilan (`apache`/`php`/`database`), array `selected_php`/`selected_database` (dibaca oleh `PhpManager`/`DatabaseManager` untuk fitur "Start Selected") | `language`, `default_apache_install_location` (lihat `docs/known_bugs.md` #24), `system_log_levels`/`system_log_sources` (filter panel System Logs — `None`/`null` = belum dikustomisasi, tampilkan semua; array APAPUN termasuk array kosong = daftar eksplisit tersimpan, dipakai apa adanya. **Jangan** pakai array kosong sebagai default — lihat `docs/known_bugs.md` #26), `receive_prerelease_updates` (boolean, default `False` — dibaca `UpdaterManager.check_for_updates()` untuk memutuskan apakah rilis prerelease GitHub ikut ditawarkan, lihat §12) |
+| Isi | Toggle tampilan (`apache`/`php`/`database`), array `selected_php`/`selected_database` (dibaca oleh `PhpManager`/`DatabaseManager` untuk fitur "Start Selected") | `language`, `theme` (string, default `"vyloserve-dark"` — nama preset tema UI; dibaca juga oleh `main.py.get_theme_bg_color()` saat bootstrap window, lihat §14.1, untuk memetakan ke warna `background_color` native pywebview sebelum React sempat render, agar tidak ada "flash" warna salah), `default_apache_install_location` (lihat `docs/known_bugs.md` #24), `system_log_levels`/`system_log_sources` (filter panel System Logs — `None`/`null` = belum dikustomisasi, tampilkan semua; array APAPUN termasuk array kosong = daftar eksplisit tersimpan, dipakai apa adanya. **Jangan** pakai array kosong sebagai default — lihat `docs/known_bugs.md` #26), `receive_prerelease_updates` (boolean, default `False` — dibaca `UpdaterManager.check_for_updates()` untuk memutuskan apakah rilis prerelease GitHub ikut ditawarkan, lihat §12) |
 | **Semantik `save_config`/`save_settings`** | ⚠️ **Overwrite total** — frontend wajib kirim objek config lengkap, bukan partial patch | **Merge** — membaca dulu isi lama, hanya menimpa key yang dikirim |
 
 > Perbedaan semantik ini penting untuk developer frontend: mengirim `save_dashboard_config({apache: true})` saja akan **menghapus** key lain yang sebelumnya ada (`php`, `database`, `selected_php`, dst), sedangkan `save_app_settings({language: "id"})` aman dikirim parsial.
@@ -635,24 +643,107 @@ Ditemukan saat audit kode sebelum serah terima — lihat `docs/known_bugs.md` un
 
 ---
 
-## 13. `main.py` — App Bootstrap & `AppLifecycle`
+## 13. `TunnelsManager` (`tunnels.py`) — Akses Publik via Zrok
+
+Fitur "Tunnels": membuka akses publik sementara ke project lokal (atau target custom `localhost:PORT`) lewat [zrok](https://zrok.io) (tunneling open-source berbasis OpenZiti), tanpa butuh domain/port-forwarding sendiri. Binary `zrok.exe` diunduh on-demand dari GitHub Releases (`openziti/zrok`) ke `bin/zrok/zrok.exe` — pola direktori sama seperti runtime lain (Node/Python/Java/Go, §8).
+
+### 13.1 Dependency & State
+- **Constructor**: tidak butuh manager lain saat inisiasi. Dependency ke `self.api.project` (resolusi project VyloServe by ID, injeksi `tunnel_url`) dan `self.api.apache` (`get_http_port()` — baca port HTTP aktif langsung dari `httpd.conf`, **bukan** dari `SettingsManager` seperti versi kode sebelumnya yang pernah salah pakai key `apache_port` yang tidak pernah ada — lihat `docs/known_bugs.md` #31) dicek lazy via `hasattr()`, pola sama seperti manager lain.
+- `self.active_shares: Dict[str, Dict]` — **in-memory murni** (`{share_id: {process, project_id, url}}`), tidak dipersist ke disk (caveat sama seperti `PhpManager.processes`/`DatabaseManager.processes`, §5.1/§6.1 — tracking share hilang jika VyloServe di-restart, walau proses OS `zrok.exe share`-nya sendiri bisa tetap hidup sebagai orphan).
+- Tidak ada file state JSON sendiri — `get_zrok_status()` selalu membaca live dari `zrok.exe version`/`zrok.exe status` (output ANSI escape code di-strip via regex), bukan dari cache.
+
+### 13.2 Ringkasan API Publik
+
+| Method | Fungsi |
+|---|---|
+| `get_available_zrok_versions()` | Fetch daftar release dari GitHub API, filter yang punya asset `windows_amd64`. |
+| `get_zrok_status()` | `zrok.exe version` + `zrok.exe status` (dicek string `"Environment:"` di output untuk menyimpulkan environment sudah di-*enable*) + daftar `active_shares` yang proses-nya masih hidup (`proc.poll() is None`). |
+| `install_zrok(version='latest')` | Download archive GitHub Releases (progress 0→80% dihitung manual, bukan `download_advanced()` — pola sama seperti alasan di §12.3) → `extract_archive()` (80→99%) → cari ulang file `zrok*.exe` hasil ekstrak via `glob` (menangani kemungkinan nama berubah jadi `zrok2.exe` di rilis baru), retry rename 10×/0.5s kalau file masih terkunci OS. |
+| `enable_zrok(token)` / `disable_zrok()` | Wrapper `zrok.exe enable <token>` / `zrok.exe disable` — daftar/lepas environment zrok lokal ke akun pengguna. |
+| `start_zrok_share(target)` | Lihat diagram §13.3. `target` = project ID VyloServe ATAU string custom `"localhost:PORT"` (dideteksi dari prefix `localhost:`). |
+| `stop_zrok_share(share_id)` | `proc.kill()` + `wait(timeout=3)` → hapus dari `active_shares` → kalau share itu milik project VyloServe, hapus field `tunnel_url` dari `projects.json` dan `sync_apache_vhosts()` ulang. |
+
+> ✅ `uninstall_zrok()` — menghentikan semua `active_shares` (lewat `stop_zrok_share()` masing-masing), lalu `shutil.rmtree(self.zrok_dir, ignore_errors=True)`. Sempat tidak terdefinisi sama sekali di `TunnelsManager` (padahal `Api.uninstall_zrok()` dan frontend sudah memanggilnya — selalu `AttributeError`), sudah diperbaiki. Lihat `docs/known_bugs.md` #31.
+
+### 13.3 Workflow: `start_zrok_share(target)` — Tunggu URL dari stdout, lalu Injeksi ke Vhost Apache
+
+> ✅ **Diperbarui dua kali — lihat `docs/known_bugs.md` #34 dan #35 untuk kronologi lengkap.** #34 memperbaiki cara stdout dibaca (thread terpisah + `queue.Queue()`, bukan `readline()` blocking, timeout 15→30 detik) — hardening yang valid tapi **BUKAN akar masalah sebenarnya**. Akar masalah SESUNGGUHNYA (#35), ditemukan dengan benar-benar menjalankan `zrok.exe` v2.0.7 asli: zrok mencetak log sebagai **satu objek JSON per baris** (`{"level":"INFO",...,"msg":"access your zrok share at the following endpoints:\n <domain-tanpa-skema>"}`), BUKAN teks biasa seperti diasumsikan regex lama — jadi regex apa pun yang mencari pola teks `"access your zrok share:\s+https?://..."` **mustahil pernah match**, terlepas dari berapa lama ditunggu. Diagram di bawah mencerminkan kedua perbaikan sekaligus.
+
+```mermaid
+sequenceDiagram
+    participant U as User (Frontend)
+    participant T as TunnelsManager
+    participant R as reader thread (daemon)
+    participant OS as zrok.exe share (subprocess)
+    participant Pr as ProjectManager (via Api)
+
+    U->>T: start_zrok_share(target)
+    alt target = "localhost:PORT" (custom)
+        T->>T: zrok_target = target apa adanya
+    else target = project ID VyloServe
+        T->>Pr: _read_projects() -- cari project by id
+        T->>T: zrok_target = "http://127.0.0.1:{port}"<br/>(port dari ApacheManager.get_http_port(), BUKAN SettingsManager -- §13.1)
+    end
+    T->>T: emit_log("backend.zrok.resolved_target", {target: zrok_target})
+    T->>OS: Popen(["zrok.exe","share","public",zrok_target,"--headless"], stdout=PIPE)
+    T->>R: spawn thread: iterasi proc.stdout, taruh tiap baris ke queue.Queue()
+    Note over T,R: Pembacaan stdout TIDAK blocking di thread utama (§34) --<br/>tidak tersandera buffering OS, baris tetap masuk antrian.
+    loop queue.get(timeout=sisa_waktu), maks ZROK_SHARE_DETECT_TIMEOUT_SECONDS=30 detik
+        R-->>T: baris dari queue (atau None = stdout tertutup)
+        T->>T: _log_zrok_line(baris) -- parse JSON, log 'msg' bersih ke System Logs<br/>(fallback baris mentah kalau bukan JSON valid)
+        T->>T: _extract_zrok_public_url(baris) -- parse JSON 'msg', cari<br/>frasa endpoint + domain *.zrok.io TANPA skema (§35),<br/>fallback regex URL lengkap untuk format teks lama
+        alt URL ditemukan
+            T->>T: break loop
+        end
+    end
+    alt URL tidak ditemukan dalam batas waktu (atau stdout tertutup lebih dulu)
+        T->>T: emit_log("backend.zrok.detect_timeout", level=error, {seconds})
+        T->>OS: proc.kill()
+        T-->>U: {status: error, message: "backend.zrok.url_not_found"}
+    else URL ditemukan
+        T->>T: spawn thread daemon kedua: terus kuras queue yang SAMA via _log_zrok_line()
+        T->>T: simpan ke active_shares[share_id]
+        alt target adalah project VyloServe (bukan custom)
+            T->>T: emit_log("backend.zrok.syncing_vhost", {url})
+            T->>Pr: update_project({id: target, tunnel_url: url})
+            Note over Pr: update_project() otomatis memicu<br/>sync_apache_vhosts() + restart Apache<br/>(SYNCHRONOUS, selesai sebelum response dikirim) -- lihat §7.1/§7.5
+        end
+        T-->>U: {status: success, url, share_id}
+    end
+```
+
+**`_extract_zrok_public_url(line)` (static method)** — parsing dua-lapis: (1) coba `json.loads()` pada baris, ambil field `"msg"` kalau berhasil; (2) cari frasa `"access your zrok share[^:]*:\s*(domain\.zrok\.io)"` di dalam `msg` (fleksibel di bagian tengah frasa, antisipasi perubahan kecil di versi zrok mendatang), domain yang ditemukan **tidak punya skema** jadi selalu di-prefix `https://` (share publik zrok selalu HTTPS); (3) fallback ke regex URL lengkap (`https?://...zrok\.io...`) untuk kompatibilitas format teks lama. **Diverifikasi dengan menjalankan `zrok.exe` v2.0.7 asli secara langsung** (bukan cuma unit test bermock) — share server HTTP lokal sungguhan, akses URL publiknya dari internet, dapat response 200 dengan body yang benar (bukan Bad Gateway).
+
+**`_log_zrok_line(line)` / `_parse_zrok_log_line(line)`** — enhancement cakupan `emit_log`: SEMUA baris stdout zrok (bukan cuma setelah URL ketemu) di-log ke System Logs dengan pesan yang sudah di-parse dari JSON (`msg` field), bukan blob JSON mentah yang sulit dibaca. Level `error`/`warn` dari JSON (atau heuristik substring untuk format non-JSON) menentukan apakah masuk kategori `backend.zrok.process_error` atau `backend.zrok.process_log`. Enhancement yang sama diterapkan ke SELURUH method `TunnelsManager` lain (`install_zrok`, `enable_zrok`, `disable_zrok`, `uninstall_zrok`, `stop_zrok_share`) — setiap precondition-failure (`not_installed`, `project_not_found`, `share_not_found`, dst.) dan setiap blok `except Exception` sekarang memanggil `self._log(...)`, bukan `traceback.print_exc()` yang sebelumnya hanya tampil di console backend (tidak pernah terlihat oleh user di build production tanpa console window). Lihat `docs/known_bugs.md` #35.
+
+> ⚠️ Sekalian ditemukan & diperbaiki: `disable_zrok()` sebelumnya **selalu** me-return `{"status": "success"}` tanpa pernah mengecek `returncode` dari `zrok.exe disable` — kalau perintahnya benar-benar gagal, user tidak pernah tahu. Sekarang mengecek `returncode` dan me-return `backend.zrok.disable_failed` kalau gagal.
+
+### 13.4 Ketergantungan Lintas-Service
+`TunnelsManager` **membaca** `ProjectManager._read_projects()`/`update_project()` (resolusi project + injeksi `tunnel_url` yang otomatis memicu regenerasi vhost Apache lewat jalur yang sudah ada di §7), dan **membaca** `ApacheManager.get_http_port()` untuk port HTTP aktif (§13.1 — bukan lagi `SettingsManager`). Tidak ada service lain yang bergantung balik ke `TunnelsManager` — modul ini murni konsumen, bukan dependency.
+
+---
+
+## 14. `main.py` — App Bootstrap & `AppLifecycle`
 
 > ✅ **Update:** `main.py` sebelumnya punya coverage 0% karena seluruh logic exit (`perform_exit`, `on_closing`) terjebak sebagai closure di dalam `if __name__ == '__main__':`, sehingga tidak bisa di-import untuk ditest. Sudah di-refactor menjadi class `AppLifecycle` — lihat detail di bawah.
 
-### 13.1 Alur Bootstrap
+### 14.1 Alur Bootstrap
+0. `main()` **pertama-tama** memanggil `check_single_instance()` — membuat Windows named mutex (`"VyloServe_App_Mutex_v1"` via `ctypes.windll.kernel32.CreateMutexW`). Kalau mutex itu sudah ada (`GetLastError() == ERROR_ALREADY_EXISTS`), berarti VyloServe sudah berjalan — `bring_existing_instance_to_front()` mencari window existing lewat judul "VyloServe" (`FindWindowW`) lalu `ShowWindow`/`SetForegroundWindow`, kemudian proses baru langsung `sys.exit(0)` **tanpa pernah membuat instance `Api()` kedua**. Ini mencegah dua proses VyloServe berjalan bersamaan (mis. dua `httpd.exe`/`mysqld.exe` rebutan port yang sama).
 1. `main()` membuat instance `Api()`, lalu `AppLifecycle(api, IS_PRODUCTION)`.
-2. `webview.create_window(...)` membuat window → `api.set_window(window)` **dan** `lifecycle.set_window(window)` (keduanya perlu tahu window: `api` untuk `emit_log`/`emit_progress`, `lifecycle` untuk hide/destroy).
-3. `api.quit_callback = lifecycle.perform_exit` — inilah yang membuat `Api.close_app()` (dipanggil dari tombol Quit UI) benar-benar memicu cleanup.
-4. `window.events.closing += lifecycle.on_closing` — dipanggil setiap kali user menekan tombol (X).
-5. Jika `IS_PRODUCTION`, `setup_systray(lifecycle, icon_path)` dipanggil untuk mengaktifkan ikon System Tray.
-6. `webview.start(...)` — blocking call, baru return saat window benar-benar ditutup.
+2. `webview.create_window(...)` membuat window — `background_color` diisi dari `get_theme_bg_color()` (baca `data/settings.json` key `theme` langsung lewat `json.load()`, **bukan** lewat `SettingsManager`/`read_json()`, karena ini dipanggil sebelum `Api()` relevan dan harus tahan terhadap file belum ada — ada `try/except` + fallback `"vyloserve-dark"` → `#0f172a`; map warna per-tema di-*hardcode* di dalam fungsi ini, lihat §11 untuk daftar key `theme` yang valid) → `api.set_window(window)` **dan** `lifecycle.set_window(window)` (keduanya perlu tahu window: `api` untuk `emit_log`/`emit_progress`, `lifecycle` untuk hide/destroy).
+3. `api.start_log_watcher()` dipanggil tepat setelah `set_window()` — lihat §11.2 untuk mekanisme thread log watcher ini.
+4. `api.quit_callback = lifecycle.perform_exit` — inilah yang membuat `Api.close_app()` (dipanggil dari tombol Quit UI) benar-benar memicu cleanup.
+5. `window.events.closing += lifecycle.on_closing` — dipanggil setiap kali user menekan tombol (X).
+6. Jika `IS_PRODUCTION`, `setup_systray(lifecycle, icon_path)` dipanggil untuk mengaktifkan ikon System Tray.
+7. `webview.start(...)` — blocking call, baru return saat window benar-benar ditutup.
 
-### 13.2 `AppLifecycle` — Satu Sumber Kebenaran untuk Exit/Hide
+### 14.2 `AppLifecycle` — Satu Sumber Kebenaran untuk Exit/Hide
 
 ```mermaid
 flowchart TD
     A["Trigger exit:<br/>Tombol Quit UI (api.close_app)<br/>ATAU Tray 'Exit Engine'"] --> B["lifecycle.perform_exit()"]
-    B --> C[apache.stop_server try/except]
+    B --> B2[api.stop_log_watcher try/except]
+    B2 --> C[apache.stop_server try/except]
     C --> D[php.stop_all try/except]
     D --> E[database.stop_all try/except]
     E --> F{tray_icon di-set?}
@@ -673,12 +764,12 @@ flowchart TD
 
 **Kedua jalur exit (tombol Quit UI dan menu Tray "Exit Engine") kini memanggil `perform_exit()` yang sama** — sebelumnya menu Tray punya jalur pintas terpisah yang melewatkan cleanup engine (lihat `docs/known_bugs.md` #15).
 
-### 13.3 Kenapa Diekstrak Jadi Class
+### 14.3 Kenapa Diekstrak Jadi Class
 `AppLifecycle` menyimpan `api`, `window`, `tray_icon`, `is_real_exit` sebagai atribut instance (bukan variabel global `is_real_exit`/`global_tray_icon` + closure seperti sebelumnya). Ini membuatnya bisa diinstansiasi langsung di unit test dengan `MagicMock()` sebagai pengganti `api`/`window`/`tray_icon`, tanpa perlu menjalankan `pywebview`/`webview.start()` sungguhan. Lihat `tests/test_main.py` untuk cakupan penuh (bootstrap, exit, hide-to-tray, system tray).
 
 ---
 
-## 14. Known Issues — Temuan Audit Backend
+## 15. Known Issues — Temuan Audit Backend
 
 Tabel ini adalah hasil audit langsung terhadap kode per tanggal dokumen ini ditulis. Status diperbarui secara jujur — beberapa klaim "sudah fixed" di dokumentasi sebelumnya **terbukti salah** saat kode benar-benar dibaca ulang.
 
@@ -696,9 +787,12 @@ Tabel ini adalah hasil audit langsung terhadap kode per tanggal dokumen ini ditu
 | 10 | Migrasi legacy `apache_active_version.txt` selalu gagal diam-diam di Windows (`os.remove()` dipanggil saat file masih terbuka → `PermissionError` tertelan) | `apache.py._get_active_version()` | 🟡 Sedang — fitur migrasi tidak pernah benar-benar jalan | ✅ **Sudah diperbaiki** — `os.remove()` dipindah ke luar blok `with` |
 | 11 | `uninstall_go()` tidak punya `return` sama sekali (implisit `None`) — frontend salah menampilkan error walau sukses | `runtimes_manager.py.uninstall_go()` | 🟡 Sedang — bug fungsional UX | ✅ **Sudah diperbaiki** — ditambahkan `return {"status": "success"}` |
 | 12 | `install_java()`/`install_go()` hanya menangkap `except OSError`, melewatkan `RuntimeError` yang dilempar sendiri di dalam try-nya → crash tidak tertangkap | `runtimes_manager.py` | 🔴 Bisa crash saat folder JDK tidak ditemukan setelah ekstrak | ✅ **Sudah diperbaiki** — diubah jadi `except Exception as e:`, konsisten dengan `install_node`/`install_python` |
-| 13 | Menu Tray "Exit Engine" punya jalur exit terpisah yang melewatkan cleanup engine (Apache/PHP/Database) — bug #2 sebenarnya masih bisa terjadi lewat jalur ini | `main.py` (`setup_systray.on_exit_clicked`, sebelum refactor) | 🔴 Kritis — bug fungsional (zombie process via jalur lain) | ✅ **Sudah diperbaiki** — kini memanggil `lifecycle.perform_exit()` yang sama dengan tombol Quit UI, sekaligus bagian dari refactor `main.py` → `AppLifecycle` (§12) |
+| 13 | Menu Tray "Exit Engine" punya jalur exit terpisah yang melewatkan cleanup engine (Apache/PHP/Database) — bug #2 sebenarnya masih bisa terjadi lewat jalur ini | `main.py` (`setup_systray.on_exit_clicked`, sebelum refactor) | 🔴 Kritis — bug fungsional (zombie process via jalur lain) | ✅ **Sudah diperbaiki** — kini memanggil `lifecycle.perform_exit()` yang sama dengan tombol Quit UI, sekaligus bagian dari refactor `main.py` → `AppLifecycle` (§14) |
 | 14 | `_get_cbs()`'s `download_cb` memperlakukan `pct` (absolut 0-100 dari `file_utils.py`) seolah fraksi `0.0-1.0`, mengalikannya dengan `span` → progress meluber ribuan persen saat unduhan/ekstraksi, lalu "melompat mundur" saat tahap berikutnya mengirim nilai tetap | `runtimes_manager.py._get_cbs()`, `git_manager.py.install_git()` (multiplier lebih kecil, gejala tersamar) | 🔴 Kritis — bug UX nyata, dilaporkan pengguna | ✅ **Sudah diperbaiki** — `download_cb` sekarang meng-*clamp* `pct` ke `[start_pct, end_pct]`, bukan mengalikan. Lihat §8.2 & `docs/known_bugs.md` #16 |
 | 15 | `read_json(path, dict).get(...)` dipanggil langsung tanpa `isinstance` check di 2 tempat — crash `AttributeError: 'str' object has no attribute 'get'` jika file JSON valid tapi bukan objek | `php.py._get_preferred_versions()`, `database.py._get_preferred_dbs()` | 🔴 Kritis — crash tidak konsisten (tergantung isi file saat itu) | ✅ **Sudah diperbaiki** — root cause di `read_json()` sendiri (§3.1, sekarang menjamin tipe), plus `isinstance` guard eksplisit di kedua caller. Lihat `docs/known_bugs.md` #17 |
 | 16 | Tahap "configuring" pada `install_version()` PHP melapor progress **100%** padahal Composer (tahap berikutnya) belum dipasang → melanggar kontrak `percent>=100 = selesai` (§2.2) → widget progress frontend menghilang mid-instalasi | `php.py.install_version()` | 🔴 Kritis — bug UX nyata, dilaporkan pengguna | ✅ **Sudah diperbaiki** — diganti jadi 92%; 100% dicadangkan khusus untuk `"backend.php.installation_complete"`. Lihat `docs/known_bugs.md` #18 |
+| 17 | `Api.uninstall_zrok()` memanggil `self.tunnels.uninstall_zrok()`, tapi `TunnelsManager` **tidak punya method ini sama sekali** → `AttributeError` tiap kali frontend memanggil uninstall zrok | `core/api.py` (`uninstall_zrok`) delegasi ke `core/services/tunnels.py` | 🔴 Kritis — bug fungsional, tombol uninstall pasti gagal | ✅ **Sudah diperbaiki** — method `uninstall_zrok()` ditambahkan (hentikan semua `active_shares`, lalu `shutil.rmtree(self.zrok_dir)`). Lihat `docs/known_bugs.md` #31. |
+| 18 | `TunnelsManager.start_zrok_share()` membaca port Apache dari `self.api.settings.get_settings().get("apache_port", 80)` — tapi `SettingsManager.get_settings()` **tidak pernah punya key `apache_port`** (bukan bagian dari `default_config`, lihat §11); hasilnya `.get(..., 80)` SELALU jatuh ke fallback hardcode 80, berapa pun port Apache yang sebenarnya dikonfigurasi user | `core/services/tunnels.py` (`start_zrok_share`) | 🟡 Sedang — share zrok untuk project VyloServe akan menunjuk ke port yang salah kalau user mengubah port Apache dari default 80 | ✅ **Sudah diperbaiki** — ditambahkan `ApacheManager.get_http_port()` (parse `Listen {port}` dari `httpd.conf` aktif, abaikan `Listen 443`), dipakai `start_zrok_share()` alih-alih `SettingsManager`. Lihat `docs/known_bugs.md` #31. |
+| 19 | `start_zrok_share()` membaca stdout `zrok.exe` lewat `proc.stdout.readline()` **blocking di thread utama**, timeout 15 detik, satu pola regex kaku (`"access your zrok share:\s+URL"`) — dilaporkan user: share **berhasil dibuat di sisi cloud zrok** (target benar terlihat di dashboard `api-v1.zrok.io`) tapi VyloServe tetap melaporkan `url_not_found`, proses lokal di-*kill*, dan URL share yang sempat terbentuk menampilkan **Bad Gateway** saat diakses (backend lokalnya sudah mati) | `core/services/tunnels.py` (`start_zrok_share`) | 🔴 Kritis — fitur share project gagal total secara nyata dilaporkan pengguna | ✅ **Sudah diperbaiki (2 tahap, lihat `docs/known_bugs.md` #34 & #35)** — tahap 1: pembacaan stdout dipindah ke thread terpisah + `queue.Queue()`, timeout 30 detik. **Tahap 1 TIDAK menyelesaikan bug** (user melaporkan masih terjadi persis sama) — root cause sesungguhnya (#35): `zrok.exe` v2 mencetak log JSON per baris, frasa DAN format URL yang dicari regex lama **tidak pernah ada** di output tersebut. Tahap 2: `_extract_zrok_public_url()` mem-parsing JSON dulu, domain tanpa skema di-prefix `https://` otomatis. Diverifikasi dengan menjalankan `zrok.exe` asli end-to-end (bukan cuma mock). |
 
-> Lihat `docs/known_bugs.md` untuk detail lengkap tiap perbaikan (#3, #6–#18 di dokumen tersebut berkorespondensi dengan tabel di atas).
+> Lihat `docs/known_bugs.md` untuk detail lengkap tiap perbaikan (#3, #6–#18 di dokumen tersebut berkorespondensi dengan tabel di atas; #17–18 di tabel ini BARU ditemukan saat audit dokumentasi ini dan **belum** punya entri terpisah di `docs/known_bugs.md` — pertimbangkan menambahkannya di sana juga kalau/ketika benar-benar diperbaiki).

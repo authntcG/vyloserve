@@ -134,6 +134,45 @@ describe('SettingsModals', () => {
         });
     });
 
+    it('shows a checkbox for the Tunnels category (regression: was missing entirely, causing TunnelsManager logs to be permanently filtered out)', async () => {
+        const getAppSettings = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: { system_log_levels: null, system_log_sources: null }
+        });
+        mockPywebviewApi({ get_app_settings: getAppSettings });
+
+        const user = userEvent.setup();
+        render(<SettingsModals activeModal="settings" onClose={vi.fn()} />);
+        await user.click(screen.getByRole('button', { name: /settings.system_logs/i }));
+
+        await waitFor(() => {
+            expect(screen.getByRole('checkbox', { name: 'settings.log_source_tunnels' })).toBeChecked();
+        });
+    });
+
+    it('includes TunnelsManager when "select all" sources is clicked, and excludes it when "unselect all" is clicked', async () => {
+        const getAppSettings = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: { system_log_levels: [], system_log_sources: [] }
+        });
+        const saveSettings = vi.fn().mockResolvedValue({ status: 'success' });
+        mockPywebviewApi({ get_app_settings: getAppSettings, save_app_settings: saveSettings });
+
+        const user = userEvent.setup();
+        render(<SettingsModals activeModal="settings" onClose={vi.fn()} />);
+        await user.click(screen.getByRole('button', { name: /settings.system_logs/i }));
+        await waitFor(() => expect(screen.getByRole('button', { name: /select/i })).toBeInTheDocument());
+
+        await user.click(screen.getByRole('button', { name: /select/i }));
+
+        await waitFor(() => {
+            expect(screen.getByRole('checkbox', { name: 'settings.log_source_tunnels' })).toBeChecked();
+        });
+        expect(saveSettings).toHaveBeenCalledWith(
+            expect.objectContaining({ system_log_sources: expect.arrayContaining(['TunnelsManager']) })
+        );
+    });
+
     it('closes the app when Quit is confirmed', async () => {
         const user = userEvent.setup();
         const closeApp = vi.fn();

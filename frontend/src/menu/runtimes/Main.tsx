@@ -6,6 +6,7 @@ import Modal from '../../components/Modal';
 import BackgroundProgressWidget from '../../components/BackgroundProgressWidget';
 import EmptyState from '../../components/EmptyState';
 import { useToast } from '../../components/ToastContext';
+import { useAlert } from '../../components/AlertContext';
 import { clampPercent } from '../../utils/progress';
 
 import InstallNode, { type InstallNodeRef } from './InstallNode';
@@ -227,6 +228,7 @@ function tabVisibilityClass(activeTab: RuntimeEngine, tabId: RuntimeEngine): str
 export default function RuntimesMain() {
     const { t } = useTranslation();
     const { showToast } = useToast();
+    const { confirm } = useAlert();
     const [activeTab, setActiveTab] = useState<RuntimeEngine>('node');
 
     const [runtimeData, setRuntimeData] = useState(INITIAL_DATA);
@@ -234,7 +236,6 @@ export default function RuntimesMain() {
 
     const [isProcessing, setIsProcessing] = useState(false);
     const [installingEngine, setInstallingEngine] = useState<string | null>(null);
-    const [engineToUninstall, setEngineToUninstall] = useState<RuntimeEngine | null>(null);
     const [progress, setProgress] = useState(0);
     const [progressText, setProgressText] = useState('');
     const [isMinimized, setIsMinimized] = useState(false);
@@ -257,7 +258,7 @@ export default function RuntimesMain() {
             if (event.detail?.source && event.detail.source !== 'RuntimesManager') return;
             const { percent, text } = event.detail;
             setProgress(clampPercent(percent));
-            setProgressText(text);
+            setProgressText(t(text, event.detail.args || {}) as string);
         };
         window.addEventListener('vylo_progress', handleProgress);
         return () => window.removeEventListener('vylo_progress', handleProgress);
@@ -321,26 +322,37 @@ export default function RuntimesMain() {
         }
     };
 
-    const executeUninstall = async () => {
-        if (!engineToUninstall) return;
+    const executeUninstall = async (engine: RuntimeEngine) => {
+        if (!await confirm({
+            title: `${t('runtimes.uninstall_title')}${engine.toUpperCase()}`,
+            message: (
+                <>
+                    <p className="text-sm text-slate-700 dark:text-slate-300">
+                        {t('runtimes.uninstall_confirm_1')}<strong>{engine.toUpperCase()}</strong>{t('runtimes.uninstall_confirm_2')}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-2 border-l-2 border-amber-500 pl-2">
+                        {t('runtimes.uninstall_warning_1')}<strong>{t('runtimes.uninstall_warning_2')}</strong>{t('runtimes.uninstall_warning_3')}
+                    </p>
+                </>
+            ),
+            type: 'danger',
+            confirmText: t('runtimes.yes_uninstall')
+        })) return;
 
         setIsProcessing(true);
-        setProgress(100);
-        setProgressText(t('runtimes.uninstalling_module', { engine: engineToUninstall.toUpperCase() }));
 
         try {
             let res;
-            if (engineToUninstall === 'node') res = await window.pywebview?.api?.uninstall_node();
-            else if (engineToUninstall === 'python') res = await window.pywebview?.api?.uninstall_python();
-            else if (engineToUninstall === 'java') res = await window.pywebview?.api?.uninstall_java();
-            else if (engineToUninstall === 'go') res = await window.pywebview?.api?.uninstall_go();
+            if (engine === 'node') res = await window.pywebview?.api?.uninstall_node();
+            else if (engine === 'python') res = await window.pywebview?.api?.uninstall_python();
+            else if (engine === 'java') res = await window.pywebview?.api?.uninstall_java();
+            else if (engine === 'go') res = await window.pywebview?.api?.uninstall_go();
 
             if (res?.status === 'success') {
-                showToast(t('runtimes.uninstall_success', { engine: engineToUninstall.toUpperCase() }), "success");
-                setEngineToUninstall(null);
+                showToast(t('runtimes.uninstall_success', { engine: engine.toUpperCase() }), "success");
                 fetchStatuses();
             } else {
-                showToast((res?.message ? t(res.message, res.args || {}) : t('runtimes.uninstall_error', { engine: engineToUninstall })) as string, "error");
+                showToast((res?.message ? t(res.message, res.args || {}) : t('runtimes.uninstall_error', { engine })) as string, "error");
             }
         } catch (error){ console.error(error);
             showToast(t('runtimes.uninstall_sys_error'), "error");
@@ -460,7 +472,7 @@ export default function RuntimesMain() {
                     onOpenModal={() => setIsNodeModalOpen(true)}
                     cardTitle="Node.js (VyloServe)"
                     engineTitle="Node.js"
-                    onUninstallClick={() => setEngineToUninstall('node')}
+                    onUninstallClick={() => executeUninstall('node')}
                     uninstallLabel={t('runtimes.uninstall_node')}
                     field2Label={t('runtimes.package_manager')}
                     field2Value={t('runtimes.npm_corepack')}
@@ -480,7 +492,7 @@ export default function RuntimesMain() {
                     onOpenModal={() => setIsPythonModalOpen(true)}
                     cardTitle="Python (VyloServe)"
                     engineTitle="Python"
-                    onUninstallClick={() => setEngineToUninstall('python')}
+                    onUninstallClick={() => executeUninstall('python')}
                     uninstallLabel={t('runtimes.uninstall_python')}
                     field2Label={t('runtimes.package_manager')}
                     field2Value={t('runtimes.pip_available')}
@@ -500,7 +512,7 @@ export default function RuntimesMain() {
                     onOpenModal={() => setIsJavaModalOpen(true)}
                     cardTitle="Java JDK (VyloServe)"
                     engineTitle="Java JDK"
-                    onUninstallClick={() => setEngineToUninstall('java')}
+                    onUninstallClick={() => executeUninstall('java')}
                     uninstallLabel={t('runtimes.uninstall_java')}
                     field2Label={t('runtimes.environment')}
                     field2Value={t('runtimes.java_home_set')}
@@ -521,7 +533,7 @@ export default function RuntimesMain() {
                     onOpenModal={() => setIsGoModalOpen(true)}
                     cardTitle="Go Compiler (VyloServe)"
                     engineTitle="Go Compiler"
-                    onUninstallClick={() => setEngineToUninstall('go')}
+                    onUninstallClick={() => executeUninstall('go')}
                     uninstallLabel={t('runtimes.uninstall_go')}
                     field2Label={t('runtimes.architecture')}
                     field2Value="amd64"
@@ -539,26 +551,7 @@ export default function RuntimesMain() {
                 onRestore={() => setIsMinimized(false)}
             />
 
-            <Modal
-                isOpen={!!engineToUninstall && !isMinimized}
-                keepMounted={isProcessing}
-                onClose={() => !isProcessing && setEngineToUninstall(null)}
-                title={`${t('runtimes.uninstall_title')}${engineToUninstall?.toUpperCase()}`}
-                icon="delete"
-                onApply={executeUninstall}
-                applyText={isProcessing ? t('runtimes.uninstalling_btn') : t('runtimes.yes_uninstall')}
-                isApplyDisabled={isProcessing}
-            >
-                <div className={isProcessing ? "opacity-40 pointer-events-none transition-opacity" : ""}>
-                    <p className="text-sm text-slate-700 dark:text-slate-300">
-                        {t('runtimes.uninstall_confirm_1')}<strong>{engineToUninstall?.toUpperCase()}</strong>{t('runtimes.uninstall_confirm_2')}
-                    </p>
-                    <p className="text-xs text-slate-500 mt-2 border-l-2 border-amber-500 pl-2">
-                        {t('runtimes.uninstall_warning_1')}<strong>{t('runtimes.uninstall_warning_2')}</strong>{t('runtimes.uninstall_warning_3')}
-                    </p>
-                </div>
-                {isProcessing && renderProgressBar()}
-            </Modal>
+
 
             <Modal
                 isOpen={isNodeModalOpen && !isMinimized}

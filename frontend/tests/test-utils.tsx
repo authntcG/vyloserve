@@ -46,8 +46,17 @@ export function dispatchAppEvent(name: string, detail: Record<string, unknown> =
 }
 
 /** Render dibungkus ToastProvider, untuk komponen yang memanggil useToast(). */
+import { AlertProvider } from '../src/components/AlertContext';
+
 export function renderWithToast(ui: ReactElement, options?: Omit<RenderOptions, 'wrapper'>) {
-    return render(ui, { wrapper: ToastProvider, ...options });
+    const Wrapper = ({ children }: { children: React.ReactNode }) => (
+        <ToastProvider>
+            <AlertProvider>
+                {children}
+            </AlertProvider>
+        </ToastProvider>
+    );
+    return render(ui, { wrapper: Wrapper, ...options });
 }
 
 export * from '@testing-library/react';
