@@ -33,6 +33,29 @@ def test_db_install_database(mock_exists, mock_remove, mock_extract, mock_downlo
                     mock_download.assert_called_once()
                     mock_extract.assert_called_once()
 
+@patch('core.services.database.download_advanced')
+@patch('core.services.database.extract_archive')
+@patch('core.services.database.os.remove')
+@patch('core.services.database.os.path.exists')
+def test_db_install_database_prog_cb_accepts_three_positional_args(mock_exists, mock_remove, mock_extract, mock_download, db_mgr, mock_api):
+    """
+    Regresi: file_utils.py's download_advanced/extract_archive memanggil progress_cb dengan
+    3 argumen posisional (percent, message_key, args_dict) di beberapa titik -- prog_cb
+    sebelumnya cuma menerima 2 param (pct, msg) dan CRASH dengan "takes 2 positional
+    arguments but 3 were given". Lihat docs/known_bugs.md.
+    """
+    mock_exists.return_value = False
+    with patch.object(db_mgr, '_init_database'), \
+         patch.object(db_mgr, '_register_database'), \
+         patch.object(db_mgr, '_unwrap_single_subdir'), \
+         patch.object(db_mgr, '_resolve_mariadb_url', return_value="http://url"):
+        db_mgr.install_database("mysql", "8.0", "url", 3306, "root")
+
+    prog_cb = mock_download.call_args.kwargs['progress_cb']
+    prog_cb(42, "backend.common.extracting_files", {"index": 1, "total": 5})  # tidak boleh raise
+
+    mock_api.emit_progress.assert_any_call(42, "backend.common.extracting_files", {"index": 1, "total": 5})
+
 @patch('core.services.database.urllib.request.urlopen')
 def test_db_get_available_versions(mock_urlopen, db_mgr):
     with patch.object(db_mgr, '_fetch_postgres_versions', return_value={"status": "success", "data": [{"version": "14.1.0"}]}):

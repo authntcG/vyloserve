@@ -1,5 +1,5 @@
-﻿import { useState, useEffect, useRef } from 'react';
-import type { Ref } from 'react';
+import { useState, useEffect, useRef } from 'react';
+
 import { useTranslation } from 'react-i18next';
 import { useToast } from '../../../components/ToastContext';
 import PageHeader from '../../../components/PageHeader';
@@ -9,7 +9,40 @@ import Card from '../../../components/Card';
 import Modal from '../../../components/Modal';
 import BackgroundProgressWidget from '../../../components/BackgroundProgressWidget';
 import { clampPercent } from '../../../utils/progress';
-import InstallZrok from './InstallZrok';
+import InstallTunnel, { type InstallTunnelRef } from './InstallTunnel';
+interface CloudflareStatus {
+    installed: boolean;
+    version?: string;
+    active_shares: { id: string, target: string, url: string }[];
+}
+
+function useCloudflareData() {
+    const [status, setStatus] = useState<CloudflareStatus | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+
+    const fetchData = async () => {
+        setIsLoading(true);
+        try {
+            const cfStatus = await window.pywebview?.api?.get_cloudflare_status();
+            if (cfStatus && typeof cfStatus.installed === 'boolean') {
+                setStatus(cfStatus);
+            }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchData();
+        const handleStatus = (e: any) => { if (['cloudflare', 'all'].includes(e.detail?.service)) fetchData(); };
+        window.addEventListener('service_status_changed', handleStatus);
+        return () => window.removeEventListener('service_status_changed', handleStatus);
+    }, []);
+
+    return { status, setStatus, isLoading, fetchData };
+}
 
 interface ZrokStatus {
     installed: boolean;
@@ -17,10 +50,6 @@ interface ZrokStatus {
     version?: string;
     env_status?: string;
     active_shares: { id: string, project_id: string, url: string }[];
-}
-
-interface InstallZrokRef {
-    submit: () => Promise<boolean>;
 }
 
 
@@ -84,7 +113,7 @@ function ProjectDropdown({
                             <input
                                 ref={searchInputRef}
                                 type="text"
-                                placeholder={t('common.search', 'Search...')}
+                                placeholder={t('common.search')}
                                 value={searchQuery}
                                 onChange={(e) => onSearchChange(e.target.value)}
                                 className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-md py-1.5 pl-8 pr-3 text-xs outline-none focus:border-primary transition-colors text-slate-700 dark:text-slate-300"
@@ -112,7 +141,7 @@ function ProjectDropdown({
                             })
                         ) : (
                             <div className="px-3 py-4 text-center text-xs text-slate-500">
-                                {t('common.no_results', 'No results found')}
+                                {t('common.no_results')}
                             </div>
                         )}
                     </div>
@@ -127,7 +156,7 @@ function ProjectDropdown({
 // ----------------------------------------------------------------------------
 type ToastFn = ReturnType<typeof useToast>['showToast'];
 type ShareMode = 'project' | 'custom';
-type ActiveTab = 'all' | 'zrok';
+type ActiveTab = 'all' | 'zrok' | 'cloudflare';
 
 const UNEXPECTED_ERROR_KEY = 'backend.error.unexpected';
 const PROGRESS_HIDE_DELAY_MS = 3000;
@@ -301,7 +330,35 @@ function useInstallProgress(t: any, onFinished: () => void) {
 // ----------------------------------------------------------------------------
 // PRESENTATIONAL SUB-COMPONENTS
 // ----------------------------------------------------------------------------
-function InstallHeaderButton({ installed, isLoading, onClick }: { readonly installed?: boolean; readonly isLoading: boolean; readonly onClick: () => void }) {
+
+function TunnelOverviewCard({ title, description, icon, installed, notInstalledText, onManage, onUninstall }: { readonly title: string; readonly description: string; readonly icon: string; readonly installed: boolean; readonly notInstalledText: string; readonly onManage: () => void; readonly onUninstall: () => void; }) {
+    const { t } = useTranslation();
+    return (
+        <Card title={title} status={installed ? t('runtimes.installed') : notInstalledText} gridCols="grid-cols-1"
+            dropdownActions={
+                installed ? (
+                    <button type="button" onClick={onUninstall} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors">
+                        {t('common.uninstall')}
+                    </button>
+                ) : undefined
+            }
+        >
+            <div className="flex justify-between items-center w-full mt-2">
+                <div className="flex items-center gap-3">
+                    <span className="material-symbols-outlined text-[32px] text-slate-400">{icon}</span>
+                    <span className="text-sm text-slate-500 dark:text-slate-400">{description}</span>
+                </div>
+                {installed && (
+                    <button type="button" onClick={onManage} className="px-4 py-2 text-sm bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg transition-colors text-slate-700 dark:text-slate-300 font-medium">
+                        {t('common.manage')}
+                    </button>
+                )}
+            </div>
+        </Card>
+    );
+}
+
+function InstallHeaderButton({ installed, isLoading, label, onClick }: { readonly installed?: boolean; readonly isLoading: boolean; readonly label: string; readonly onClick: () => void }) {
     const { t } = useTranslation();
     const colorClass = installed
         ? 'bg-emerald-500 hover:bg-emerald-600 disabled:opacity-100 disabled:cursor-default border-transparent'
@@ -314,7 +371,7 @@ function InstallHeaderButton({ installed, isLoading, onClick }: { readonly insta
             <span className="material-symbols-outlined text-[18px]">
                 {installed ? 'check_circle' : 'download'}
             </span> 
-            {installed ? t('runtimes.installed') : t('tools.zrok.install_tunnel')}
+            {installed ? t('runtimes.installed') : label}
         </button>
     );
 }
@@ -326,12 +383,12 @@ function TabButton({ active, label, onClick }: { readonly active: boolean; reado
     );
 }
 
-function ZrokEngineCard({ version, onUninstall }: { readonly version?: string; readonly onUninstall: () => void }) {
+function EngineCard({ title, uninstallText, version, onUninstall }: { readonly title: string; readonly uninstallText: string; readonly version?: string; readonly onUninstall: () => void }) {
     const { t } = useTranslation();
     return (
-        <Card title={t('tools.zrok.engine_card_title')} status={t('runtimes.installed')} gridCols="grid-cols-1" dropdownActions={
+        <Card title={title} status={t('runtimes.installed')} gridCols="grid-cols-1" dropdownActions={
             <button type="button" onClick={onUninstall} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors">
-                {t('tools.zrok.uninstall')}
+                {uninstallText}
             </button>
         }>
             <div className="flex flex-col gap-1 w-full min-w-0">
@@ -534,9 +591,10 @@ interface ZrokSectionsProps {
 }
 
 function ZrokSections({ status, projects, account, share, onUninstall, onStopShare }: ZrokSectionsProps) {
+    const { t } = useTranslation();
     return (
         <div className="flex flex-col gap-6">
-            {status.installed && <ZrokEngineCard version={status.version} onUninstall={onUninstall} />}
+            {status.installed && <EngineCard title={t('tools.zrok.engine_card_title')} uninstallText={t('tools.zrok.uninstall')} version={status.version} onUninstall={onUninstall} />}
             {status.installed && <ZrokAccountCard status={status} {...account} />}
             {status.enabled && (
                 <div className="flex flex-col gap-6">
@@ -549,58 +607,146 @@ function ZrokSections({ status, projects, account, share, onUninstall, onStopSha
 }
 
 interface TunnelsBodyProps extends Omit<ZrokSectionsProps, 'status'> {
-    readonly status: ZrokStatus | null;
-    readonly isLoading: boolean;
     readonly activeTab: ActiveTab;
+    readonly zrokStatus: ZrokStatus | null;
+    readonly cfStatus: CloudflareStatus | null;
+    readonly isZrokLoading: boolean;
+    readonly isCfLoading: boolean;
     readonly onInstallClick: () => void;
+    readonly onTabSwitch: (tab: ActiveTab) => void;
+    readonly onCfUninstall: () => void;
+    readonly onCfStopShare: (id: string) => void;
+    readonly cfShare: Omit<ShareCardProps, 'projects'>;
 }
 
-function TunnelsBody({ status, isLoading, activeTab, onInstallClick, ...sectionProps }: TunnelsBodyProps) {
+function AllTunnelsTab({ zrokStatus, cfStatus, onTabSwitch, onZrokUninstall, onCfUninstall }: any) {
     const { t } = useTranslation();
-    const isKnownTab = activeTab === 'all' || activeTab === 'zrok';
-    if (isLoading) return <SkeletonCard />;
-    if (!status?.installed && isKnownTab) {
+    return (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-2">
+            <TunnelOverviewCard 
+                title="Zrok" 
+                description={zrokStatus?.installed ? t('tools.zrok.installed_desc') : t('tools.zrok.not_installed_desc')} 
+                icon="router" 
+                installed={!!zrokStatus?.installed} 
+                notInstalledText={t('tools.zrok.not_installed_title')}
+                onManage={() => onTabSwitch('zrok')} 
+                onUninstall={onZrokUninstall} 
+            />
+            <TunnelOverviewCard 
+                title="Cloudflare" 
+                description={cfStatus?.installed ? t('tools.cloudflare.installed_desc') : t('tools.cloudflare.not_installed_desc')} 
+                icon="cloud" 
+                installed={!!cfStatus?.installed} 
+                notInstalledText={t('tools.cloudflare.not_installed_title')}
+                onManage={() => onTabSwitch('cloudflare')} 
+                onUninstall={onCfUninstall} 
+            />
+        </div>
+    );
+}
+
+function ZrokTunnelTab({ zrokStatus, onInstallClick, zrokProps }: any) {
+    const { t } = useTranslation();
+    if (!zrokStatus?.installed) {
         return (
             <div className="mt-6">
-                <EmptyState 
-                    icon="cloud_download" 
-                    title={t('tools.zrok.not_installed_title')} 
-                    description={t('tools.zrok.not_installed_desc')} 
-                    actionText={t('tools.zrok.install_zrok')} 
-                    onAction={onInstallClick} 
-                />
+                <EmptyState icon="cloud_download" title={t('tools.zrok.not_installed_title')} description={t('tools.zrok.not_installed_desc')} actionText={t('tools.zrok.install_zrok')} onAction={onInstallClick} />
             </div>
         );
     }
-    if (isKnownTab && status) return <ZrokSections status={status} {...sectionProps} />;
+    return <ZrokSections status={zrokStatus} {...zrokProps} />;
+}
+
+function CloudflareTunnelTab({ cfStatus, onInstallClick, onCfUninstall, onCfStopShare, projects, cfShare }: any) {
+    const { t } = useTranslation();
+    if (!cfStatus?.installed) {
+        return (
+            <div className="mt-6">
+                <EmptyState icon="cloud_download" title={t('tools.cloudflare.not_installed_title')} description={t('tools.cloudflare.not_installed_desc')} actionText={t('tools.cloudflare.install_cloudflare')} onAction={onInstallClick} />
+            </div>
+        );
+    }
+    return (
+        <div className="flex flex-col gap-6">
+            <EngineCard title={t('tools.cloudflare.engine_card_title')} uninstallText={t('tools.cloudflare.uninstall')} version={cfStatus.version} onUninstall={onCfUninstall} />
+            <ShareCard projects={projects} {...cfShare} />
+            <ActiveSharesCard shares={cfStatus.active_shares as any} projects={projects} onStop={onCfStopShare} />
+        </div>
+    );
+}
+
+function TunnelsBody({ activeTab, zrokStatus, cfStatus, isZrokLoading, isCfLoading, onInstallClick, onTabSwitch, onCfUninstall, onCfStopShare, cfShare, ...zrokProps }: TunnelsBodyProps) {
+    if (activeTab === 'all') {
+        if (isZrokLoading || isCfLoading) return <SkeletonCard />;
+        return <AllTunnelsTab zrokStatus={zrokStatus} cfStatus={cfStatus} onTabSwitch={onTabSwitch} onZrokUninstall={zrokProps.onUninstall} onCfUninstall={onCfUninstall} />;
+    }
+    if (activeTab === 'zrok') {
+        if (isZrokLoading) return <SkeletonCard />;
+        return <ZrokTunnelTab zrokStatus={zrokStatus} onInstallClick={onInstallClick} zrokProps={zrokProps} />;
+    }
+    if (activeTab === 'cloudflare') {
+        if (isCfLoading) return <SkeletonCard />;
+        return <CloudflareTunnelTab cfStatus={cfStatus} onInstallClick={onInstallClick} onCfUninstall={onCfUninstall} onCfStopShare={onCfStopShare} projects={zrokProps.projects} cfShare={cfShare} />;
+    }
     return null;
 }
 
-interface InstallModalProps {
-    readonly isOpen: boolean;
-    readonly isInstalling: boolean;
-    readonly progress: number;
-    readonly progressText: string;
-    readonly installRef: Ref<InstallZrokRef>;
-    readonly onClose: () => void;
-    readonly onApply: () => void;
-}
 
-function InstallZrokModal({ isOpen, isInstalling, progress, progressText, installRef, onClose, onApply }: InstallModalProps) {
+
+
+function TunnelsInstallModal({ activeTab, isOpen, isInstalling, onClose, onApply, progress, progressText, cfInstallRef, zrokInstallRef }: any) {
     const { t } = useTranslation();
+    
+    let applyText = '';
+    if (isInstalling) {
+        applyText = t('common.installing');
+    } else if (activeTab === 'cloudflare') {
+        applyText = t('tools.cloudflare.install_cloudflare');
+    } else {
+        applyText = t('tools.zrok.install_zrok');
+    }
+    
     return (
         <Modal 
             isOpen={isOpen} 
             keepMounted={isInstalling} 
             onClose={onClose} 
-            title={t('tools.zrok.install_zrok')} 
+            title={activeTab === 'cloudflare' ? t('tools.cloudflare.install_cloudflare') : t('tools.zrok.install_zrok')} 
             icon="cloud_download" 
             onApply={onApply} 
-            applyText={isInstalling ? t('common.installing') : t('tools.zrok.install_zrok')} 
+            applyText={applyText} 
             isApplyDisabled={isInstalling}
         >
             <div className={isInstalling ? "opacity-40 pointer-events-none transition-opacity" : ""}>
-                <InstallZrok ref={installRef} />
+                {activeTab === 'cloudflare' ? (
+                    <InstallTunnel
+                        ref={cfInstallRef}
+                        fetchVersionsApi={() => window.pywebview?.api?.get_available_cloudflare_versions()}
+                        installApi={(version) => window.pywebview?.api?.install_cloudflare(version)}
+                        translations={{
+                            fetchFailed: 'backend.cloudflare.release_not_found',
+                            installSuccess: 'backend.cloudflare.install_success',
+                            installFailed: 'backend.error.unexpected',
+                            info1: 'tools.cloudflare.install_info_1',
+                            info2: 'tools.cloudflare.install_info_2',
+                            versionLabel: 'ui.update.current_version'
+                        }}
+                    />
+                ) : (
+                    <InstallTunnel
+                        ref={zrokInstallRef}
+                        fetchVersionsApi={() => window.pywebview?.api?.get_available_zrok_versions()}
+                        installApi={(version) => window.pywebview?.api?.install_zrok(version)}
+                        translations={{
+                            fetchFailed: 'tools.zrok.fetch_versions_failed',
+                            installSuccess: 'tools.zrok.install_success',
+                            installFailed: 'tools.zrok.install_failed',
+                            info1: 'tools.zrok.install_info_1',
+                            info2: 'tools.zrok.install_info_2',
+                            versionLabel: 'tools.zrok.version'
+                        }}
+                    />
+                )}
             </div>
             {isInstalling && (
                 <div className="mt-5 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700/50">
@@ -620,12 +766,36 @@ function InstallZrokModal({ isOpen, isInstalling, progress, progressText, instal
     );
 }
 
-export default function TunnelsMain() {
+function TunnelsUninstallModal({ uninstallTarget, isUninstalling, onClose, onCfUninstall, onZrokUninstall }: any) {
+    const { t } = useTranslation();
+    return (
+        <Modal
+            isOpen={uninstallTarget !== null}
+            onClose={onClose}
+            title={uninstallTarget === 'cloudflare' ? t('tools.cloudflare.uninstall_confirm_title') : t('tools.zrok.uninstall_confirm_title')}
+            icon="delete"
+            onApply={uninstallTarget === 'cloudflare' ? onCfUninstall : onZrokUninstall}
+            applyText={isUninstalling ? t('common.uninstall') + '...' : t('common.uninstall')}
+            isDestructive={true}
+            isApplyDisabled={isUninstalling}
+        >
+            <p className="text-sm text-slate-600 dark:text-slate-400">
+                {uninstallTarget === 'cloudflare' ? t('tools.cloudflare.uninstall_confirm_desc') : t('tools.zrok.uninstall_confirm_desc')}
+            </p>
+        </Modal>
+    );
+}
+
+export default function TunnelsMain({ initialTab = 'all' }: { readonly initialTab?: ActiveTab } = {}) {
     const { t } = useTranslation();
     const { showToast } = useToast();
-    const { status, setStatus, projects, isLoading, fetchData } = useZrokData();
+    const { status: zrokStatus, setStatus: setZrokStatus, projects, isLoading: isZrokLoading, fetchData: fetchZrokData } = useZrokData();
+    const { status: cfStatus, setStatus: setCfStatus, isLoading: isCfLoading, fetchData: fetchCfData } = useCloudflareData();
+    
+    const fetchData = () => { fetchZrokData(); fetchCfData(); };
+    
     const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
-    const [isUninstallModalOpen, setIsUninstallModalOpen] = useState(false);
+    const [uninstallTarget, setUninstallTarget] = useState<'zrok' | 'cloudflare' | null>(null);
     const [isUninstalling, setIsUninstalling] = useState(false);
     const [token, setToken] = useState('');
     const [isEnabling, setIsEnabling] = useState(false);
@@ -633,34 +803,60 @@ export default function TunnelsMain() {
     const [isStarting, setIsStarting] = useState(false);
     const [shareMode, setShareMode] = useState<ShareMode>('project');
     const [customTarget, setCustomTarget] = useState('localhost:3000');
-    const [activeTab, setActiveTab] = useState<ActiveTab>('all');
+    const [activeTab, setActiveTab] = useState<ActiveTab>(initialTab);
     const dropdown = useProjectDropdown();
+    
     const { isInstalling, setIsInstalling, progress, setProgress, progressText, setProgressText } = useInstallProgress(t, () => {
         setIsInstallModalOpen(false);
         fetchData();
     });
-    const installRef = useRef<InstallZrokRef>(null);
+    const zrokInstallRef = useRef<InstallTunnelRef>(null);
+    const cfInstallRef = useRef<InstallTunnelRef>(null);
 
     const actionContext: ZrokActionContext = { t, showToast, onSuccess: fetchData };
 
-    const handleUninstall = async () => {
+    const handleZrokUninstall = async () => {
         setIsUninstalling(true);
         await performUninstall({
-            t,
-            showToast,
-            closeModal: () => setIsUninstallModalOpen(false),
-            clearStatus: () => setStatus(null),
-            refresh: fetchData,
+            t, showToast, refresh: fetchData,
+            closeModal: () => setUninstallTarget(null),
+            clearStatus: () => setZrokStatus(null),
         });
         setIsUninstalling(false);
     };
 
+    const handleCfUninstall = async () => {
+        setIsUninstalling(true);
+        try {
+            const res = await window.pywebview?.api?.uninstall_cloudflare();
+            if (res?.status === 'success') {
+                showToast(t(res.message || 'tools.cloudflare.uninstall_success') as string, 'success');
+                setUninstallTarget(null);
+                setCfStatus(null);
+                fetchData();
+            } else {
+                showToast(t(res?.message || UNEXPECTED_ERROR_KEY, res?.args || {}) as string, 'error');
+            }
+        } catch (e) {
+            console.error(e);
+            showToast(t(UNEXPECTED_ERROR_KEY), 'error');
+        } finally {
+            setIsUninstalling(false);
+        }
+    };
+
     const handleInstallSubmit = async () => {
-        if (!installRef.current) return;
         setIsInstalling(true);
         setProgress(0);
         setProgressText(t('common.preparing'));
-        const success = await installRef.current.submit();
+        
+        let success = false;
+        if (activeTab === 'cloudflare' && cfInstallRef.current) {
+            success = await cfInstallRef.current.submit();
+        } else if (activeTab === 'zrok' && zrokInstallRef.current) {
+            success = await zrokInstallRef.current.submit();
+        }
+
         if (success) {
             setIsInstallModalOpen(false);
             fetchData();
@@ -682,13 +878,26 @@ export default function TunnelsMain() {
         const target = pickShareTarget(shareMode, selectedProject, customTarget);
         if (!target) return;
         setIsStarting(true);
-        await runZrokAction(() => window.pywebview?.api?.start_zrok_share(target), actionContext);
+        
+        if (activeTab === 'cloudflare') {
+            await runZrokAction(() => window.pywebview?.api?.start_cloudflare_share(target), actionContext);
+        } else {
+            await runZrokAction(() => window.pywebview?.api?.start_zrok_share(target), actionContext);
+        }
         setIsStarting(false);
     };
 
-    const handleStopShare = (shareId: string) => runZrokAction(() => window.pywebview?.api?.stop_zrok_share(shareId), actionContext);
+    const handleStopShare = (shareId: string) => {
+        if (activeTab === 'cloudflare') {
+            runZrokAction(() => window.pywebview?.api?.stop_cloudflare_share(shareId), actionContext);
+        } else {
+            runZrokAction(() => window.pywebview?.api?.stop_zrok_share(shareId), actionContext);
+        }
+    };
 
     const openInstallModal = () => setIsInstallModalOpen(true);
+
+    const installedCount = (zrokStatus?.installed ? 1 : 0) + (cfStatus?.installed ? 1 : 0);
 
     return (
         <div className="flex flex-col w-full">
@@ -696,65 +905,80 @@ export default function TunnelsMain() {
             
             <PageHeader 
                 icon="router" 
-                title={t('tools.zrok.title')} 
-                subtitle={t('tools.zrok.subtitle')} 
-                actions={<InstallHeaderButton installed={status?.installed} isLoading={isLoading} onClick={openInstallModal} />}
+                title={t('tools.tunnels.title')} 
+                subtitle={(
+                    <div className="flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-[16px]">info</span>
+                        <span>{t('tools.tunnels.services_installed', { count: installedCount})}</span>
+                    </div>
+                )} 
+                actions={
+                    activeTab !== 'all' ? (
+                        <InstallHeaderButton 
+                            installed={activeTab === 'cloudflare' ? cfStatus?.installed : zrokStatus?.installed} 
+                            isLoading={activeTab === 'cloudflare' ? isCfLoading : isZrokLoading} 
+                            label={activeTab === 'cloudflare' ? t('tools.cloudflare.install_cloudflare') : t('tools.zrok.install_zrok')}
+                            onClick={openInstallModal} 
+                        />
+                    ) : undefined
+                }
             />
 
             <div className="flex gap-4 border-b dark:border-slate-800 mb-6 px-1">
                 <TabButton active={activeTab === 'all'} label={t('tools.zrok.tab_all')} onClick={() => setActiveTab('all')} />
                 <TabButton active={activeTab === 'zrok'} label={t('tools.zrok.tab_zrok')} onClick={() => setActiveTab('zrok')} />
+                <TabButton active={activeTab === 'cloudflare'} label={t('tools.cloudflare.tab')} onClick={() => setActiveTab('cloudflare')} />
             </div>
 
             <TunnelsBody
-                status={status}
-                isLoading={isLoading}
                 activeTab={activeTab}
+                zrokStatus={zrokStatus}
+                cfStatus={cfStatus}
+                isZrokLoading={isZrokLoading}
+                isCfLoading={isCfLoading}
+                onTabSwitch={setActiveTab}
+                onCfUninstall={() => { setIsUninstalling(false); setUninstallTarget('cloudflare'); }}
+                onCfStopShare={handleStopShare}
                 projects={projects}
                 onInstallClick={openInstallModal}
-                onUninstall={() => setIsUninstallModalOpen(true)}
+                onUninstall={() => { setIsUninstalling(false); setUninstallTarget('zrok'); }}
                 onStopShare={handleStopShare}
                 account={{ token, isEnabling, onTokenChange: setToken, onEnable: handleEnable, onDisable: handleDisable }}
+                cfShare={{
+                    shareMode, selectedProject, customTarget, isStarting, dropdown,
+                    onSelectProject: (id: string) => { setSelectedProject(id); dropdown.setIsDropdownOpen(false); },
+                    onCustomTargetChange: setCustomTarget,
+                    onShareModeChange: setShareMode,
+                    onStartShare: handleStartShare,
+                }}
                 share={{
-                    shareMode,
-                    selectedProject,
-                    customTarget,
-                    isStarting,
-                    dropdown,
-                    onSelectProject: (id: string) => {
-                        setSelectedProject(id);
-                        dropdown.setIsDropdownOpen(false);
-                    },
+                    shareMode, selectedProject, customTarget, isStarting, dropdown,
+                    onSelectProject: (id: string) => { setSelectedProject(id); dropdown.setIsDropdownOpen(false); },
                     onCustomTargetChange: setCustomTarget,
                     onShareModeChange: setShareMode,
                     onStartShare: handleStartShare,
                 }}
             />
 
-            <InstallZrokModal
-                isOpen={isInstallModalOpen}
-                isInstalling={isInstalling}
-                progress={progress}
-                progressText={progressText}
-                installRef={installRef}
-                onClose={() => setIsInstallModalOpen(false)}
-                onApply={handleInstallSubmit}
+            <TunnelsInstallModal 
+                activeTab={activeTab} 
+                isOpen={isInstallModalOpen} 
+                isInstalling={isInstalling} 
+                onClose={() => setIsInstallModalOpen(false)} 
+                onApply={handleInstallSubmit} 
+                progress={progress} 
+                progressText={progressText} 
+                cfInstallRef={cfInstallRef} 
+                zrokInstallRef={zrokInstallRef} 
             />
 
-            <Modal
-                isOpen={isUninstallModalOpen}
-                onClose={() => setIsUninstallModalOpen(false)}
-                title={t('tools.zrok.uninstall_confirm_title')}
-                icon="delete"
-                onApply={handleUninstall}
-                applyText={isUninstalling ? t('common.uninstall') + '...' : t('common.uninstall')}
-                isDestructive={true}
-                isApplyDisabled={isUninstalling}
-            >
-                <p className="text-sm text-slate-600 dark:text-slate-400">
-                    {t('tools.zrok.uninstall_confirm_desc')}
-                </p>
-            </Modal>
+            <TunnelsUninstallModal 
+                uninstallTarget={uninstallTarget} 
+                isUninstalling={isUninstalling} 
+                onClose={() => setUninstallTarget(null)} 
+                onCfUninstall={handleCfUninstall} 
+                onZrokUninstall={handleZrokUninstall} 
+            />
         </div>
     );
 }

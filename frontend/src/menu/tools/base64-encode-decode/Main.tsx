@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, type ChangeEvent, type RefObject } from 'r
 import { useTranslation } from 'react-i18next';
 import PageHeader from '../../../components/PageHeader';
 import Card from '../../../components/Card';
+import Tabs from '../../../components/Tabs';
 import { useToast } from '../../../components/ToastContext';
 
 function encodeTextToBase64(inputText: string, t: any): string {
@@ -255,10 +256,20 @@ export default function Base64Main() {
                 subtitle={<><span className="material-symbols-outlined text-[14px]">info</span> {t('tools.base64.subtitle')}</>}
             />
 
-            <div className="flex gap-1 overflow-x-auto no-scrollbar mb-6 border-b border-slate-200 dark:border-slate-800">
-                <button type="button" onClick={() => { setMode('encode'); clearAll(); }} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${mode === 'encode' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>{t('tools.base64.tab_encode')}</button>
-                <button type="button" onClick={() => { setMode('decode'); setInputType('text'); clearAll(); }} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${mode === 'decode' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>{t('tools.base64.tab_decode')}</button>
-            </div>
+            <Tabs
+                tabs={[
+                    { value: 'encode', label: t('tools.base64.tab_encode') },
+                    { value: 'decode', label: t('tools.base64.tab_decode') },
+                ]}
+                value={mode}
+                onChange={(m) => { 
+                    setMode(m); 
+                    if (m === 'decode') {
+                        setInputType('text'); 
+                    }
+                    clearAll(); 
+                }}
+            />
 
             {mode === 'encode' && (
                 <div className="flex gap-2 mb-6">

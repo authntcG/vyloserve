@@ -49,6 +49,7 @@ Mengelola instalasi engine pemrograman pihak ketiga. Path sistem (Windows Regist
 
 ## 9. Auto-Updater
 - **Cek Otomatis:** Memeriksa rilis terbaru dari GitHub Releases secara otomatis di setiap startup aplikasi, dan menawarkan pengecekan manual kapan saja lewat modal "Settings" (tab Updates).
+- **Notifikasi Update Available:** Kalau ada versi baru saat startup, muncul alert ringan (bukan langsung membuka modal Settings penuh) berisi judul versi + catatan perubahan (changelog) mentah dari rilis GitHub, dengan tombol "Update" dan "Close". Menekan "Update" langsung membuka tab Settings → Updates **dan** otomatis memulai unduhan di latar belakang; menekan "Close" hanya menutup notifikasi tanpa aksi lanjutan (bisa dicek manual kapan saja lewat "Check for Updates").
 - **Opsi Pre-release:** Pengguna dapat memilih menerima versi *alpha*/*beta* lebih awal lewat toggle "Terima Pembaruan Pre-release" — default hanya rilis stabil.
 - **Download & Instal Satu Klik:** Mengunduh installer (`.exe`) di latar belakang dengan progress bar real-time (bisa ditutup modalnya, unduhan tetap berlanjut), lalu menjalankan installer Inno Setup mode silent (`/SILENT /SUPPRESSMSGBOXES`) yang otomatis menggantikan versi lama.
 
@@ -65,3 +66,10 @@ Kumpulan utilitas ringan untuk produktivitas developer yang berjalan sepenuhnya 
 - **Base64 Encode/Decode:** Mendukung konversi teks (UTF-8 safe) maupun file (melalui *drag & drop* atau *file picker*) menjadi format Base64 dan sebaliknya.
 - **URL Encode/Decode:** Mengonversi string menjadi format URL-safe dan melakukan *parsing* URI lengkap (protocol, host, path, dan query).
 - **QR Generator:** Membuat *QR Code* secara instan berdasarkan input teks atau URL, dengan fungsionalitas unduh gambar hasil *render*.
+
+## 12. Histori Notifikasi & Notifikasi Native Windows
+- **Ikon Lonceng Riwayat Toast:** Setiap notifikasi toast (sukses/error/peringatan/info) yang pernah muncul selama sesi aplikasi berjalan tercatat di panel riwayat, dibuka lewat ikon lonceng di footer Sidebar — bersampingan dengan tombol Settings saat sidebar diperluas, di atas indikator beban sistem (CPU) saat sidebar diciutkan. Badge menampilkan jumlah notifikasi belum dibaca (di-cap "9+"), otomatis ter-reset begitu panel dibuka.
+- **Bersih per Sesi:** Riwayat HANYA mencakup notifikasi dari sesi aplikasi yang sedang berjalan (sejak terakhir dibuka) — tidak tersimpan permanen dan otomatis kosong lagi saat aplikasi di-restart. Pengguna juga bisa membersihkan riwayat kapan saja lewat tombol "Clear" di panel.
+- **Notifikasi Native Windows:** Saat window VyloServe sedang di-*minimize*, tidak fokus, atau disembunyikan ke System Tray, toast yang muncul diteruskan juga sebagai notifikasi native Windows (Action Center) — supaya pengguna tetap tahu ada kejadian penting (instalasi gagal/selesai, dsb.) meski sedang tidak melihat aplikasi. Notifikasi native TIDAK muncul saat window sedang aktif dilihat, untuk menghindari gangguan ganda. Klik pada notifikasi native akan langsung membuka kembali (restore + focus) window VyloServe.
+- **Dapat Dimatikan:** Modal "Settings" (tab General) menyediakan toggle "Desktop Notifications" (default aktif) untuk mematikan notifikasi native sepenuhnya tanpa mempengaruhi riwayat toast di dalam aplikasi.
+- **System Tray Aktif di Mode Pengembangan:** Sejak fitur ini, System Tray (dan perilaku "sembunyi ke tray" saat tombol tutup ditekan) tidak lagi eksklusif untuk build production — aktif juga saat aplikasi dijalankan dari sumber (dev mode), memudahkan pengujian fitur tray/notifikasi tanpa perlu build `.exe` terlebih dahulu.

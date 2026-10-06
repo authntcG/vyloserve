@@ -1,6 +1,11 @@
 // src/menu/php/NewInstance.tsx
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import ProgressBar from '../../components/ProgressBar';
+import OsCompatibilityCard from '../../components/OsCompatibilityCard';
+import Select from '../../components/Select';
+import FieldLabel from '../../components/FieldLabel';
+import InfoBox from '../../components/InfoBox';
 import { clampPercent } from '../../utils/progress';
 
 interface PhpVersion {
@@ -104,8 +109,7 @@ export default function NewPhpInstance({
         if (!isInstalling) setProgress({ percent: 0, text: '' });
     }, [isInstalling]);
 
-    const handleVersionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const selectedVer = e.target.value;
+    const handleVersionChange = (selectedVer: string) => {
         setVersion(selectedVer);
         const found = availableVersions.find(v => v.version === selectedVer);
         if (found) setFilename(found.filename);
@@ -118,22 +122,13 @@ export default function NewPhpInstance({
 
             {/* --- INFO SISTEM & PEMILIHAN VERSI --- */}
             <div className="flex flex-col gap-4">
-                <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg">
-                    <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-400">
-                            <span className="material-symbols-outlined text-[18px]">{osInfo.icon}</span>
-                        </div>
-                        <div className="flex flex-col">
-                            <span className="text-xs text-slate-500 dark:text-slate-400">{t('php.detected_system')}</span>
-                            <span className="text-sm font-semibold text-slate-900 dark:text-white">
-                                {osInfo.name} <span className="text-primary dark:text-blue-400 font-mono text-xs ml-1 bg-blue-50 dark:bg-blue-900/30 px-1 rounded">{osInfo.arch}</span>
-                            </span>
-                        </div>
-                    </div>
-                    <span className="inline-flex items-center px-2 py-1 rounded text-[10px] font-bold tracking-wide uppercase bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-400">
-                        {t('php.compatible')}
-                    </span>
-                </div>
+                <OsCompatibilityCard
+                    icon={osInfo.icon}
+                    detectedLabel={t('php.detected_system')}
+                    osName={osInfo.name}
+                    arch={osInfo.arch}
+                    compatibleLabel={t('php.compatible')}
+                />
 
                 <div className="flex flex-col gap-2">
                     <label className="text-sm font-medium text-slate-900 dark:text-white flex items-center gap-2">
@@ -141,29 +136,19 @@ export default function NewPhpInstance({
                         {t('php.target_php_version')}
                     </label>
 
-                    {isFetchingVersions ? (
-                        <div className="h-10 border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 rounded-lg flex items-center px-3 gap-2">
-                            <span className="material-symbols-outlined animate-spin text-slate-400 text-sm">sync</span>
-                            <span className="text-sm text-slate-500">{t('php.retrieving_versions')}</span>
-                        </div>
-                    ) : (
-                        <select
-                            value={version}
-                            onChange={handleVersionChange}
-                            disabled={isInstalling || availableVersions.length === 0 || fetchError !== ''}
-                            className={`w-full bg-white dark:bg-slate-950 border ${fetchError ? 'border-red-400 focus:border-red-500 text-red-500' : 'border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100'} text-sm rounded-lg focus:ring-primary block p-2.5 outline-none transition-colors disabled:opacity-70`}
-                        >
-                            {(() => {
-                                if (fetchError) return <option>{t('php.version_fetch_error_prefix')}{fetchError}</option>;
-                                if (availableVersions.length > 0) return availableVersions.map((v, index) => (
-                                    <option key={v.version} value={v.version}>
-                                        PHP {v.version} {index === 0 ? t('php.latest_release') : ''}
-                                    </option>
-                                ));
-                                return <option>{t('php.all_versions_installed')}</option>;
-                            })()}
-                        </select>
-                    )}
+                    <Select
+                        options={availableVersions.map((v, index) => ({
+                            value: v.version,
+                            label: `PHP ${v.version} ${index === 0 ? t('php.latest_release') : ''}`.trim(),
+                        }))}
+                        value={version || null}
+                        onChange={handleVersionChange}
+                        placeholder={t('php.all_versions_installed')}
+                        disabled={isInstalling || availableVersions.length === 0}
+                        loading={isFetchingVersions}
+                        loadingText={t('php.retrieving_versions')}
+                        errorText={fetchError ? `${t('php.version_fetch_error_prefix')}${fetchError}` : undefined}
+                    />
                 </div>
             </div>
 
@@ -180,7 +165,7 @@ export default function NewPhpInstance({
                 </p>
 
                 <div className="flex flex-col gap-2">
-                    <label htmlFor="php_new_instance_port" className="text-xs font-medium text-slate-700 dark:text-slate-300">{t('php.listening_port')}</label>
+                    <FieldLabel htmlFor="php_new_instance_port" size="xs">{t('php.listening_port')}</FieldLabel>
                     <input
                         id="php_new_instance_port"
                         type="number"
@@ -193,20 +178,14 @@ export default function NewPhpInstance({
 
                 {(() => {
                     if (isPortConflict) return (
-                        <div className="mt-1 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-lg flex gap-3 animate-in fade-in">
-                            <span className="material-symbols-outlined text-red-600 dark:text-red-500 text-[20px] shrink-0">error</span>
-                            <p className="text-[12px] text-red-800 dark:text-red-400">
-                                <strong>{t('php.port_conflict')}</strong> {t('php.port_used_desc_1')}{port}{t('php.port_used_desc_2')}<strong>{recommendedPort}</strong>.
-                            </p>
-                        </div>
+                        <InfoBox tone="danger" icon="error" className="mt-1 animate-in fade-in">
+                            <strong>{t('php.port_conflict')}</strong> {t('php.port_used_desc_1')}{port}{t('php.port_used_desc_2')}<strong>{recommendedPort}</strong>.
+                        </InfoBox>
                     );
                     if (port === 9000) return (
-                        <div className="mt-1 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/50 rounded-lg flex gap-3">
-                            <span className="material-symbols-outlined text-blue-600 dark:text-blue-500 text-[20px] shrink-0">info</span>
-                            <p className="text-[12px] text-blue-800 dark:text-blue-400">
-                                <strong>{t('php.tip')}</strong> {t('php.port_9000_tip')}
-                            </p>
-                        </div>
+                        <InfoBox tone="info" icon="info" className="mt-1">
+                            <strong>{t('php.tip')}</strong> {t('php.port_9000_tip')}
+                        </InfoBox>
                     );
                     return null;
                 })()}
@@ -219,16 +198,11 @@ export default function NewPhpInstance({
                                 <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
                                     {progress.text || t('php.starting_process')}
                                 </span>
-                                <span className="text-xs font-bold text-primary dark:text-blue-400">
+                                <span className="text-xs font-bold text-primary">
                                     {progress.percent}%
                                 </span>
                             </div>
-                            <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2.5 overflow-hidden">
-                                <div
-                                    className="bg-primary h-2.5 rounded-full transition-all duration-300 ease-out"
-                                    style={{ width: `${progress.percent}%` }}
-                                ></div>
-                            </div>
+                            <ProgressBar percent={progress.percent} />
                         </div>
                     )}
                 </div>

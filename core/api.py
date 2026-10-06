@@ -19,15 +19,17 @@ from core.services.updater import UpdaterManager
 from core.services.tunnels import TunnelsManager
 
 PROJECT_NOT_LOADED_MSG = "backend.error.project_module_not_loaded"
+UNEXPECTED_ERROR_MSG = "backend.error.unexpected"
 
 class Api:
     """
-    API Router (Façade) yang menjembatani Frontend (React) dengan Backend (Python).
+    API Router (FaÃƒÂ§ade) yang menjembatani Frontend (React) dengan Backend (Python).
     Meneruskan secara buta (pass-through) semua request UI ke spesifik Manager Module (SRP).
     """
     def __init__(self):
         self._window: Optional[webview.Window] = None
-        self.php = PhpManager(self) 
+        self._notification_icon_path: Optional[str] = None
+        self.php = PhpManager(self)
         self.apache = ApacheManager(self)
         self.project = ProjectManager(self)
         self.ssl = SslManager(self)
@@ -44,6 +46,10 @@ class Api:
     def set_window(self, window: webview.Window):
         self._window = window
 
+    def set_notification_icon(self, icon_path: str):
+        """ Path PNG ikon aplikasi untuk notifikasi native Windows -- lihat show_native_notification(). """
+        self._notification_icon_path = icon_path
+
     # ==========================================
     # LOG WATCHER (Apache error_log/access_log & Database db_startup.log/*.err -> System Logs)
     # ==========================================
@@ -53,7 +59,7 @@ class Api:
         ApacheManager/DatabaseManager.tail_new_logs() untuk menyalurkan baris
         baru di file log persisten ke System Logs (event 'vylo_log') secara
         otomatis, tanpa perlu user membuka modal log-file manual. Lihat
-        docs/backend_services.md §11.2 dan docs/known_bugs.md.
+        docs/backend_services.md Ã‚Â§11.2 dan docs/known_bugs.md.
 
         Dipanggil sekali dari main.py setelah window terpasang (emit_log()
         butuh self._window untuk bisa mengirim event ke frontend).
@@ -130,6 +136,82 @@ class Api:
             detail = json.dumps({"percent": percent, "text": text, "args": args or {}, "source": source})
             script = f"window.dispatchEvent(new CustomEvent('vylo_progress', {{detail: {detail} }}));"
             self._window.evaluate_js(script)
+
+    def emit_window_state(self, minimized: Optional[bool] = None, hidden: Optional[bool] = None):
+        """
+        Menembakkan perubahan state window (minimized / hidden-ke-tray) ke
+        frontend (useWindowPresence.ts) -- dipakai untuk menentukan kapan toast
+        perlu diteruskan sebagai notifikasi native Windows (lihat main.py
+        AppLifecycle.on_closing/setup_systray dan window.events.minimized/
+        restored). Hanya field yang di-set (bukan None) yang dikirim, supaya
+        listener frontend bisa membedakan "tidak berubah" dari "eksplisit false".
+        """
+        if self._window:
+            detail: Dict[str, Any] = {}
+            if minimized is not None:
+                detail["minimized"] = minimized
+            if hidden is not None:
+                detail["hidden"] = hidden
+            if not detail:
+                return
+            script = f"window.dispatchEvent(new CustomEvent('vylo_window_state', {{detail: {json.dumps(detail)} }}));"
+            self._window.evaluate_js(script)
+
+    def show_native_notification(self, message: str, type: str = "info") -> Dict[str, str]:
+        """
+        Menampilkan notifikasi native Windows (win11toast) -- dipanggil frontend
+        (ToastContext.tsx) saat sebuah toast terjadi ketika window backgrounded
+        (tidak fokus / minimized / hidden ke tray) DAN setting
+        enable_desktop_notifications aktif. Dijalankan di thread terpisah
+        (konsisten pola daemon thread pystray di main.py) karena win11toast
+        butuh event loop asyncio sendiri yang tidak boleh memblokir UI thread
+        pywebview.
+        """
+        def _run():
+            try:
+                from win11toast import toast
+                import os
+                from core.utils.system_utils import get_project_root
+                
+                # Notifikasi error/warning dibuat tidak auto-dismiss cepat --
+                # lebih penting untuk tidak terlewat dibanding notifikasi biasa.
+                duration = "long" if type in ("error", "warning") else "short"
+                
+                # Petakan tipe ke path aset yang sesuai
+                icon_map = {
+                    "success": "notify-success.png",
+                    "error": "notify-error.png",
+                    "warning": "notify-warning.png",
+                    "info": "notify-info.png"
+                }
+                
+                # Fallback ke logo VyloServe jika tipe tidak dikenali
+                icon_filename = icon_map.get(type)
+                if icon_filename:
+                    icon_path = os.path.join(get_project_root(), 'frontend', 'src', 'assets', icon_filename)
+                else:
+                    icon_path = self._notification_icon_path
+
+                toast(
+                    "VyloServe",
+                    message,
+                    icon=icon_path,
+                    duration=duration,
+                    app_id="VyloServe",
+                    on_click=self._restore_window_from_notification,
+                )
+            except Exception as e:
+                self.emit_log(UNEXPECTED_ERROR_MSG, "error", {"e": str(e)})
+
+        threading.Thread(target=_run, daemon=True).start()
+        return {"status": "success"}
+
+    def _restore_window_from_notification(self, args=None):
+        """ on_click callback win11toast -- restore + focus window saat notifikasi native diklik. """
+        if self._window:
+            self._window.show()
+            self._window.restore()
+            self.emit_window_state(hidden=False, minimized=False)
 
     def test_connection(self, data: str) -> Dict[str, str]:
         self.emit_log("backend.api.ping_received", "info", {"data": data})
@@ -250,7 +332,7 @@ class Api:
     # FILE / DIRECTORY DIALOG
     # ==========================================
     def save_base64_file(self, filename: str, base64_data: str, file_types: tuple = ('All files (*.*)',)):
-        if not self._window: return {"status": "error", "message": "backend.error.unexpected", "args": {"e": "No window"}}
+        if not self._window: return {"status": "error", "message": UNEXPECTED_ERROR_MSG, "args": {"e": "No window"}}
         result = self._window.create_file_dialog(
             webview.SAVE_DIALOG, 
             save_filename=filename,
@@ -264,7 +346,7 @@ class Api:
                     f.write(base64.b64decode(base64_data))
                 return {"status": "success", "message": "backend.common.file_saved", "args": {"path": filepath}}
             except Exception as e:
-                return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+                return {"status": "error", "message": UNEXPECTED_ERROR_MSG, "args": {"e": str(e)}}
         return {"status": "cancelled", "message": ""}
 
     def browse_directory(self) -> Optional[str]:
@@ -493,3 +575,12 @@ class Api:
     def disable_zrok(self): return self.tunnels.disable_zrok()
     def start_zrok_share(self, project_id: str): return self.tunnels.start_zrok_share(project_id)
     def stop_zrok_share(self, share_id: str): return self.tunnels.stop_zrok_share(share_id)
+
+
+
+    def get_available_cloudflare_versions(self): return self.tunnels.get_available_cloudflare_versions()
+    def get_cloudflare_status(self): return self.tunnels.get_cloudflare_status()
+    def install_cloudflare(self, version: str = "latest"): return self.tunnels.install_cloudflare(version)
+    def uninstall_cloudflare(self): return self.tunnels.uninstall_cloudflare()
+    def start_cloudflare_share(self, project_id: str): return self.tunnels.start_cloudflare_share(project_id)
+    def stop_cloudflare_share(self, share_id: str): return self.tunnels.stop_cloudflare_share(share_id)

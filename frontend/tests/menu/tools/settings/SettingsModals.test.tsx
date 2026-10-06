@@ -36,6 +36,50 @@ describe('SettingsModals', () => {
         });
     });
 
+    it('shows the desktop notifications toggle on the General tab, defaulting to checked', async () => {
+        mockPywebviewApi({
+            get_app_settings: vi.fn().mockResolvedValue({ status: 'success', data: { language: 'en', theme: 'vyloserve-dark' } })
+        });
+
+        render(<SettingsModals activeModal="settings" onClose={vi.fn()} />);
+
+        await waitFor(() => {
+            expect(screen.getByRole('checkbox', { name: 'Desktop Notifications' })).toBeChecked();
+        });
+    });
+
+    it('reflects enable_desktop_notifications=false from saved settings', async () => {
+        mockPywebviewApi({
+            get_app_settings: vi.fn().mockResolvedValue({ status: 'success', data: { language: 'en', theme: 'vyloserve-dark', enable_desktop_notifications: false } })
+        });
+
+        render(<SettingsModals activeModal="settings" onClose={vi.fn()} />);
+
+        await waitFor(() => {
+            expect(screen.getByRole('checkbox', { name: 'Desktop Notifications' })).not.toBeChecked();
+        });
+    });
+
+    it('instantly saves enable_desktop_notifications when the toggle is clicked', async () => {
+        const user = userEvent.setup();
+        const saveSettings = vi.fn().mockResolvedValue({ status: 'success' });
+        mockPywebviewApi({
+            save_app_settings: saveSettings,
+            get_app_settings: vi.fn().mockResolvedValue({ status: 'success', data: { language: 'en', theme: 'vyloserve-dark', enable_desktop_notifications: true } })
+        });
+
+        render(<SettingsModals activeModal="settings" onClose={vi.fn()} />);
+        await waitFor(() => {
+            expect(screen.getByRole('checkbox', { name: 'Desktop Notifications' })).toBeChecked();
+        });
+
+        await user.click(screen.getByRole('checkbox', { name: 'Desktop Notifications' }));
+
+        await waitFor(() => {
+            expect(saveSettings).toHaveBeenCalledWith({ enable_desktop_notifications: false });
+        });
+    });
+
     it('shows the VyloServe about content when the about tab is clicked', async () => {
         const user = userEvent.setup();
         render(<SettingsModals activeModal="settings" onClose={vi.fn()} />);

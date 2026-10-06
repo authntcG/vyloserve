@@ -21,22 +21,13 @@
 @tailwind utilities;
 
 @theme {
-  /* Colors */
-  --color-on-surface: #1e293b;
-  --color-on-background: #0f172a;
-  --color-surface-variant: #f1f5f9;
-  --color-on-surface-variant: #64748b;
-  --color-outline-variant: #cbd5e1;
-  --color-primary: #3b82f6;
-  --color-primary-fixed-dim: #2563eb;
-  --color-on-primary: #ffffff;
-  --color-primary-container: #dbeafe;
-  --color-on-primary-container: #1e3a8a;
-  --color-primary-fixed: #60a5fa;
-  --color-inverse-surface: #ffffff;
+  /* Colors
+     Catatan: token Material-Design (on-surface, primary-container, dst.) yang tadinya
+     ada di sini dihapus -- dicek via grep, tidak pernah dipakai sebagai utility class
+     (bg-on-surface, dst.) di manapun, dan --color-primary di sini sudah lama
+     ter-override oleh definisi theme-aware di blok @theme kedua (baris di bawah).
+     --color-surface dipertahankan karena memang masih dipakai (HeaderMobile, Sidebar). */
   --color-surface: #ffffff;
-  --color-background: #f8fafc;
-  --color-surface-container-highest: #334155;
 
   /* Spacing */
   --spacing-sidebar-width: 260px;
@@ -113,7 +104,14 @@
   --color-emerald-400: var(--theme-emerald-400, #34d399);
   --color-emerald-500: var(--theme-emerald-500, #10b981);
   --color-emerald-600: var(--theme-emerald-600, #059669);
-  
+
+  /* amber-500/600 dipakai untuk state "Stop" pada tombol toggle service (pasangan
+     emerald-500/600 di atas untuk state "Start") -- sebelumnya statis (tidak
+     theme-aware), menyebabkan asimetri: "Start" ikut berubah warna per tema,
+     "Stop" tidak. Lihat docs/ui_consistency_guide.md. */
+  --color-amber-500: var(--theme-amber-500, #f59e0b);
+  --color-amber-600: var(--theme-amber-600, #d97706);
+
   --color-primary: var(--theme-primary, #3b82f6);
 }
 
@@ -183,6 +181,10 @@
     --theme-emerald-600: #00ff00;
     --theme-emerald-500: #00cc00;
     --theme-primary: #00ffff;
+    /* Kuning murni -- kontras maksimal vs background hitam, dan berbeda jelas dari
+       hijau/cyan (primary/emerald) serta merah (danger) tema ini. */
+    --theme-amber-600: #cccc00;
+    --theme-amber-500: #ffff00;
   }
 
   [data-theme="high-contrast-light"] {
@@ -200,6 +202,9 @@
     --theme-emerald-600: #0000ff;
     --theme-emerald-500: #0000cc;
     --theme-primary: #ff0000;
+    /* Emas gelap -- tetap terbaca di atas putih, berbeda jelas dari biru/merah tema ini. */
+    --theme-amber-600: #664d00;
+    --theme-amber-500: #806600;
   }
   
   [data-theme="monokai-dark"] {
@@ -208,7 +213,12 @@
     --theme-slate-800: #3e3d32;
     --theme-slate-700: #49483e;
     --theme-slate-600: #75715e;
+    --theme-slate-500: #9a9a8c;
     --theme-slate-400: #f8f8f2;
+    --theme-slate-300: #f8f8f2;
+    --theme-slate-200: #fdfdfb;
+    --theme-slate-100: #fdfdfb;
+    --theme-slate-50: #ffffff;
     --theme-emerald-600: #a6e22e;
     --theme-emerald-500: #f92672;
     --theme-primary: #66d9ef;
@@ -219,7 +229,12 @@
     --theme-slate-900: #282a36;
     --theme-slate-800: #44475a;
     --theme-slate-700: #6272a4;
+    --theme-slate-600: #73839e;
     --theme-slate-400: #f8f8f2;
+    --theme-slate-300: #f8f8f2;
+    --theme-slate-200: #fafafd;
+    --theme-slate-100: #fafafd;
+    --theme-slate-50: #ffffff;
     --theme-emerald-600: #ff79c6;
     --theme-emerald-500: #bd93f9;
     --theme-primary: #8be9fd;

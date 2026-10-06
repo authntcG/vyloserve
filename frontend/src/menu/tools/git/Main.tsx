@@ -3,6 +3,11 @@ import { useTranslation } from 'react-i18next';
 import PageHeader from '../../../components/PageHeader';
 import Card from '../../../components/Card';
 import Modal from '../../../components/Modal';
+import ToggleSwitch from '../../../components/ToggleSwitch';
+import ProgressBarAtom from '../../../components/ProgressBar';
+import Select from '../../../components/Select';
+import FieldLabel from '../../../components/FieldLabel';
+import InfoBox from '../../../components/InfoBox';
 import EmptyState from '../../../components/EmptyState';
 import { useToast } from '../../../components/ToastContext';
 import { clampPercent } from '../../../utils/progress';
@@ -51,47 +56,23 @@ const InstallGitForm = forwardRef<InstallGitRef, any>((_, ref) => {
         }
     }));
 
-    let selectContent;
-    if (isLoading) {
-        selectContent = (
-            <div className="relative w-full">
-                <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-                    <span className="material-symbols-outlined text-[18px] animate-spin text-primary">refresh</span>
-                </div>
-                <select disabled className="w-full bg-slate-50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 text-sm rounded-lg block p-2.5 pl-10 outline-none appearance-none cursor-wait">
-                    <option>{t('tools.git.retrieving')}</option>
-                </select>
-            </div>
-        );
-    } else if (versionsList.length === 0) {
-        selectContent = (
-            <div className="relative w-full">
-                <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-                    <span className="material-symbols-outlined text-[18px] text-red-500">wifi_off</span>
-                </div>
-                <select disabled className="w-full bg-red-50 dark:bg-red-900/10 border border-red-300 dark:border-red-800/50 text-red-600 dark:text-red-400 text-sm rounded-lg block p-2.5 pl-10 outline-none appearance-none cursor-not-allowed">
-                    <option>{t('tools.git.error_fetching')}</option>
-                </select>
-            </div>
-        );
-    } else {
-        selectContent = (
-            <select
-                value={selectedIndex}
-                onChange={(e) => setSelectedIndex(e.target.value)}
-                className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2.5 outline-none cursor-pointer"
-            >
-                {versionsList.map((v, idx) => (
-                    <option key={v.value} value={idx}>{v.label}</option>
-                ))}
-            </select>
-        );
-    }
+    const selectContent = (
+        <Select
+            searchable={false}
+            options={versionsList.map((v, idx) => ({ value: String(idx), label: v.label }))}
+            value={selectedIndex}
+            onChange={setSelectedIndex}
+            placeholder={t('tools.git.error_fetching')}
+            loading={isLoading}
+            loadingText={t('tools.git.retrieving')}
+            errorText={!isLoading && versionsList.length === 0 ? t('tools.git.error_fetching') : undefined}
+        />
+    );
 
     return (
         <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('tools.git.select_release')}</label>
+                <FieldLabel>{t('tools.git.select_release')}</FieldLabel>
                 {selectContent}
 
                 <span className="text-xs text-slate-500 mt-1">
@@ -110,7 +91,7 @@ const FloatingWidget = ({ isMinimized, isProcessing, setIsMinimized, progressTex
         <div className="fixed bottom-6 right-6 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl p-4 z-[9999] animate-in slide-in-from-bottom-5 fade-in duration-300">
             <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-full bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
+                    <div className="w-8 h-8 rounded-full bg-primary/10 dark:bg-primary/20 flex items-center justify-center shrink-0">
                         <span className="material-symbols-outlined text-primary text-[18px]">system_update_alt</span>
                     </div>
                     <div className="flex flex-col min-w-0 flex-1">
@@ -126,14 +107,12 @@ const FloatingWidget = ({ isMinimized, isProcessing, setIsMinimized, progressTex
                 <span className="text-slate-500 truncate w-3/4">{progressText || t('tools.git.processing')}</span>
                 <span className="font-bold text-primary">{progress}%</span>
             </div>
-            <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                <div className="bg-primary h-1.5 rounded-full transition-all duration-300 ease-out" style={{ width: `${progress}%` }}></div>
-            </div>
+            <ProgressBarAtom percent={progress} />
         </div>
     );
 };
 
-const ProgressBar = ({ isProcessing, isUninstallModalOpen, progressText, progress, t }: any) => {
+const GitProgressCard = ({ isProcessing, isUninstallModalOpen, progressText, progress, t }: any) => {
     if (!isProcessing || isUninstallModalOpen) return null; // Sembunyikan untuk task yang cepat seperti config
     return (
         <div className="mt-5 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700/50">
@@ -141,9 +120,7 @@ const ProgressBar = ({ isProcessing, isUninstallModalOpen, progressText, progres
                 <span className="text-slate-500 truncate w-3/4">{progressText || t('tools.git.preparing')}</span>
                 <span className="font-bold text-primary">{progress}%</span>
             </div>
-            <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
-                <div className="bg-primary h-2 rounded-full transition-all duration-300 ease-out" style={{ width: `${progress}%` }}></div>
-            </div>
+            <ProgressBarAtom percent={progress} />
         </div>
     );
 };
@@ -175,6 +152,29 @@ const ExternalCard = ({ gitData, t }: any) => {
 };
 
 const INITIAL_DATA = { installed: false, version: '', in_path: false, external: { exists: false, path: '', version: '' } };
+
+/**
+ * Tombol status install di header -- SELALU dirender (bukan disembunyikan saat sudah terpasang),
+ * warna/ikon/label berganti antara "Install Git" (primary) dan "Installed" (emerald), menyamai
+ * pola `InstallHeaderButton` di tools/tunnels/Main.tsx dan `RuntimesHeaderActions` di
+ * runtimes/Main.tsx -- lihat docs/known_bugs.md #41/#43 soal kenapa Git sebelumnya berbeda
+ * (tombol hilang total begitu terpasang, bukan cuma beda warna).
+ */
+function GitInstallButton({ installed, isLoading, isBlockedByExternal, onClick, t }: { readonly installed: boolean; readonly isLoading: boolean; readonly isBlockedByExternal: boolean; readonly onClick: () => void; readonly t: any }) {
+    const colorClass = installed
+        ? 'bg-emerald-500 hover:bg-emerald-600 disabled:opacity-100 disabled:cursor-default border-transparent'
+        : 'bg-primary hover:bg-primary/90 border border-transparent';
+    return (
+        <button type="button"
+            onClick={onClick}
+            disabled={installed || isLoading || isBlockedByExternal}
+            className={`text-white text-sm font-medium py-2 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-sm shrink-0 whitespace-nowrap ${colorClass}`}
+        >
+            <span className="material-symbols-outlined text-[18px]">{installed ? 'check_circle' : 'download'}</span>
+            {installed ? t('runtimes.installed') : t('tools.git.install_git')}
+        </button>
+    );
+}
 
 export default function GitMain() {
     const { t } = useTranslation();
@@ -229,8 +229,7 @@ export default function GitMain() {
 
     useEffect(() => { fetchStatus(); }, []);
 
-    const handleTogglePath = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const enable = e.target.checked;
+    const handleTogglePath = async (enable: boolean) => {
         if (gitData.external?.exists) {
             showToast(t('tools.git.lock_warning'), "error");
             return;
@@ -331,10 +330,9 @@ export default function GitMain() {
                         </button>
                     }>
                         {gitData.external?.exists && (
-                            <div className="col-span-1 md:col-span-2 mb-3 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg flex items-start gap-2.5 w-full min-w-0">
-                                <span className="material-symbols-outlined text-amber-500 text-[18px] shrink-0 mt-0.5">warning</span>
-                                <span className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed break-words flex-1 min-w-0">{t('tools.git.external_warning')}</span>
-                            </div>
+                            <InfoBox tone="warning" icon="warning" className="col-span-1 md:col-span-2 mb-3 w-full min-w-0">
+                                {t('tools.git.external_warning')}
+                            </InfoBox>
                         )}
                         <div className="flex flex-col gap-1 w-full min-w-0"><span className="text-xs font-medium text-slate-500 uppercase">{t('tools.git.version')}</span><span className="font-mono text-sm text-slate-900 dark:text-slate-200 truncate">{gitData.version}</span></div>
                         <div className="flex flex-col gap-1 w-full min-w-0"><span className="text-xs font-medium text-slate-500 uppercase">{t('tools.git.architecture')}</span><span className="font-mono text-sm text-slate-900 dark:text-slate-200 truncate">{t('tools.git.arch_portable')}</span></div>
@@ -344,10 +342,14 @@ export default function GitMain() {
                                 <span className={`text-sm font-semibold truncate ${gitData.external?.exists ? 'text-slate-400' : 'text-slate-900 dark:text-white'}`}>{t('tools.git.register_path')}</span>
                                 <span className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 break-words leading-relaxed">{t('tools.git.register_path_desc')}</span>
                             </div>
-                            <label className={`relative inline-flex items-center shrink-0 ml-4 ${gitData.external?.exists ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
-                                <input type="checkbox" checked={gitData.in_path} onChange={handleTogglePath} disabled={gitData.external?.exists || isProcessing} aria-label={t('tools.git.register_path')} className="sr-only peer" />
-                                <div className="w-11 h-6 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary opacity-90 peer-disabled:opacity-40 peer-disabled:grayscale"></div>
-                            </label>
+                            <div className="shrink-0 ml-4">
+                                <ToggleSwitch
+                                    checked={gitData.in_path}
+                                    onChange={handleTogglePath}
+                                    disabled={gitData.external?.exists || isProcessing}
+                                    label={t('tools.git.register_path')}
+                                />
+                            </div>
                         </div>
                     </Card>
 
@@ -355,11 +357,11 @@ export default function GitMain() {
                     <Card title={t('tools.git.global_config')} status={t('tools.git.active')}>
                         <div className="col-span-1 md:col-span-2 flex flex-col gap-4">
                             <div className="flex flex-col gap-1 min-w-0">
-                                <label className="text-xs font-medium text-slate-500">{t('tools.git.global_user_name')} (<code className="text-[10px] bg-slate-100 dark:bg-slate-800 px-1 rounded">user.name</code>)</label>
+                                <FieldLabel size="xs" tone="subtle">{t('tools.git.global_user_name')} (<code className="text-[10px] bg-slate-100 dark:bg-slate-800 px-1 rounded">user.name</code>)</FieldLabel>
                                 <input type="text" value={configData.userName} onChange={(e) => setConfigData({ ...configData, userName: e.target.value })} disabled={isProcessing} placeholder={t('tools.git.eg_name')} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg p-2 text-sm outline-none focus:border-primary text-slate-900 dark:text-white disabled:opacity-50" />
                             </div>
                             <div className="flex flex-col gap-1 min-w-0">
-                                <label className="text-xs font-medium text-slate-500">{t('tools.git.global_email')} (<code className="text-[10px] bg-slate-100 dark:bg-slate-800 px-1 rounded">user.email</code>)</label>
+                                <FieldLabel size="xs" tone="subtle">{t('tools.git.global_email')} (<code className="text-[10px] bg-slate-100 dark:bg-slate-800 px-1 rounded">user.email</code>)</FieldLabel>
                                 <input type="email" value={configData.userEmail} onChange={(e) => setConfigData({ ...configData, userEmail: e.target.value })} disabled={isProcessing} placeholder={t('tools.git.eg_email')} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg p-2 text-sm outline-none focus:border-primary text-slate-900 dark:text-white disabled:opacity-50" />
                             </div>
                             <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-end">
@@ -382,12 +384,13 @@ export default function GitMain() {
                 title={t('tools.git.title')}
                 subtitle={<><span className="material-symbols-outlined text-[14px]">info</span> {isLoading ? t('tools.git.loading_data') : t('tools.git.subtitle')}</>}
                 actions={
-                    !gitData.installed && (
-                        <button type="button" onClick={() => setIsInstallModalOpen(true)} disabled={isLoading || gitData.external?.exists} className="bg-primary hover:bg-blue-600 disabled:bg-slate-400 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center gap-2 shadow-sm shrink-0 whitespace-nowrap">
-                            <span className="material-symbols-outlined text-[18px]">download</span>
-                            {t('tools.git.install_git')}
-                        </button>
-                    )
+                    <GitInstallButton
+                        installed={gitData.installed}
+                        isLoading={isLoading}
+                        isBlockedByExternal={!!gitData.external?.exists}
+                        onClick={() => setIsInstallModalOpen(true)}
+                        t={t}
+                    />
                 }
             />
 
@@ -411,7 +414,7 @@ export default function GitMain() {
                 <div className={isProcessing ? "opacity-40 pointer-events-none transition-opacity" : ""}>
                     <InstallGitForm ref={gitRef} />
                 </div>
-                <ProgressBar isProcessing={isProcessing} isUninstallModalOpen={isUninstallModalOpen} progressText={progressText} progress={progress} t={t} />
+                <GitProgressCard isProcessing={isProcessing} isUninstallModalOpen={isUninstallModalOpen} progressText={progressText} progress={progress} t={t} />
             </Modal>
 
             {/* MODAL UNINSTALL */}

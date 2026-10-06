@@ -58,9 +58,10 @@ return {"status": "success", "message": "Aplikasi berhasil dijalankan"}
 
 ## 4. Alur Keluar (Graceful Exit)
 Aplikasi memiliki *System Tray* (ikon di pojok kanan bawah Windows).
-- Jika pengguna menekan tanda silang (X) pada Window di mode *Production*, aplikasi **TIDAK AKAN** tertutup. Melainkan hanya sembunyi (Hide) ke *System Tray*, membiarkan proses Apache/PHP/Database tetap berjalan di latar belakang.
+- Jika pengguna menekan tanda silang (X) pada Window **dan tray aktif** (`ENABLE_TRAY`/`enable_tray`, sejak fitur histori toast — lihat `docs/known_bugs.md` #45, saat ini aktif di dev mode MAUPUN production, bukan lagi production-only), aplikasi **TIDAK AKAN** tertutup. Melainkan hanya sembunyi (Hide) ke *System Tray*, membiarkan proses Apache/PHP/Database tetap berjalan di latar belakang. Kalau tray tidak aktif (`enable_tray=False`), window langsung tertutup penuh seperti biasa — **BUKAN lagi dikontrol `IS_PRODUCTION`** seperti versi sebelumnya; detail lengkap pemisahan kedua flag ini ada di `docs/backend_services.md` §14.1/§14.2.
 - Aplikasi hanya benar-benar mati jika fungsi `api.close_app()` dipanggil (lewat menu "Quit" di tray atau UI).
 - Saat `close_app()` dipanggil, `perform_exit()` di `main.py` memanggil `apache.stop_server()`, `php.stop_all()`, dan `database.stop_all()` (masing-masing dibungkus try/except sendiri) sebelum System Tray & window dihentikan dan `os._exit(0)` dipanggil — mencegah proses child (`httpd.exe`, `php-cgi.exe`, `mysqld.exe`/`postgres.exe`) tertinggal sebagai *zombie process*. ✅ *Catatan audit:* sempat ditemukan versi kode di mana pemanggilan cleanup ini hilang (lihat riwayat di `docs/known_bugs.md` #6) — sudah dikonfirmasi diperbaiki.
+- Setiap kali window di-minimize/di-restore/disembunyikan-ke-tray, state-nya di-push ke frontend lewat `Api.emit_window_state()` (`evaluate_js` + `CustomEvent('vylo_window_state', ...)`) — dipakai untuk menentukan kapan toast perlu diteruskan sebagai notifikasi native Windows (`win11toast`). Detail lengkap: `docs/backend_services.md` §14.4, `docs/frontend_ui.md` §5.1.
 
 ## 5. Pola Async Gabungan: Request-Response + Event Streaming
 Alur seperti instalasi Apache/PHP/Database/Runtimes **bukan** sekadar satu `await` sederhana seperti pada diagram di §1. Polanya adalah kombinasi dua mekanisme yang berjalan paralel:

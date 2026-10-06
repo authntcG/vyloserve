@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import Button from './Button';
 
 export interface ModalProps {
     readonly isOpen: boolean;
@@ -73,10 +74,6 @@ export default function Modal({
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [isOpen, onClose, isDestructive, isLoading]);
 
-    const applyButtonClass = isDestructive
-        ? "bg-red-600 hover:bg-red-700 disabled:bg-red-400 dark:disabled:bg-red-900/40 disabled:cursor-not-allowed text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
-        : "bg-primary hover:bg-blue-600 disabled:bg-slate-400 dark:disabled:bg-slate-800 disabled:cursor-not-allowed text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2";
-
     if (!isRendered && !keepMounted) return null;
 
     // native <dialog> mengubah semantik focus-trap/backdrop-close/ESC (showModal()/close(),
@@ -122,24 +119,18 @@ export default function Modal({
 
                 {customFooter || (
                     <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 rounded-b-xl">
-                        <button type="button"
-                            onClick={onClose}
-                            disabled={isLoading}
-                            className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
+                        <Button variant="secondary" onClick={onClose} disabled={isLoading}>
                             {t('common.close', 'Close')}
-                        </button>
+                        </Button>
                         {onApply && (
-                            <button type="button"
+                            <Button
+                                variant={isDestructive ? 'danger' : 'primary'}
                                 onClick={onApply}
-                                disabled={isApplyDisabled || isLoading}
-                                className={applyButtonClass}
+                                disabled={isApplyDisabled}
+                                loading={isLoading}
                             >
-                                {isLoading && (
-                                    <span className="material-symbols-outlined animate-spin text-[18px]">sync</span>
-                                )}
                                 {applyText || t('common.apply', 'Apply Changes')}
-                            </button>
+                            </Button>
                         )}
                     </div>
                 )}

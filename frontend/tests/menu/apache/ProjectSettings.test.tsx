@@ -26,11 +26,12 @@ describe('ProjectSettings', () => {
     });
 
     it('lists installed PHP versions once fetched', async () => {
+        const user = userEvent.setup();
         mockPywebviewApi({ get_installed_php: vi.fn().mockResolvedValue([{ version: '8.2' }, { version: '8.3' }]) });
         renderWithToast(<ProjectSettings project={project} ref={createRef<ProjectSettingsRef>()} />);
 
-        await screen.findByText('PHP 8.2 (FastCGI)');
-        expect(screen.getByText('PHP 8.3 (FastCGI)')).toBeInTheDocument();
+        await user.click(await screen.findByText('PHP 8.2 (FastCGI)'));
+        expect(screen.getByRole('option', { name: 'PHP 8.3 (FastCGI)' })).toBeInTheDocument();
     });
 
     it('shows the "no PHP installed" option when the API returns no versions', async () => {
@@ -118,7 +119,8 @@ describe('ProjectSettings', () => {
         renderWithToast(<ProjectSettings project={project} ref={ref} />);
         await waitFor(() => expect(screen.getByLabelText('apache.php_fastcgi_routing')).not.toBeDisabled());
 
-        await user.selectOptions(screen.getByLabelText('apache.php_fastcgi_routing'), '8.3');
+        await user.click(screen.getByLabelText('apache.php_fastcgi_routing'));
+        await user.click(screen.getByRole('option', { name: 'PHP 8.3 (FastCGI)' }));
         await act(async () => ref.current!.submit());
 
         expect(updateProject).toHaveBeenCalledWith(expect.objectContaining({ php_version: '8.3' }));

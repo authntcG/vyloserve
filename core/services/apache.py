@@ -351,8 +351,8 @@ class ApacheManager:
         try:
             def log_cb(msg, lvl): 
                 if hasattr(self, 'api'): self.api.emit_log(msg, lvl)
-            def prog_cb(pct, msg): 
-                if hasattr(self, 'api'): self.api.emit_progress(pct, msg)
+            def prog_cb(pct, msg, args=None):
+                if hasattr(self, 'api'): self.api.emit_progress(pct, msg, args)
 
             download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=prog_cb)
 

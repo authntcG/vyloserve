@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Sidebar from '../../src/components/Sidebar';
+import { ToastProvider } from '../../src/components/ToastContext';
 
 /**
  * Sidebar.tsx memanggil window.pywebview.api.get_all_services_status() saat
@@ -32,16 +33,21 @@ function mockPywebviewApi(overrides: Partial<Record<string, unknown>> = {}) {
 const noop = () => {};
 
 function renderSidebar(props: Partial<React.ComponentProps<typeof Sidebar>> = {}) {
+    // Sidebar.tsx merender NotificationBell (footer baris notifikasi) yang memanggil
+    // useToast() -- WAJIB dibungkus ToastProvider, kalau tidak throw "useToast must be
+    // used within a ToastProvider".
     return render(
-        <Sidebar
-            isMobileOpen={false}
-            isDesktopCollapsed={false}
-            onCloseMobile={noop}
-            onToggleDesktop={noop}
-            activeMenu="dashboard"
-            onSelectMenu={props.onSelectMenu ?? noop}
-            {...props}
-        />
+        <ToastProvider>
+            <Sidebar
+                isMobileOpen={false}
+                isDesktopCollapsed={false}
+                onCloseMobile={noop}
+                onToggleDesktop={noop}
+                activeMenu="dashboard"
+                onSelectMenu={props.onSelectMenu ?? noop}
+                {...props}
+            />
+        </ToastProvider>
     );
 }
 
@@ -63,9 +69,7 @@ describe('Sidebar', () => {
 
         // Tunggu fetchServiceStatuses (async, dipanggil saat mount) selesai
         // supaya toggle checkbox sudah reflect status dari API sebelum test lain jalan.
-        await waitFor(() => {
-            expect(screen.getByRole('checkbox', { name: 'Toggle Apache' })).toBeChecked();
-        });
+        expect(await screen.findByRole('checkbox', { name: 'Toggle Apache' })).toBeChecked();
     });
 
     it('calls onSelectMenu with the correct id when a main menu item is clicked', async () => {
@@ -87,9 +91,7 @@ describe('Sidebar', () => {
         mockPywebviewApi();
         renderSidebar();
 
-        await waitFor(() => {
-            expect(screen.getByRole('checkbox', { name: 'Toggle Apache' })).toBeInTheDocument();
-        });
+        expect(await screen.findByRole('checkbox', { name: 'Toggle Apache' })).toBeInTheDocument();
         expect(screen.getByRole('checkbox', { name: 'Toggle PHP' })).toBeInTheDocument();
         expect(screen.getByRole('checkbox', { name: 'Toggle Database' })).toBeInTheDocument();
         expect(screen.queryByRole('checkbox', { name: 'Toggle Runtimes' })).not.toBeInTheDocument();
@@ -123,14 +125,56 @@ describe('Sidebar', () => {
         expect(api.stop_service).not.toHaveBeenCalled();
     });
 
-    it('always shows the Tools section items without needing any toggle interaction (expanded mode)', async () => {
+    it('always shows the Tools and Utilities section items without needing any toggle interaction (expanded mode)', async () => {
         mockPywebviewApi();
         renderSidebar({ isDesktopCollapsed: false });
 
         expect(screen.getByText('sidebar.tools')).toBeInTheDocument();
+        expect(screen.getByText('sidebar.utilities')).toBeInTheDocument();
         expect(screen.getByText('Git')).toBeInTheDocument();
-        expect(screen.getByText('QR Generator')).toBeInTheDocument();
         expect(screen.getByText('Tunnels')).toBeInTheDocument();
+        expect(screen.getByText('QR Generator')).toBeInTheDocument();
+        expect(screen.getByText('Base64 Encoder')).toBeInTheDocument();
+        expect(screen.getByText('URL Encode/Decode')).toBeInTheDocument();
+    });
+
+    // Regresi: Runtimes dulu duduk di grup Services walau tidak pernah punya toggle
+    // switch di sana (tidak ada endpoint start_service/stop_service('runtimes')).
+    // Sekarang dipindah ke Tools bersama Tunnels & Git, dan QR/Base64/URL dipecah
+    // jadi grup "Utilities" tersendiri -- lihat docs/frontend_ui.md §4.4 untuk
+    // prinsip kategorisasinya (Services = toggle-based, Tools = aksi project/
+    // environment tanpa status running, Utilities = konverter berdiri sendiri).
+    it('groups Runtimes under Tools (not Services) and keeps Utilities as a separate section', async () => {
+        mockPywebviewApi();
+        const { container } = renderSidebar();
+        expect(await screen.findByRole('checkbox', { name: 'Toggle Apache' })).toBeInTheDocument();
+
+        const text = container.textContent ?? '';
+        const servicesIdx = text.indexOf('sidebar.services');
+        const toolsIdx = text.indexOf('sidebar.tools');
+        const utilitiesIdx = text.indexOf('sidebar.utilities');
+        const runtimesIdx = text.indexOf('Runtimes');
+        const qrIdx = text.indexOf('QR Generator');
+
+        expect(servicesIdx).toBeGreaterThanOrEqual(0);
+        expect(toolsIdx).toBeGreaterThan(servicesIdx);
+        expect(utilitiesIdx).toBeGreaterThan(toolsIdx);
+        // Runtimes ada di antara label Tools dan label Utilities -> miliknya Tools.
+        expect(runtimesIdx).toBeGreaterThan(toolsIdx);
+        expect(runtimesIdx).toBeLessThan(utilitiesIdx);
+        // QR Generator ada setelah label Utilities -> miliknya Utilities, bukan Tools.
+        expect(qrIdx).toBeGreaterThan(utilitiesIdx);
+    });
+
+    it('hides the Utilities section label when search filters out all utility items', async () => {
+        mockPywebviewApi();
+        const user = userEvent.setup();
+        renderSidebar();
+
+        await user.type(screen.getByPlaceholderText('sidebar.search'), 'data');
+
+        expect(screen.queryByText('sidebar.utilities')).not.toBeInTheDocument();
+        expect(screen.queryByText('QR Generator')).not.toBeInTheDocument();
     });
 
     it('filters main menu, services, and tools by search query', async () => {
@@ -165,6 +209,17 @@ describe('Sidebar', () => {
         await user.click(screen.getByText('Git'));
 
         expect(onSelectMenu).toHaveBeenCalledWith('git');
+    });
+
+    it('calls onSelectMenu when a utility item (e.g. QR Generator) is clicked', async () => {
+        mockPywebviewApi();
+        const onSelectMenu = vi.fn();
+        const user = userEvent.setup();
+        renderSidebar({ onSelectMenu });
+
+        await user.click(screen.getByText('QR Generator'));
+
+        expect(onSelectMenu).toHaveBeenCalledWith('qr');
     });
 
     it('opens the settings dropdown and shows the settings and quit options', async () => {
@@ -212,7 +267,7 @@ describe('Sidebar', () => {
         mockPywebviewApi({ get_all_services_status: vi.fn().mockResolvedValue({ apache: false, php: false, database: false, cpu_load: cpuLoad }) });
         renderSidebar({ isDesktopCollapsed: true });
 
-        await waitFor(() => expect(screen.getByText(`${cpuLoad}%`)).toHaveClass(expectedClass));
+        expect(await screen.findByText(`${cpuLoad}%`)).toHaveClass(expectedClass);
     });
 
     it('calls onSelectMenu when a service nav item (not its toggle) is clicked', async () => {
@@ -260,5 +315,29 @@ describe('Sidebar', () => {
         await user.click(phpToggle);
 
         expect(api.start_service).toHaveBeenCalledWith('php');
+    });
+
+    it('places the notification bell beside the Settings button (same group, expanded mode)', () => {
+        mockPywebviewApi();
+        renderSidebar();
+
+        const bellButton = screen.getByRole('button', { name: /Notifications/ });
+        const settingsButton = screen.getByText('settings').closest('button')!;
+
+        // Bell dan Settings satu grup (sibling di bawah wrapper yang sama) -- bukan baris terpisah.
+        expect(settingsButton.parentElement?.contains(bellButton)).toBe(true);
+    });
+
+    it('keeps the notification bell visible even when the sidebar is collapsed, stacked above the system-load indicator', () => {
+        mockPywebviewApi({ get_all_services_status: vi.fn().mockResolvedValue({ apache: false, php: false, database: false, cpu_load: 42 }) });
+        renderSidebar({ isDesktopCollapsed: true });
+
+        const bellButton = screen.getByRole('button', { name: /Notifications/ });
+        // "memory" (ikon system-load) DOM node seharusnya muncul SETELAH bell -- bukan cuma
+        // keduanya sama-sama ada di dokumen (lihat docs/known_bugs.md #40 soal false confidence
+        // dari assertion presence-only tanpa verifikasi posisi/urutan DOM).
+        const systemLoadIcon = screen.getByText('memory');
+
+        expect(bellButton.compareDocumentPosition(systemLoadIcon) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 });

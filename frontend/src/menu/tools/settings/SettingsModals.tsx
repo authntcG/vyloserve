@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import Modal from '../../../components/Modal';
+import Button from '../../../components/Button';
+import ProgressBar from '../../../components/ProgressBar';
+import Select from '../../../components/Select';
+import ToggleSwitch from '../../../components/ToggleSwitch';
 import appIcon from '../../../assets/icons-nobg.png';
 import { applyTheme } from '../../../utils/theme';
 
@@ -8,7 +12,7 @@ export type SettingsModalType = 'settings' | 'quit' | null;
 
 const LOG_LEVELS = [
     { key: 'info', labelKey: 'settings.log_level_info', dotClass: 'bg-primary' },
-    { key: 'warn', labelKey: 'settings.log_level_warn', dotClass: 'bg-amber-400' },
+    { key: 'warn', labelKey: 'settings.log_level_warn', dotClass: 'bg-amber-500' },
     { key: 'error', labelKey: 'settings.log_level_error', dotClass: 'bg-red-500' },
     { key: 'success', labelKey: 'settings.log_level_success', dotClass: 'bg-emerald-500' },
 ];
@@ -173,11 +177,11 @@ function UpdatesTabContent() {
 
         return (
             <div className="flex flex-col gap-3">
-                <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 font-semibold">
+                <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-semibold">
                     <span className="material-symbols-outlined text-[20px]">new_releases</span>
                     {t('ui.update.available', 'New Update Available!')} ({updateResult.version})
                 </div>
-                <div className="text-sm text-slate-700 dark:text-slate-300 max-h-48 overflow-y-auto whitespace-pre-wrap font-mono text-xs bg-white dark:bg-black/20 p-3 rounded border border-emerald-100 dark:border-emerald-900/50">
+                <div className="text-sm text-slate-700 dark:text-slate-300 max-h-48 overflow-y-auto whitespace-pre-wrap font-mono text-xs bg-white dark:bg-black/20 p-3 rounded border border-emerald-500/20 dark:border-emerald-500/30">
                     {updateResult.changelog || t('ui.update.no_changelog', 'No changelog provided.')}
                 </div>
 
@@ -187,16 +191,14 @@ function UpdatesTabContent() {
                             <span>{(downloadText ? (t(downloadText, downloadTextArgs) as string) : '') || t('ui.update.downloading_fallback', 'Downloading...')}</span>
                             <span>{Math.round(downloadProgress)}%</span>
                         </div>
-                        <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2.5 overflow-hidden">
-                            <div className="bg-emerald-500 h-2.5 rounded-full transition-all duration-300" style={{ width: `${downloadProgress}%` }}></div>
-                        </div>
+                        <ProgressBar percent={downloadProgress} />
                         <p className="text-xs text-slate-500 mt-1 italic">* {t('ui.update.close_hint_background', 'You can close this modal, the download will continue in the background.')}</p>
                     </div>
                 )}
 
                 {(!isDownloadingUpdate && isReadyToInstall) && (
-                    <div className="mt-3 flex flex-col gap-3 border-t border-emerald-200 dark:border-emerald-900/50 pt-3">
-                        <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
+                    <div className="mt-3 flex flex-col gap-3 border-t border-emerald-500/20 dark:border-emerald-500/30 pt-3">
+                        <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
                             <span className="material-symbols-outlined text-[18px]">check_circle</span>
                             <span className="text-sm font-semibold">{t('ui.update.download_complete', 'Download Complete. Ready to install!')}</span>
                         </div>
@@ -210,7 +212,7 @@ function UpdatesTabContent() {
     if (updateResult?.status === 'error') {
         resultContainerClass = 'border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-900/20';
     } else if (updateResult?.is_update_available) {
-        resultContainerClass = 'border-emerald-200 bg-emerald-50 dark:border-emerald-900/30 dark:bg-emerald-900/10';
+        resultContainerClass = 'border-emerald-500/20 bg-emerald-500/10 dark:border-emerald-500/30 dark:bg-emerald-500/20';
     }
 
     return (
@@ -220,18 +222,16 @@ function UpdatesTabContent() {
                     <span className="text-xs text-slate-500 uppercase tracking-wider font-semibold">{t('ui.update.current_version', 'Current Version')}</span>
                     <span className="text-lg font-mono text-slate-800 dark:text-slate-200">{appVersion || '...'}</span>
                 </div>
-                <button
-                    type="button"
+                <Button
+                    variant="primary"
+                    icon="search"
                     onClick={handleCheckUpdate}
-                    disabled={isCheckingUpdate || isDownloadingUpdate || isReadyToInstall}
-                    className="px-4 py-2 bg-primary text-white text-sm font-medium rounded-md hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2 transition-all shadow-sm active:scale-95"
+                    disabled={isDownloadingUpdate || isReadyToInstall}
+                    loading={isCheckingUpdate}
+                    className="shadow-sm active:scale-95"
                 >
-                    {isCheckingUpdate ? (
-                        <><span className="material-symbols-outlined text-[18px] animate-spin">refresh</span> {t('ui.update.checking', 'Checking...')}</>
-                    ) : (
-                        <><span className="material-symbols-outlined text-[18px]">search</span> {t('ui.update.check', 'Check for Updates')}</>
-                    )}
-                </button>
+                    {isCheckingUpdate ? t('ui.update.checking', 'Checking...') : t('ui.update.check', 'Check for Updates')}
+                </Button>
             </div>
             
             <div className="flex items-center justify-between p-1">
@@ -271,7 +271,7 @@ function UpdatesTabContent() {
                     <button
                         type="button"
                         onClick={handleDownloadUpdate}
-                        className="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-all shadow-sm active:scale-95 flex items-center gap-2"
+                        className="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-600/90 transition-all shadow-sm active:scale-95 flex items-center gap-2"
                     >
                         <span className="material-symbols-outlined text-[18px]">download</span>
                         {t('ui.update.download_restart', 'Download & Install')}
@@ -282,7 +282,7 @@ function UpdatesTabContent() {
                     <button
                         type="button"
                         onClick={handleInstallUpdate}
-                        className="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-all shadow-sm active:scale-95 flex items-center gap-2"
+                        className="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-600/90 transition-all shadow-sm active:scale-95 flex items-center gap-2"
                     >
                         <span className="material-symbols-outlined text-[18px]">system_update_alt</span>
                         <span>{t('ui.update.install_restart', 'Install & Restart')}</span>
@@ -307,6 +307,7 @@ export default function SettingsModals({ activeModal, defaultTab = 'general', on
     // General Settings
     const [selectedLang, setSelectedLang] = useState(i18n.language);
     const [selectedTheme, setSelectedTheme] = useState('vyloserve-dark');
+    const [enableDesktopNotifications, setEnableDesktopNotifications] = useState(true);
     
     // Logs Settings
     const [logLevels, setLogLevels] = useState<string[]>(ALL_LOG_LEVEL_KEYS);
@@ -325,6 +326,7 @@ export default function SettingsModals({ activeModal, defaultTab = 'general', on
                 api.get_app_settings().then((res: any) => {
                     if (res?.status === 'success') {
                         setSelectedTheme(res.data?.theme || 'vyloserve-dark');
+                        setEnableDesktopNotifications(res.data?.enable_desktop_notifications ?? true);
                         setLogLevels(res.data?.system_log_levels ?? ALL_LOG_LEVEL_KEYS);
                         setLogSources(res.data?.system_log_sources ?? ALL_LOG_SOURCE_KEYS);
                     }
@@ -351,6 +353,16 @@ export default function SettingsModals({ activeModal, defaultTab = 'general', on
         setSelectedTheme(theme);
         applyTheme(theme);
         saveSettingsInstantly({ theme });
+    };
+
+    const handleToggleDesktopNotifications = () => {
+        const newVal = !enableDesktopNotifications;
+        setEnableDesktopNotifications(newVal);
+        saveSettingsInstantly({ enable_desktop_notifications: newVal });
+        // Pola sama dengan 'vylo_log_settings_changed' -- ToastContext.tsx (provider yang
+        // sebenarnya memakai setting ini) mendengarkan event ini supaya perubahan langsung
+        // berlaku tanpa perlu restart aplikasi.
+        window.dispatchEvent(new CustomEvent('vylo_desktop_notifications_changed', { detail: { enabled: newVal } }));
     };
 
     const handleToggleLogLevel = (key: string) => {
@@ -456,23 +468,39 @@ export default function SettingsModals({ activeModal, defaultTab = 'general', on
                                             {t('settings.theme_desc')}
                                         </p>
                                     </div>
-                                    <select
+                                    <Select
                                         id="theme-select"
+                                        searchable={false}
+                                        options={[
+                                            { value: 'vyloserve-dark', label: t('settings.theme_vyloserve_dark') },
+                                            { value: 'vyloserve-light', label: t('settings.theme_vyloserve_light') },
+                                            { value: 'darcula-dark', label: t('settings.theme_darcula_dark') },
+                                            { value: 'solarized-dark', label: t('settings.theme_solarized_dark') },
+                                            { value: 'solarized-light', label: t('settings.theme_solarized_light') },
+                                            { value: 'high-contrast-dark', label: t('settings.theme_high_contrast_dark') },
+                                            { value: 'high-contrast-light', label: t('settings.theme_high_contrast_light') },
+                                            { value: 'monokai-dark', label: t('settings.theme_monokai_dark') },
+                                            { value: 'dracula-dark', label: t('settings.theme_dracula_dark') },
+                                            { value: 'nord-dark', label: t('settings.theme_nord_dark') },
+                                        ]}
                                         value={selectedTheme}
-                                        onChange={(e) => handleThemeChange(e.target.value)}
-                                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-lg p-3 text-sm focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all cursor-pointer"
-                                    >
-                                        <option value="vyloserve-dark">{t('settings.theme_vyloserve_dark')}</option>
-                                        <option value="vyloserve-light">{t('settings.theme_vyloserve_light')}</option>
-                                        <option value="darcula-dark">{t('settings.theme_darcula_dark')}</option>
-                                        <option value="solarized-dark">{t('settings.theme_solarized_dark')}</option>
-                                        <option value="solarized-light">{t('settings.theme_solarized_light')}</option>
-                                        <option value="high-contrast-dark">{t('settings.theme_high_contrast_dark')}</option>
-                                        <option value="high-contrast-light">{t('settings.theme_high_contrast_light')}</option>
-                                        <option value="monokai-dark">{t('settings.theme_monokai_dark')}</option>
-                                        <option value="dracula-dark">{t('settings.theme_dracula_dark')}</option>
-                                        <option value="nord-dark">{t('settings.theme_nord_dark')}</option>
-                                    </select>
+                                        onChange={handleThemeChange}
+                                        placeholder={t('settings.theme')}
+                                    />
+                                </div>
+                                <hr className="border-slate-200 dark:border-slate-800" />
+                                <div className="flex items-center justify-between gap-4">
+                                    <div>
+                                        <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">{t('settings.desktop_notifications', 'Desktop Notifications')}</h3>
+                                        <p className="text-sm text-slate-600 dark:text-slate-400">
+                                            {t('settings.desktop_notifications_desc', 'Show a native Windows notification when an alert happens while the app is minimized, unfocused, or hidden in the tray.')}
+                                        </p>
+                                    </div>
+                                    <ToggleSwitch
+                                        checked={enableDesktopNotifications}
+                                        onChange={handleToggleDesktopNotifications}
+                                        label={t('settings.desktop_notifications', 'Desktop Notifications')}
+                                    />
                                 </div>
                             </div>
                         )}
@@ -520,7 +548,7 @@ export default function SettingsModals({ activeModal, defaultTab = 'general', on
                                             <button 
                                                 type="button" 
                                                 onClick={() => handleSelectAllSources(logSources.length !== ALL_LOG_SOURCE_KEYS.length)} 
-                                                className="text-xs font-medium text-primary hover:text-blue-600 dark:hover:text-blue-400 transition-colors bg-primary/10 hover:bg-primary/20 px-2 py-1 rounded"
+                                                className="text-xs font-medium text-primary transition-colors bg-primary/10 hover:bg-primary/20 px-2 py-1 rounded"
                                             >
                                                 {logSources.length === ALL_LOG_SOURCE_KEYS.length ? t('common.unselect_all', 'Unselect All') : t('common.select_all', 'Select All')}
                                             </button>

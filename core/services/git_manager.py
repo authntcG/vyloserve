@@ -27,8 +27,8 @@ class GitManager:
     def _log(self, msg: str, level: str = "info", args: dict = None):
         if hasattr(self, 'api') and self.api: self.api.emit_log(msg, level, args)
 
-    def _progress(self, pct: int, msg: str):
-        if hasattr(self, 'api') and self.api: self.api.emit_progress(pct, msg)
+    def _progress(self, pct: int, msg: str, args: dict = None):
+        if hasattr(self, 'api') and self.api: self.api.emit_progress(pct, msg, args)
 
     def _find_via_where(self, vyloserve_bin: str) -> Optional[str]:
         if sys.platform != 'win32': return None
@@ -241,13 +241,13 @@ class GitManager:
             # 2. FASE UNDUHAN
             def log_cb(msg, lvl="info"): 
                 self._log(msg, lvl)
-            def download_prog_cb(pct, msg):
+            def download_prog_cb(pct, msg, args=None):
                 # download_advanced (core/utils/file_utils.py) mengirim persentase ABSOLUT
                 # (0-100), bukan fraksi 0.0-1.0 -- lihat docs/known_bugs.md. Clamp ke jendela
                 # aman sebelum fase ekstraksi mulai di 75% agar progress tidak meluber lalu
                 # "melompat mundur".
                 clamped_pct = max(5, min(pct, 74))
-                self._progress(clamped_pct, msg)
+                self._progress(clamped_pct, msg, args)
 
             if os.path.exists(git_dir): shutil.rmtree(git_dir, ignore_errors=True)
 

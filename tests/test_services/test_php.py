@@ -183,6 +183,28 @@ def test_php_install_version(mock_makedirs, mock_exists, mock_remove, mock_extra
         # I need to mock os.path.exists to return False on the FIRST call, and True afterwards!
         pass
 
+@patch.object(PhpManager, '_install_composer')
+@patch('core.services.php.extract_archive')
+@patch.object(PhpManager, '_download_php_archive')
+@patch('core.services.php.os.remove')
+@patch('core.services.php.os.path.exists')
+@patch('core.services.php.os.makedirs')
+def test_php_install_version_prog_cb_accepts_three_positional_args(mock_makedirs, mock_exists, mock_remove, mock_download, mock_extract, mock_install_composer, php_mgr, mock_api):
+    """
+    Regresi: file_utils.py's download_advanced/extract_archive memanggil progress_cb dengan
+    3 argumen posisional (percent, message_key, args_dict) di beberapa titik -- prog_cb
+    sebelumnya cuma menerima 2 param (pct, msg) dan CRASH dengan "takes 2 positional
+    arguments but 3 were given". Lihat docs/known_bugs.md.
+    """
+    mock_exists.side_effect = lambda path: True if path.endswith('.zip') else False
+    with patch('builtins.open', mock_open()):
+        php_mgr.install_version("8.2", "php-8.2.zip", 9000)
+
+    prog_cb = mock_extract.call_args.kwargs['progress_cb']
+    prog_cb(42, "backend.common.extracting_files", {"index": 1, "total": 5})  # tidak boleh raise
+
+    mock_api.emit_progress.assert_any_call(42, "backend.common.extracting_files", {"index": 1, "total": 5})
+
 @patch.object(PhpManager, '_download_php_archive')
 @patch.object(PhpManager, '_install_composer')
 @patch('core.services.php.extract_archive')
@@ -203,7 +225,7 @@ def test_php_install_version_configuring_step_is_not_terminal_progress(mock_make
     assert res['status'] == 'success'
 
     progress_calls = [c.args for c in mock_api.emit_progress.call_args_list]
-    configuring_calls = [pct for pct, msg in progress_calls if msg == "backend.php.configuring"]
+    configuring_calls = [pct for pct, msg, *_ in progress_calls if msg == "backend.php.configuring"]
     assert configuring_calls == [92]
 
     # _install_composer() dipanggil SETELAH progress "configuring" (mock ini menggantikan

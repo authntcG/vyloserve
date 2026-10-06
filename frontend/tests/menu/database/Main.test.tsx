@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { act, fireEvent, screen, waitFor } from '../../test-utils';
+import { act, fireEvent, screen, waitFor, within } from '../../test-utils';
 import { mockPywebviewApi, renderWithToast } from '../../test-utils';
 import DatabaseMain from '../../../src/menu/database/Main';
 
@@ -273,7 +273,9 @@ describe('DatabaseMain', () => {
         renderWithToast(<DatabaseMain />);
         await screen.findByText('database.add_engine');
         await user.click(screen.getByText('database.add_engine'));
-        await user.selectOptions(screen.getByDisplayValue('database.mysql_mariadb'), 'postgres');
+        const dialog = screen.getByRole('dialog');
+        await user.click(within(dialog).getByRole('button', { name: 'database.mysql_mariadb' }));
+        await user.click(screen.getByRole('option', { name: 'database.postgres' }));
         await screen.findByText('PostgreSQL 16');
 
         await user.click(screen.getByText('database.install_btn'));

@@ -62,9 +62,9 @@ class RuntimesManager:
         """
         def log_cb(msg, lvl="info", args=None):
             self._emit_log(msg, lvl, args)
-        def download_cb(pct, msg):
+        def download_cb(pct, msg, args=None):
             clamped = max(start_pct, min(pct, end_pct))
-            self._emit_progress(clamped, msg)
+            self._emit_progress(clamped, msg, args)
         return log_cb, download_cb
 
 

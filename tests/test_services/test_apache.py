@@ -216,6 +216,27 @@ def test_apache_install_version(mock_configure, mock_move, mock_exists, mock_rem
     mock_move.assert_called_once()
     mock_configure.assert_called_once()
 
+@patch('core.services.apache.download_advanced')
+@patch('core.services.apache.extract_archive')
+@patch('core.services.apache.os.remove')
+@patch('core.services.apache.os.path.exists')
+@patch.object(ApacheManager, '_move_apache_extract')
+@patch.object(ApacheManager, '_configure_httpd')
+def test_apache_install_version_prog_cb_accepts_three_positional_args(mock_configure, mock_move, mock_exists, mock_remove, mock_extract, mock_download, apache_manager, mock_api):
+    """
+    Regresi: file_utils.py's download_advanced/extract_archive memanggil progress_cb dengan
+    3 argumen posisional (percent, message_key, args_dict) di beberapa titik -- prog_cb
+    sebelumnya cuma menerima 2 param (pct, msg) dan CRASH dengan "takes 2 positional
+    arguments but 3 were given". Lihat docs/known_bugs.md.
+    """
+    mock_exists.side_effect = lambda path: True if path.endswith('.zip') else False
+    apache_manager.install_version("2.4.68", "http://example.com", 8080)
+
+    prog_cb = mock_download.call_args.kwargs['progress_cb']
+    prog_cb(42, "backend.common.extracting_files", {"index": 1, "total": 5})  # tidak boleh raise
+
+    mock_api.emit_progress.assert_any_call(42, "backend.common.extracting_files", {"index": 1, "total": 5})
+
 @patch.object(ApacheManager, '_get_active_version', return_value="2.4.68")
 @patch.object(ApacheManager, 'get_status', return_value={"installed": True, "path": "test_path", "version": "2.4.68"})
 @patch('core.services.apache.start_silent_process')

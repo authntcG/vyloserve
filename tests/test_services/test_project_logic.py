@@ -290,11 +290,19 @@ def test_install_raw_project(mock_makedirs, project_manager):
         assert res['status'] == 'success'
         mock_file().write.assert_called_once()
 
+@patch('core.services.project.read_json', return_value={"require": {"laravel/framework": "^10.0"}})
 @patch('os.listdir', return_value=["composer.json", "artisan"])
 @patch('os.path.isdir', return_value=True)
-def test_detect_framework_laravel(mock_isdir, mock_listdir, project_manager):
+def test_detect_framework_laravel(mock_isdir, mock_listdir, mock_read_json, project_manager):
     res = project_manager.detect_framework("C:\\test_dir")
     assert res == 'laravel'
+
+@patch('core.services.project.read_json', return_value={"require": {"codeigniter4/framework": "^4.4"}})
+@patch('os.listdir', return_value=["spark", "public"])
+@patch('os.path.isdir', return_value=True)
+def test_detect_framework_codeigniter(mock_isdir, mock_listdir, mock_read_json, project_manager):
+    res = project_manager.detect_framework("C:\\test_dir")
+    assert res == 'codeigniter'
 
 @patch('os.listdir', return_value=["wp-admin", "wp-config-sample.php"])
 @patch('os.path.isdir', return_value=True)
@@ -305,6 +313,30 @@ def test_detect_framework_wordpress(mock_isdir, mock_listdir, project_manager):
 @patch('os.listdir', return_value=["index.php"])
 @patch('os.path.isdir', return_value=True)
 def test_detect_framework_raw(mock_isdir, mock_listdir, project_manager):
+    res = project_manager.detect_framework("C:\\test_dir")
+    assert res == 'raw'
+
+@patch('core.services.project.read_json', return_value={"require": {"zendframework/zend-mvc": "^3.0"}})
+@patch('os.listdir', return_value=["composer.json", "artisan", "public"])
+@patch('os.path.isdir', return_value=True)
+def test_detect_framework_custom_zend_project_with_artisan_script_is_not_laravel(mock_isdir, mock_listdir, mock_read_json, project_manager):
+    """
+    Regresi: project custom berbasis Zend yang dimodifikasi bisa saja punya file
+    bernama "artisan" (skrip CLI custom, bukan dari Laravel) DAN "composer.json" --
+    sebelumnya dua hal itu saja cukup untuk salah dideteksi sebagai "laravel", yang
+    lalu memicu NewProject.tsx menambahkan "/public" ke document root secara keliru.
+    Karena composer.json project ini TIDAK mendaftarkan "laravel/framework", deteksi
+    sekarang harus jatuh ke "raw", bukan "laravel".
+    """
+    res = project_manager.detect_framework("D:\\Projects\\TLKM\\PHP\\utonline")
+    assert res == 'raw'
+
+@patch('core.services.project.read_json', return_value={"require": {"php": "^8.1"}})
+@patch('os.listdir', return_value=["composer.json", "artisan"])
+@patch('os.path.isdir', return_value=True)
+def test_detect_framework_raw_project_with_coincidental_artisan_file_is_not_laravel(mock_isdir, mock_listdir, mock_read_json, project_manager):
+    """Regresi serupa: project raw apa pun yang kebetulan punya file "artisan" + composer.json
+    tanpa dependency laravel/framework tidak boleh dianggap Laravel."""
     res = project_manager.detect_framework("C:\\test_dir")
     assert res == 'raw'
 

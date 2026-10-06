@@ -1,6 +1,8 @@
 import { useState, forwardRef, useImperativeHandle } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useToast } from '../../components/ToastContext';
+import FieldLabel from '../../components/FieldLabel';
+import InfoBox from '../../components/InfoBox';
 
 interface DbInstance {
     id: string;
@@ -63,18 +65,12 @@ const ChangePassword = forwardRef<ChangePasswordRef, Props>(({ instance }, ref) 
 
     return (
         <div className="flex flex-col gap-4">
-            <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/50 rounded-lg flex items-start gap-3 mb-2">
-                <span className="material-symbols-outlined text-blue-500 text-[20px] mt-0.5">info</span>
-                <div className="flex flex-col gap-1">
-                    <span className="text-sm font-semibold text-blue-800 dark:text-blue-400">{t('database.direct_sql_inject')}</span>
-                    <span className="text-xs text-blue-600 dark:text-blue-300 leading-relaxed">
-                        {t('database.change_password_desc_1')}<b>{t('database.running_bold')}</b>.
-                    </span>
-                </div>
-            </div>
+            <InfoBox tone="info" icon="info" title={t('database.direct_sql_inject')} className="mb-2">
+                {t('database.change_password_desc_1')}<b>{t('database.running_bold')}</b>.
+            </InfoBox>
 
             <div className="flex flex-col gap-2">
-                <label htmlFor="db_cred_user" className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('database.username')}</label>
+                <FieldLabel htmlFor="db_cred_user">{t('database.username')}</FieldLabel>
                 <input
                     id="db_cred_user"
                     type="text"
@@ -84,7 +80,7 @@ const ChangePassword = forwardRef<ChangePasswordRef, Props>(({ instance }, ref) 
                 />
             </div>
             <div className="flex flex-col gap-2">
-                <label htmlFor="db_cred_old" className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('database.current_password')}</label>
+                <FieldLabel htmlFor="db_cred_old">{t('database.current_password')}</FieldLabel>
                 <input
                     id="db_cred_old"
                     type="password"
@@ -95,7 +91,7 @@ const ChangePassword = forwardRef<ChangePasswordRef, Props>(({ instance }, ref) 
                 />
             </div>
             <div className="flex flex-col gap-2">
-                <label htmlFor="db_cred_new" className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('database.new_password')}</label>
+                <FieldLabel htmlFor="db_cred_new">{t('database.new_password')}</FieldLabel>
                 <input
                     id="db_cred_new"
                     type="password"

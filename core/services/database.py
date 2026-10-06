@@ -330,8 +330,8 @@ class DatabaseManager:
 
             def log_cb(msg, lvl): 
                 self._log(msg, lvl)
-            def prog_cb(pct, msg): 
-                if hasattr(self, 'api') and self.api: self.api.emit_progress(pct, msg)
+            def prog_cb(pct, msg, args=None):
+                if hasattr(self, 'api') and self.api: self.api.emit_progress(pct, msg, args)
 
             download_advanced(url, zip_path, log_cb=log_cb, progress_cb=prog_cb)
 

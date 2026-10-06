@@ -23,8 +23,8 @@ class PhpManager:
     def _log(self, msg: str, level: str = "info", args: dict = None):
         if hasattr(self, 'api') and self.api: self.api.emit_log(msg, level, args)
 
-    def _progress(self, pct: int, msg: str):
-        if hasattr(self, 'api') and self.api: self.api.emit_progress(pct, msg)
+    def _progress(self, pct: int, msg: str, args: dict = None):
+        if hasattr(self, 'api') and self.api: self.api.emit_progress(pct, msg, args)
 
     def _parse_php_ini_info(self, php_ini_path: str):
         port, memory_limit = 9000, "Unknown"
@@ -183,8 +183,8 @@ class PhpManager:
 
             def log_cb(msg, lvl): 
                 self._log(msg, lvl)
-            def prog_cb(pct, msg): 
-                self._progress(pct, msg)
+            def prog_cb(pct, msg, args=None):
+                self._progress(pct, msg, args)
 
             self._download_php_archive(dl_url, filename, file_path, log_cb, prog_cb)
 

@@ -135,4 +135,84 @@ describe('App', () => {
         // Verifikasi tidak throw dan shell tetap ter-render setelah state mobile berubah.
         expect(screen.getByText('dashboard-main')).toBeInTheDocument();
     });
+
+    describe('update-available alert', () => {
+        function mockApiWithUpdate(overrides: Record<string, unknown> = {}) {
+            return {
+                test_connection: vi.fn(),
+                get_app_settings: vi.fn().mockResolvedValue({ status: 'success', data: {} }),
+                check_for_updates: vi.fn().mockResolvedValue({
+                    status: 'success',
+                    is_update_available: true,
+                    version: 'v2.0.0',
+                    changelog: '- Fixed bug X\n- Added feature Y',
+                    asset_url: 'https://example.com/installer.exe',
+                    asset_name: 'installer.exe',
+                    ...overrides,
+                }),
+                start_download_update: vi.fn().mockResolvedValue(undefined),
+            };
+        }
+
+        it('shows an alert with the GitHub release changelog when an update is found on startup', async () => {
+            window.pywebview = { api: mockApiWithUpdate() };
+            render(<App />);
+
+            expect(await screen.findByText('Update Available: v2.0.0')).toBeInTheDocument();
+            expect(screen.getByText(/Fixed bug X/)).toBeInTheDocument();
+            expect(screen.getByText('Update')).toBeInTheDocument();
+            expect(screen.getByText('Close')).toBeInTheDocument();
+        });
+
+        it('does not show the alert when no update is available', async () => {
+            const api = {
+                test_connection: vi.fn(),
+                get_app_settings: vi.fn().mockResolvedValue({ status: 'success', data: {} }),
+                check_for_updates: vi.fn().mockResolvedValue({ status: 'success', is_update_available: false, message: 'backend.updater.already_latest' }),
+            };
+            window.pywebview = { api };
+            render(<App />);
+
+            await waitFor(() => expect(api.check_for_updates).toHaveBeenCalledTimes(1));
+            expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        });
+
+        it('dismisses the alert without opening Settings or starting a download when Close is clicked', async () => {
+            const api = mockApiWithUpdate();
+            window.pywebview = { api };
+            render(<App />);
+            await screen.findByText('Update Available: v2.0.0');
+
+            await act(async () => {
+                screen.getByText('Close').click();
+            });
+
+            await waitFor(() => expect(screen.queryByText('Update Available: v2.0.0')).not.toBeInTheDocument());
+            expect(api.start_download_update).not.toHaveBeenCalled();
+        });
+
+        it('opens Settings > Updates and starts the download automatically when Update is clicked', async () => {
+            const api = mockApiWithUpdate();
+            window.pywebview = { api };
+
+            const openedModals: string[] = [];
+            const handler = (e: Event) => {
+                const detail = (e as CustomEvent).detail;
+                if (detail?.modal) openedModals.push(detail.modal);
+            };
+            window.addEventListener('vylo_open_settings_modal', handler);
+
+            render(<App />);
+            await screen.findByText('Update Available: v2.0.0');
+
+            await act(async () => {
+                screen.getByText('Update').click();
+            });
+
+            await waitFor(() => expect(openedModals).toContain('updates'));
+            expect(api.start_download_update).toHaveBeenCalledWith('https://example.com/installer.exe', 'installer.exe');
+
+            window.removeEventListener('vylo_open_settings_modal', handler);
+        });
+    });
 });

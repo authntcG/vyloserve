@@ -17,15 +17,20 @@
         "yes": "Ya",
         "edit": "Edit",
         "enable": "Aktifkan",
+        "install": "Instal",
         "installing": "Menginstal...",
         "installation_progress": "Progres Instalasi",
         "preparing": "Menyiapkan...",
-        "uninstall": "Hapus Instalasi"
+        "uninstall": "Hapus Instalasi",
+        "manage": "Kelola",
+        "search_placeholder": "Cari...",
+        "no_results": "Tidak ada hasil ditemukan."
     },
     "sidebar": {
         "search": "Cari...",
         "services": "Layanan",
         "tools": "Alat Tambahan",
+        "utilities": "Utilitas",
         "system_load": "Beban Sistem:",
         "menu_dashboard": "Dasbor",
         "menu_apache": "Apache Web",
@@ -455,6 +460,8 @@
         "general": "Umum",
         "theme": "Tema",
         "theme_desc": "Ubah skema warna aplikasi secara keseluruhan.",
+        "desktop_notifications": "Notifikasi Desktop",
+        "desktop_notifications_desc": "Tampilkan notifikasi native Windows saat ada alert sementara aplikasi di-minimize, tidak fokus, atau disembunyikan di tray.",
         "theme_vyloserve_dark": "VyloServe Bawaan (Gelap)",
         "theme_vyloserve_light": "VyloServe Terang",
         "theme_darcula_dark": "Darcula (Gelap)",
@@ -670,7 +677,8 @@
             "logo_scale": "Skala Logo (Menutupi Area)",
             "live_preview": "Live Preview",
             "ready": "Ready",
-            "download": "Unduh"
+            "download": "Unduh",
+            "export_format": "Format Ekspor"
         },
         "url": {
             "encode_url": "Encode URL",
@@ -712,6 +720,7 @@
             "tab_zrok": "Zrok (OpenZiti)",
             "not_installed_title": "Zrok belum terinstal",
             "not_installed_desc": "Anda perlu menginstal biner Zrok untuk membagikan project Anda ke internet.",
+            "installed_desc": "Zrok telah terinstal dan siap digunakan.",
             "install_zrok": "Instal Zrok",
             "engine_card_title": "Mesin Zrok (OpenZiti)",
             "account_card_title": "Akun Zrok",
@@ -740,6 +749,31 @@
             "mode_project": "Project VyloServe",
             "mode_custom": "Alamat Kustom",
             "custom_target": "Alamat Target (mis. localhost:3000)"
+        },
+        "cloudflare": {
+            "title": "Cloudflare Quick Tunnel",
+            "subtitle": "Tunneling tanpa akun untuk mengekspos project lokal melalui TryCloudflare.",
+            "tab": "Cloudflare",
+            "install_tunnel": "Instal Cloudflare",
+            "install_cloudflare": "Instal Cloudflare",
+            "engine_card_title": "Mesin Cloudflare (cloudflared)",
+            "not_installed_title": "Cloudflare belum terinstal",
+            "not_installed_desc": "Instal cloudflared untuk mulai membagikan project lokal Anda.",
+            "installed_desc": "Cloudflare Tunnel telah terinstal dan siap digunakan.",
+            "install_info_1": "Daemon Cloudflare akan diunduh dari repositori resminya.",
+            "install_info_2": "Fitur ini menggunakan Quick Tunnels (TryCloudflare) yang tidak membutuhkan akun.",
+            "uninstall_confirm_title": "Hapus Cloudflare",
+            "uninstall_confirm_desc": "Apakah Anda yakin ingin menghapus Cloudflare? Semua share aktif akan dihentikan.",
+            "manage": "Kelola Tunnel",
+            "uninstall": "Hapus Cloudflare",
+            "uninstall_success": "Cloudflare berhasil dihapus."
+        },
+        "tunnels": {
+            "title": "Tunnels",
+            "all_overview_title": "Dasbor Tunnels",
+            "all_overview_subtitle": "Kelola semua mesin tunneling Anda.",
+            "services_installed": "{{count}} layanan terinstal",
+            "services_installed_plural": "{{count}} layanan terinstal"
         }
     },
     "components": {
@@ -763,6 +797,16 @@
             "copy_success": "Log disalin ke clipboard!",
             "copy_error": "Gagal menyalin teks",
             "copy_btn": "Salin Teks Log"
+        },
+        "notifications": {
+            "title": "Notifikasi",
+            "clear": "Hapus",
+            "empty": "Belum ada notifikasi.",
+            "bell_label": "Notifikasi ({{count}} belum dibaca)",
+            "time_just_now": "Baru saja",
+            "time_minutes_ago": "{{count}} menit lalu",
+            "time_hours_ago": "{{count}} jam lalu",
+            "time_days_ago": "{{count}} hari lalu"
         }
     },
     "backend": {
@@ -1091,6 +1135,25 @@
             "process_log": "[Zrok] {{msg}}",
             "process_error": "[Zrok Error] {{msg}}",
             "status_log": "Konfigurasi Zrok: {{msg}}"
+        },
+        "cloudflare": {
+            "fetching_versions": "Mengambil versi Cloudflare Quick Tunnel...",
+            "versions_fetched": "Ditemukan {{count}} versi Cloudflare.",
+            "fetching_latest": "Mengambil rilis cloudflared terbaru...",
+            "release_not_found": "Rilis cloudflared yang valid tidak ditemukan.",
+            "downloading": "Mengunduh cloudflared dari {{url}}...",
+            "install_success": "Cloudflare Tunnel berhasil diinstal.",
+            "not_installed": "Cloudflare Tunnel belum terinstal.",
+            "uninstalling": "Menghapus instalasi Cloudflare Tunnel...",
+            "uninstalled": "Cloudflare Tunnel telah dihapus.",
+            "starting_share": "Memulai Cloudflare Quick Tunnel untuk {{target}}...",
+            "detect_timeout": "Waktu habis setelah {{seconds}} detik menunggu URL publik Cloudflare.",
+            "url_not_found": "URL publik TryCloudflare tidak ditemukan.",
+            "share_active": "Share Cloudflare aktif: {{url}}",
+            "share_not_found": "Share Cloudflare tidak ditemukan.",
+            "share_stopped": "Share Cloudflare berhasil dihentikan.",
+            "process_log": "[Cloudflare] {{msg}}",
+            "process_error": "[Cloudflare Error] {{msg}}"
         }
     },
     "ui": {
@@ -1105,7 +1168,9 @@
             "close_hint_background": "Anda dapat menutup modal ini, pengunduhan akan tetap berlanjut di latar belakang.",
             "download_complete": "Pengunduhan Selesai. Siap untuk diinstal!",
             "install_restart": "Instal & Mulai Ulang",
-            "no_changelog": "Tidak ada catatan perubahan yang disediakan."
+            "no_changelog": "Tidak ada catatan perubahan yang disediakan.",
+            "alert_title": "Pembaruan Tersedia: {{version}}",
+            "alert_update_button": "Perbarui"
         }
     }
 }

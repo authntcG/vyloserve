@@ -1,4 +1,4 @@
-﻿import re
+import re
 import os
 import json
 import shutil
@@ -25,17 +25,25 @@ ZROK_SHARE_DETECT_TIMEOUT_SECONDS = 30
 # SonarQube python:S1192 -- literal "localhost:" dipakai berulang untuk mendeteksi
 # target custom (localhost:port) vs. project VyloServe terdaftar.
 ZROK_LOCALHOST_PREFIX = "localhost:"
+MSG_ZROK_PROCESS_LOG = "backend.zrok.process_log"
+MSG_PROJECT_NOT_FOUND = "backend.project.project_not_found"
+MSG_CF_PROCESS_LOG = "backend.cloudflare.process_log"
+MSG_CF_INSTALL_SUCCESS = "backend.cloudflare.install_success"
 
 class TunnelsManager:
     def __init__(self, api_ref):
         self.api = api_ref
         self.base_dir = get_project_root()
+        
+        # Zrok
         self.zrok_dir = os.path.join(self.base_dir, 'bin', 'zrok')
         self.zrok_exe = os.path.join(self.zrok_dir, 'zrok.exe')
-        
-        # In-memory storage for active shares
-        # Format: { "share_id": {"process": Popen, "project_id": "...", "url": "..."} }
         self.active_shares: Dict[str, Dict[str, Any]] = {}
+
+        # Cloudflare
+        self.cloudflared_dir = os.path.join(self.base_dir, 'bin', 'cloudflared')
+        self.cloudflared_exe = os.path.join(self.cloudflared_dir, 'cloudflared.exe')
+        self.active_cloudflare_shares: Dict[str, Dict[str, Any]] = {}
 
     def _log(self, msg: str, level: str = "info", args: dict = None):
         if hasattr(self, 'api') and self.api: self.api.emit_log(msg, level, args)
@@ -129,7 +137,7 @@ class TunnelsManager:
         if is_problem:
             self._log("backend.zrok.process_error", "error", {"msg": msg})
         else:
-            self._log("backend.zrok.process_log", "info", {"msg": msg})
+            self._log(MSG_ZROK_PROCESS_LOG, "info", {"msg": msg})
 
 
     def get_available_zrok_versions(self) -> dict:
@@ -139,12 +147,20 @@ class TunnelsManager:
             import json
             req = urllib.request.Request('https://api.github.com/repos/openziti/zrok/releases', headers=GITHUB_API_HEADERS)
             versions = []
-            with urllib.request.urlopen(req, timeout=10) as response:
-                data = json.loads(response.read().decode())
-                for release in data:
-                    has_windows = any('windows_amd64' in asset['name'] for asset in release.get('assets', []))
-                    if has_windows:
-                        versions.append({"id": release['tag_name'], "value": release['tag_name'], "label": release['name']})
+            try:
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    data = json.loads(response.read().decode())
+                    for release in data:
+                        has_windows = any('windows_amd64' in asset['name'] for asset in release.get('assets', []))
+                        if has_windows:
+                            versions.append({"id": release['tag_name'], "value": release['tag_name'], "label": release['name']})
+            except Exception as e:
+                import urllib.error
+                if isinstance(e, urllib.error.HTTPError) and e.code == 403:
+                    self._log(MSG_ZROK_PROCESS_LOG, "warn", {"msg": "GitHub API rate limit exceeded, falling back to 'latest'."})
+                    versions = [{"id": "latest", "value": "latest", "label": "Latest Release (Fallback)"}]
+                else:
+                    raise e
             self._log("backend.zrok.versions_fetched", "info", {"count": len(versions)})
             return {"status": "success", "data": versions}
         except Exception as e:
@@ -202,13 +218,32 @@ class TunnelsManager:
 
     def _resolve_zrok_download_url(self, version: str) -> Optional[str]:
         """Cari URL aset Windows AMD64 dari GitHub Releases untuk versi zrok yang diminta."""
-        url = 'https://api.github.com/repos/openziti/zrok/releases/latest' if version == "latest" else f'https://api.github.com/repos/openziti/zrok/releases/tags/{version}'
-        req = urllib.request.Request(url, headers=GITHUB_API_HEADERS)
-        with urllib.request.urlopen(req, timeout=10) as response:
-            data = json.loads(response.read().decode())
-            for asset in data.get('assets', []):
-                if 'windows_amd64.tar.gz' in asset['name'] or 'windows_amd64.zip' in asset['name']:
-                    return asset['browser_download_url']
+        if version == "latest":
+            try:
+                req_latest = urllib.request.Request("https://github.com/openziti/zrok/releases/latest", headers=GITHUB_API_HEADERS)
+                res = urllib.request.urlopen(req_latest, timeout=10)
+                version = res.url.split("/")[-1]
+            except Exception:
+                version = "v0.4.42"
+                
+        clean_version = version.lstrip('v')
+        guessed_url = f"https://github.com/openziti/zrok/releases/download/{version}/zrok_{clean_version}_windows_amd64.tar.gz"
+        
+        url = f'https://api.github.com/repos/openziti/zrok/releases/tags/{version}'
+        try:
+            req = urllib.request.Request(url, headers=GITHUB_API_HEADERS)
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = json.loads(response.read().decode())
+                for asset in data.get('assets', []):
+                    if 'windows_amd64.tar.gz' in asset['name'] or 'windows_amd64.zip' in asset['name']:
+                        return asset['browser_download_url']
+        except Exception:
+            try:
+                req_head = urllib.request.Request(guessed_url, headers=GITHUB_API_HEADERS, method='HEAD')
+                urllib.request.urlopen(req_head, timeout=10)
+                return guessed_url
+            except Exception:
+                return None
         return None
 
     def _download_zrok_archive(self, download_url: str, archive_path: str) -> None:
@@ -303,7 +338,7 @@ class TunnelsManager:
 
             import re
             if res.stdout and res.stdout.strip():
-                self._log("backend.zrok.process_log", "info", {"msg": re.sub(ANSI_ESCAPE_REGEX, '', res.stdout).strip()})
+                self._log(MSG_ZROK_PROCESS_LOG, "info", {"msg": re.sub(ANSI_ESCAPE_REGEX, '', res.stdout).strip()})
             if res.returncode == 0:
                 self._log("backend.zrok.enable_success", "success")
                 return {"status": "success", "message": "backend.zrok.enable_success"}
@@ -408,8 +443,8 @@ class TunnelsManager:
 
             zrok_target = self._resolve_share_target(target)
             if not zrok_target:
-                self._log("backend.project.project_not_found", "error")
-                return {"status": "error", "message": "backend.project.project_not_found"}
+                self._log(MSG_PROJECT_NOT_FOUND, "error")
+                return {"status": "error", "message": MSG_PROJECT_NOT_FOUND}
 
             self._log("backend.zrok.resolved_target", "info", {"target": zrok_target})
 
@@ -519,3 +554,268 @@ class TunnelsManager:
                 break
         return public_url, stdout_closed
 
+    # ------------------------------------------------------------------------
+    # CLOUDFLARE TUNNEL (TryCloudflare)
+    # ------------------------------------------------------------------------
+
+    def get_available_cloudflare_versions(self) -> dict:
+        try:
+            self._log("backend.cloudflare.fetching_versions", "info")
+            import urllib.request
+            import urllib.error
+            import json
+            req = urllib.request.Request('https://api.github.com/repos/cloudflare/cloudflared/releases', headers=GITHUB_API_HEADERS)
+            versions = []
+            try:
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    data = json.loads(response.read().decode())
+                    for release in data:
+                        has_windows = any('cloudflared-windows-amd64.exe' in asset['name'] for asset in release.get('assets', []))
+                        if has_windows:
+                            versions.append({"id": release['tag_name'], "value": release['tag_name'], "label": release['name']})
+            except urllib.error.HTTPError as e:
+                if e.code == 403:
+                    self._log(MSG_CF_PROCESS_LOG, "warn", {"msg": "GitHub API rate limit exceeded, falling back to 'latest'."})
+                    versions = [{"id": "latest", "value": "latest", "label": "Latest Release (Fallback)"}]
+                else:
+                    raise e
+            self._log("backend.cloudflare.versions_fetched", "info", {"count": len(versions)})
+            return {"status": "success", "data": versions}
+        except Exception as e:
+            self._log(MSG_UNEXPECTED_ERROR, "error", {"e": str(e)})
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def _read_cloudflare_version(self) -> Optional[str]:
+        res_ver = run_silent_command([self.cloudflared_exe, "version"])
+        if res_ver.returncode != 0:
+            return None
+        match = re.search(r"version\s+([0-9a-zA-Z.-]+)", res_ver.stdout)
+        if match:
+            return match.group(1)
+        return None
+
+    def _list_active_cloudflare_shares(self) -> list:
+        active = []
+        for sid, sdata in self.active_cloudflare_shares.items():
+            proc = sdata.get('process')
+            if proc and proc.poll() is None:
+                active.append({
+                    "id": sid,
+                    "project_id": sdata.get('project_id'),
+                    "url": sdata.get('url')
+                })
+        return active
+
+    def get_cloudflare_status(self) -> dict:
+        is_installed = os.path.exists(self.cloudflared_exe)
+        version = None
+        if is_installed:
+            version = self._read_cloudflare_version()
+        return {
+            "installed": is_installed,
+            "version": version,
+            "active_shares": self._list_active_cloudflare_shares()
+        }
+
+    def _resolve_cloudflare_download_url(self, version: str) -> Optional[str]:
+        if version == "latest":
+            return "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+            
+        url = f'https://api.github.com/repos/cloudflare/cloudflared/releases/tags/{version}'
+        try:
+            req = urllib.request.Request(url, headers=GITHUB_API_HEADERS)
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = json.loads(response.read().decode())
+                for asset in data.get('assets', []):
+                    if 'cloudflared-windows-amd64.exe' in asset['name']:
+                        return asset['browser_download_url']
+        except Exception:
+            return None
+        return None
+
+    def install_cloudflare(self, version: str = "latest") -> dict:
+        try:
+            self._log("backend.cloudflare.fetching_latest", "info")
+            self._progress(10, "backend.cloudflare.fetching_latest")
+            
+            download_url = self._resolve_cloudflare_download_url(version)
+            if not download_url:
+                self._log("backend.cloudflare.release_not_found", "error")
+                return {"status": "error", "message": "backend.cloudflare.release_not_found"}
+
+            os.makedirs(self.cloudflared_dir, exist_ok=True)
+            self._log("backend.cloudflare.downloading", "info", {"url": download_url})
+            
+            req = urllib.request.Request(download_url, headers=GITHUB_API_HEADERS)
+            with urllib.request.urlopen(req, timeout=15) as response, open(self.cloudflared_exe, 'wb') as out_file:
+                total_size = int(response.info().get('Content-Length', 0))
+                downloaded = 0
+                block_size = 8192
+                while True:
+                    buffer = response.read(block_size)
+                    if not buffer:
+                        break
+                    out_file.write(buffer)
+                    downloaded += len(buffer)
+                    if total_size > 0:
+                        percent = 10 + int((downloaded / total_size) * 80)
+                        self._progress(percent, "backend.cloudflare.downloading", {"url": download_url})
+
+            self._progress(100, MSG_CF_INSTALL_SUCCESS)
+            self._log(MSG_CF_INSTALL_SUCCESS, "success")
+            return {"status": "success", "message": MSG_CF_INSTALL_SUCCESS}
+        except Exception as e:
+            self._progress(100, MSG_UNEXPECTED_ERROR)
+            self._log(MSG_UNEXPECTED_ERROR, "error", {"e": str(e)})
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def uninstall_cloudflare(self) -> dict:
+        try:
+            self._log("backend.cloudflare.uninstalling", "info")
+            for share_id in list(self.active_cloudflare_shares):  # NOSONAR
+                self.stop_cloudflare_share(share_id)
+
+            if os.path.exists(self.cloudflared_dir):
+                shutil.rmtree(self.cloudflared_dir, ignore_errors=True)
+
+            self._log("backend.cloudflare.uninstalled", "warn")
+            return {"status": "success", "message": "backend.cloudflare.uninstalled"}
+        except Exception as e:
+            self._log(MSG_UNEXPECTED_ERROR, "error", {"e": str(e)})
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def _extract_cloudflare_public_url(self, line: str) -> Optional[str]:
+        url_match = re.search(r"(https?://[a-z0-9.-]+\.trycloudflare\.com)", line, re.IGNORECASE)
+        if url_match:
+            return url_match.group(1)
+        return None
+
+    def _wait_for_cloudflare_url(self, line_queue: "queue.Queue[Optional[str]]", start_time: float) -> tuple[Optional[str], bool]:
+        public_url = None
+        stdout_closed = False
+        while time.time() - start_time < ZROK_SHARE_DETECT_TIMEOUT_SECONDS:
+            remaining = max(0.1, ZROK_SHARE_DETECT_TIMEOUT_SECONDS - (time.time() - start_time))
+            try:
+                line = line_queue.get(timeout=remaining)
+            except queue.Empty:
+                break
+            if line is None:
+                stdout_closed = True
+                break
+
+            if not line.strip():
+                continue
+            
+            clean_line = re.sub(ANSI_ESCAPE_REGEX, '', line).strip()
+            if clean_line:
+                self._log(MSG_CF_PROCESS_LOG, "info", {"msg": clean_line})
+
+            found = self._extract_cloudflare_public_url(clean_line)
+            if found:
+                public_url = found
+                break
+        return public_url, stdout_closed
+
+    def _consume_cloudflare_stdout(self, line_queue: "queue.Queue[Optional[str]]", stdout_closed: bool):
+        if stdout_closed: return
+        while True:
+            line = line_queue.get()
+            if line is None: break
+            clean = re.sub(ANSI_ESCAPE_REGEX, '', line).strip()
+            if clean:
+                is_problem = "error" in clean.lower() or "err" in clean.lower()[:10]
+                if is_problem:
+                    self._log("backend.cloudflare.process_error", "error", {"msg": clean})
+                else:
+                    self._log(MSG_CF_PROCESS_LOG, "info", {"msg": clean})
+
+    def start_cloudflare_share(self, target: str) -> dict:
+        try:
+            if not os.path.exists(self.cloudflared_exe):
+                self._log("backend.cloudflare.not_installed", "warn")
+                return {"status": "error", "message": "backend.cloudflare.not_installed"}
+
+            cloudflare_target = self._resolve_share_target(target)
+            if not cloudflare_target:
+                self._log(MSG_PROJECT_NOT_FOUND, "error")
+                return {"status": "error", "message": MSG_PROJECT_NOT_FOUND}
+
+            self._log("backend.cloudflare.starting_share", "info", {"target": cloudflare_target})
+
+            cmd = [self.cloudflared_exe, "tunnel", "--url", cloudflare_target]
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.PIPE,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+                text=True,
+                bufsize=1
+            )
+            
+            share_id = f"cloudflare_{int(time.time())}"
+            line_queue: "queue.Queue[Optional[str]]" = queue.Queue()
+
+            self._start_stdout_reader(proc, line_queue)
+            start_time = time.time()
+            
+            public_url, stdout_closed = self._wait_for_cloudflare_url(line_queue, start_time)
+
+            if not public_url:
+                elapsed = round(time.time() - start_time, 1)
+                self._log("backend.cloudflare.detect_timeout", "error", {"seconds": elapsed})
+                proc.kill()
+                return {"status": "error", "message": "backend.cloudflare.url_not_found"}
+
+            threading.Thread(target=self._consume_cloudflare_stdout, args=(line_queue, stdout_closed), daemon=True).start()
+
+            self.active_cloudflare_shares[share_id] = {
+                "process": proc,
+                "project_id": target,
+                "url": public_url
+            }
+
+            self._log("backend.cloudflare.share_active", "success", {"url": public_url})
+            self._sync_apache_alias_for_share(target, public_url)
+
+            return {
+                "status": "success",
+                "message": "backend.cloudflare.share_active",
+                "args": {"url": public_url},
+                "share_id": share_id,
+                "url": public_url
+            }
+        except Exception as e:
+            self._log(MSG_UNEXPECTED_ERROR, "error", {"e": str(e)})
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def stop_cloudflare_share(self, share_id: str) -> dict:
+        try:
+            if share_id not in self.active_cloudflare_shares:
+                self._log("backend.cloudflare.share_not_found", "warn")
+                return {"status": "error", "message": "backend.cloudflare.share_not_found"}
+
+            share_data = self.active_cloudflare_shares[share_id]
+            proc = share_data.get("process")
+            project_id = share_data.get("project_id")
+
+            if proc and proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=3)
+
+            del self.active_cloudflare_shares[share_id]
+            self._log("backend.cloudflare.share_stopped", "info")
+
+            if project_id and not self._is_localhost_target(project_id) and hasattr(self.api, 'project'):
+                projects = self.api.project._read_projects()
+                project = next((p for p in projects if p['id'] == project_id), None)
+                if project and 'tunnel_url' in project:
+                    del project['tunnel_url']
+                    self.api.project._save_projects(projects)
+                    if hasattr(self.api.project, 'sync_apache_vhosts'):
+                        self.api.project.sync_apache_vhosts()
+
+            return {"status": "success", "message": "backend.cloudflare.share_stopped"}
+        except Exception as e:
+            self._log(MSG_UNEXPECTED_ERROR, "error", {"e": str(e)})
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}

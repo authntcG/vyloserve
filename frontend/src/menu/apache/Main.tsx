@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import Card from '../../components/Card';
 import Modal from '../../components/Modal';
+import Button from '../../components/Button';
+import ServiceToggleButton from '../../components/ServiceToggleButton';
 import { useToast } from '../../components/ToastContext';
 import { useAlert } from '../../components/AlertContext';
 import BackgroundProgressWidget from '../../components/BackgroundProgressWidget';
@@ -10,6 +12,7 @@ import BackgroundProgressWidget from '../../components/BackgroundProgressWidget'
 import PageHeader from '../../components/PageHeader';
 import SkeletonCard from '../../components/SkeletonCard';
 import EmptyState from '../../components/EmptyState';
+import InfoBox from '../../components/InfoBox';
 import { clampPercent } from '../../utils/progress';
 
 import ApacheSettings from './Settings';
@@ -61,9 +64,18 @@ function ApacheStatusSection({ isFetching, isInstalled, installedVersion, isRunn
                 }
                 footerActions={
                     <>
-                        <button type="button" onClick={onToggleServer} disabled={isToggling} className={`flex-1 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm disabled:opacity-70 disabled:scale-100 ${isRunning ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600'}`}>
-                            {isToggling ? <><span className="material-symbols-outlined text-[18px] animate-spin">sync</span> {isRunning ? t('apache.stopping') : t('apache.starting')}</> : <><span className="material-symbols-outlined text-[18px]">{isRunning ? 'stop' : 'play_arrow'}</span> {isRunning ? t('apache.stop_server') : t('apache.start_server')}</>}
-                        </button>
+                        <ServiceToggleButton
+                            isRunning={isRunning}
+                            isToggling={isToggling}
+                            onClick={onToggleServer}
+                            className="flex-1"
+                            labels={{
+                                start: t('apache.start_server'),
+                                stop: t('apache.stop_server'),
+                                starting: t('apache.starting'),
+                                stopping: t('apache.stopping'),
+                            }}
+                        />
                         <button type="button" onClick={onOpenOptions} className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
                             <span className="material-symbols-outlined text-[18px]">tune</span> {t('apache.config')}
                         </button>
@@ -72,7 +84,7 @@ function ApacheStatusSection({ isFetching, isInstalled, installedVersion, isRunn
             >
                 <div className="flex flex-col gap-1">
                     <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('apache.listening_port')}</span>
-                    <span className="font-mono text-sm text-primary dark:text-blue-400">80, 443</span>
+                    <span className="font-mono text-sm text-primary">80, 443</span>
                 </div>
                 <div className="flex flex-col gap-1">
                     <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('apache.architecture')}</span>
@@ -130,7 +142,7 @@ function ApacheProjectCard({ project, onOpenDocumentRoot, onOpenSettings, onSync
                     </div>
                     <div className="flex flex-col gap-1">
                         <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('apache.php_engine')}</span>
-                        <span className="text-sm font-medium text-primary dark:text-blue-400 font-mono">{project.php_version || t('common.unknown')} <span className="text-slate-400 text-xs">(Port {project.php_port || t('common.not_available')})</span></span>
+                        <span className="text-sm font-medium text-primary font-mono">{project.php_version || t('common.unknown')} <span className="text-slate-400 text-xs">(Port {project.php_port || t('common.not_available')})</span></span>
                     </div>
                     <div className="flex flex-col gap-1 col-span-2">
                         <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('apache.local_domain')}</span>
@@ -141,14 +153,10 @@ function ApacheProjectCard({ project, onOpenDocumentRoot, onOpenSettings, onSync
                 </div>
                 {project.host_synced === false && (
                     <div className="flex flex-col gap-3 border-t border-slate-100 dark:border-slate-800/50 pt-3 mt-1">
-                        <div className="p-3 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800/30 rounded-lg flex gap-3 items-start animate-in fade-in">
-                            <span className="material-symbols-outlined text-red-500 dark:text-red-400 text-[20px] shrink-0">admin_panel_settings</span>
-                            <div className="flex flex-col gap-1.5 w-full">
-                                <span className="text-sm font-semibold text-red-800 dark:text-red-500">{t('apache.domain_not_routed')}</span>
-                                <span className="text-xs text-red-700 dark:text-red-400/80 leading-relaxed">{t('apache.domain_not_routed_desc')}</span>
-                                <button type="button" onClick={() => onSyncHost(project.id)} className="mt-1 self-start text-xs font-medium text-red-800 dark:text-red-300 bg-red-200 dark:bg-red-800/50 hover:bg-red-300 dark:hover:bg-red-700/60 px-3 py-1.5 rounded-md flex items-center gap-1.5"><span className="material-symbols-outlined text-[14px]">sync</span> {t('apache.retry_sync')}</button>
-                            </div>
-                        </div>
+                        <InfoBox tone="danger" icon="admin_panel_settings" title={t('apache.domain_not_routed')} className="animate-in fade-in">
+                            <span className="leading-relaxed">{t('apache.domain_not_routed_desc')}</span>
+                            <button type="button" onClick={() => onSyncHost(project.id)} className="mt-1 self-start text-xs font-medium text-red-800 dark:text-red-300 bg-red-200 dark:bg-red-800/50 hover:bg-red-300 dark:hover:bg-red-700/60 px-3 py-1.5 rounded-md flex items-center gap-1.5"><span className="material-symbols-outlined text-[14px]">sync</span> {t('apache.retry_sync')}</button>
+                        </InfoBox>
                     </div>
                 )}
             </div>
@@ -440,9 +448,9 @@ export default function ApacheMain() {
                         </>
                     }
                     actions={
-                        <button type="button" onClick={handleOpenInstallModal} className="bg-primary hover:bg-blue-600 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center gap-2 shadow-sm">
-                            <span className="material-symbols-outlined text-[18px]">download</span> {t('apache.install_update')}
-                        </button>
+                        <Button variant="primary" icon="download" onClick={handleOpenInstallModal} className="shadow-sm">
+                            {t('apache.install_update')}
+                        </Button>
                     }
                 />
 

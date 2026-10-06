@@ -20,6 +20,17 @@ describe('LogFileViewerModal', () => {
         expect(fetchContent).toHaveBeenCalledTimes(1);
     });
 
+    // Regresi: tombol Close sebelumnya pakai `hover:bg-blue-600` hardcoded (bukan
+    // theme-aware). Lihat docs/ui_consistency_guide.md.
+    it('uses the theme-aware hover:bg-primary/90 on the Close button', async () => {
+        const fetchContent = vi.fn().mockResolvedValue({ status: 'success', data: 'log line' });
+        render(<LogFileViewerModal isOpen={true} onClose={vi.fn()} title="Error Log" fetchContent={fetchContent} />);
+
+        const closeBtn = await screen.findByText('Close');
+        expect(closeBtn).toHaveClass('hover:bg-primary/90');
+        expect(closeBtn).not.toHaveClass('hover:bg-blue-600');
+    });
+
     it('shows the empty-state message when the log file has no content', async () => {
         const fetchContent = vi.fn().mockResolvedValue({ status: 'success', data: '' });
         render(<LogFileViewerModal isOpen={true} onClose={vi.fn()} title="Error Log" fetchContent={fetchContent} />);

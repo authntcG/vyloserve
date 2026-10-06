@@ -165,16 +165,16 @@ export default function LogsPanel() {
     const getBadgeColor = (level: string) => {
         switch (level) {
             case 'success': return 'text-emerald-400';
-            case 'warn': return 'text-amber-400';
+            case 'warn': return 'text-amber-500';
             case 'error': return 'text-red-400';
-            default: return 'text-blue-400';
+            default: return 'text-primary';
         }
     };
 
     const getMessageColor = (level: string) => {
         switch (level) {
             case 'error': return 'text-red-400';
-            case 'warn': return 'text-amber-400';
+            case 'warn': return 'text-amber-500';
             default: return 'text-slate-300';
         }
     };
@@ -232,7 +232,7 @@ export default function LogsPanel() {
                     {filteredLogs.map((log) => (
                         <div key={log.id} className="vylo-log-area flex gap-2 mb-1 font-medium hover:bg-slate-900/50 px-1 py-0.5 rounded transition-colors">
                             <span className="text-slate-500 shrink-0 select-none">[{log.timestamp}]</span>
-                            {log.source && <span className="text-purple-400 shrink-0 select-none">[{log.source.toUpperCase()}]</span>}
+                            {log.source && <span className="text-slate-400 shrink-0 select-none">[{log.source.toUpperCase()}]</span>}
                             <span className={`shrink-0 select-none font-bold ${getBadgeColor(log.level)}`}>[{log.level.toUpperCase()}]</span>
                             <span className={`${getMessageColor(log.level)} break-all selection:bg-primary/50 selection:text-white`}>
                                 {log.message}

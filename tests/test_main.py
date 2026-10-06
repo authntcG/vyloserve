@@ -100,15 +100,43 @@ def test_perform_exit_without_window_or_tray_set(mock_os_exit, mock_api):
 # ==========================================
 # AppLifecycle.on_closing
 # ==========================================
+# is_production dan enable_tray SENGAJA dites sebagai dua sumbu independen --
+# hide-to-tray sekarang digerakkan oleh enable_tray, BUKAN is_production (lihat
+# ENABLE_TRAY di main.py). is_production tetap dites di sini untuk memastikan ia
+# TIDAK lagi mempengaruhi on_closing() sama sekali setelah dipisah.
 
-def test_on_closing_dev_mode_always_allows_full_destroy(mock_api):
-    lifecycle = AppLifecycle(mock_api, is_production=False)
+def test_on_closing_without_tray_always_allows_full_destroy(mock_api):
+    """Tanpa tray aktif, hide-to-tray tidak berguna -- selalu full destroy, apa pun is_production-nya."""
+    lifecycle = AppLifecycle(mock_api, is_production=False, enable_tray=False)
     lifecycle.set_window(MagicMock())
     assert lifecycle.on_closing() is True
     assert lifecycle.is_real_exit is True
 
-def test_on_closing_production_hides_window_on_first_close(mock_api):
-    lifecycle = AppLifecycle(mock_api, is_production=True)
+def test_on_closing_without_tray_allows_full_destroy_even_in_production(mock_api):
+    """Regresi: is_production=True TIDAK LAGI cukup untuk hide-to-tray -- enable_tray harus eksplisit True."""
+    lifecycle = AppLifecycle(mock_api, is_production=True, enable_tray=False)
+    lifecycle.set_window(MagicMock())
+    assert lifecycle.on_closing() is True
+    assert lifecycle.is_real_exit is True
+
+def test_on_closing_with_tray_hides_window_on_first_close(mock_api):
+    lifecycle = AppLifecycle(mock_api, is_production=True, enable_tray=True)
+    mock_window = MagicMock()
+    lifecycle.set_window(mock_window)
+
+    result = lifecycle.on_closing()
+
+    assert result is False
+    mock_window.hide.assert_called_once()
+    mock_api.emit_window_state.assert_called_once_with(hidden=True)
+
+def test_on_closing_with_tray_hides_window_even_in_dev_mode(mock_api):
+    """
+    Inti dari perubahan ini: dev mode + tray aktif sekarang hide-to-tray,
+    BUKAN full destroy seperti sebelumnya (lihat docs plan fitur histori toast --
+    'aktifkan tray juga di dev mode').
+    """
+    lifecycle = AppLifecycle(mock_api, is_production=False, enable_tray=True)
     mock_window = MagicMock()
     lifecycle.set_window(mock_window)
 
@@ -117,8 +145,8 @@ def test_on_closing_production_hides_window_on_first_close(mock_api):
     assert result is False
     mock_window.hide.assert_called_once()
 
-def test_on_closing_production_allows_destroy_when_real_exit_flag_set(mock_api):
-    lifecycle = AppLifecycle(mock_api, is_production=True)
+def test_on_closing_with_tray_allows_destroy_when_real_exit_flag_set(mock_api):
+    lifecycle = AppLifecycle(mock_api, is_production=True, enable_tray=True)
     mock_window = MagicMock()
     lifecycle.set_window(mock_window)
     lifecycle.is_real_exit = True  # simulasi setelah perform_exit() dipanggil
@@ -249,20 +277,70 @@ def test_main_wires_api_window_and_quit_callback(mock_api_class, mock_webview, m
     assert mock_api_instance.quit_callback is not None
     mock_webview.start.assert_called_once()
 
+    # Regresi: ikon notifikasi native (win11toast) sebelumnya tidak pernah di-wire ke Api
+    # sama sekali, sehingga notifikasi tampil tanpa ikon aplikasi -- lihat docs/known_bugs.md.
+    mock_api_instance.set_notification_icon.assert_called_once()
+    notification_icon_arg = mock_api_instance.set_notification_icon.call_args[0][0]
+    assert notification_icon_arg.endswith('icons-nobg.png')
+
 @patch('main.check_single_instance', return_value=(True, None))
 @patch('main.setup_systray')
 @patch('main.webview')
 @patch('core.api.Api')
-def test_main_sets_up_systray_only_in_production(mock_api_class, mock_webview, mock_setup_systray, mock_check_single):
+def test_main_sets_up_systray_based_on_enable_tray_not_is_production(mock_api_class, mock_webview, mock_setup_systray, mock_check_single):
+    """Regresi: tray sekarang digerakkan ENABLE_TRAY, bukan IS_PRODUCTION -- IS_PRODUCTION tidak lagi relevan di sini."""
     mock_webview.create_window.return_value = MagicMock()
 
-    with patch('main.IS_PRODUCTION', False):
+    with patch('main.ENABLE_TRAY', False):
         main_module.main()
     mock_setup_systray.assert_not_called()
 
-    with patch('main.IS_PRODUCTION', True):
+    with patch('main.ENABLE_TRAY', True):
         main_module.main()
     mock_setup_systray.assert_called_once()
+
+@patch('main.check_single_instance', return_value=(True, None))
+@patch('main.setup_systray')
+@patch('main.webview')
+@patch('core.api.Api')
+def test_main_sets_up_systray_in_dev_mode_too(mock_api_class, mock_webview, mock_setup_systray, mock_check_single):
+    """Permintaan fitur eksplisit: tray harus aktif juga di dev mode (ENABLE_TRAY default True, IS_PRODUCTION=False)."""
+    mock_webview.create_window.return_value = MagicMock()
+
+    with patch('main.IS_PRODUCTION', False), patch('main.ENABLE_TRAY', True):
+        main_module.main()
+
+    mock_setup_systray.assert_called_once()
+
+@patch('main.check_single_instance', return_value=(True, None))
+@patch('main.webview')
+@patch('core.api.Api')
+def test_main_hooks_minimized_and_restored_events_to_push_window_state(mock_api_class, mock_webview, mock_check_single):
+    """window.events.minimized/restored harus di-hook supaya frontend tahu kapan notifikasi native perlu tampil."""
+    mock_api_instance = MagicMock()
+    mock_api_class.return_value = mock_api_instance
+    mock_window = MagicMock()
+    mock_webview.create_window.return_value = mock_window
+    # `+=` pada MagicMock memanggil __iadd__ lalu MENIMPA mock_window.events.minimized
+    # dengan nilai return (MagicMock baru) -- referensi ORIGINAL harus ditangkap SEBELUM
+    # main() berjalan, kalau tidak __iadd__.call_args sudah tidak bisa diakses lagi.
+    minimized_event = mock_window.events.minimized
+    restored_event = mock_window.events.restored
+
+    with patch('main.IS_PRODUCTION', False):
+        main_module.main()
+
+    minimized_event.__iadd__.assert_called_once()
+    restored_event.__iadd__.assert_called_once()
+
+    minimized_handler = minimized_event.__iadd__.call_args[0][0]
+    restored_handler = restored_event.__iadd__.call_args[0][0]
+
+    minimized_handler()
+    mock_api_instance.emit_window_state.assert_called_with(minimized=True)
+
+    restored_handler()
+    mock_api_instance.emit_window_state.assert_called_with(minimized=False)
 
 @patch('main.check_single_instance', return_value=(True, None))
 @patch('main.webview')

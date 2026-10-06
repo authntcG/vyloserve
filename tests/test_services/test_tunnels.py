@@ -1,4 +1,4 @@
-import os
+﻿import os
 import pytest
 from unittest.mock import patch, MagicMock
 from core.services.tunnels import TunnelsManager
@@ -520,9 +520,9 @@ def test_install_zrok_rename_total_failure(mock_sleep, mock_rename, mock_glob, m
     assert mock_rename.call_count == 10
     assert mock_sleep.call_count == 10
 
-@patch('core.services.tunnels.urllib.request.urlopen')
-def test_install_zrok_unexpected_error(mock_urlopen, tunnels_manager):
-    mock_urlopen.side_effect = Exception("Network failure")
+@patch('core.services.tunnels.TunnelsManager._resolve_zrok_download_url')
+def test_install_zrok_unexpected_error(mock_resolve, tunnels_manager):
+    mock_resolve.side_effect = Exception("Network failure")
     res = tunnels_manager.install_zrok("latest")
     assert res['status'] == 'error'
     assert res['message'] == 'backend.error.unexpected'
@@ -633,3 +633,49 @@ def test_consume_stdout_thread(mock_queue_get, mock_thread, mock_popen, mock_exi
     tunnels_manager.api.emit_log.assert_any_call("backend.zrok.process_error", "error", {"msg": "ERROR: failed log"})
     tunnels_manager.api.emit_log.assert_any_call("backend.zrok.process_error", "error", {"msg": "WARN: some warn"})
 
+
+# ==========================================
+# CLOUDFLARE TESTS
+# ==========================================
+
+REAL_CLOUDFLARE_JSON_LINE = "INF |  https://random-words.trycloudflare.com                                                    |"
+
+def test_extract_cloudflare_public_url_parses_real_log_line():
+    url = TunnelsManager(MagicMock())._extract_cloudflare_public_url(REAL_CLOUDFLARE_JSON_LINE)
+    assert url == "https://random-words.trycloudflare.com"
+
+def test_extract_cloudflare_public_url_returns_none_for_unrelated_log_line():
+    unrelated = "INF +--------------------------------------------------------------------------------------------+"
+    assert TunnelsManager(MagicMock())._extract_cloudflare_public_url(unrelated) is None
+
+@patch('core.services.tunnels.os.path.exists')
+@patch('core.services.tunnels.subprocess.Popen')
+def test_start_cloudflare_share_success(mock_popen, mock_exists, tunnels_manager):
+    mock_exists.return_value = True
+    
+    mock_proc = MagicMock()
+    mock_proc.stdout = iter([
+        "INF |  https://random-words.trycloudflare.com  |\n"
+    ])
+    mock_proc.poll.return_value = None
+    mock_popen.return_value = mock_proc
+
+    tunnels_manager.api = MagicMock()
+
+    res = tunnels_manager.start_cloudflare_share("localhost:3000")
+
+    assert res['status'] == 'success'
+    assert res['url'] == 'https://random-words.trycloudflare.com'
+
+@patch('core.services.tunnels.urllib.request.urlopen')
+def test_get_available_cloudflare_versions(mock_urlopen, tunnels_manager):
+    mock_json_response = MagicMock()
+    mock_json_response.read.return_value = json.dumps([
+        {"tag_name": "2024.1.0", "name": "2024.1.0", "assets": [{"name": "cloudflared-windows-amd64.exe"}]}
+    ]).encode('utf-8')
+    mock_urlopen.return_value.__enter__.return_value = mock_json_response
+    
+    res = tunnels_manager.get_available_cloudflare_versions()
+    assert res['status'] == 'success'
+    assert len(res['data']) == 1
+    assert res['data'][0]['id'] == "2024.1.0"

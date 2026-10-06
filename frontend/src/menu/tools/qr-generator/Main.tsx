@@ -4,6 +4,9 @@ import QRCodeStyling from 'qr-code-styling';
 import type { DotType, CornerSquareType, FileExtension } from 'qr-code-styling';
 import PageHeader from '../../../components/PageHeader';
 import Card from '../../../components/Card';
+import Button from '../../../components/Button';
+import Select from '../../../components/Select';
+import FieldLabel from '../../../components/FieldLabel';
 import { useToast } from '../../../components/ToastContext';
 
 export default function QrMain() {
@@ -123,26 +126,32 @@ export default function QrMain() {
                     <Card title={t('tools.qr.data_qr_code')} status={t('tools.qr.input')} gridCols="grid-cols-1">
                         <div className="w-full min-w-0 flex flex-col gap-4">
                             <div className="flex flex-col gap-1">
-                                <label className="text-xs font-medium text-slate-500 uppercase">{t('tools.qr.content_type')}</label>
-                                <select value={contentType} onChange={(e) => setContentType(e.target.value as any)} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-sm rounded-lg p-2.5 outline-none cursor-pointer">
-                                    <option value="url">{t('tools.qr.type_url')}</option>
-                                    <option value="text">{t('tools.qr.type_text')}</option>
-                                    <option value="email">{t('tools.qr.type_email')}</option>
-                                    <option value="wifi">{t('tools.qr.type_wifi')}</option>
-                                </select>
+                                <FieldLabel size="xs" tone="eyebrow">{t('tools.qr.content_type')}</FieldLabel>
+                                <Select
+                                    searchable={false}
+                                    options={[
+                                        { value: 'url', label: t('tools.qr.type_url') },
+                                        { value: 'text', label: t('tools.qr.type_text') },
+                                        { value: 'email', label: t('tools.qr.type_email') },
+                                        { value: 'wifi', label: t('tools.qr.type_wifi') },
+                                    ]}
+                                    value={contentType}
+                                    onChange={setContentType}
+                                    placeholder={t('tools.qr.content_type')}
+                                />
                             </div>
 
                             {/* Dynamic Inputs */}
                             {contentType === 'url' && (
                                 <div className="flex flex-col gap-1">
-                                    <label htmlFor="qr_input_url" className="text-xs font-medium text-slate-500 uppercase">{t('tools.qr.enter_url')}</label>
+                                    <FieldLabel htmlFor="qr_input_url" size="xs" tone="eyebrow">{t('tools.qr.enter_url')}</FieldLabel>
                                     <input id="qr_input_url" type="url" value={inputUrl} onChange={(e) => setInputUrl(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-sm outline-none focus:border-primary text-slate-900 dark:text-white" />
                                 </div>
                             )}
 
                             {contentType === 'text' && (
                                 <div className="flex flex-col gap-1">
-                                    <label className="text-xs font-medium text-slate-500 uppercase">{t('tools.qr.enter_text')}</label>
+                                    <FieldLabel size="xs" tone="eyebrow">{t('tools.qr.enter_text')}</FieldLabel>
                                     <textarea value={inputText} onChange={(e) => setInputText(e.target.value)} rows={3} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-sm outline-none focus:border-primary text-slate-900 dark:text-white resize-none"></textarea>
                                 </div>
                             )}
@@ -150,15 +159,15 @@ export default function QrMain() {
                             {contentType === 'email' && (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="flex flex-col gap-1 md:col-span-2">
-                                        <label htmlFor="qr_email_to" className="text-xs font-medium text-slate-500 uppercase">{t('tools.qr.email_to')}</label>
+                                        <FieldLabel htmlFor="qr_email_to" size="xs" tone="eyebrow">{t('tools.qr.email_to')}</FieldLabel>
                                         <input id="qr_email_to" type="email" value={emailData.to} onChange={(e) => setEmailData({...emailData, to: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-sm outline-none focus:border-primary text-slate-900 dark:text-white" />
                                     </div>
                                     <div className="flex flex-col gap-1 md:col-span-2">
-                                        <label htmlFor="qr_email_subject" className="text-xs font-medium text-slate-500 uppercase">{t('tools.qr.email_subject')}</label>
+                                        <FieldLabel htmlFor="qr_email_subject" size="xs" tone="eyebrow">{t('tools.qr.email_subject')}</FieldLabel>
                                         <input id="qr_email_subject" type="text" value={emailData.subject} onChange={(e) => setEmailData({...emailData, subject: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-sm outline-none focus:border-primary text-slate-900 dark:text-white" />
                                     </div>
                                     <div className="flex flex-col gap-1 md:col-span-2">
-                                        <label htmlFor="qr_email_body" className="text-xs font-medium text-slate-500 uppercase">{t('tools.qr.email_body')}</label>
+                                        <FieldLabel htmlFor="qr_email_body" size="xs" tone="eyebrow">{t('tools.qr.email_body')}</FieldLabel>
                                         <textarea id="qr_email_body" value={emailData.body} onChange={(e) => setEmailData({...emailData, body: e.target.value})} rows={2} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-sm outline-none focus:border-primary text-slate-900 dark:text-white resize-none"></textarea>
                                     </div>
                                 </div>
@@ -167,20 +176,26 @@ export default function QrMain() {
                             {contentType === 'wifi' && (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="flex flex-col gap-1 md:col-span-2">
-                                        <label htmlFor="qr_wifi_ssid" className="text-xs font-medium text-slate-500 uppercase">{t('tools.qr.wifi_ssid')}</label>
+                                        <FieldLabel htmlFor="qr_wifi_ssid" size="xs" tone="eyebrow">{t('tools.qr.wifi_ssid')}</FieldLabel>
                                         <input id="qr_wifi_ssid" type="text" value={wifiData.ssid} onChange={(e) => setWifiData({...wifiData, ssid: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-sm outline-none focus:border-primary text-slate-900 dark:text-white" />
                                     </div>
                                     <div className="flex flex-col gap-1">
-                                        <label htmlFor="qr_wifi_password" className="text-xs font-medium text-slate-500 uppercase">{t('tools.qr.password')}</label>
+                                        <FieldLabel htmlFor="qr_wifi_password" size="xs" tone="eyebrow">{t('tools.qr.password')}</FieldLabel>
                                         <input id="qr_wifi_password" type="text" value={wifiData.password} onChange={(e) => setWifiData({...wifiData, password: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-sm outline-none focus:border-primary text-slate-900 dark:text-white" />
                                     </div>
                                     <div className="flex flex-col gap-1">
-                                        <label className="text-xs font-medium text-slate-500 uppercase">{t('tools.qr.security')}</label>
-                                        <select value={wifiData.encryption} onChange={(e) => setWifiData({...wifiData, encryption: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-sm rounded-lg p-2.5 outline-none cursor-pointer">
-                                            <option value="WPA">WPA/WPA2</option>
-                                            <option value="WEP">WEP</option>
-                                            <option value="nopass">{t('tools.qr.no_password')}</option>
-                                        </select>
+                                        <FieldLabel size="xs" tone="eyebrow">{t('tools.qr.security')}</FieldLabel>
+                                        <Select
+                                            searchable={false}
+                                            options={[
+                                                { value: 'WPA', label: 'WPA/WPA2' },
+                                                { value: 'WEP', label: 'WEP' },
+                                                { value: 'nopass', label: t('tools.qr.no_password') },
+                                            ]}
+                                            value={wifiData.encryption}
+                                            onChange={(encryption) => setWifiData({ ...wifiData, encryption })}
+                                            placeholder={t('tools.qr.security')}
+                                        />
                                     </div>
                                 </div>
                             )}
@@ -195,43 +210,59 @@ export default function QrMain() {
                     {/* Card 2: Desain Visual */}
                     <Card title={t('tools.qr.visual_design')} status={t('tools.qr.design_status')} gridCols="grid-cols-1 md:grid-cols-2">
                         <div className="flex flex-col gap-2 w-full min-w-0">
-                            <label className="text-xs font-medium text-slate-500 uppercase">{t('tools.qr.dot_pattern')}</label>
+                            <FieldLabel size="xs" tone="eyebrow">{t('tools.qr.dot_pattern')}</FieldLabel>
                             <div className="flex items-center gap-2">
-                                <select value={dotsType} onChange={(e) => setDotsType(e.target.value as DotType)} className="flex-1 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-sm rounded-lg p-2.5 outline-none cursor-pointer">
-                                    <option value="square">{t('tools.qr.square')}</option>
-                                    <option value="rounded">{t('tools.qr.rounded')}</option>
-                                    <option value="dots">{t('tools.qr.dots')}</option>
-                                    <option value="classy">{t('tools.qr.classy')}</option>
-                                </select>
+                                <div className="flex-1">
+                                    <Select
+                                        searchable={false}
+                                        options={[
+                                            { value: 'square', label: t('tools.qr.square') },
+                                            { value: 'rounded', label: t('tools.qr.rounded') },
+                                            { value: 'dots', label: t('tools.qr.dots') },
+                                            { value: 'classy', label: t('tools.qr.classy') },
+                                        ]}
+                                        value={dotsType}
+                                        onChange={setDotsType}
+                                        placeholder={t('tools.qr.dot_pattern')}
+                                    />
+                                </div>
                                 <input type="color" value={dotsColor} onChange={(e) => setDotsColor(e.target.value)} className="w-10 h-10 rounded-lg border border-slate-300 dark:border-slate-700 cursor-pointer p-0.5 bg-white dark:bg-slate-950 shrink-0" />
                             </div>
                         </div>
                         
                         <div className="flex flex-col gap-2 w-full min-w-0">
-                            <label className="text-xs font-medium text-slate-500 uppercase">{t('tools.qr.corner_pattern')}</label>
+                            <FieldLabel size="xs" tone="eyebrow">{t('tools.qr.corner_pattern')}</FieldLabel>
                             <div className="flex items-center gap-2">
-                                <select value={cornerType} onChange={(e) => setCornerType(e.target.value as CornerSquareType)} className="flex-1 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-sm rounded-lg p-2.5 outline-none cursor-pointer">
-                                    <option value="square">{t('tools.qr.square')}</option>
-                                    <option value="extra-rounded">{t('tools.qr.extra_rounded')}</option>
-                                    <option value="dot">{t('tools.qr.large_dot')}</option>
-                                </select>
+                                <div className="flex-1">
+                                    <Select
+                                        searchable={false}
+                                        options={[
+                                            { value: 'square', label: t('tools.qr.square') },
+                                            { value: 'extra-rounded', label: t('tools.qr.extra_rounded') },
+                                            { value: 'dot', label: t('tools.qr.large_dot') },
+                                        ]}
+                                        value={cornerType}
+                                        onChange={setCornerType}
+                                        placeholder={t('tools.qr.corner_pattern')}
+                                    />
+                                </div>
                                 <input type="color" value={cornerColor} onChange={(e) => setCornerColor(e.target.value)} className="w-10 h-10 rounded-lg border border-slate-300 dark:border-slate-700 cursor-pointer p-0.5 bg-white dark:bg-slate-950 shrink-0" />
                             </div>
                         </div>
 
                         <div className="flex flex-col gap-2 w-full min-w-0 mt-2">
-                            <label className="flex justify-between text-xs font-medium text-slate-500 uppercase">
+                            <FieldLabel size="xs" tone="eyebrow" className="flex justify-between">
                                 <span>{t('tools.qr.resolution')}</span>
                                 <span className="font-mono text-primary">{size}px</span>
-                            </label>
+                            </FieldLabel>
                             <input type="range" min="200" max="600" step="20" value={size} onChange={(e) => setSize(Number(e.target.value))} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer dark:bg-slate-700" />
                         </div>
                         
                         <div className="flex flex-col gap-2 w-full min-w-0 mt-2">
-                            <label className="flex justify-between text-xs font-medium text-slate-500 uppercase">
+                            <FieldLabel size="xs" tone="eyebrow" className="flex justify-between">
                                 <span>{t('tools.qr.white_margin')}</span>
                                 <span className="font-mono text-primary">{margin}px</span>
-                            </label>
+                            </FieldLabel>
                             <input type="range" min="0" max="50" step="5" value={margin} onChange={(e) => setMargin(Number(e.target.value))} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer dark:bg-slate-700" />
                         </div>
                     </Card>
@@ -239,13 +270,13 @@ export default function QrMain() {
                     {/* Card 3: Logo */}
                     <Card title={t('tools.qr.insert_logo')} status={t('tools.qr.optional')} gridCols="grid-cols-1">
                         <div className="w-full min-w-0 flex flex-col gap-4">
-                            <input type="file" accept="image/png, image/jpeg, image/svg+xml" onChange={handleLogoUpload} className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-primary hover:file:bg-blue-100 dark:file:bg-blue-900/30 dark:file:text-blue-400 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-950 cursor-pointer" />
+                            <input type="file" accept="image/png, image/jpeg, image/svg+xml" onChange={handleLogoUpload} className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-primary/10 file:text-primary hover:file:bg-primary/20 dark:file:bg-primary/20 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-950 cursor-pointer" />
                             
                             <div className="flex flex-col gap-2 w-full min-w-0">
-                                <label htmlFor="qr_logo_scale" className="flex justify-between text-xs font-medium text-slate-500 uppercase">
+                                <FieldLabel htmlFor="qr_logo_scale" size="xs" tone="eyebrow" className="flex justify-between">
                                     <span>{t('tools.qr.logo_scale')}</span>
                                     <span className="font-mono text-primary">{logoSize}</span>
-                                </label>
+                                </FieldLabel>
                                 <input id="qr_logo_scale" type="range" min="0.1" max="0.4" step="0.05" value={logoSize} onChange={(e) => setLogoSize(Number(e.target.value))} disabled={!logo} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer dark:bg-slate-700 disabled:opacity-50" />
                             </div>
                         </div>
@@ -264,15 +295,23 @@ export default function QrMain() {
                                 </div>
 
                                 <div className="flex items-center gap-2 w-full max-w-[280px]">
-                                    <select value={downloadExt} onChange={(e) => setDownloadExt(e.target.value as FileExtension)} className="bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-sm rounded-lg p-2.5 outline-none cursor-pointer shrink-0">
-                                        <option value="png">PNG</option>
-                                        <option value="jpeg">JPG</option>
-                                        <option value="svg">SVG</option>
-                                    </select>
+                                    <div className="shrink-0 w-28">
+                                        <Select
+                                            searchable={false}
+                                            options={[
+                                                { value: 'png', label: 'PNG' },
+                                                { value: 'jpeg', label: 'JPG' },
+                                                { value: 'svg', label: 'SVG' },
+                                            ]}
+                                            value={downloadExt}
+                                            onChange={setDownloadExt}
+                                            placeholder={t('tools.qr.export_format')}
+                                        />
+                                    </div>
                                     
-                                    <button type="button" onClick={handleDownload} className="flex-1 bg-primary hover:bg-blue-600 text-white text-sm font-medium py-2.5 px-4 rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm">
-                                        <span className="material-symbols-outlined text-[18px]">download</span> {t('tools.qr.download')}
-                                    </button>
+                                    <Button variant="primary" icon="download" onClick={handleDownload} className="flex-1 shadow-sm">
+                                        {t('tools.qr.download')}
+                                    </Button>
                                 </div>
                             </div>
                         </Card>

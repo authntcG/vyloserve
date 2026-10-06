@@ -103,7 +103,21 @@ def test_get_cbs(runtimes_manager):
         mock_log.assert_called_once_with("Test log", "info", None)
 
         download_cb(35, "Downloading")
-        mock_prog.assert_called_once_with(35, "Downloading")
+        mock_prog.assert_called_once_with(35, "Downloading", None)
+
+
+def test_get_cbs_download_cb_forwards_three_positional_args(runtimes_manager):
+    """
+    Regresi: file_utils.py's download_advanced/extract_archive memanggil progress_cb dengan
+    3 argumen posisional (percent, message_key, args_dict) di beberapa titik (progress
+    multi-part/single-stream/ekstraksi zip) -- download_cb sebelumnya cuma menerima 2 param
+    (pct, msg) dan CRASH dengan "takes 2 positional arguments but 3 were given" setiap kali
+    file_utils.py memanggilnya dengan args dict. Lihat docs/known_bugs.md.
+    """
+    _, download_cb = runtimes_manager._get_cbs(10, 60)
+    with patch.object(runtimes_manager, '_emit_progress') as mock_prog:
+        download_cb(35, "Downloading", {"percent": 50})  # tidak boleh raise TypeError
+        mock_prog.assert_called_once_with(35, "Downloading", {"percent": 50})
 
 
 def test_get_cbs_clamps_out_of_range_percent(runtimes_manager):
@@ -111,10 +125,10 @@ def test_get_cbs_clamps_out_of_range_percent(runtimes_manager):
     _, download_cb = runtimes_manager._get_cbs(10, 60)
     with patch.object(runtimes_manager, '_emit_progress') as mock_prog:
         download_cb(5, "Below start")
-        mock_prog.assert_called_with(10, "Below start")
+        mock_prog.assert_called_with(10, "Below start", None)
 
         download_cb(95, "Above end")
-        mock_prog.assert_called_with(60, "Above end")
+        mock_prog.assert_called_with(60, "Above end", None)
 
 # 68-119
 def test_check_external_installation_found(runtimes_manager):

@@ -1,4 +1,4 @@
-import pytest
+﻿import pytest
 from unittest.mock import MagicMock, patch
 from core.api import Api
 
@@ -16,6 +16,10 @@ def api_instance():
          patch('core.api.SettingsManager'):
         api = Api()
         yield api
+
+def test_set_notification_icon_stores_the_path(api_instance):
+    api_instance.set_notification_icon("C:\\fake\\icons-nobg.png")
+    assert api_instance._notification_icon_path == "C:\\fake\\icons-nobg.png"
 
 def test_set_window_and_emitters(api_instance):
     mock_window = MagicMock()
@@ -432,3 +436,124 @@ def test_git_endpoints(api_instance):
     
     api_instance.set_git_config("name", "email")
     api_instance.git_manager.set_git_config.assert_called_once_with("name", "email")
+
+
+# ==========================================
+# emit_window_state / show_native_notification -- fitur histori toast + notifikasi native Windows
+# ==========================================
+
+def test_emit_window_state_sends_only_the_provided_fields(api_instance):
+    mock_window = MagicMock()
+    api_instance.set_window(mock_window)
+
+    api_instance.emit_window_state(minimized=True)
+
+    payload = mock_window.evaluate_js.call_args[0][0]
+    assert "vylo_window_state" in payload
+    assert '"minimized": true' in payload
+    assert "hidden" not in payload
+
+def test_emit_window_state_sends_both_fields_when_both_provided(api_instance):
+    mock_window = MagicMock()
+    api_instance.set_window(mock_window)
+
+    api_instance.emit_window_state(minimized=False, hidden=True)
+
+    payload = mock_window.evaluate_js.call_args[0][0]
+    assert '"minimized": false' in payload
+    assert '"hidden": true' in payload
+
+def test_emit_window_state_is_a_no_op_when_no_field_provided(api_instance):
+    mock_window = MagicMock()
+    api_instance.set_window(mock_window)
+
+    api_instance.emit_window_state()
+
+    mock_window.evaluate_js.assert_not_called()
+
+def test_emit_window_state_does_not_crash_without_a_window(api_instance):
+    """Dipanggil sebelum window sempat di-set (mis. gagal di tengah startup) -> tidak boleh crash."""
+    api_instance.emit_window_state(minimized=True)  # tidak boleh raise
+
+@patch('core.api.threading.Thread')
+def test_show_native_notification_runs_in_a_background_thread(mock_thread_cls, api_instance):
+    """Konsisten pola daemon thread pystray di main.py -- win11toast/winrt butuh event loop sendiri."""
+    mock_thread_instance = MagicMock()
+    mock_thread_cls.return_value = mock_thread_instance
+
+    result = api_instance.show_native_notification("Build selesai", "success")
+
+    assert result == {"status": "success"}
+    mock_thread_cls.assert_called_once()
+    assert mock_thread_cls.call_args.kwargs.get('daemon') is True
+    mock_thread_instance.start.assert_called_once()
+
+@patch('core.api.threading.Thread')
+@patch('win11toast.toast')
+def test_show_native_notification_calls_win11toast_with_message_and_click_handler(mock_toast, mock_thread_cls, api_instance):
+    mock_thread_cls.return_value = MagicMock()
+    api_instance.set_notification_icon("C:\\fake\\icons-nobg.png")
+
+    api_instance.show_native_notification("Build selesai", "success")
+    run_fn = mock_thread_cls.call_args.kwargs['target']
+    run_fn()
+
+    args, kwargs = mock_toast.call_args
+    assert args[0] == "VyloServe"
+    assert args[1] == "Build selesai"
+    assert kwargs.get('duration') == 'short'
+    assert kwargs.get('on_click') == api_instance._restore_window_from_notification
+    assert "notify-success.png" in kwargs.get("icon")
+
+@patch('core.api.threading.Thread')
+@patch('win11toast.toast')
+def test_show_native_notification_passes_none_icon_when_not_set(mock_toast, mock_thread_cls, api_instance):
+    """set_notification_icon() belum dipanggil (mis. gagal di tengah startup) -> tidak boleh crash, icon=None (win11toast menangani ini dengan baik)."""
+    mock_thread_cls.return_value = MagicMock()
+
+    api_instance.show_native_notification("oops", "unknown_type")
+    mock_thread_cls.call_args.kwargs['target']()
+
+    assert mock_toast.call_args.kwargs.get('icon') is None
+
+@patch('core.api.threading.Thread')
+@patch('win11toast.toast')
+def test_show_native_notification_uses_long_duration_for_error_and_warning(mock_toast, mock_thread_cls, api_instance):
+    """Notifikasi error/warning tidak boleh auto-dismiss secepat notifikasi biasa -- lebih penting untuk tidak terlewat."""
+    mock_thread_cls.return_value = MagicMock()
+
+    for toast_type in ('error', 'warning'):
+        api_instance.show_native_notification("oops", toast_type)
+        mock_thread_cls.call_args.kwargs['target']()
+
+    assert all(call.kwargs.get('duration') == 'long' for call in mock_toast.call_args_list)
+
+@patch('core.api.threading.Thread')
+@patch('win11toast.toast', side_effect=RuntimeError("winrt unavailable"))
+def test_show_native_notification_swallows_toast_failure(mock_toast, mock_thread_cls, api_instance):
+    """Kegagalan win11toast (mis. OS tidak mendukung WinRT) tidak boleh membuat thread crash tak tertangani."""
+    mock_thread_cls.return_value = MagicMock()
+    mock_window = MagicMock()
+    api_instance.set_window(mock_window)
+
+    api_instance.show_native_notification("oops", "error")
+    mock_thread_cls.call_args.kwargs['target']()  # tidak boleh raise
+
+    mock_window.evaluate_js.assert_called_once()
+    assert "vylo_log" in mock_window.evaluate_js.call_args[0][0]
+
+def test_restore_window_from_notification_shows_restores_and_pushes_state(api_instance):
+    mock_window = MagicMock()
+    api_instance.set_window(mock_window)
+
+    api_instance._restore_window_from_notification()
+
+    mock_window.show.assert_called_once()
+    mock_window.restore.assert_called_once()
+    payload = mock_window.evaluate_js.call_args[0][0]
+    assert '"hidden": false' in payload
+    assert '"minimized": false' in payload
+
+def test_restore_window_from_notification_does_not_crash_without_a_window(api_instance):
+    api_instance._restore_window_from_notification()  # tidak boleh raise
+

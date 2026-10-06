@@ -39,7 +39,8 @@ describe('QrMain', () => {
         const user = userEvent.setup();
         renderWithToast(<QrMain />);
 
-        await user.selectOptions(screen.getByDisplayValue('tools.qr.type_url'), 'text');
+        await user.click(screen.getByRole('button', { name: 'tools.qr.type_url' }));
+        await user.click(screen.getByRole('option', { name: 'tools.qr.type_text' }));
         await user.type(screen.getByRole('textbox'), 'hello world');
 
         expect(screen.getAllByText('hello world')).toHaveLength(2);
@@ -49,7 +50,8 @@ describe('QrMain', () => {
         const user = userEvent.setup();
         renderWithToast(<QrMain />);
 
-        await user.selectOptions(screen.getByDisplayValue('tools.qr.type_url'), 'text');
+        await user.click(screen.getByRole('button', { name: 'tools.qr.type_url' }));
+        await user.click(screen.getByRole('option', { name: 'tools.qr.type_text' }));
 
         expect(screen.getByText('kosong')).toBeInTheDocument();
     });
@@ -57,7 +59,8 @@ describe('QrMain', () => {
     it('builds a mailto raw data string from the email fields', async () => {
         const user = userEvent.setup();
         renderWithToast(<QrMain />);
-        await user.selectOptions(screen.getByDisplayValue('tools.qr.type_url'), 'email');
+        await user.click(screen.getByRole('button', { name: 'tools.qr.type_url' }));
+        await user.click(screen.getByRole('option', { name: 'tools.qr.type_email' }));
 
         await user.type(screen.getByLabelText('tools.qr.email_to'), 'a@b.com');
         await user.type(screen.getByLabelText('tools.qr.email_subject'), 'Hi');
@@ -68,7 +71,8 @@ describe('QrMain', () => {
     it('builds a WIFI raw data string from the wifi fields', async () => {
         const user = userEvent.setup();
         renderWithToast(<QrMain />);
-        await user.selectOptions(screen.getByDisplayValue('tools.qr.type_url'), 'wifi');
+        await user.click(screen.getByRole('button', { name: 'tools.qr.type_url' }));
+        await user.click(screen.getByRole('option', { name: 'tools.qr.type_wifi' }));
 
         await user.type(screen.getByLabelText('tools.qr.wifi_ssid'), 'MyNet');
         await user.type(screen.getByLabelText('tools.qr.password'), 'secret');
@@ -81,7 +85,8 @@ describe('QrMain', () => {
         renderWithToast(<QrMain />);
         const instance = qrInstances.at(-1)!;
 
-        await user.selectOptions(screen.getByDisplayValue('tools.qr.rounded'), 'square');
+        await user.click(screen.getByRole('button', { name: 'tools.qr.rounded' }));
+        await user.click(screen.getByRole('option', { name: 'tools.qr.square' }));
 
         expect(instance.update).toHaveBeenCalled();
         expect(instance.append).toHaveBeenCalledTimes(1);
@@ -100,7 +105,8 @@ describe('QrMain', () => {
             args: { path: 'C:\\test\\qr.svg' }
         });
 
-        await user.selectOptions(screen.getByDisplayValue('PNG'), 'svg');
+        await user.click(screen.getByRole('button', { name: 'PNG' }));
+        await user.click(screen.getByRole('option', { name: 'SVG' }));
         await user.click(screen.getByText('tools.qr.download'));
 
         expect(instance.getRawData).toHaveBeenCalledWith('svg');
@@ -129,12 +135,14 @@ describe('QrMain', () => {
         expect(screen.getByLabelText(/tools\.qr\.logo_scale/)).toBeDisabled();
     });
 
-    it('updates the dot color, corner pattern, corner color, resolution, and margin controls', () => {
+    it('updates the dot color, corner pattern, corner color, resolution, and margin controls', async () => {
+        const user = userEvent.setup();
         renderWithToast(<QrMain />);
         const [dotsColor, cornerColor] = screen.getAllByDisplayValue('#0f172a');
 
         fireEvent.change(dotsColor, { target: { value: '#ff0000' } });
-        fireEvent.change(screen.getByDisplayValue('tools.qr.extra_rounded'), { target: { value: 'square' } });
+        await user.click(screen.getByRole('button', { name: 'tools.qr.extra_rounded' }));
+        await user.click(screen.getByRole('option', { name: 'tools.qr.square' }));
         fireEvent.change(cornerColor, { target: { value: '#00ff00' } });
         fireEvent.change(screen.getByDisplayValue('240'), { target: { value: '400' } });
         fireEvent.change(screen.getByDisplayValue('10'), { target: { value: '20' } });

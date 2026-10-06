@@ -86,6 +86,7 @@ describe('PhpMain', () => {
 
         await user.click(screen.getByText('php.config'));
         await screen.findByText('curl');
+        expect(screen.getByRole('checkbox', { name: 'curl' })).toBeChecked();
         await user.click(screen.getByText('php.save_changes'));
 
         expect(saveConfig).toHaveBeenCalledWith('8.2', expect.objectContaining({ port: 9000 }), ['curl']);

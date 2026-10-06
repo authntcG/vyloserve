@@ -113,8 +113,11 @@
 | `test_connection(data)` | `test_connection()` | Return ping |
 | `close_app()` | `close_app()` | `quit_callback()` (jika di-set `main.py`) atau `os._exit(0)` langsung — lihat `docs/known_bugs.md` #6 untuk isu cleanup proses child |
 | `save_base64_file(filename, base64_data, file_types?)` | `save_base64_file()` | `window.create_file_dialog(SAVE_DIALOG)` lalu tulis file hasil decode base64 langsung — satu-satunya endpoint yang tidak melalui Manager manapun |
+| `show_native_notification(message, type)` | `show_native_notification()` | `win11toast.toast()` di thread terpisah — notifikasi native Windows, dipanggil `ToastContext.tsx` saat window backgrounded. Detail: `docs/backend_services.md` §14.4 |
 
 > **Catatan:** `Api.start_log_watcher()`/`stop_log_watcher()` **bukan** endpoint yang dipanggil dari JS — ini method internal yang dipanggil sekali oleh `main.py` saat window dibuat/ditutup untuk menjalankan thread background yang menyalurkan file log Apache/Database ke System Logs. Detail: `docs/backend_services.md` §11.2.
+>
+> **Catatan:** `Api.emit_window_state()`/`set_notification_icon()` juga **bukan** endpoint yang dipanggil dari JS — `emit_window_state()` di-push ke frontend lewat `evaluate_js` (bukan dipanggil JS), `set_notification_icon()` dipanggil sekali oleh `main.py` saat window dibuat (pola sama `set_window()`). Detail: `docs/backend_services.md` §14.4.
 
 ### Updater Endpoints
 | Endpoint (JS) | Handler Python | Delegasi ke |
@@ -163,7 +166,7 @@ Fitur *public tunnel* berbasis [zrok](https://zrok.io) (OpenZiti) — expose pro
 | `core/services/git_manager.py` | ~362 baris | PortableGit installer dan PATH management |
 | `core/services/ssl_manager.py` | ~101 baris | Root CA generation via OpenSSL |
 | `core/services/dashboard.py` | ~64 baris | CRUD konfigurasi dashboard (JSON) |
-| `core/services/settings.py` | ~75 baris | CRUD preferensi aplikasi (`language`, `theme`, `receive_prerelease_updates`, `default_apache_install_location`, `system_log_levels`/`system_log_sources`) |
+| `core/services/settings.py` | ~75 baris | CRUD preferensi aplikasi (`language`, `theme`, `receive_prerelease_updates`, `enable_desktop_notifications`, `default_apache_install_location`, `system_log_levels`/`system_log_sources`) |
 | `core/services/updater.py` | ~237 baris | Auto-Updater: cek/unduh/pasang rilis baru dari GitHub Releases |
 | `core/services/tunnels.py` | ~500 baris | Public tunnel berbasis zrok (install/enable/disable/share) — lihat §1 "Tunnels Endpoints". Termasuk `_extract_zrok_public_url()`/`_parse_zrok_log_line()`/`_log_zrok_line()` (parsing output JSON `zrok.exe` v2 — lihat `docs/known_bugs.md` #35) |
 | `core/utils/file_utils.py` | ~291 baris | JSON I/O, download multi-part, ekstraksi ZIP/TAR, `read_log_tail()`/`read_new_lines()` untuk System Logs |
@@ -412,6 +415,24 @@ const handleInstall = async () => {
 };
 ```
 
+### 5.4 Template: Memilih Komponen UI untuk Elemen Baru
+
+**WAJIB baca `docs/ui_consistency_guide.md` dulu sebelum menulis button/toggle/dropdown baru.** Jangan tulis ulang markup Tailwind dari nol untuk pola-pola ini — pakai komponen bersama di `frontend/src/components/`:
+
+| Butuh elemen... | Pakai komponen | JANGAN |
+|---|---|---|
+| Tombol aksi (primary/secondary/danger/dst.) | `<Button variant="..." />` | `<button className="bg-primary hover:bg-blue-600 ...">` |
+| Tombol Start/Stop service (warna berubah per state) | `<ServiceToggleButton />` | Ternary `isRunning ? 'bg-amber-500...' : 'bg-emerald-500...'` manual |
+| Sakelar on/off | `<ToggleSwitch />` | `<label><input type="checkbox" className="sr-only peer">` manual |
+| Dropdown/value-picker (dengan atau tanpa search) | `<Select searchable={true|false} />` | `<select>` manual atau combobox custom baru |
+| Progress bar (track+fill) | `<ProgressBar percent={...} />` | `<div className="bg-slate-200 ..."><div style={{width}} /></div>` manual |
+| Kartu "OS terdeteksi + badge compatible" | `<OsCompatibilityCard ... />` | Markup kartu+badge disalin dari wizard lain |
+| Tab navigasi underline | `<Tabs tabs={...} value={...} onChange={...} />` | `<button>` tab manual per-item (BUKAN untuk segmented-pill atau chip toggle — lihat `docs/ui_consistency_guide.md` §2) |
+| Label field (di atas input/select) | `<FieldLabel size="sm\|xs" tone="..." htmlFor="...">` | `<label className="text-xs font-medium text-slate-...">` manual (BUKAN untuk heading section atau label pembungkus checkbox/toggle card — lihat `docs/ui_consistency_guide.md` §2) |
+| Kotak info/warning/danger (ikon+teks) | `<InfoBox tone="info\|warning\|danger" icon="...">` | `<div className="p-3 bg-blue-50 ...">` manual (BUKAN untuk chip deteksi inline atau label checkbox bertint — lihat `docs/ui_consistency_guide.md` §2) |
+
+Kalau butuh variant/kapabilitas baru yang belum ada di salah satu komponen ini (mis. warna baru, ukuran baru), **perluas komponennya**, jangan bikin implementasi paralel — dan perbarui `docs/ui_consistency_guide.md` begitu selesai.
+
 ---
 
 ## 6. Panduan Troubleshooting Frontend
@@ -544,7 +565,16 @@ Sebelum menyerahkan perubahan, pastikan seluruh checklist ini terpenuhi:
 - [ ] `except Exception as e: return {"message": str(e)}` **DILARANG** — pakai
       `"message": "backend.error.unexpected", "args": {"e": str(e)}` atau key spesifik
 - [ ] Jika membuat/mengubah wrapper `_log()`/`_progress()` di service, signature-nya
-      menerima & meneruskan `args: dict = None` ke `self.api.emit_log/emit_progress`
+      menerima & meneruskan `args: dict = None` ke `self.api.emit_log/emit_progress` —
+      **berlaku juga untuk closure lokal** (`def prog_cb(pct, msg, args=None): ...`,
+      `def download_cb(pct, msg, args=None): ...`) yang diteruskan sebagai
+      `progress_cb=`/`log_cb=` ke `download_advanced()`/`extract_archive()`
+      (`core/utils/file_utils.py`) — closure-closure ini dipanggil dengan 3 argumen
+      posisional di beberapa titik (`percent, message_key, args_dict`), BUKAN cuma 2;
+      lupa menambah parameter ketiga di closure menyebabkan crash `takes 2 positional
+      arguments but 3 were given` yang luput dari test karena `download_advanced`/
+      `extract_archive` biasanya di-mock total di unit test service (lihat
+      `docs/known_bugs.md` #46 — regresi ini sempat ada di 5 service sekaligus)
 - [ ] Nama method di `Api` facade yang mendelegasikan ke service (`self.xxx.method_name()`)
       **cocok persis** dengan nama method yang benar-benar ada di service tersebut — cek
       langsung ke file service, jangan asumsikan dari nama endpoint JS (lihat `docs/known_bugs.md` #28)

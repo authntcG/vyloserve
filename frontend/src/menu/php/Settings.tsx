@@ -1,6 +1,8 @@
 // src/menu/php/Settings.tsx
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import FieldLabel from '../../components/FieldLabel';
+import ToggleSwitch from '../../components/ToggleSwitch';
 
 interface Extension {
     name: string;
@@ -68,13 +70,13 @@ export default function PhpSettings({ config, setConfig, extensions, setExtensio
 
                 <div className="grid grid-cols-2 gap-4">
                     <div className="flex flex-col gap-2">
-                        <label htmlFor="php_fastcgi_port" className="text-xs font-medium text-slate-700 dark:text-slate-300">{t('php.fastcgi_port')}</label>
+                        <FieldLabel htmlFor="php_fastcgi_port" size="sm">{t('php.fastcgi_port')}</FieldLabel>
                         <input
                             id="php_fastcgi_port"
                             type="number"
                             value={config.port}
                             onChange={(e) => handleConfigChange(e, 'port')}
-                            className={`w-full bg-white dark:bg-slate-950 border ${isPortConflict ? 'border-red-500 text-red-600 focus:ring-red-500' : 'border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:ring-primary focus:border-primary'} text-sm rounded-lg block p-2 outline-none transition-colors font-mono`}
+                            className={`w-full bg-white dark:bg-slate-950 border ${isPortConflict ? 'border-red-500 text-red-600 focus:ring-red-500' : 'border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:ring-primary focus:border-primary'} text-sm rounded-lg block p-2.5 outline-none transition-colors font-mono`}
                         />
                         {/* WARNING KONFLIK PORT */}
                         {isPortConflict && (
@@ -85,33 +87,33 @@ export default function PhpSettings({ config, setConfig, extensions, setExtensio
                         )}
                     </div>
                     <div className="flex flex-col gap-2">
-                        <label htmlFor="php_memory_limit" className="text-xs font-medium text-slate-700 dark:text-slate-300">memory_limit</label>
+                        <FieldLabel htmlFor="php_memory_limit" size="sm">memory_limit</FieldLabel>
                         <input
                             id="php_memory_limit"
                             type="text"
                             value={config.memory_limit}
                             onChange={(e) => handleConfigChange(e, 'memory_limit')}
-                            className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2 outline-none transition-colors"
+                            className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2.5 outline-none transition-colors"
                         />
                     </div>
                     <div className="flex flex-col gap-2">
-                        <label htmlFor="php_max_execution_time" className="text-xs font-medium text-slate-700 dark:text-slate-300">max_execution_time (sec)</label>
+                        <FieldLabel htmlFor="php_max_execution_time" size="sm">max_execution_time (sec)</FieldLabel>
                         <input
                             id="php_max_execution_time"
                             type="text"
                             value={config.max_execution_time}
                             onChange={(e) => handleConfigChange(e, 'max_execution_time')}
-                            className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2 outline-none transition-colors"
+                            className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2.5 outline-none transition-colors"
                         />
                     </div>
                     <div className="flex flex-col gap-2">
-                        <label htmlFor="php_upload_max_filesize" className="text-xs font-medium text-slate-700 dark:text-slate-300">upload_max_filesize</label>
+                        <FieldLabel htmlFor="php_upload_max_filesize" size="sm">upload_max_filesize</FieldLabel>
                         <input
                             id="php_upload_max_filesize"
                             type="text"
                             value={config.upload_max_filesize}
                             onChange={(e) => handleConfigChange(e, 'upload_max_filesize')}
-                            className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2 outline-none transition-colors"
+                            className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2.5 outline-none transition-colors"
                         />
                     </div>
                 </div>
@@ -152,18 +154,15 @@ export default function PhpSettings({ config, setConfig, extensions, setExtensio
                                 key={ext.name}
                                 onClick={() => toggleExtension(ext.name)}
                                 className={`flex items-center justify-between p-2 rounded border cursor-pointer select-none transition-all ${ext.active
-                                    ? 'border-primary/50 bg-blue-50/50 dark:bg-blue-900/10 dark:border-primary/40'
+                                    ? 'border-primary/50 bg-primary/5 dark:bg-primary/10 dark:border-primary/40'
                                     : 'border-slate-200 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-800'
                                     }`}
                             >
-                                <span className={`text-xs font-medium truncate pr-2 ${ext.active ? 'text-primary dark:text-blue-400' : 'text-slate-600 dark:text-slate-400'}`}>
+                                <span className={`text-xs font-medium truncate pr-2 ${ext.active ? 'text-primary' : 'text-slate-600 dark:text-slate-400'}`}>
                                     {ext.name}
                                 </span>
 
-                                <label aria-label={ext.name} className="relative inline-flex items-center cursor-pointer pointer-events-none">
-                                    <input type="checkbox" className="sr-only peer" checked={ext.active} readOnly />
-                                    <div className="w-7 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all dark:border-slate-600 peer-checked:bg-primary"></div>
-                                </label>
+                                <ToggleSwitch checked={ext.active} onChange={() => {}} label={ext.name} size="sm" interactive={false} />
                             </button>
                         ))
                     ) : (

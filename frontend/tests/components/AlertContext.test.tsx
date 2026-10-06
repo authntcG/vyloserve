@@ -90,6 +90,23 @@ describe('AlertContext', () => {
         expect(screen.queryByTestId('mock-modal')).not.toBeInTheDocument();
     });
 
+    // Regresi: tombol confirm sebelumnya didefinisikan ulang dari nol di AlertContext
+    // (bukan memakai Button/Modal), termasuk `hover:bg-blue-600` hardcoded yang tidak
+    // theme-aware. Lihat docs/ui_consistency_guide.md.
+    it('uses the shared Button component with a theme-aware hover color on the confirm button', async () => {
+        render(
+            <AlertProvider>
+                <TestComponent />
+            </AlertProvider>
+        );
+
+        await userEvent.click(screen.getByText('Show Alert'));
+
+        const confirmBtn = screen.getByText('OK');
+        expect(confirmBtn).toHaveClass('hover:bg-primary/90');
+        expect(confirmBtn).not.toHaveClass('hover:bg-blue-600');
+    });
+
     it('shows confirm and returns false on cancel', async () => {
         render(
             <AlertProvider>

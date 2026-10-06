@@ -3,8 +3,12 @@ import { useTranslation } from 'react-i18next';
 import PageHeader from '../../components/PageHeader';
 import Card from '../../components/Card';
 import Modal from '../../components/Modal';
+import ToggleSwitch from '../../components/ToggleSwitch';
+import ProgressBar from '../../components/ProgressBar';
+import Tabs from '../../components/Tabs';
 import BackgroundProgressWidget from '../../components/BackgroundProgressWidget';
 import EmptyState from '../../components/EmptyState';
+import InfoBox from '../../components/InfoBox';
 import { useToast } from '../../components/ToastContext';
 import { useAlert } from '../../components/AlertContext';
 import { clampPercent } from '../../utils/progress';
@@ -77,10 +81,9 @@ interface ExternalWarningBannerProps {
 function ExternalWarningBanner({ version }: ExternalWarningBannerProps) {
     const { t } = useTranslation();
     return (
-        <div className="col-span-1 md:col-span-2 mb-3 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg flex items-start gap-2.5 w-full min-w-0">
-            <span className="material-symbols-outlined text-amber-500 text-[18px] shrink-0 mt-0.5">warning</span>
-            <span className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed break-words flex-1 min-w-0">{t('runtimes.external_native_detected_1')}{version}{t('runtimes.external_native_detected_2')}</span>
-        </div>
+        <InfoBox tone="warning" icon="warning" className="col-span-1 md:col-span-2 mb-3 w-full min-w-0">
+            {t('runtimes.external_native_detected_1')}{version}{t('runtimes.external_native_detected_2')}
+        </InfoBox>
     );
 }
 
@@ -102,10 +105,9 @@ function RegisterPathToggle({ checked, onChange, externalLocked, processing, des
                 <span className={`text-sm font-semibold truncate ${externalLocked ? 'text-slate-400' : 'text-slate-900 dark:text-white'}`}>{t('runtimes.register_path')}</span>
                 <span className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 break-words leading-relaxed">{t(descriptionKey)}</span>
             </div>
-            <label className={`relative inline-flex items-center ${marginClass} shrink-0 ${externalLocked ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
-                <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} disabled={disabled} aria-label={t('runtimes.register_path')} className="sr-only peer" />
-                <div className="w-11 h-6 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary opacity-90 peer-disabled:opacity-40 peer-disabled:grayscale"></div>
-            </label>
+            <div className={`${marginClass} shrink-0`}>
+                <ToggleSwitch checked={checked} onChange={onChange} disabled={disabled} label={t('runtimes.register_path')} />
+            </div>
         </div>
     );
 }
@@ -169,20 +171,11 @@ function RuntimeEnginePanel({ data, isProcessing, emptyIcon, emptyTitle, emptyDe
     );
 }
 
-interface EngineTabButtonProps {
-    readonly label: string;
-    readonly isActive: boolean;
-    readonly showBadge: boolean;
-    readonly badgeColorClass: string;
-    readonly onClick: () => void;
-}
-
-function EngineTabButton({ label, isActive, showBadge, badgeColorClass, onClick }: EngineTabButtonProps) {
-    return (
-        <button type="button" onClick={onClick} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${isActive ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
-            {label} {showBadge && <span className={`w-2 h-2 rounded-full shrink-0 ${badgeColorClass}`}></span>}
-        </button>
-    );
+/** Dot badge "terdeteksi" di tab engine -- emerald kalau terinstal VyloServe, amber kalau cuma terdeteksi eksternal, tidak ada kalau belum ada sama sekali. */
+function engineTabBadgeClass(engine: { readonly installed: boolean; readonly external?: { readonly exists: boolean } }): string | undefined {
+    if (engine.installed) return 'bg-emerald-500';
+    if (engine.external?.exists) return 'bg-amber-500';
+    return undefined;
 }
 
 interface RuntimesSubtitleProps {
@@ -209,11 +202,17 @@ interface RuntimesHeaderActionsProps {
 }
 
 function RuntimesHeaderActions({ activeEngine, activeTab, isLoading, onOpenInstall, t }: RuntimesHeaderActionsProps) {
+    // Warna "installed" (emerald) disamakan dengan InstallHeaderButton di tools/tunnels/Main.tsx --
+    // acuan tunggal untuk status ini. Sebelumnya tombol ini cuma pakai `disabled:bg-slate-400`
+    // (jadi abu-abu, bukan emerald) dan hover hardcoded `hover:bg-blue-600` (lihat docs/ui_consistency_guide.md §1).
+    const colorClass = activeEngine.installed
+        ? 'bg-emerald-500 hover:bg-emerald-600 disabled:opacity-100 disabled:cursor-default border-transparent'
+        : 'bg-primary hover:bg-primary/90 border border-transparent';
     return (
         <button type="button"
             onClick={onOpenInstall}
             disabled={activeEngine.installed || isLoading}
-            className="bg-primary hover:bg-blue-600 disabled:bg-slate-400 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center gap-2 shadow-sm whitespace-nowrap shrink-0"
+            className={`text-white text-sm font-medium py-2 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-sm whitespace-nowrap shrink-0 ${colorClass}`}
         >
             <span className="material-symbols-outlined text-[18px]">{activeEngine.installed ? 'check_circle' : 'add'}</span>
             {activeEngine.installed ? t('runtimes.installed') : `${t('runtimes.add')}${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}`}
@@ -404,9 +403,7 @@ export default function RuntimesMain() {
                     <span className="text-slate-500 truncate w-3/4">{progressText || t('runtimes.preparing')}</span>
                     <span className="font-bold text-primary">{progress}%</span>
                 </div>
-                <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
-                    <div className="bg-primary h-2 rounded-full transition-all duration-300 ease-out" style={{ width: `${progress}%` }}></div>
-                </div>
+                <ProgressBar percent={progress} />
             </div>
         );
     };
@@ -428,37 +425,18 @@ export default function RuntimesMain() {
                 }
             />
 
-            <div className="w-full max-w-full overflow-hidden mb-6">
-                <div className="flex w-full gap-1 overflow-x-auto no-scrollbar border-b border-slate-200 dark:border-slate-800">
-                    <EngineTabButton
-                        label="Node.js"
-                        isActive={activeTab === 'node'}
-                        showBadge={runtimeData.node.installed || !!runtimeData.node.external?.exists}
-                        badgeColorClass={runtimeData.node.installed ? 'bg-emerald-500' : 'bg-amber-400'}
-                        onClick={() => setActiveTab('node')}
-                    />
-                    <EngineTabButton
-                        label="Python"
-                        isActive={activeTab === 'python'}
-                        showBadge={runtimeData.python.installed || !!runtimeData.python.external?.exists}
-                        badgeColorClass={runtimeData.python.installed ? 'bg-emerald-500' : 'bg-amber-400'}
-                        onClick={() => setActiveTab('python')}
-                    />
-                    <EngineTabButton
-                        label="Java JDK"
-                        isActive={activeTab === 'java'}
-                        showBadge={runtimeData.java.installed || !!runtimeData.java.external?.exists}
-                        badgeColorClass={runtimeData.java.installed ? 'bg-emerald-500' : 'bg-amber-400'}
-                        onClick={() => setActiveTab('java')}
-                    />
-                    <EngineTabButton
-                        label="Go Compiler"
-                        isActive={activeTab === 'go'}
-                        showBadge={runtimeData.go.installed || !!runtimeData.go.external?.exists}
-                        badgeColorClass={runtimeData.go.installed ? 'bg-emerald-500' : 'bg-amber-400'}
-                        onClick={() => setActiveTab('go')}
-                    />
-                </div>
+            <div className="w-full max-w-full overflow-hidden">
+                <Tabs
+                    className="w-full"
+                    tabs={[
+                        { value: 'node', label: 'Node.js', badgeColorClass: engineTabBadgeClass(runtimeData.node) },
+                        { value: 'python', label: 'Python', badgeColorClass: engineTabBadgeClass(runtimeData.python) },
+                        { value: 'java', label: 'Java JDK', badgeColorClass: engineTabBadgeClass(runtimeData.java) },
+                        { value: 'go', label: 'Go Compiler', badgeColorClass: engineTabBadgeClass(runtimeData.go) },
+                    ]}
+                    value={activeTab}
+                    onChange={setActiveTab}
+                />
             </div>
 
             <div className={tabVisibilityClass(activeTab, 'node')}>

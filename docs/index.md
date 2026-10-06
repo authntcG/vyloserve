@@ -29,6 +29,10 @@ Target spesifikasi untuk menjalankan aplikasi VyloServe secara optimal:
    Daftar *bug* yang pernah ditemukan (beserta resolusinya) dan batasan-batasan teknis dari aplikasi (misal: IPv6 localhost, masalah UAC).
 8. [🤖 Panduan Pengembangan untuk AI (AI Development Guide)](ai_development_guide.md)
    **Bacaan wajib untuk Asisten AI.** Berisi: Peta lengkap semua endpoint API Backend↔Frontend, lokasi & format data JSON, pola debugging step-by-step, template implementasi fitur baru, panduan troubleshooting frontend, dependency antar service, dan checklist *Definition of Done*.
+9. [🎨 Panduan Konsistensi UI (UI Consistency Guide)](ui_consistency_guide.md)
+   **Bacaan wajib sebelum menulis/mengubah UI apa pun.** Aturan warna theme-aware vs statis, spesifikasi komponen bersama (`Button`, `ToggleSwitch`, `Select`, `ServiceToggleButton`), kapan harus pakai komponen yang mana, dan daftar area yang masih menunggu konsolidasi (Fase 2).
+10. [🔁 Playbook Kerja (Dev Workflow Playbook)](dev_workflow_playbook.md)
+    **Bacaan wajib sebelum menyerahkan perubahan apa pun.** Urutan command verifikasi presisi (tsc/vitest/eslint/pytest), peta "dokumen mana untuk perubahan apa", cara membuktikan regresi-sendiri vs pra-eksisting, dan teknik debugging sistematis untuk test yang gagal membingungkan. Di-*force-load* otomatis untuk Gemini CLI lewat `@import` di `GEMINI.md`; untuk asisten lain dibaca lewat pointer di `.claude/skills/vyloserve-dev-workflow/SKILL.md` atau langsung dari sini.
 
 ---
 > **Catatan AI:** 

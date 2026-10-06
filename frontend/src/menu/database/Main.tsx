@@ -2,6 +2,9 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import Card from '../../components/Card';
 import Modal from '../../components/Modal';
+import Button from '../../components/Button';
+import Tabs from '../../components/Tabs';
+import ServiceToggleButton from '../../components/ServiceToggleButton';
 import { useToast } from '../../components/ToastContext';
 import { useAlert } from '../../components/AlertContext';
 import BackgroundProgressWidget from '../../components/BackgroundProgressWidget';
@@ -145,9 +148,9 @@ export default function DatabaseMain() {
                     <p className="text-slate-700 dark:text-slate-300">
                         {t('database.completely_remove')}<strong className="text-slate-900 dark:text-white">{db.name}</strong>?
                     </p>
-                    <label className="flex items-start gap-2 bg-red-50 dark:bg-red-900/10 p-3 rounded-lg border border-red-200 cursor-pointer">
+                    <label className="flex items-start gap-2 bg-red-50 dark:bg-red-900/10 p-3 rounded-lg border border-red-200 dark:border-red-800/30 cursor-pointer">
                         <input type="checkbox" id={`database-delete-data-${db.id}`} aria-label={t('database.delete_raw_data')} className="mt-0.5" />
-                        <div className="flex flex-col"><span className="text-sm font-semibold text-red-800">{t('database.delete_raw_data')}</span></div>
+                        <div className="flex flex-col"><span className="text-sm font-semibold text-red-800 dark:text-red-400">{t('database.delete_raw_data')}</span></div>
                     </label>
                 </div>
             ),
@@ -219,17 +222,21 @@ export default function DatabaseMain() {
                         </>
                     }
                     actions={
-                        <button type="button" onClick={() => setIsNewInstanceOpen(true)} className="bg-primary hover:bg-blue-600 border border-transparent text-white text-sm font-medium py-2 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-sm">
-                            <span className="material-symbols-outlined text-[18px]">add</span> {t('database.add_engine')}
-                        </button>
+                        <Button variant="primary" icon="add" onClick={() => setIsNewInstanceOpen(true)} className="shadow-sm">
+                            {t('database.add_engine')}
+                        </Button>
                     }
                 />
 
-                <div className="flex gap-1 overflow-x-auto no-scrollbar mb-6 border-b border-slate-200 dark:border-slate-800">
-                    <button type="button" onClick={() => setActiveTab('all')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'all' ? 'border-primary text-primary' : 'border-transparent text-slate-500'}`}>{t('database.all_instances')}</button>
-                    <button type="button" onClick={() => setActiveTab('mysql')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'mysql' ? 'border-primary text-primary' : 'border-transparent text-slate-500'}`}>{t('database.mysql_mariadb')}</button>
-                    <button type="button" onClick={() => setActiveTab('postgres')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'postgres' ? 'border-primary text-primary' : 'border-transparent text-slate-500'}`}>{t('database.postgres')}</button>
-                </div>
+                <Tabs
+                    tabs={[
+                        { value: 'all', label: t('database.all_instances') },
+                        { value: 'mysql', label: t('database.mysql_mariadb') },
+                        { value: 'postgres', label: t('database.postgres') },
+                    ]}
+                    value={activeTab}
+                    onChange={setActiveTab}
+                />
 
                 {(() => {
                     if (isLoading) return (
@@ -276,9 +283,20 @@ export default function DatabaseMain() {
                                     }
                                     footerActions={
                                         <>
-                                            <button type="button" onClick={() => handleToggleDB(db)} disabled={togglingDbId === db.id} className={`flex-1 text-white text-sm font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2 disabled:opacity-70 ${isRunning ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600'}`}>
-                                                {togglingDbId === db.id ? <span className="material-symbols-outlined text-[18px] animate-spin">sync</span> : <span className="material-symbols-outlined text-[18px]">{isRunning ? 'stop' : 'play_arrow'}</span>} {isRunning ? t('database.stop_db') : t('database.start_db')}
-                                            </button>
+                                            <ServiceToggleButton
+                                                isRunning={isRunning}
+                                                isToggling={togglingDbId === db.id}
+                                                onClick={() => handleToggleDB(db)}
+                                                className="flex-1"
+                                                labels={{
+                                                    start: t('database.start_db'),
+                                                    stop: t('database.stop_db'),
+                                                    // Database tidak punya label transisi "Starting.../Stopping..." terpisah
+                                                    // seperti Apache/PHP -- pertahankan perilaku asli (spinner + label statis).
+                                                    starting: t('database.start_db'),
+                                                    stopping: t('database.stop_db'),
+                                                }}
+                                            />
                                             <button type="button" onClick={() => handleOpenSettings(db)} className="flex-1 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 dark:bg-slate-950 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2">
                                                 <span className="material-symbols-outlined text-[18px]">tune</span> {t('database.config')}
                                             </button>

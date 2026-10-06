@@ -286,10 +286,28 @@ def test_install_git_download_progress_is_clamped_not_scaled(mock_extract, mock_
     progress_cb(60, "Downloading end")
 
     calls = [c.args for c in mock_api.emit_progress.call_args_list]
-    assert (10, "Downloading start") in calls
-    assert (60, "Downloading end") in calls
-    download_calls = [pct for pct, msg in calls if msg in ("Downloading start", "Downloading end")]
+    assert (10, "Downloading start", None) in calls
+    assert (60, "Downloading end", None) in calls
+    download_calls = [pct for pct, msg, *_ in calls if msg in ("Downloading start", "Downloading end")]
     assert all(5 <= pct <= 74 for pct in download_calls)
+
+
+@patch('core.services.git_manager.download_advanced')
+@patch.object(GitManager, '_extract_sfx')
+def test_install_git_download_prog_cb_accepts_three_positional_args(mock_extract, mock_download, git_manager, mock_api):
+    """
+    Regresi: file_utils.py's download_advanced memanggil progress_cb dengan 3 argumen
+    posisional (percent, message_key, args_dict) di beberapa titik -- download_prog_cb
+    sebelumnya cuma menerima 2 param (pct, msg) dan CRASH dengan "takes 2 positional
+    arguments but 3 were given". Lihat docs/known_bugs.md.
+    """
+    with patch('os.path.exists', return_value=False):
+        git_manager.install_git("http://fake.url/git.exe", "git.exe", "2.45.1")
+
+    progress_cb = mock_download.call_args.kwargs['progress_cb']
+    progress_cb(30, "Downloading", {"percent": 50})  # tidak boleh raise
+
+    mock_api.emit_progress.assert_any_call(30, "Downloading", {"percent": 50})
 
 # ==========================================
 # toggle_user_path — cabang tambahan

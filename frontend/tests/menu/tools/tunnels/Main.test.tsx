@@ -1,6 +1,6 @@
-﻿import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { act, screen, waitFor } from '../../../test-utils';
+import { act, screen, waitFor, fireEvent } from '../../../test-utils';
 import { mockPywebviewApi, renderWithToast, resetPywebviewApi, dispatchAppEvent } from '../../../test-utils';
 import TunnelsMain from '../../../../src/menu/tools/tunnels/Main';
 
@@ -17,13 +17,16 @@ const ENABLED_WITH_SHARE = {
     active_shares: [{ id: 'share_1', project_id: 'p1', url: 'https://abc.shares.zrok.io' }],
 };
 
-function mountWith(status: object, overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
+
+
+function mountWith(status: object, overrides: Record<string, ReturnType<typeof vi.fn>> = {}, initialTab: 'all'|'zrok'|'cloudflare' = 'zrok') {
     const api = mockPywebviewApi({
         get_zrok_status: vi.fn().mockResolvedValue(status),
+        get_cloudflare_status: vi.fn().mockResolvedValue({ installed: false, active_shares: [] }),
         get_projects: vi.fn().mockResolvedValue({ status: 'success', data: PROJECTS }),
         ...overrides,
     });
-    renderWithToast(<TunnelsMain />);
+    renderWithToast(<TunnelsMain initialTab={initialTab} />);
     return api;
 }
 
@@ -115,7 +118,7 @@ describe('TunnelsMain', () => {
         expect(startButton).toBeDisabled();
 
         await user.click(openDropdownButton());
-        await user.type(screen.getByPlaceholderText('Search...'), 'shop');
+        await user.type(screen.getByPlaceholderText('common.search'), 'shop');
         expect(screen.queryByText('blog.test')).not.toBeInTheDocument();
         await user.click(screen.getByText('shop.test'));
         await user.click(startButton);
@@ -130,9 +133,9 @@ describe('TunnelsMain', () => {
         await screen.findByText('tools.zrok.share_card_title');
         await user.click(openDropdownButton());
 
-        await user.type(screen.getByPlaceholderText('Search...'), 'zzz-no-match');
+        await user.type(screen.getByPlaceholderText('common.search'), 'zzz-no-match');
 
-        expect(screen.getByText('No results found')).toBeInTheDocument();
+        expect(screen.getByText('common.no_results')).toBeInTheDocument();
     });
 
     it('shows the no-projects label and keeps the dropdown closed when there are no projects', async () => {
@@ -141,7 +144,7 @@ describe('TunnelsMain', () => {
 
         await user.click(await screen.findByText('tools.zrok.no_projects'));
 
-        expect(screen.queryByPlaceholderText('Search...')).not.toBeInTheDocument();
+        expect(screen.queryByPlaceholderText('common.search')).not.toBeInTheDocument();
     });
 
     it('shares a custom address when the custom mode is selected', async () => {
@@ -228,32 +231,31 @@ describe('TunnelsMain', () => {
         consoleError.mockRestore();
     });
 
-    it('opens the install modal from the header button when zrok is not installed', async () => {
+    it('opens the install modal from the empty state when zrok is not installed', async () => {
         const user = userEvent.setup();
         mountWith(NOT_INSTALLED, { get_available_zrok_versions: vi.fn().mockResolvedValue({ status: 'success', data: [] }) });
 
-        await user.click(await screen.findByText('tools.zrok.install_tunnel'));
+        await user.click(await screen.findByRole('button', { name: 'tools.zrok.install_zrok' }));
 
         expect(await screen.findAllByText('tools.zrok.install_zrok')).not.toHaveLength(0);
     });
 
-    it('disables the header install button and labels it installed when zrok is present', async () => {
-        mountWith(INSTALLED_DISABLED);
-
-        const label = await screen.findAllByText('runtimes.installed');
-
-        expect(label.some((el) => el.closest('button')?.hasAttribute('disabled'))).toBe(true);
-    });
-
-    it('switches between the All and Zrok tabs without losing the content', async () => {
+    it('switches between the All and Zrok tabs showing correct content and title', async () => {
         const user = userEvent.setup();
-        mountWith(ENABLED);
-        await screen.findByText('tools.zrok.share_card_title');
+        mountWith(ENABLED, {}, 'all');
+        
+        expect(await screen.findByText('tools.tunnels.title')).toBeInTheDocument();
+        expect(screen.getByText('tools.zrok.installed_desc')).toBeInTheDocument();
+        
+        await screen.findByRole('button', { name: 'tools.zrok.tab_zrok' });
 
-        await user.click(screen.getByText('tools.zrok.tab_zrok'));
-        expect(screen.getByText('tools.zrok.share_card_title')).toBeInTheDocument();
-        await user.click(screen.getByText('tools.zrok.tab_all'));
-        expect(screen.getByText('tools.zrok.share_card_title')).toBeInTheDocument();
+        expect(screen.queryByText('tools.zrok.share_card_title')).not.toBeInTheDocument();
+
+        await user.click(screen.getByRole('button', { name: 'tools.zrok.tab_zrok' }));
+        expect(await screen.findByText('tools.zrok.share_card_title')).toBeInTheDocument();
+        
+        await user.click(screen.getByRole('button', { name: 'tools.zrok.tab_all' }));
+        expect(screen.queryByText('tools.zrok.share_card_title')).not.toBeInTheDocument();
     });
 
     it('refetches the status when a matching service_status_changed event fires and ignores others', async () => {
@@ -269,23 +271,17 @@ describe('TunnelsMain', () => {
     });
 
     it('shows the background progress widget while an install progress event is running and hides it after completion', async () => {
-        vi.useFakeTimers({ shouldAdvanceTime: true });
-        try {
-            const api = mountWith(INSTALLED_DISABLED);
-            await screen.findByText('tools.zrok.engine_card_title');
-            const initialCalls = api.get_zrok_status.mock.calls.length;
+        const api = mountWith(INSTALLED_DISABLED);
+        await screen.findByText('tools.zrok.engine_card_title');
+        const initialCalls = api.get_zrok_status.mock.calls.length;
 
-            act(() => dispatchAppEvent('vylo_progress', { percent: 40, text: 'backend.zrok.downloading', args: {} }));
-            expect(screen.getAllByText('backend.zrok.downloading').length).toBeGreaterThan(0);
+        act(() => dispatchAppEvent('vylo_progress', { percent: 40, text: 'backend.zrok.downloading', args: {} }));
+        expect(screen.getAllByText('backend.zrok.downloading').length).toBeGreaterThan(0);
 
-            act(() => dispatchAppEvent('vylo_progress', { percent: 100, text: 'backend.zrok.install_success', args: {} }));
-            await act(async () => { await vi.advanceTimersByTimeAsync(3100); });
-
-            await waitFor(() => expect(api.get_zrok_status.mock.calls.length).toBeGreaterThan(initialCalls));
-            expect(screen.queryAllByText('backend.zrok.downloading')).toHaveLength(0);
-        } finally {
-            vi.useRealTimers();
-        }
+        act(() => dispatchAppEvent('vylo_progress', { percent: 100, text: 'backend.zrok.install_success', args: {} }));
+        
+        await waitFor(() => expect(api.get_zrok_status.mock.calls.length).toBeGreaterThan(initialCalls), { timeout: 4000 });
+        expect(screen.queryAllByText('backend.zrok.downloading')).toHaveLength(0);
     });
 
     it('resets the install state when a negative percent progress event arrives', async () => {

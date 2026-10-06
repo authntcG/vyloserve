@@ -729,12 +729,12 @@ sequenceDiagram
 
 ### 14.1 Alur Bootstrap
 0. `main()` **pertama-tama** memanggil `check_single_instance()` — membuat Windows named mutex (`"VyloServe_App_Mutex_v1"` via `ctypes.windll.kernel32.CreateMutexW`). Kalau mutex itu sudah ada (`GetLastError() == ERROR_ALREADY_EXISTS`), berarti VyloServe sudah berjalan — `bring_existing_instance_to_front()` mencari window existing lewat judul "VyloServe" (`FindWindowW`) lalu `ShowWindow`/`SetForegroundWindow`, kemudian proses baru langsung `sys.exit(0)` **tanpa pernah membuat instance `Api()` kedua**. Ini mencegah dua proses VyloServe berjalan bersamaan (mis. dua `httpd.exe`/`mysqld.exe` rebutan port yang sama).
-1. `main()` membuat instance `Api()`, lalu `AppLifecycle(api, IS_PRODUCTION)`.
-2. `webview.create_window(...)` membuat window — `background_color` diisi dari `get_theme_bg_color()` (baca `data/settings.json` key `theme` langsung lewat `json.load()`, **bukan** lewat `SettingsManager`/`read_json()`, karena ini dipanggil sebelum `Api()` relevan dan harus tahan terhadap file belum ada — ada `try/except` + fallback `"vyloserve-dark"` → `#0f172a`; map warna per-tema di-*hardcode* di dalam fungsi ini, lihat §11 untuk daftar key `theme` yang valid) → `api.set_window(window)` **dan** `lifecycle.set_window(window)` (keduanya perlu tahu window: `api` untuk `emit_log`/`emit_progress`, `lifecycle` untuk hide/destroy).
+1. `main()` membuat instance `Api()`, lalu `AppLifecycle(api, IS_PRODUCTION, enable_tray=ENABLE_TRAY)`. **`enable_tray` SENGAJA parameter TERPISAH dari `is_production`** (lihat §14.2) — `ENABLE_TRAY = True` adalah konstanta independen dari `IS_PRODUCTION` di `main.py`, supaya tray+hide-to-tray bisa aktif di dev mode juga tanpa ikut mematikan dev-server/devtools yang masih dikontrol `IS_PRODUCTION`.
+2. `webview.create_window(...)` membuat window — `background_color` diisi dari `get_theme_bg_color()` (baca `data/settings.json` key `theme` langsung lewat `json.load()`, **bukan** lewat `SettingsManager`/`read_json()`, karena ini dipanggil sebelum `Api()` relevan dan harus tahan terhadap file belum ada — ada `try/except` + fallback `"vyloserve-dark"` → `#0f172a`; map warna per-tema di-*hardcode* di dalam fungsi ini, lihat §11 untuk daftar key `theme` yang valid) → `api.set_window(window)` **dan** `lifecycle.set_window(window)` (keduanya perlu tahu window: `api` untuk `emit_log`/`emit_progress`/`emit_window_state`, `lifecycle` untuk hide/destroy).
 3. `api.start_log_watcher()` dipanggil tepat setelah `set_window()` — lihat §11.2 untuk mekanisme thread log watcher ini.
 4. `api.quit_callback = lifecycle.perform_exit` — inilah yang membuat `Api.close_app()` (dipanggil dari tombol Quit UI) benar-benar memicu cleanup.
-5. `window.events.closing += lifecycle.on_closing` — dipanggil setiap kali user menekan tombol (X).
-6. Jika `IS_PRODUCTION`, `setup_systray(lifecycle, icon_path)` dipanggil untuk mengaktifkan ikon System Tray.
+5. `window.events.closing += lifecycle.on_closing` — dipanggil setiap kali user menekan tombol (X). **`window.events.minimized`/`restored` juga di-hook** di sini lewat lambda yang memanggil `api.emit_window_state(minimized=True/False)` — lihat §14.4.
+6. Jika `ENABLE_TRAY` (bukan `IS_PRODUCTION` lagi — lihat §14.2), `setup_systray(lifecycle, icon_path)` dipanggil untuk mengaktifkan ikon System Tray.
 7. `webview.start(...)` — blocking call, baru return saat window benar-benar ditutup.
 
 ### 14.2 `AppLifecycle` — Satu Sumber Kebenaran untuk Exit/Hide
@@ -755,17 +755,30 @@ flowchart TD
     I --> J[os._exit(0)]
 
     K["Tombol (X) window<br/>window.events.closing"] --> L["lifecycle.on_closing()"]
-    L --> M{is_production?}
+    L --> M{enable_tray?}
     M -- tidak --> N["is_real_exit=True<br/>return True (destroy window)"]
     M -- ya --> O{is_real_exit sudah True?<br/>(dari perform_exit sebelumnya)}
-    O -- tidak --> P["window.hide()<br/>return False (batalkan destroy)"]
+    O -- tidak --> P["window.hide()<br/>api.emit_window_state(hidden=True)<br/>return False (batalkan destroy)"]
     O -- ya --> Q["return True (destroy window)"]
 ```
 
 **Kedua jalur exit (tombol Quit UI dan menu Tray "Exit Engine") kini memanggil `perform_exit()` yang sama** — sebelumnya menu Tray punya jalur pintas terpisah yang melewatkan cleanup engine (lihat `docs/known_bugs.md` #15).
 
+> ⚠️ **`on_closing()` cabang hide-vs-exit digerakkan `enable_tray`, BUKAN `is_production`** (sejak fitur histori toast + notifikasi native, lihat `docs/known_bugs.md` #45) — keduanya SENGAJA dipisah jadi dua parameter independen di `AppLifecycle.__init__`. `is_production` sendiri tetap murni mengontrol `get_entrypoint()` (dist vs dev server) dan flag `debug` di `webview.start()`, TIDAK lagi punya pengaruh apa pun ke `on_closing()`. Default `enable_tray=False` di constructor (backward-compatible) — caller yang ingin hide-to-tray WAJIB mengoper eksplisit `enable_tray=True`.
+
 ### 14.3 Kenapa Diekstrak Jadi Class
 `AppLifecycle` menyimpan `api`, `window`, `tray_icon`, `is_real_exit` sebagai atribut instance (bukan variabel global `is_real_exit`/`global_tray_icon` + closure seperti sebelumnya). Ini membuatnya bisa diinstansiasi langsung di unit test dengan `MagicMock()` sebagai pengganti `api`/`window`/`tray_icon`, tanpa perlu menjalankan `pywebview`/`webview.start()` sungguhan. Lihat `tests/test_main.py` untuk cakupan penuh (bootstrap, exit, hide-to-tray, system tray).
+
+### 14.4 Window-State Bridge & Notifikasi Native Windows (`Api.emit_window_state`/`show_native_notification`)
+
+Ditambahkan bersama fitur histori toast (lihat `docs/known_bugs.md` #45) — frontend (`useWindowPresence.ts`) perlu tahu kapan window di-minimize/di-hide ke tray untuk memutuskan kapan toast perlu diteruskan sebagai notifikasi native Windows, alih-alih di-poll dari frontend (DOM tidak tahu state OS-level ini sama sekali).
+
+- **`Api.emit_window_state(minimized=None, hidden=None)`** — pola identik `emit_log`/`emit_progress` (`evaluate_js` + `CustomEvent('vylo_window_state', ...)`, lihat §5.1 di `docs/frontend_ui.md`), tapi hanya field yang DIBERI (bukan `None`) yang dikirim ke payload, supaya listener frontend bisa membedakan "tidak berubah" dari "eksplisit jadi false". Dipanggil dari 3 tempat: `window.events.minimized`/`restored` (hook langsung di `main()`, lihat §14.1), `AppLifecycle.on_closing()` saat hide-to-tray (`hidden=True`), dan tray menu "Show VyloServe" / `Api._restore_window_from_notification` (`hidden=False, minimized=False`).
+- **Reliabilitas `window.events.minimized`/`restored` untuk backend `edgechromium`**: dikonfirmasi langsung dari source `pywebview` (`webview/platforms/winforms.py`'s `on_resize` — backend `edgechromium` di Windows berjalan di atas WinForms) — event ini di-set dari `FormWindowState` transition WinForms standar (`Minimized`/`Normal`/`Maximized`), BUKAN polling, dan reliable untuk konfigurasi app ini (`gui='edgechromium'`). Tidak perlu fallback polling.
+- **`Api.show_native_notification(message, type)`** — memanggil `win11toast.toast(...)` di **thread daemon terpisah** (pola sama `pystray`'s `run_tray()`, karena `win11toast`/WinRT butuh event loop `asyncio` sendiri yang tidak boleh memblokir UI thread pywebview). `type` menentukan `duration` (`'long'` untuk error/warning, `'short'` untuk lainnya — supaya notifikasi penting tidak auto-dismiss secepat notifikasi biasa). `on_click` di-set ke `Api._restore_window_from_notification` (show+restore window, lalu `emit_window_state(hidden=False, minimized=False)`).
+- **`Api.set_notification_icon(icon_path)`** — di-set dari `main()` tepat setelah `api.set_window(window)`, menyimpan `self._notification_icon_path` yang diteruskan sebagai `icon=` ke `win11toast.toast(...)`. **Path PNG terpisah dari ikon window/tray** (`icons-nobg.png`, BUKAN `.ico` yang dipakai `webview.start(icon=...)`/`setup_systray`) — WinRT toast XML `<image>` butuh format yang reliable didekode WIC image pipeline, `.ico` sebagai container format tidak konsisten didukung di sana (lihat `docs/known_bugs.md` #46, ditemukan dari smoke test manual: notifikasi tampil tanpa ikon aplikasi sebelum fix ini). `icon=None` (default sebelum `set_notification_icon` dipanggil) ditangani win11toast dengan baik — notifikasi tetap tampil, cuma tanpa ikon, tidak crash.
+- **Setting `enable_desktop_notifications`** (default `True`) di `core/services/settings.py`'s `default_config`, pola sama persis `receive_prerelease_updates` — tidak ada API method baru, dibaca/ditulis lewat `get_app_settings`/`save_app_settings` yang sudah ada.
+- **Dependency baru**: `win11toast` (lihat `requirements.txt`) — membawa paket `winrt-*` (WinRT bindings) sebagai transitive dependency, Windows-only (konsisten dengan `ctypes.windll`/`pystray` yang sudah ada di `main.py`, aplikasi ini memang Windows-only).
 
 ---
 

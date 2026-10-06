@@ -99,6 +99,16 @@ describe('Modal', () => {
         expect(onApply).toHaveBeenCalledTimes(1);
     });
 
+    // Regresi: tombol Apply sebelumnya memakai `hover:bg-blue-600` hardcoded (bukan
+    // theme-aware), jadi di tema manapun selain default akan tetap berkedip biru stok
+    // Tailwind saat di-hover alih-alih warna aksen tema aktif. Lihat docs/ui_consistency_guide.md.
+    it('uses the theme-aware hover:bg-primary/90 on the Apply button, not a hardcoded hover color', () => {
+        render(<Modal isOpen={true} onClose={vi.fn()} title="Settings" onApply={vi.fn()}>content</Modal>);
+        const applyBtn = screen.getByText('Apply Changes');
+        expect(applyBtn).toHaveClass('hover:bg-primary/90');
+        expect(applyBtn).not.toHaveClass('hover:bg-blue-600');
+    });
+
     it('shows a custom applyText label and a spinner while isLoading', () => {
         render(
             <Modal isOpen={true} onClose={vi.fn()} title="Settings" onApply={vi.fn()} applyText="Save Changes" isLoading>

@@ -92,17 +92,20 @@ Dipanggil dari 2 titik: bootstrap awal di `App.tsx` (baca `get_app_settings()` s
 
 ### Palet Warna Utama (Tailwind CSS)
 
-| Peran Warna | Kode Tailwind | Kode HEX | Penggunaan Utama |
+> ⚠️ **Koreksi:** Tabel ini sebelumnya salah mengklaim warna tombol primer ("Install"/"Save") adalah `bg-emerald-600`/`500` — audit konsistensi UI (lihat `docs/ui_consistency_guide.md`) mengonfirmasi mayoritas tombol primer di kode nyata memakai token `bg-primary` (biru secara default, ikut berubah per tema). Emerald dipakai KHUSUS untuk state "Running"/"Start" pada toggle service, bukan tombol primer generik. Tabel di bawah sudah dikoreksi; **`docs/ui_consistency_guide.md` adalah rujukan utama & lebih detail** untuk aturan warna/komponen UI -- bagian ini hanya ringkasan.
+
+| Peran Warna | Kode Tailwind | Theme-aware? | Penggunaan Utama |
 |---|---|---|---|
-| **Background Aplikasi** | `bg-slate-900` | `#0f172a` | Warna dasar kanvas jendela aplikasi utama (sesuai *background_color* `main.py`). |
-| **Surface & Card** | `bg-slate-800` | `#1e293b` | Elemen melayang seperti Sidebar, Header, Modal, dan Container Card. |
-| **Elevated Surface** | `bg-slate-700` | `#334155` | Elemen interaktif saat di-hover, *border*, atau pemisah (*divider*). |
-| **Primary Accent (Aksi/Aktif)**| `bg-emerald-600` / `500` | `#059669` / `#10b981` | Tombol primer ("Install", "Save"), toggle switch aktif (mis. di `Sidebar.tsx`), indikator status "Running/Active". |
-| **Danger / Error** | `bg-red-500` | `#ef4444` | Tombol destruktif ("Delete", "Stop"), Indikator status "Error/Offline". |
-| **Warning / Perhatian** | `text-amber-500` | `#f59e0b` | Log warning, *banner* peringatan konflik *port* atau ekstensi. |
-| **Info / System** | `text-blue-500` | `#3b82f6` | Teks informasional dan lencana penanda komponen sistem bawaan OS (*Native/System*). |
-| **Teks Utama (Primary)** | `text-slate-100` | `#f1f5f9` | Judul halaman, teks tombol utama, nilai konfigurasi. |
-| **Teks Sekunder (Muted)** | `text-slate-400` | `#94a3b8` | Deskripsi tambahan, teks pembantu (*help text*), placeholder *input*. |
+| **Background Aplikasi** | `bg-slate-900` | Ya (`--theme-slate-900`) | Warna dasar kanvas jendela aplikasi utama (sesuai *background_color* `main.py`). |
+| **Surface & Card** | `bg-slate-800` | Ya | Elemen melayang seperti Sidebar, Header, Modal, dan Container Card. |
+| **Elevated Surface** | `bg-slate-700` | Ya | Elemen interaktif saat di-hover, *border*, atau pemisah (*divider*). |
+| **Primary Accent (Aksi/Aktif)**| `bg-primary` | Ya (`--theme-primary`) | Tombol primer ("Install", "Save") — lihat komponen `Button` di `docs/ui_consistency_guide.md`. |
+| **Success / Running** | `bg-emerald-500` / `600` | Ya | Toggle switch aktif, state "Start"/"Running" pada `ServiceToggleButton`. |
+| **Warning / Stop** | `bg-amber-500` / `600` | Ya | State "Stop" pada `ServiceToggleButton` (pasangan emerald di atas). |
+| **Danger / Error** | `bg-red-600` | **Tidak (sengaja statis)** | Tombol destruktif ("Delete", "Stop paksa"), indikator status "Error/Offline" — merah sengaja sama di semua tema untuk sinyal bahaya universal. |
+| **Info / System** | `text-blue-500` | Tidak (statis) | Teks informasional dan lencana penanda komponen sistem bawaan OS (*Native/System*). |
+| **Teks Utama (Primary)** | `text-slate-100` | Ya | Judul halaman, teks tombol utama, nilai konfigurasi. |
+| **Teks Sekunder (Muted)** | `text-slate-400` | Ya | Deskripsi tambahan, teks pembantu (*help text*), placeholder *input*. |
 
 ### Tata Letak (Layout) & Gaya (Style)
 - **Spasial & Bentuk:** Menggunakan sudut melengkung moderat (`rounded-lg` / `rounded-xl`) dengan drop shadow halus (`shadow-md`, `shadow-lg`) untuk memberi kedalaman pada Modal dan *Card*.
@@ -116,11 +119,13 @@ Dipanggil dari 2 titik: bootstrap awal di `App.tsx` (baca `get_app_settings()` s
 Arsitektur *frontend* di proyek ini mematuhi paradigma **Atomic Design**, yang mengurai kompleksitas UI ke dalam 5 lapisan komposisional:
 
 ### 1. Atoms (Atom)
-Elemen antarmuka terkecil dan paling dasar, yang tidak dapat dipecah lagi. Atom di proyek ini sering di-*render* langsung lewat kelas Tailwind.
-- **Toggle switch pill** (`w-8 h-4`, `<label aria-label>` membungkus `<input type="checkbox" className="sr-only peer">`): dipakai untuk sakelar On/Off service di `Sidebar.tsx`. *(Catatan: tab "System Logs" di `SettingsModals.tsx` SEMPAT memakai komponen pill terpisah bernama `ToggleSwitch`, tapi sejak restrukturisasi Unified Settings tab itu sudah kembali ke checkbox native `<input type="checkbox">` biasa — lihat §14.)*
-- **Tombol (Buttons)**: Tombol standar (Primer hijau, Sekunder abu-abu, Destruktif merah).
+Elemen antarmuka terkecil dan paling dasar, yang tidak dapat dipecah lagi. Sejak audit konsistensi UI (lihat `docs/ui_consistency_guide.md` untuk spesifikasi lengkap & rasional), atom-atom paling sering diduplikasi manual kini punya komponen bersama di `src/components/`, bukan lagi ditulis ulang per halaman:
+- **`<Button>`** (`components/Button.tsx`): variant `primary|secondary|ghost|danger|danger-ghost`, size `sm|md|icon`. Sumber kebenaran tunggal untuk warna/ukuran/radius tombol di seluruh aplikasi.
+- **`<ServiceToggleButton>`** (`components/ServiceToggleButton.tsx`): khusus tombol Start/Stop service (warna+ikon+label berganti berdasar `isRunning`), sengaja terpisah dari `Button` karena sifatnya state-driven, bukan intent statis.
+- **`<ToggleSwitch>`** (`components/ToggleSwitch.tsx`): sakelar on/off (`checked`, `onChange`, `tone: 'primary'|'status'`). Dipakai di `Sidebar.tsx` (toggle service, `tone="status"`), Dashboard (3 kartu service, `tone="primary"`), `tools/git/Main.tsx` & `runtimes/Main.tsx` (registrasi PATH). **Pengecualian yang SENGAJA tidak dimigrasikan**: toggle ekstensi di `php/Settings.tsx` (murni dekoratif, klik ditangani parent `<button>` lewat `pointer-events-none`, pola interaksi berbeda) dan toggle pre-release di tab Updates `SettingsModals.tsx` (`role="switch"` native, bukan checkbox) — keduanya kandidat Fase 2 kalau mau diselaraskan lebih lanjut.
+- **`<Select>`** (`components/Select.tsx`): dropdown generik, `searchable` bisa dimatikan (`searchable={false}`). Menggantikan 3 combobox custom yang dulu diduplikasi (`database/NewInstance.tsx`, `tools/tunnels/Main.tsx`, `tools/tunnels/InstallZrok.tsx`). 17 `<select>` native lain (PHP/Apache version picker, theme picker, dsb) **belum** dimigrasikan — direncanakan Fase 2.
 - **Ikon**: `<span className="material-symbols-outlined">...</span>`.
-- **Elemen Form Dasar**: `<input>`, `<select>` yang telah dibumbui class Tailwind (*ring*, *outline-none*).
+- **Elemen Form Dasar lain**: `<input>`, `<select>` polos yang telah dibumbui class Tailwind (*ring*, *outline-none*) — belum diekstrak jadi komponen (lihat `docs/ui_consistency_guide.md` §"Fase 2").
 
 ### 2. Molecules (Molekul)
 Kumpulan Atom yang disatukan menjadi komponen UI sederhana dengan 1 fungsi spesifik.
@@ -202,19 +207,25 @@ sequenceDiagram
 
 ### 4.4 `Sidebar.tsx`
 
-- 3 grup menu hardcoded: `MAIN_MENU` (dashboard), `SERVICES` (apache/php/database/runtimes), `TOOLS` (qr/base64/url-encode-decode/git dalam dropdown collapsible).
-- **Dipecah jadi sub-komponen** (pola sama dengan `ApacheStatusSection`/`ApacheProjectCard` di `apache/Main.tsx`, lihat §5.1): `SidebarHeader`, `ServiceNavItem`, `ToolsNavItem`, `SidebarFooter` — masing-masing fungsi terpisah di file yang sama, menerima data lewat props, dirender dari `Sidebar()`. Awalnya seluruh JSX ditulis inline di satu fungsi `Sidebar()` dan Cognitive Complexity-nya menembus 19 (batas SonarQube 15) karena akumulasi percabangan `isDesktopCollapsed` di banyak blok berbeda; ekstraksi ini menurunkannya tanpa mengubah perilaku (setiap sub-komponen dipindah verbatim, cuma dibungkus fungsi + props). Kalau menambah percabangan baru ke salah satu blok ini, pertimbangkan dulu apakah blok itu masih pantas tetap di `Sidebar()` langsung atau perlu diekstrak lagi.
+- **4 grup menu hardcoded, masing-masing flat list** (bukan nested/dropdown — lihat poin "Riwayat" di bawah), dengan kriteria kategorisasi eksplisit yang WAJIB diikuti saat menambah item menu baru:
+  - `MAIN_MENU` (dashboard) — halaman overview/landing, selalu di urutan paling atas.
+  - `SERVICES` (apache, php, database) — item yang punya status running/stopped NYATA + toggle switch yang benar-benar berfungsi (endpoint `start_service`/`stop_service` ada di backend).
+  - `TOOLS` (tunnels, runtimes, git) — aksi yang terikat ke project/environment aktif, TANPA status running persisten (karenanya tidak pernah punya toggle switch). Urutan di dalam grup ini: Tunnels → Runtimes → Git, mengikuti perkiraan frekuensi pemakaian (Tunnels relatif sering dipakai untuk share project; Git di VyloServe cuma "handler" status/konfigurasi — tidak bisa menjalankan perintah git dari aplikasi — jadi relatif paling jarang disentuh di antara ketiganya).
+  - `UTILITIES` (qr, base64, url-encode-decode) — konverter data berdiri sendiri, nol keterkaitan ke project/backend (bisa dipakai walau tidak ada project VyloServe apa pun yang sedang berjalan).
+  - **Catatan penting:** "frekuensi pemakaian" di atas adalah heuristik/observasi, BUKAN data telemetri nyata — aplikasi ini sengaja tidak punya analytics/usage-tracking apa pun. Kalau observasi pemakaian nyata berubah di kemudian hari, urutan ini boleh direvisi, tapi tetap lewat kriteria kategorisasi di atas (status running vs aksi project vs konverter berdiri sendiri), jangan cuma menyusun ulang tanpa prinsip.
+  - **Riwayat:** Runtimes awalnya salah ditaruh di `SERVICES` walau tidak pernah punya toggle yang berfungsi (tidak ada endpoint `start_service`/`stop_service('runtimes')` di backend) — gejalanya ditambal dengan flag `hasToggle: false` alih-alih memperbaiki kategorinya. Grup `TOOLS` sendiri sebelumnya juga pernah berupa dropdown collapsible (dengan komponen `ToolsNavItem` + indikator ikon `chevron_right`) sebelum diratakan jadi flat list (lihat `docs/known_bugs.md` #33), lalu kemudian dipecah lagi jadi `TOOLS`+`UTILITIES` terpisah karena isinya ternyata campuran dua sifat berbeda (lihat `docs/known_bugs.md` entri terkait usability menu). Keduanya sekarang sudah benar: Runtimes pindah ke `TOOLS` (sesamanya sama-sama tanpa toggle), dan `hasToggle: false` tidak lagi diperlukan di mana pun karena setiap item di `SERVICES` sekarang memang benar-benar punya toggle yang berfungsi.
+- **Dipecah jadi sub-komponen** (pola sama dengan `ApacheStatusSection`/`ApacheProjectCard` di `apache/Main.tsx`, lihat §5.1): `SidebarHeader`, `ServiceNavItem` (dipakai utk `SERVICES`, merender toggle switch kalau `hasToggle: true`), `PlainNavItem` (dipakai bersama utk `TOOLS` **dan** `UTILITIES` — keduanya butuh tombol identik tanpa toggle, jadi sengaja satu komponen dipakai ulang untuk mencegah duplikasi JSX), `SidebarFooter` — masing-masing fungsi terpisah di file yang sama, menerima data lewat props, dirender dari `Sidebar()`. Awalnya seluruh JSX ditulis inline di satu fungsi `Sidebar()` dan Cognitive Complexity-nya menembus 19 (batas SonarQube 15) karena akumulasi percabangan `isDesktopCollapsed` di banyak blok berbeda; ekstraksi ini menurunkannya tanpa mengubah perilaku (setiap sub-komponen dipindah verbatim, cuma dibungkus fungsi + props). Kalau menambah percabangan baru ke salah satu blok ini, pertimbangkan dulu apakah blok itu masih pantas tetap di `Sidebar()` langsung atau perlu diekstrak lagi.
 - **Toggle switch di tiap Service card** memanggil endpoint generik `api.start_service(id)`/`api.stop_service(id)` (bukan `start_apache_server()` spesifik) → sukses → `dispatchEvent('service_status_changed', {detail: {service, running}})` agar Dashboard & halaman modul lain ikut sinkron tanpa saling mengimpor state.
 - Polling mandiri tiap 2 detik: `api.get_all_services_status()` → isi badge status tiap service + CPU% di footer sidebar.
-- Search bar filter live berdasarkan nama menu ter-translate.
+- Search bar filter live berdasarkan nama menu ter-translate; label section (`sidebar.services`/`sidebar.tools`/`sidebar.utilities`) otomatis ikut hilang kalau filter menyisakan 0 item di grup tersebut (`{filteredX.length > 0 && (...)}`).
 - **Mode collapsed (`isDesktopCollapsed`, ikon-rail 80px)** — konvensi yang harus diikuti kalau menambah item nav baru:
   - Elemen yang cuma perlu "disembunyikan visual saat collapsed" (label teks, dsb) boleh pakai class Tailwind (`max-w-0 opacity-0`/`hidden`) karena animasinya butuh transisi width/opacity.
-  - Elemen indikator interaktif (mis. panah dropdown "Tools") **WAJIB** di-conditional-render (`{!isDesktopCollapsed && (...)}`), **BUKAN** cuma diberi class `hidden` — pernah ada bug nyata di mana class `hidden` tampak benar di kode tapi elemennya masih terlihat karena tertimpa bug CSS lain (lihat `docs/known_bugs.md` #20) sehingga sulit dibedakan mana yang benar-benar bug dan mana efek samping; conditional-render menghapus elemen dari DOM sepenuhnya, jadi tidak ambigu.
-  - Item nav yang punya flyout submenu (pola "Tools") menandai keberadaan submenu lewat **ikon `chevron_right` di sebelah ikon utama, ukuran SAMA** (kedua ikon `style={{ fontSize: '18px' }}`, `ml-0.5` di antaranya, `gap-0` pada container supaya total lebar `18+2+18=38px` muat dalam ~40px ruang konten rail) — **bukan** badge kecil menumpuk di sudut ikon (pola lama, terlihat seperti "ikon kecil nyasar di bawah", sudah diganti karena sulit dibaca sebagai penanda submenu).
+  - Elemen indikator interaktif **WAJIB** di-conditional-render (`{!isDesktopCollapsed && (...)}`), **BUKAN** cuma diberi class `hidden` — pernah ada bug nyata di mana class `hidden` tampak benar di kode tapi elemennya masih terlihat karena tertimpa bug CSS lain (lihat `docs/known_bugs.md` #20) sehingga sulit dibedakan mana yang benar-benar bug dan mana efek samping; conditional-render menghapus elemen dari DOM sepenuhnya, jadi tidak ambigu.
+  - Item `TOOLS`/`UTILITIES` (`PlainNavItem`) saat collapsed **tidak punya indikator visual tambahan apa pun** (tidak ada flyout submenu, tidak ada ikon kedua) — cukup ikon tunggal + native `title` tooltip, identik dengan perlakuan item `SERVICES` tanpa toggle-nya. Ini bukan keterbatasan, melainkan sengaja: tidak ada lagi nested/dropdown menu di `Sidebar.tsx` sejak Tools diratakan jadi flat list.
   - Header collapsed **hanya menampilkan tombol toggle** (`menu_open`, di-mirror `scale-x-[-1]` supaya panahnya mengarah ke kanan/"expand"), logo aplikasi **disembunyikan total** saat collapsed (bukan diganti versi icon-only). Keputusan desain (lihat diskusi UI/UX terkait): logo tidak clickable/tidak fungsional saat collapsed, sementara tombol toggle adalah satu-satunya kontrol untuk kembali ke expanded — di ruang rail 80px yang sempit, prioritaskan elemen fungsional (Fitts's Law) daripada elemen dekoratif; efek sampingnya, dengan cuma 1 elemen tersisa, ikon toggle otomatis center tanpa perlu extra layout trick.
-  - Item nav yang **tidak punya kontrol start/stop yang valid** di backend (mis. `runtimes` — tidak ada endpoint `start_service`/`stop_service('runtimes')` di `core/api.py`, jadi toggle switch di baris itu dulu selalu gagal diam-diam) **WAJIB** ditandai `hasToggle: false` di array `SERVICES`, bukan tetap menampilkan toggle yang tidak pernah berfungsi. Toggle switch di render dibungkus `{service.hasToggle && (...)}`.
 - **Popover gear-icon di `SidebarFooter` sekarang hanya punya 2 item** (bukan 4 seperti versi dokumentasi lama): **"Settings"** (`onOpenModal('settings')` — membuka SATU modal tab terpusat, lihat §14) dan **"Quit"** (`onOpenModal('quit')`). Bahasa, System Logs, Updates, dan About **bukan lagi menu terpisah** — semuanya jadi tab di dalam modal "Settings" yang sama (general/logs/updates/about).
 - Modal Settings bisa terbuka **otomatis** (langsung ke tab tertentu) lewat dua listener `window` di `Sidebar.tsx`: `vylo_open_settings_modal` (dipicu `App.tsx` saat auto-check update di startup menemukan versi baru, payload `{modal: 'updates'}` → di-translate jadi `setActiveSettingsTab('updates'); setActiveSettingsModal('settings')` — lihat §5.1) dan `vylo_update_ready` (dipicu backend `UpdaterManager` lewat `evaluate_js` setelah download selesai, agar user diarahkan langsung ke tab Updates walau modalnya sempat tertutup saat download berjalan). Lihat `docs/backend_services.md` §12 untuk sisi backend fitur Auto-Updater ini.
+- **`SidebarFooter` merender `<NotificationBell />`** (lihat `docs/ui_consistency_guide.md`), **SELALU tampil termasuk saat `isDesktopCollapsed`** — beda sengaja dari tombol gear-icon Settings yang hilang total saat collapsed (`{!isDesktopCollapsed && (...)}`). Penempatan: **mode expanded** bell bersampingan dengan tombol gear-icon Settings (satu grup `div.ml-auto` di ujung kanan baris footer, sejajar dengan baris system-load); **mode collapsed** bell satu kolom vertikal DI ATAS ikon system-load (desain direvisi dari "baris terpisah di atas" setelah user feedback — lihat `docs/known_bugs.md` #47). `settingsRef` (dipakai deteksi klik-di-luar popover Settings) membungkus SELURUH `SidebarFooter` (termasuk bell) — klik di `NotificationBell` tidak dianggap "klik di luar" popover Settings, tapi ini tidak masalah karena `NotificationBell` sendiri sudah punya outside-click detection independen untuk panelnya sendiri.
 
 ### 4.5 `HeaderMobile.tsx`
 Header untuk layar mobile (`md:hidden`) — tombol hamburger memicu `onMenuClick` dari `App.tsx` untuk membuka overlay sidebar.
@@ -249,6 +260,13 @@ flowchart LR
         DLThread["_download_thread() sukses"] -->|native window event| VUR(("vylo_update_ready"))
     end
 
+    subgraph BackendWindowState["Backend (main.py + Api.emit_window_state, via evaluate_js)"]
+        MinRestore["window.events.minimized/restored<br/>+ AppLifecycle.on_closing() hide-to-tray<br/>+ tray 'Show VyloServe'"] -->|native window event| VWS(("vylo_window_state"))
+    end
+
+    AppBoot2["App.tsx bootstrap<br/>get_app_settings() sukses"] -->|dispatch initial value| VDNC(("vylo_desktop_notifications_changed"))
+    SettingsToggle["SettingsModals.tsx tab 'general'<br/>toggle 'Desktop Notifications'"] -->|dispatch on change| VDNC
+
     VLOG --> LogsPanel[LogsPanel.tsx — filter level/source dari settings.json]
     VPROG --> AllPages["SEMUA halaman modul yang sedang mounted<br/>(Apache/PHP/Database/Runtimes/Git Main.tsx)"]
     PWR --> App[App.tsx bootstrap]
@@ -258,6 +276,8 @@ flowchart LR
     VLSC --> LogsPanel
     VOSM --> Sidebar3["Sidebar.tsx — set tab & buka modal Settings"]
     VUR --> Sidebar3 & UpdatesModal2["UpdatesTabContent (SettingsModals.tsx) — set isReadyToInstall"]
+    VWS --> ToastProvider2["ToastContext.tsx (useWindowPresence) — isMinimized/isHidden"]
+    VDNC --> ToastProvider2
 ```
 
 | Event | Emitter | Listener | Payload |
@@ -271,6 +291,8 @@ flowchart LR
 | `vylo_log_settings_changed` | Tab "logs" di modal Settings (`SettingsModals.tsx`) — dispatch **setiap kali** satu toggle level/kategori diklik atau tombol "Select All"/"Unselect All" ditekan (tiap perubahan langsung `save_app_settings()` lalu dispatch, **bukan** tombol "Apply"/"Save" terpisah seperti versi lama) | `LogsPanel.tsx` (re-fetch preferensi filter tanpa perlu remount) | — |
 | `vylo_open_settings_modal` | `App.tsx` bootstrap — setelah `get_app_settings()` sukses, memanggil `check_for_updates()` di latar belakang; jika `is_update_available: true`, dispatch event ini | `Sidebar.tsx` — kalau `detail.modal` adalah `'updates'`/`'about'`/`'logs'`/`'general'`, set `activeSettingsTab` ke nilai itu lalu `activeSettingsModal = 'settings'` (buka modal Settings langsung ke tab terkait); nilai lain diperlakukan sebagai nama modal langsung | `{modal: 'updates'}` |
 | `vylo_update_ready` | Backend `UpdaterManager._download_thread()` lewat `window.evaluate_js()` langsung (bukan lewat `emit_progress`/`emit_log`, karena ini bukan pesan log melainkan sinyal state selesai) setelah file installer selesai diunduh | `Sidebar.tsx` (set tab `'updates'` + buka modal Settings kalau belum terbuka) **dan** `UpdatesTabContent` (komponen lokal di `SettingsModals.tsx`) sendiri kalau tab Updates sudah terbuka (refresh `get_update_status()`, set `isReadyToInstall=true`) | — |
+| `vylo_window_state` | Backend `Api.emit_window_state()` lewat `evaluate_js()` — dipanggil dari `main.py`'s `window.events.minimized`/`restored` (hook langsung, bukan polling — lihat `docs/backend_services.md` §13), `AppLifecycle.on_closing()` saat hide-to-tray, dan tray menu "Show VyloServe" saat window dimunculkan kembali | `useWindowPresence.ts` (hook dipakai `ToastContext.tsx`) — hanya field yang DIKIRIM (bukan `None` di backend) yang diproses, supaya "tidak berubah" bisa dibedakan dari "eksplisit jadi false" | `{minimized?, hidden?}` (boolean, field opsional) |
+| `vylo_desktop_notifications_changed` | `App.tsx` bootstrap (broadcast nilai awal `enable_desktop_notifications` setelah `get_app_settings()` sukses) **dan** `SettingsModals.tsx` tab "general" (toggle "Desktop Notifications", setiap kali disimpan) | `ToastContext.tsx` — **SENGAJA tidak memanggil `get_app_settings()` sendiri** untuk nilai awal (hindari fetch duplikat + reset referential-identity `showToast` yang bisa memicu re-run `useEffect` lain yang menaruh `showToast` di dependency array-nya, lihat `docs/known_bugs.md` #45) | `{enabled: boolean}` |
 
 ### 5.2 Kontrak Toast: `showToast` Menerima String yang Sudah Diterjemahkan
 
@@ -312,6 +334,29 @@ Kontrak ini rawan dilanggar dari sisi backend: sebuah service **tidak boleh** me
 
 Sebagai pengaman tambahan di sisi frontend (karena kontrak di atas bergantung pada disiplin setiap service backend dan bisa dilanggar lagi di masa depan), ketiga listener tersebut sekarang membatalkan (`clearTimeout`) timer auto-hide yang masih pending setiap kali ada event `vylo_progress` baru, sebelum menjadwalkan timer baru. Ini mencegah timer basi dari event 100%/0% yang ternyata bukan akhir proses menyembunyikan widget saat proses backend masih berjalan.
 
+### 5.5 ⚠️ Kontrak Wajib: `showToast` dari `useToast()` HARUS Stabil Secara Referensial
+
+`ToastContext.tsx`'s `showToast` dipakai di **120+ titik** di seluruh codebase, dan BANYAK di antaranya menaruh `showToast` di dependency array `useEffect`-nya sendiri (pola umum "fetch sekali saat mount + tampilkan toast error", mis. `apache/Settings.tsx`). Ini berarti **identity (referensi) `showToast` HARUS tetap sama persis selama provider tidak unmount** — kalau sampai berubah identity, SEMUA efek yang menaruhnya di dependency array ikut **re-run tak terduga**, memicu refetch/reset state yang tidak diinginkan di komponen manapun yang memanggil `useToast()`.
+
+`showToast` dibungkus `useCallback` dengan dependency array **SELALU `[]` (kosong)**. Kalau implementasinya butuh membaca state lain yang bisa berubah (mis. `isBackgrounded`/`desktopNotificationsEnabled` untuk fitur notifikasi native — lihat `docs/known_bugs.md` #45), state tsb **WAJIB** dibaca lewat `useRef` yang di-sync tiap render (`someRef.current = someState`), **BUKAN** ditambahkan ke dependency array `useCallback`. Pola yang sama berlaku untuk `clearHistory`/`markHistoryRead`.
+
+```tsx
+// BENAR -- showToast tetap stabil, state terbaru dibaca lewat ref
+const isBackgroundedRef = useRef(isBackgrounded);
+isBackgroundedRef.current = isBackgrounded;
+
+const showToast = useCallback((message, type) => {
+    // ...
+    if (isBackgroundedRef.current) { /* ... */ }
+}, []); // <- WAJIB tetap kosong
+
+// SALAH -- showToast berubah identity tiap isBackgrounded berganti,
+// memicu re-run SEMUA useEffect lain yang menaruh showToast di deps-nya
+const showToast = useCallback((message, type) => {
+    if (isBackgrounded) { /* ... */ }
+}, [isBackgrounded]);
+```
+
 ---
 
 ## 6. Provider & Komponen Cross-Cutting
@@ -352,7 +397,7 @@ Komponen generik dipakai **semua** modal di aplikasi. Props kunci: `isOpen, onCl
 - ESC & klik-overlay menutup modal, kecuali `isDestructive || isLoading`.
 
 ### 6.6 `Card.tsx`, `PageHeader.tsx`, `EmptyState.tsx`, `SkeletonCard.tsx`
-Komponen presentational murni. `Card` auto-tema warna badge berdasarkan substring teks status (`running/active`→hijau, `error/fail/offline`→merah, `native/os/system`→biru, default abu-abu).
+Komponen presentational murni. `Card` auto-tema warna badge berdasarkan substring teks status (`running/active/install`→hijau, `error/fail/offline`→merah, `native/os/system`→primary, default abu-abu). Kata kunci `install` ditambahkan Oktober 2026 (lihat `docs/known_bugs.md` #41) — sebelumnya status "Installed" jatuh ke tema abu-abu default karena tidak ada kata kunci yang cocok. Cabang `native/os/system` sendiri dulu hardcoded biru (`bg-blue-100` dkk), kini token `primary`; cabang hijau dulu cuma sebagian theme-aware (background stok Tailwind, teks ikut tema), sekarang full theme-aware via opacity-of-emerald-500 (lihat `docs/known_bugs.md` #42 dan `docs/ui_consistency_guide.md` §1).
 
 ---
 
@@ -363,7 +408,7 @@ Sistem UI VyloServe memiliki standarisasi ketat terkait notifikasi dan dialog un
 #### 1. Toast (ToastContext.tsx)
 Digunakan untuk **notifikasi non-blocking** (seperti status sukses, error jaringan ringan).
 - **Desain (Mica UI):** Toast menggunakan efek *frosted glass* (`backdrop-blur-xl` dengan `bg-white/70` di light mode, `bg-slate-900/70` di dark mode). Background semi-transparan ini membuat teks lebih kontras dan elegan karena elemen di belakangnya di-blur.
-- **Animasi:** Menggunakan @keyframes kustom di index.css (	oast-in untuk masuk dari bawah, 	oast-out meluncur ke kanan).
+- **Animasi:** Menggunakan @keyframes kustom di index.css (toast-in untuk masuk dari bawah, toast-out meluncur ke kanan).
 - **Aturan Testing:** Karena toast memiliki *exit delay* (300ms) untuk menyelesaikan animasi `toast-out` sebelum di-unmount, **selalu gunakan waitFor** saat menguji penghapusan toast di unit test. E.g.: await waitFor(() => expect(screen.queryByText(...)).not.toBeInTheDocument());
 
 #### 2. Alert / Confirm (AlertContext.tsx)
@@ -371,6 +416,7 @@ Digunakan untuk **konfirmasi destruktif sederhana** (misal: "Yakin ingin menghap
 - **Karakteristik:** Menghapus kebutuhan membuat state lokal (isConfirmOpen) di setiap halaman. Cukup panggil const { confirm } = useAlert(); dan di-await.
 - **Elemen Interaktif:** Jika Anda membutuhkan opsi tambahan sederhana (seperti checkbox "Hapus juga raw data"), JANGAN kembali menggunakan <Modal> manual. Masukkan *uncontrolled input* (checkbox dengan ID) ke dalam properti message (ReactNode), lalu ambil nilainya lewat document.getElementById(...).checked saat onConfirm dipanggil.
 - **Animasi:** Mewarisi animasi Modal.tsx secara native (scale-95 translate-y-4 menjadi scale-100).
+- **Contoh non-destruktif, dua aksi berbeda hasil (bukan sekadar Yes/No):** notifikasi "Update Available" di `App.tsx` (`handleUpdateAvailable()`) memakai `confirm()` bukan untuk konfirmasi destruktif, melainkan untuk dua pilihan aksi yang berbeda — properti `message` diisi JSX box changelog mentah dari rilis GitHub (`whitespace-pre-wrap font-mono`, gaya yang sama persis dengan box changelog di tab Settings → Updates, lihat `UpdatesTabContent` di `SettingsModals.tsx`), `confirmText`/`cancelText` di-override ke `t('ui.update.alert_update_button')`/`t('common.close')`. Promise `confirm()` yang resolve `true` memicu dua hal sekaligus: dispatch event `vylo_open_settings_modal` (membuka tab Settings → Updates yang sudah ada) **dan** memanggil `start_download_update()` langsung supaya download otomatis berjalan di background — begitu tab Updates benar-benar terbuka, `get_update_status()` di `UpdatesTabContent` otomatis men-sinkronkan progress bar-nya tanpa perlu koordinasi state tambahan apa pun antar komponen.
 
 #### 3. Modal Kustom (Modal.tsx)
 Digunakan untuk **formulir kompleks atau multi-step wizard** (misal: "Form Pembuatan Instans PHP Baru", "Pengaturan Lanjutan Apache").

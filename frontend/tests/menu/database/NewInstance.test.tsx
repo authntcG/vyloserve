@@ -39,7 +39,7 @@ describe('NewDbInstance', () => {
         mockPywebviewApi({ get_available_databases: vi.fn().mockResolvedValue({ status: 'success', data: [] }) });
         setup({ activeTab: 'postgres' });
 
-        expect(screen.getByDisplayValue('database.postgres')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'database.postgres' })).toBeInTheDocument();
     });
 
     it('exposes null form data via the ref until a version is selected', async () => {
@@ -96,7 +96,8 @@ describe('NewDbInstance', () => {
         setup();
         await screen.findByText('MySQL 8.0');
 
-        await user.selectOptions(screen.getByDisplayValue('database.mysql_mariadb'), 'postgres');
+        await user.click(screen.getByRole('button', { name: 'database.mysql_mariadb' }));
+        await user.click(screen.getByRole('option', { name: 'database.postgres' }));
 
         expect(getAvailable).toHaveBeenCalledWith('postgres');
         expect(screen.getByText('database.postgres_password_req')).toBeInTheDocument();
@@ -106,13 +107,13 @@ describe('NewDbInstance', () => {
         mockPywebviewApi({ get_available_databases: vi.fn().mockResolvedValue({ status: 'success', data: [] }) });
         const ref = createRef<NewDbInstanceRef>();
         const { rerender } = setup({ activeTab: 'all' }, ref);
-        expect(screen.getByDisplayValue('database.mysql_mariadb')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'database.mysql_mariadb' })).toBeInTheDocument();
 
         rerender(
             <NewDbInstance ref={ref} activeTab="postgres" usedPorts={[]} isInstalling={false} progress={0} progressText="" />
         );
 
-        expect(screen.getByDisplayValue('database.postgres')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'database.postgres' })).toBeInTheDocument();
     });
 
     it('shows a port-in-use warning when the chosen port collides with an existing instance', async () => {
@@ -136,7 +137,7 @@ describe('NewDbInstance', () => {
         mockPywebviewApi({ get_available_databases: vi.fn().mockResolvedValue({ status: 'success', data: [] }) });
         setup({ isInstalling: true });
 
-        expect(screen.getByDisplayValue('database.mysql_mariadb')).toBeDisabled();
+        expect(screen.getByRole('button', { name: 'database.mysql_mariadb' })).toBeDisabled();
     });
 
     it('updates the port and superuser password fields when edited', async () => {

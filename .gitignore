@@ -14,3 +14,15 @@ build
 gitleaks.json
 coverage.xml
 /temp
+
+# AI / LLM Tools
+.windsurfrules
+.cursorrules
+.cursor/
+.cursorignore
+.claude/
+.gemini/
+.cline/
+.roo/
+.aider*
+.github/

@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import ProgressBar from "./ProgressBar";
 
 interface BackgroundProgressWidgetProps {
     readonly isOpen: boolean;            // Apakah proses sedang berjalan
@@ -39,12 +40,10 @@ export default function BackgroundProgressWidget({
 
             <div className="flex justify-between items-center">
                 <span className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate w-3/4">{progressText || t('components.progress.processing')}</span>
-                <span className="text-xs font-bold text-primary dark:text-blue-400">{progress}%</span>
+                <span className="text-xs font-bold text-primary">{progress}%</span>
             </div>
 
-            <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
-                <div className="bg-primary h-2 rounded-full transition-all duration-300 ease-out" style={{ width: `${progress}%` }}></div>
-            </div>
+            <ProgressBar percent={progress} />
         </button>
     );
 }

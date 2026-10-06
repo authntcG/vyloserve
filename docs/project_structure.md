@@ -18,7 +18,7 @@ vyloserve/
 │       ├── git_manager.py      # Instalasi PortableGit
 │       ├── ssl_manager.py      # Pembuatan Certificate Authority (CA) lokal
 │       ├── dashboard.py        # Menyimpan Status Toggle UI Dashboard
-│       ├── settings.py         # Menyimpan Preferensi Aplikasi (Bahasa, Tema, filter log, opsi update)
+│       ├── settings.py         # Menyimpan Preferensi Aplikasi (Bahasa, Tema, filter log, opsi update, notifikasi desktop)
 │       ├── updater.py          # Auto-Updater: cek/unduh/pasang rilis baru dari GitHub Releases
 │       └── tunnels.py          # Logika tunnel (zrok) — instal binary & expose port lokal ke URL publik
 ├── frontend/                   # Repositori UI berbasis React (Vite + TS)
@@ -33,6 +33,8 @@ vyloserve/
 │   │   ├── utils/               # Helper murni lintas-halaman (BUKAN komponen React) — lihat docs/frontend_ui.md §1
 │   │   │   ├── a11y.ts          # onEnterOrSpace() — keyboard support (Enter/Space) utk elemen non-native
 │   │   │   └── progress.ts      # clampPercent() — clamp nilai progress vylo_progress ke [0, 100]
+│   │   ├── hooks/               # Custom React hooks lintas-komponen (BUKAN komponen React, nol JSX)
+│   │   │   └── useWindowPresence.ts # Deteksi fokus/minimize/hidden-ke-tray window — lihat docs/frontend_ui.md §5.1
 │   │   ├── i18n.ts             # Konfigurasi react-i18next (TIDAK ada folder contexts/)
 │   │   └── App.tsx             # Routing MANUAL via useState (BUKAN React Router) — lihat docs/frontend_ui.md §2
 │   ├── package.json            # Daftar dependensi Frontend (React, Tailwind, i18next)

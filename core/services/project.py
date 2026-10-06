@@ -36,11 +36,25 @@ class ProjectManager:
         if not write_json(self.projects_file, projects) and hasattr(self, 'api'):
             self._log("backend.project.save_json_failed", "error")
 
+    def _composer_requires(self, directory: str, package: str) -> bool:
+        """
+        Cek apakah `package` (mis. "laravel/framework") benar-benar terdaftar di
+        require/require-dev composer.json milik project -- bukan sekadar menebak dari
+        nama file semata. Lihat docs/known_bugs.md untuk kasus nyata: project custom
+        berbasis Zend yang dimodifikasi tetap punya file bernama "artisan" (skrip CLI
+        custom, bukan dari Laravel) DAN "composer.json" (lazim di banyak framework),
+        sehingga heuristik nama-file saja salah mendeteksinya sebagai Laravel.
+        """
+        composer = read_json(os.path.join(directory, "composer.json"), dict)
+        return package in composer.get("require", {}) or package in composer.get("require-dev", {})
+
     def detect_framework(self, directory: str) -> str:
         if not os.path.isdir(directory): return "raw"
         files = os.listdir(directory)
-        if "artisan" in files and "composer.json" in files: return "laravel"
-        if "spark" in files and "public" in files: return "codeigniter"
+        if "artisan" in files and "composer.json" in files and self._composer_requires(directory, "laravel/framework"):
+            return "laravel"
+        if "spark" in files and "public" in files and self._composer_requires(directory, "codeigniter4/framework"):
+            return "codeigniter"
         if "wp-admin" in files or "wp-config-sample.php" in files: return "wordpress"
         return "raw"
 
