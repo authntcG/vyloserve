@@ -26,6 +26,9 @@ export function mockPywebviewApi(overrides: MockApi = {}): MockApi {
         get_app_settings: vi.fn().mockResolvedValue({ status: 'success', data: { language: 'en' } }),
         get_all_services_status: vi.fn().mockResolvedValue({ apache: false, php: false, database: false, cpu_load: 0 }),
         get_app_version: vi.fn().mockResolvedValue('0.0.3-beta'),
+        get_zrok_status: vi.fn().mockResolvedValue({ installed: false, enabled: false, active_shares: [] }),
+        get_cloudflare_status: vi.fn().mockResolvedValue({ installed: false, active_shares: [] }),
+        get_projects: vi.fn().mockResolvedValue({ status: 'success', data: [] }),
         open_browser: vi.fn(),
         open_in_explorer: vi.fn(),
         browse_directory: vi.fn().mockResolvedValue(''),
@@ -46,8 +49,17 @@ export function dispatchAppEvent(name: string, detail: Record<string, unknown> =
 }
 
 /** Render dibungkus ToastProvider, untuk komponen yang memanggil useToast(). */
+import { AlertProvider } from '../src/components/AlertContext';
+
 export function renderWithToast(ui: ReactElement, options?: Omit<RenderOptions, 'wrapper'>) {
-    return render(ui, { wrapper: ToastProvider, ...options });
+    const Wrapper = ({ children }: { children: React.ReactNode }) => (
+        <ToastProvider>
+            <AlertProvider>
+                {children}
+            </AlertProvider>
+        </ToastProvider>
+    );
+    return render(ui, { wrapper: Wrapper, ...options });
 }
 
 export * from '@testing-library/react';

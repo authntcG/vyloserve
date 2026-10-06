@@ -161,7 +161,7 @@ def _extract_zip(file_path: str, extract_to: str, progress_cb: Optional[Callable
             if progress_cb and (index % 50 == 0 or index == total_files - 1):
                 extract_percent = 65 + int((index / total_files) * 15)
                 if extract_percent != last_percent:
-                    progress_cb(extract_percent, f"Mengekstrak... ({index}/{total_files} file)")
+                    progress_cb(extract_percent, "backend.common.extracting_files", {"index": index, "total": total_files})
                     last_percent = extract_percent
 
 def _extract_tar_gz(file_path: str, extract_to: str, progress_cb: Optional[Callable[[int, str], None]]):
@@ -173,7 +173,7 @@ def _extract_tar_gz(file_path: str, extract_to: str, progress_cb: Optional[Calla
                 raise RuntimeError(f"Arsip mengandung path tidak aman (path traversal): {member.name}")
 
         tar_ref.extractall(extract_to, members=members)
-        if progress_cb: progress_cb(80, "Selesai mengekstrak TAR.GZ...")
+        if progress_cb: progress_cb(80, "backend.common.extract_complete")
 
 def extract_archive(file_path: str, extract_to: str, progress_cb: Optional[Callable[[int, str], None]] = None) -> bool:
     """
@@ -200,7 +200,7 @@ def extract_archive(file_path: str, extract_to: str, progress_cb: Optional[Calla
 
 def _download_multi_part(url, dest_path, total_size, progress_cb, log_cb):
     import urllib.request, threading, concurrent.futures
-    if log_cb: log_cb("Server mendukung 'Range Bytes'. Memulai Akselerasi Multi-Part (8 Koneksi)...", "success")
+    if log_cb: log_cb("backend.runtimes.download_multipart_support", "success")
     num_connections = 8
     part_size = total_size // num_connections
     
@@ -229,7 +229,7 @@ def _download_multi_part(url, dest_path, total_size, progress_cb, log_cb):
                     dl_percent = int((downloaded_bytes * 100) / total_size)
                     overall_percent = 10 + int(dl_percent * 0.5) 
                     if progress_cb and overall_percent != last_percent and overall_percent <= 60:
-                        progress_cb(overall_percent, f"Mengunduh (Multi-Part)... {dl_percent}%")
+                        progress_cb(overall_percent, "backend.runtimes.downloading_multipart", {"percent": dl_percent})
                         last_percent = overall_percent
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=num_connections) as executor:
@@ -243,7 +243,7 @@ def _download_multi_part(url, dest_path, total_size, progress_cb, log_cb):
 
 def _download_single_stream(url, dest_path, total_size, progress_cb, log_cb):
     import urllib.request
-    if log_cb: log_cb("Server memblokir Multi-Part. Melanjutkan dengan mode Single-Stream standar.", "warn")
+    if log_cb: log_cb("backend.runtimes.download_single_stream", "warn")
     req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT_MOZILLA})
     with urllib.request.urlopen(req, timeout=15) as response, open(dest_path, 'wb') as out_file:
         block_size = 32768
@@ -260,12 +260,12 @@ def _download_single_stream(url, dest_path, total_size, progress_cb, log_cb):
                 dl_percent = int((read_size * 100) / total_size)
                 overall_percent = 10 + int(dl_percent * 0.5) 
                 if progress_cb and overall_percent != last_percent and overall_percent <= 60:
-                    progress_cb(overall_percent, f"Mengunduh... {dl_percent}%")
+                    progress_cb(overall_percent, "backend.runtimes.downloading", {"percent": dl_percent})
                     last_percent = overall_percent
             else:
                 mb_downloaded = (read_size) / (1024 * 1024)
                 if progress_cb and read_size % (1024 * 1024) < block_size:
-                    progress_cb(35, f"Mengunduh... {mb_downloaded:.1f} MB (Ukuran server anonim)")
+                    progress_cb(35, "backend.runtimes.downloading_anonymous", {"mb": f"{mb_downloaded:.1f}"})
 
 def download_advanced(url: str, dest_path: str, 
                       log_cb: Optional[Callable[[str, str], None]] = None, 

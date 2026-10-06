@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import Modal from './Modal';
+import Button from './Button';
 
 interface LogFileViewerModalProps {
     readonly isOpen: boolean;
@@ -53,13 +54,12 @@ export default function LogFileViewerModal({ isOpen, onClose, title, fetchConten
             maxWidthClass="sm:w-[700px]"
             customFooter={
                 <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 rounded-b-xl">
-                    <button type="button" onClick={loadContent} disabled={isLoading} className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
-                        <span className={`material-symbols-outlined text-[18px] ${isLoading ? 'animate-spin' : ''}`}>refresh</span>
+                    <Button variant="secondary" icon="refresh" onClick={loadContent} loading={isLoading}>
                         {t('settings.refresh')}
-                    </button>
-                    <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-blue-600 rounded-lg transition-colors">
+                    </Button>
+                    <Button variant="primary" onClick={onClose}>
                         {t('common.close', 'Close')}
-                    </button>
+                    </Button>
                 </div>
             }
         >

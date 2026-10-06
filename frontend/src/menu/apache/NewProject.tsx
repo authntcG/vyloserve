@@ -1,6 +1,10 @@
 import { useState, useEffect, useImperativeHandle, forwardRef, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useToast } from '../../components/ToastContext';
+import ProgressBar from '../../components/ProgressBar';
+import Select from '../../components/Select';
+import FieldLabel from '../../components/FieldLabel';
+import InfoBox from '../../components/InfoBox';
 import { clampPercent } from '../../utils/progress';
 
 export interface NewProjectRef {
@@ -26,21 +30,27 @@ interface FreshInstallFieldsProps {
     readonly onInstallLocationChange: (v: string) => void;
     readonly onBrowseFolder: () => void;
     readonly onOpenAdvanced: () => void;
-    readonly inputClasses: string;
     readonly t: any;
 }
 
-function FreshInstallFields({ frameworkToInstall, onFrameworkChange, isCreating, installLocation, onInstallLocationChange, onBrowseFolder, onOpenAdvanced, inputClasses, t }: FreshInstallFieldsProps) {
+function FreshInstallFields({ frameworkToInstall, onFrameworkChange, isCreating, installLocation, onInstallLocationChange, onBrowseFolder, onOpenAdvanced, t }: FreshInstallFieldsProps) {
     return (
         <div className="flex flex-col gap-4 animate-in fade-in">
             <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-primary dark:text-blue-400">{t('apache.framework_to_install')}</label>
-                <select value={frameworkToInstall} onChange={(e) => onFrameworkChange(e.target.value)} disabled={isCreating} className={`${inputClasses} border-primary/30 shadow-sm`}>
-                    <option value="laravel">{t('apache.framework_laravel')}</option>
-                    <option value="codeigniter">{t('apache.framework_codeigniter')}</option>
-                    <option value="wordpress">{t('apache.framework_wordpress')}</option>
-                    <option value="raw">{t('apache.framework_raw')}</option>
-                </select>
+                <FieldLabel tone="primary">{t('apache.framework_to_install')}</FieldLabel>
+                <Select
+                    searchable={false}
+                    options={[
+                        { value: 'laravel', label: t('apache.framework_laravel') },
+                        { value: 'codeigniter', label: t('apache.framework_codeigniter') },
+                        { value: 'wordpress', label: t('apache.framework_wordpress') },
+                        { value: 'raw', label: t('apache.framework_raw') },
+                    ]}
+                    value={frameworkToInstall}
+                    onChange={onFrameworkChange}
+                    placeholder={t('apache.framework_to_install')}
+                    disabled={isCreating}
+                />
             </div>
 
             {installLocation ? (
@@ -52,16 +62,8 @@ function FreshInstallFields({ frameworkToInstall, onFrameworkChange, isCreating,
                     <button type="button" onClick={onOpenAdvanced} className="text-primary font-medium hover:underline shrink-0 outline-none">{t('apache.change')}</button>
                 </div>
             ) : (
-                <div className="p-3.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-800/50 rounded-xl flex flex-col gap-3 animate-in fade-in zoom-in-95">
-                    <div className="flex gap-3 items-start">
-                        <span className="material-symbols-outlined text-amber-500 text-[20px] mt-0.5">folder_special</span>
-                        <div className="flex flex-col gap-0.5">
-                            <span className="text-sm font-semibold text-amber-800 dark:text-amber-400">{t('apache.workspace_required')}</span>
-                            <span className="text-xs text-amber-700 dark:text-amber-300/80 leading-relaxed">
-                                {t('apache.workspace_desc')}
-                            </span>
-                        </div>
-                    </div>
+                <InfoBox tone="warning" icon="folder_special" title={t('apache.workspace_required')} className="animate-in fade-in zoom-in-95">
+                    <span className="leading-relaxed">{t('apache.workspace_desc')}</span>
                     <div className="flex gap-2">
                         <input
                             type="text"
@@ -69,17 +71,17 @@ function FreshInstallFields({ frameworkToInstall, onFrameworkChange, isCreating,
                             onChange={(e) => onInstallLocationChange(e.target.value)}
                             disabled={isCreating}
                             placeholder={t('apache.placeholder_workspace')}
-                            className="w-full bg-white dark:bg-slate-950 border border-amber-300 dark:border-amber-700/50 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-amber-500 focus:border-amber-500 block p-2.5 outline-none transition-colors disabled:opacity-50"
+                            className="w-full bg-white dark:bg-slate-950 border border-amber-500/50 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-amber-500 focus:border-amber-500 block p-2.5 outline-none transition-colors disabled:opacity-50"
                         />
                         <button type="button"
                             onClick={onBrowseFolder}
                             disabled={isCreating}
-                            className="px-4 border rounded-lg bg-amber-100 hover:bg-amber-200 dark:bg-slate-800 dark:hover:bg-slate-700 border-amber-300 dark:border-amber-700/50 text-amber-800 dark:text-amber-400 text-sm font-medium outline-none transition-colors"
+                            className="px-4 border rounded-lg bg-amber-500/10 hover:bg-amber-500/20 dark:bg-slate-800 dark:hover:bg-slate-700 border-amber-500/50 text-amber-600 dark:text-amber-500 text-sm font-medium outline-none transition-colors"
                         >
                             {t('apache.browse')}
                         </button>
                     </div>
-                </div>
+                </InfoBox>
             )}
         </div>
     );
@@ -99,7 +101,7 @@ interface ExistingProjectFieldsProps {
 function ExistingProjectFields({ documentRoot, onDocumentRootChange, isCreating, isDetecting, detectedFramework, onBrowseExisting, inputClasses, t }: ExistingProjectFieldsProps) {
     return (
         <div className="flex flex-col gap-2 animate-in fade-in">
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('apache.project_directory')}</label>
+            <FieldLabel>{t('apache.project_directory')}</FieldLabel>
             <div className="flex gap-2">
                 <input type="text" value={documentRoot} onChange={(e) => onDocumentRootChange(e.target.value)} disabled={isCreating} placeholder={t('apache.placeholder_project_directory')} className={inputClasses} />
                 <button type="button" onClick={onBrowseExisting} disabled={isCreating || isDetecting} className={`px-4 font-medium text-sm border rounded-lg transition-colors outline-none ${isCreating || isDetecting ? 'bg-slate-50 text-slate-400 dark:bg-slate-900 border-slate-200' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'}`}>
@@ -110,7 +112,7 @@ function ExistingProjectFields({ documentRoot, onDocumentRootChange, isCreating,
             <div className="min-h-[28px]">
                 {isDetecting && <span className="text-xs font-medium text-primary flex items-center gap-2 animate-pulse"><span className="material-symbols-outlined text-[16px] animate-spin">sync</span> {t('apache.analyzing_directory')}</span>}
                 {(!isDetecting && detectedFramework) && (
-                    <div className={`text-xs flex items-center gap-1.5 p-2 rounded-md border ${detectedFramework === 'wordpress' ? 'text-blue-700 bg-blue-50 border-blue-200 dark:text-blue-400 dark:bg-blue-900/20 dark:border-blue-800/50' : 'text-emerald-700 bg-emerald-50 border-emerald-200 dark:text-emerald-400 dark:bg-emerald-900/20 dark:border-emerald-800/50'}`}>
+                    <div className={`text-xs flex items-center gap-1.5 p-2 rounded-md border ${detectedFramework === 'wordpress' ? 'text-primary bg-primary/10 border-primary/20 dark:bg-primary/20 dark:border-primary/30' : 'text-emerald-600 bg-emerald-500/10 border-emerald-500/20 dark:text-emerald-400 dark:bg-emerald-500/20 dark:border-emerald-500/30'}`}>
                         <span className="material-symbols-outlined text-[16px]">check_circle</span>
                         <span><strong>{detectedFramework.toUpperCase()}{t('apache.detected')}</strong> {detectedFramework !== 'wordpress' ? t('apache.docroot_auto_public') : t('apache.docroot_standard')}</span>
                     </div>
@@ -151,7 +153,7 @@ function AdvancedSettingsSection({ isOpen, onToggle, domainName, onDomainNameCha
             <div className={`flex flex-col gap-4 overflow-hidden transition-all duration-300 ${isOpen ? 'max-h-[600px] opacity-100 mt-4' : 'max-h-0 opacity-0'}`}>
 
                 <div className="flex flex-col gap-2">
-                    <label className="text-xs font-medium text-slate-600 dark:text-slate-400">{t('apache.custom_local_domain')}</label>
+                    <FieldLabel size="xs" tone="muted">{t('apache.custom_local_domain')}</FieldLabel>
                     <div className="flex shadow-sm rounded-lg">
                         <input type="text" value={domainName} onChange={(e) => onDomainNameChange(e.target.value)} disabled={isCreating} className={`${inputClasses} rounded-r-none focus:ring-primary`} />
                         <input type="text" value={domainExtension} onChange={(e) => onDomainExtensionChange(e.target.value)} disabled={isCreating} className={`w-24 bg-slate-50 dark:bg-slate-900 border border-l-0 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 text-center font-medium text-sm rounded-r-lg outline-none disabled:opacity-50`} />
@@ -162,10 +164,10 @@ function AdvancedSettingsSection({ isOpen, onToggle, domainName, onDomainNameCha
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border p-3 rounded-lg border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
 
                         <div className="flex flex-col gap-2 col-span-1 sm:col-span-2">
-                            <label className="text-xs font-medium text-slate-600 dark:text-slate-400 flex justify-between">
+                            <FieldLabel size="xs" tone="muted" className="flex justify-between">
                                 {t('apache.workspace_location')}
                                 {installLocation && <span className="text-[10px] text-emerald-600 dark:text-emerald-400">{t('apache.saved')}</span>}
-                            </label>
+                            </FieldLabel>
                             <div className="flex gap-2">
                                 <input type="text" value={installLocation} onChange={(e) => onInstallLocationChange(e.target.value)} disabled={isCreating} placeholder={t('apache.placeholder_workspace_location')} className={inputClasses} />
                                 <button type="button" onClick={onBrowseFolder} disabled={isCreating} className="px-3 border rounded-lg bg-white hover:bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-sm outline-none transition-colors">{t('apache.browse')}</button>
@@ -174,16 +176,23 @@ function AdvancedSettingsSection({ isOpen, onToggle, domainName, onDomainNameCha
                         </div>
 
                         <div className="flex flex-col gap-2">
-                            <label className="text-xs font-medium text-slate-600 dark:text-slate-400">{t('apache.specific_version')}</label>
+                            <FieldLabel size="xs" tone="muted">{t('apache.specific_version')}</FieldLabel>
                             <input type="text" value={specificVersion} onChange={(e) => onSpecificVersionChange(e.target.value)} disabled={isCreating} placeholder={t('apache.placeholder_specific_version')} className={inputClasses} />
                         </div>
 
                         <div className="flex flex-col gap-2">
-                            <label className="text-xs font-medium text-slate-600 dark:text-slate-400">{t('apache.environment')}</label>
-                            <select value={projectType} onChange={(e) => onProjectTypeChange(e.target.value)} disabled={isCreating} className={inputClasses}>
-                                <option value="php">{t('apache.php_engine')}</option>
-                                <option value="node" disabled>{t('apache.nodejs_soon')}</option>
-                            </select>
+                            <FieldLabel size="xs" tone="muted">{t('apache.environment')}</FieldLabel>
+                            <Select
+                                searchable={false}
+                                options={[
+                                    { value: 'php', label: t('apache.php_engine') },
+                                    { value: 'node', label: t('apache.nodejs_soon'), disabled: true },
+                                ]}
+                                value={projectType}
+                                onChange={onProjectTypeChange}
+                                placeholder={t('apache.environment')}
+                                disabled={isCreating}
+                            />
                         </div>
                     </div>
                 )}
@@ -384,19 +393,22 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
             {/* 2. PRIMARY FIELDS (Always Visible) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-in fade-in zoom-in-95 duration-200">
                 <div className="flex flex-col gap-2">
-                    <label htmlFor="apache_new_project_name" className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('apache.project_name')}</label>
+                    <FieldLabel htmlFor="apache_new_project_name">{t('apache.project_name')}</FieldLabel>
                     <input id="apache_new_project_name" type="text" value={projectName} onChange={handleProjectNameChange} disabled={isCreating} placeholder={t('apache.placeholder_project_name')} className={inputClasses} />
                 </div>
 
                 <div className="flex flex-col gap-2">
-                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('apache.php_version_label')}</label>
-                    <select value={selectedVersion} onChange={(e) => setSelectedVersion(e.target.value)} disabled={isLoadingVersions || isCreating} className={inputClasses}>
-                        {(() => {
-                            if (isLoadingVersions) return <option>{t('apache.loading')}</option>;
-                            if (phpVersions.length === 0) return <option>{t('apache.no_php_installed_exc')}</option>;
-                            return phpVersions.map((php) => <option key={php.version} value={php.version}>{php.name} ({php.version})</option>);
-                        })()}
-                    </select>
+                    <FieldLabel>{t('apache.php_version_label')}</FieldLabel>
+                    <Select
+                        searchable={false}
+                        options={phpVersions.map((php) => ({ value: php.version, label: `${php.name} (${php.version})` }))}
+                        value={selectedVersion || null}
+                        onChange={setSelectedVersion}
+                        placeholder={t('apache.no_php_installed_exc')}
+                        disabled={isCreating}
+                        loading={isLoadingVersions}
+                        loadingText={t('apache.loading')}
+                    />
                 </div>
             </div>
 
@@ -410,7 +422,6 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
                     onInstallLocationChange={handleInstallLocChange}
                     onBrowseFolder={handleBrowseFolder}
                     onOpenAdvanced={() => setIsAdvancedOpen(true)}
-                    inputClasses={inputClasses}
                     t={t}
                 />
             ) : (
@@ -455,9 +466,7 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
                             <span className="text-xs font-medium text-slate-700 dark:text-slate-300">{progress.text || t('apache.processing')}</span>
                             <span className="text-xs font-bold text-primary">{progress.percent}%</span>
                         </div>
-                        <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2.5 overflow-hidden">
-                            <div className="bg-primary h-2.5 rounded-full transition-all duration-300 ease-out" style={{ width: `${progress.percent}%` }}></div>
-                        </div>
+                        <ProgressBar percent={progress.percent} />
                     </div>
                 )}
             </div>

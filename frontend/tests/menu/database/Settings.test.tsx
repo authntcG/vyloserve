@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '../../test-utils';
+import userEvent from '@testing-library/user-event';
 import DbSettings from '../../../src/menu/database/Settings';
 
 const baseInstance = { id: 'db_1', name: 'MySQL', version: '8.0', port: 3306, status: 'running' as const, dataDir: 'C:/data' };
@@ -78,12 +79,14 @@ describe('DbSettings', () => {
         expect(onChange).toHaveBeenCalledWith(key, value);
     });
 
-    it('changes the MySQL character_set_server select and defaults to utf8mb4', () => {
+    it('changes the MySQL character_set_server select and defaults to utf8mb4', async () => {
         const onChange = vi.fn();
+        const user = userEvent.setup();
         render(<DbSettings instance={{ ...baseInstance, engine: 'mysql' }} config={{}} onChange={onChange} isLoading={false} />);
-        expect(screen.getByLabelText('character_set_server')).toHaveValue('utf8mb4');
+        expect(screen.getByLabelText('character_set_server')).toHaveTextContent('utf8mb4');
 
-        fireEvent.change(screen.getByLabelText('character_set_server'), { target: { value: 'latin1' } });
+        await user.click(screen.getByLabelText('character_set_server'));
+        await user.click(screen.getByRole('option', { name: 'latin1' }));
 
         expect(onChange).toHaveBeenCalledWith('character_set_server', 'latin1');
     });

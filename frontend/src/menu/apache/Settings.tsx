@@ -3,6 +3,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useToast } from '../../components/ToastContext';
 import LogFileViewerModal from '../../components/LogFileViewerModal';
+import Select from '../../components/Select';
+import FieldLabel from '../../components/FieldLabel';
 
 export default function ApacheSettings() {
     const { t } = useTranslation();
@@ -39,8 +41,7 @@ export default function ApacheSettings() {
         fetchInstalledVersions();
     }, [showToast, t]);
 
-    const handleVersionChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const newVersion = e.target.value;
+    const handleVersionChange = async (newVersion: string) => {
         setActiveVersion(newVersion);
 
         try {
@@ -82,30 +83,24 @@ export default function ApacheSettings() {
         <div className="flex flex-col gap-5">
             {/* Version Selector */}
             <div className="flex flex-col gap-2">
-                <label htmlFor="apache-version" className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                    {t('apache.active_version')}
-                </label>
-
                 {isLoading ? (
-                    // Skeleton Loader untuk Dropdown
-                    <div className="h-[42px] bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-lg animate-pulse"></div>
+                    <>
+                        <FieldLabel>{t('apache.active_version')}</FieldLabel>
+                        {/* Skeleton Loader untuk Dropdown */}
+                        <div className="h-[42px] bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-lg animate-pulse"></div>
+                    </>
                 ) : (
-                    <select
-                        id="apache-version"
-                        value={activeVersion}
+                    <Select
+                        searchable={false}
+                        label={t('apache.active_version')}
+                        options={installedVersions.map(ver => ({ value: ver, label: t('common.apache_version', 'Apache {{version}}', { version: ver }) }))}
+                        value={activeVersion || null}
                         onChange={handleVersionChange}
+                        placeholder={t('apache.no_apache_installation_found')}
                         disabled={installedVersions.length === 0}
-                        className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2.5 outline-none transition-colors disabled:opacity-50"
-                    >
-                        {installedVersions.length > 0 ? (
-                            installedVersions.map(ver => (
-                                <option key={ver} value={ver}>{t('common.apache_version', { version: ver })}</option>
-                            ))
-                        ) : (
-                            <option>{t('apache.no_apache_installation_found')}</option>
-                        )}
-                    </select>
+                    />
                 )}
+
                 <p className="text-xs text-slate-500 dark:text-slate-400">
                     {t('apache.change_version_desc')}
                 </p>

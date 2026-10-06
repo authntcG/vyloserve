@@ -17,18 +17,29 @@ describe('Card', () => {
     });
 
     it.each([
-        ['Running', 'bg-emerald-100'],
-        ['Active', 'bg-emerald-100'],
+        ['Running', 'bg-emerald-500/10'],
+        ['Active', 'bg-emerald-500/10'],
+        ['Installed', 'bg-emerald-500/10'],
         ['Error', 'bg-red-100'],
         ['Failed', 'bg-red-100'],
         ['Offline', 'bg-red-100'],
-        ['Native OS', 'bg-blue-100'],
-        ['System', 'bg-blue-100'],
+        ['Native OS', 'bg-primary/10'],
+        ['System', 'bg-primary/10'],
         ['Stopped', 'bg-slate-100'],
         ['Isolated', 'bg-slate-100'],
     ])('applies the correct theme class for status "%s"', (status, expectedClass) => {
         render(<Card title="X" status={status}>content</Card>);
         expect(screen.getByText(status)).toHaveClass(expectedClass);
+    });
+
+    it('does not use hardcoded blue for the "native/os/system" status theme (uses the primary token instead)', () => {
+        render(<Card title="X" status="Native OS">content</Card>);
+        expect(screen.getByText('Native OS').className).not.toMatch(/\bbg-blue-|\btext-blue-|\bborder-blue-/);
+    });
+
+    it('does not use stock (non-theme-aware) emerald shades for the "running/active/install" status theme', () => {
+        render(<Card title="X" status="Running">content</Card>);
+        expect(screen.getByText('Running').className).not.toMatch(/\bbg-emerald-100\b|\btext-emerald-800\b|\bdark:bg-emerald-900\b/);
     });
 
     it('renders dropdownActions inside the dropdown menu when provided', () => {

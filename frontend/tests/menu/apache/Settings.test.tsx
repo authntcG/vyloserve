@@ -11,7 +11,7 @@ describe('ApacheSettings', () => {
         });
         renderWithToast(<ApacheSettings />);
 
-        await waitFor(() => expect(screen.getByLabelText('apache.active_version')).toHaveValue('2.4.58'));
+        await waitFor(() => expect(screen.getByLabelText('apache.active_version')).toHaveTextContent('Apache 2.4.58'));
     });
 
     it('dispatches apache_version_changed after successfully fetching installed versions', async () => {
@@ -59,9 +59,10 @@ describe('ApacheSettings', () => {
             set_apache_active_version: setActiveVersion,
         });
         renderWithToast(<ApacheSettings />);
-        await waitFor(() => expect(screen.getByLabelText('apache.active_version')).toHaveValue('2.4.62'));
+        await waitFor(() => expect(screen.getByLabelText('apache.active_version')).toHaveTextContent('Apache 2.4.62'));
 
-        await user.selectOptions(screen.getByLabelText('apache.active_version'), '2.4.58');
+        await user.click(screen.getByLabelText('apache.active_version'));
+        await user.click(screen.getByRole('option', { name: 'Apache 2.4.58' }));
 
         expect(setActiveVersion).toHaveBeenCalledWith('2.4.58');
         expect(await screen.findByText('apache.version_switched')).toBeInTheDocument();
@@ -74,9 +75,10 @@ describe('ApacheSettings', () => {
             set_apache_active_version: vi.fn().mockResolvedValue({ status: 'error', message: 'apache.switch_conflict', args: {} }),
         });
         renderWithToast(<ApacheSettings />);
-        await waitFor(() => expect(screen.getByLabelText('apache.active_version')).toHaveValue('2.4.62'));
+        await waitFor(() => expect(screen.getByLabelText('apache.active_version')).toHaveTextContent('Apache 2.4.62'));
 
-        await user.selectOptions(screen.getByLabelText('apache.active_version'), '2.4.58');
+        await user.click(screen.getByLabelText('apache.active_version'));
+        await user.click(screen.getByRole('option', { name: 'Apache 2.4.58' }));
 
         expect(await screen.findByText('apache.switch_conflict')).toBeInTheDocument();
     });
@@ -88,9 +90,10 @@ describe('ApacheSettings', () => {
             set_apache_active_version: vi.fn().mockRejectedValue(new Error('boom')),
         });
         renderWithToast(<ApacheSettings />);
-        await waitFor(() => expect(screen.getByLabelText('apache.active_version')).toHaveValue('2.4.62'));
+        await waitFor(() => expect(screen.getByLabelText('apache.active_version')).toHaveTextContent('Apache 2.4.62'));
 
-        await user.selectOptions(screen.getByLabelText('apache.active_version'), '2.4.58');
+        await user.click(screen.getByLabelText('apache.active_version'));
+        await user.click(screen.getByRole('option', { name: 'Apache 2.4.58' }));
 
         expect(await screen.findByText('apache.save_version_settings_error')).toBeInTheDocument();
     });

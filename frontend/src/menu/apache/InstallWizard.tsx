@@ -1,6 +1,10 @@
 // src/menu/apache/InstallWizard.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import ProgressBar from '../../components/ProgressBar';
+import OsCompatibilityCard from '../../components/OsCompatibilityCard';
+import Select from '../../components/Select';
+import FieldLabel from '../../components/FieldLabel';
 
 export interface ApacheVersionData {
     version: string;
@@ -64,8 +68,7 @@ export default function ApacheInstallWizard({
     }, [isInstalling]);
 
     // Handler saat opsi versi diubah
-    const handleVersionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const selectedVersion = e.target.value;
+    const handleVersionChange = (selectedVersion: string) => {
         const selectedData = versions.find(v => v.version === selectedVersion);
         if (selectedData) {
             setVersion(selectedData.version);
@@ -78,22 +81,13 @@ export default function ApacheInstallWizard({
 
             {/* --- INFO SISTEM & PEMILIHAN VERSI --- */}
             <div className="flex flex-col gap-4">
-                <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg">
-                    <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-400">
-                            <span className="material-symbols-outlined text-[18px]">{osInfo.icon}</span>
-                        </div>
-                        <div className="flex flex-col">
-                            <span className="text-xs text-slate-500 dark:text-slate-400">{t('apache.detected_system')}</span>
-                            <span className="text-sm font-semibold text-slate-900 dark:text-white">
-                                {osInfo.name} <span className="text-primary dark:text-blue-400 font-mono text-xs ml-1 bg-blue-50 dark:bg-blue-900/30 px-1 rounded">{osInfo.arch}</span>
-                            </span>
-                        </div>
-                    </div>
-                    <span className="inline-flex items-center px-2 py-1 rounded text-[10px] font-bold tracking-wide uppercase bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-400">
-                        {t('apache.compatible')}
-                    </span>
-                </div>
+                <OsCompatibilityCard
+                    icon={osInfo.icon}
+                    detectedLabel={t('apache.detected_system')}
+                    osName={osInfo.name}
+                    arch={osInfo.arch}
+                    compatibleLabel={t('apache.compatible')}
+                />
 
                 <div className="flex flex-col gap-2">
                     <label className="text-sm font-medium text-slate-900 dark:text-white flex items-center gap-2">
@@ -101,29 +95,19 @@ export default function ApacheInstallWizard({
                         {t('apache.target_apache_version')}
                     </label>
 
-                    {isFetchingVersions ? (
-                        <div className="h-10 border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 rounded-lg flex items-center px-3 gap-2">
-                            <span className="material-symbols-outlined animate-spin text-slate-400 text-sm">sync</span>
-                            <span className="text-sm text-slate-500">{t('apache.retrieving_releases')}</span>
-                        </div>
-                    ) : (
-                        <select
-                            value={version}
-                            onChange={handleVersionChange}
-                            disabled={isInstalling || versions.length === 0}
-                            className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2.5 outline-none disabled:opacity-70 transition-colors"
-                        >
-                            {versions.length > 0 ? (
-                                versions.map((v, index) => (
-                                    <option key={v.version} value={v.version}>
-                                        Apache {v.version} {index === 0 ? t('apache.latest_stable') : ''}
-                                    </option>
-                                ))
-                            ) : (
-                                <option>{t('apache.server_up_to_date')}</option>
-                            )}
-                        </select>
-                    )}
+                    <Select
+                        searchable={false}
+                        options={versions.map((v, index) => ({
+                            value: v.version,
+                            label: `Apache ${v.version} ${index === 0 ? t('apache.latest_stable') : ''}`.trim(),
+                        }))}
+                        value={version || null}
+                        onChange={handleVersionChange}
+                        placeholder={t('apache.server_up_to_date')}
+                        disabled={isInstalling || versions.length === 0}
+                        loading={isFetchingVersions}
+                        loadingText={t('apache.retrieving_releases')}
+                    />
 
                     {osInfo.name === 'Windows' && !isFetchingVersions && (
                         <p className="text-[11px] text-slate-500 mt-1">
@@ -144,7 +128,7 @@ export default function ApacheInstallWizard({
 
                 <div className="grid grid-cols-2 gap-4">
                     <div className="flex flex-col gap-2">
-                        <label htmlFor="apache_http_port" className="text-xs font-medium text-slate-700 dark:text-slate-300">{t('apache.http_port')}</label>
+                        <FieldLabel htmlFor="apache_http_port" size="xs">{t('apache.http_port')}</FieldLabel>
                         <input
                             id="apache_http_port"
                             type="number"
@@ -155,7 +139,7 @@ export default function ApacheInstallWizard({
                         />
                     </div>
                     <div className="flex flex-col gap-2">
-                        <label htmlFor="apache_https_port" className="text-xs font-medium text-slate-700 dark:text-slate-300">{t('apache.https_port')}</label>
+                        <FieldLabel htmlFor="apache_https_port" size="xs">{t('apache.https_port')}</FieldLabel>
                         <input
                             id="apache_https_port"
                             type="number"
@@ -173,14 +157,9 @@ export default function ApacheInstallWizard({
                         <div className="p-3.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg flex flex-col gap-2 animate-in fade-in duration-300 shadow-sm">
                             <div className="flex justify-between items-center">
                                 <span className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate w-3/4">{progressText || t('apache.starting_process')}</span>
-                                <span className="text-xs font-bold text-primary dark:text-blue-400">{progress}%</span>
+                                <span className="text-xs font-bold text-primary">{progress}%</span>
                             </div>
-                            <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
-                                <div
-                                    className="bg-primary h-2 rounded-full transition-all duration-300 ease-out"
-                                    style={{ width: `${progress}%` }}
-                                ></div>
-                            </div>
+                            <ProgressBar percent={progress} />
                         </div>
                     )}
                 </div>

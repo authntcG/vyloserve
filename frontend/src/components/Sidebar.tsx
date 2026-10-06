@@ -1,5 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import ToggleSwitch from './ToggleSwitch';
+import NotificationBell from './NotificationBell';
 import SettingsModals from '../menu/tools/settings/SettingsModals';
 import type { SettingsModalType } from '../menu/tools/settings/SettingsModals';
 
@@ -30,21 +32,35 @@ const MAIN_MENU: NavItemConfig[] = [
     { id: 'dashboard', name: 'Dashboard', icon: 'space_dashboard' }
 ];
 
+// Services = punya status running/stopped + toggle switch nyata di backend
+// (start_service/stop_service). Lihat docs/frontend_ui.md §4.4 untuk prinsip
+// kategorisasi lengkap (Services vs Tools vs Utilities).
 const SERVICES: ServiceConfig[] = [
     { id: 'apache', name: 'Apache', icon: 'dns', hasToggle: true },
     { id: 'php', name: 'PHP', icon: 'code', hasToggle: true },
     { id: 'database', name: 'Database', icon: 'database', hasToggle: true },
-    // Runtimes bukan service yang bisa di-start/stop secara tunggal (tidak ada
-    // endpoint start_service/stop_service('runtimes') di backend) -- toggle switch
-    // di sini tidak pernah berfungsi, jadi tidak ditampilkan.
-    { id: 'runtimes', name: 'Runtimes', icon: 'terminal', hasToggle: false }
 ];
 
+// Tools = aksi yang terikat ke project/environment aktif, tanpa status running
+// persisten (karenanya tidak pernah punya toggle switch). Runtimes dipindah ke
+// sini dari SERVICES -- ia tidak punya endpoint start_service/stop_service('runtimes')
+// di backend, jadi secara fungsional lebih mirip Git/Tunnels daripada daemon
+// Apache/PHP/Database. Urutan mengikuti perkiraan frekuensi pemakaian (lihat
+// docs/frontend_ui.md §4.4): Tunnels lebih sering dipakai dari perkiraan awal,
+// Git lebih jarang (cuma "handler" status, tidak bisa menjalankan perintah git
+// dari VyloServe).
 const TOOLS: NavItemConfig[] = [
+    { id: 'tunnels', name: 'Tunnels', icon: 'router' },
+    { id: 'runtimes', name: 'Runtimes', icon: 'terminal' },
+    { id: 'git', name: 'Git', icon: 'merge' },
+];
+
+// Utilities = konverter data berdiri sendiri, nol keterkaitan ke project/backend --
+// bisa dipakai bahkan tanpa project VyloServe apa pun berjalan.
+const UTILITIES: NavItemConfig[] = [
     { id: 'qr', name: 'QR Generator', icon: 'qr_code_2' },
     { id: 'base64', name: 'Base64 Encoder', icon: 'code_blocks' },
     { id: 'url-encode-decode', name: 'URL Encode/Decode', icon: 'link' },
-    { id: 'git', name: 'Git', icon: 'merge' },
 ];
 
 interface SidebarHeaderProps {
@@ -92,98 +108,51 @@ function ServiceNavItem({ service, isSelected, isDesktopCollapsed, isChecked, on
             </button>
 
             {service.hasToggle && (
-                <label
-                    className={`relative inline-flex items-center cursor-pointer transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[40px] opacity-100'}`}
-                    aria-label={t('sidebar.toggle_service', 'Toggle {{service}}', { service: t(`sidebar.menu_${service.id}`, service.name) })}
-                >
-                    <input
-                        type="checkbox"
+                <div className={`transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0 overflow-hidden' : 'max-w-[40px] opacity-100'}`}>
+                    <ToggleSwitch
                         checked={isChecked}
-                        onClick={onToggleClick}
                         onChange={() => {}}
-                        className="sr-only peer"
+                        onClick={onToggleClick}
+                        tone="status"
+                        label={t('sidebar.toggle_service', 'Toggle {{service}}', { service: t(`sidebar.menu_${service.id}`, service.name) })}
                     />
-                    <div className="w-8 h-4 bg-slate-300 dark:bg-slate-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
-                </label>
+                </div>
             )}
         </div>
     );
 }
 
-interface ToolsNavItemProps {
-    readonly tools: NavItemConfig[];
+interface PlainNavItemProps {
+    readonly item: NavItemConfig;
+    readonly isSelected: boolean;
     readonly isDesktopCollapsed: boolean;
-    readonly showToolsDropdown: boolean;
-    readonly onToggleOpen: () => void;
-    readonly activeMenu: string;
-    readonly onSelectMenu: (id: string) => void;
+    readonly onSelect: () => void;
     readonly t: any;
 }
 
-function ToolsNavItem({ tools, isDesktopCollapsed, showToolsDropdown, onToggleOpen, activeMenu, onSelectMenu, t }: ToolsNavItemProps) {
-    if (tools.length === 0) return null;
+/** Tombol nav tanpa toggle switch -- dipakai bersama untuk grup Tools maupun Utilities. */
+function PlainNavItem({ item, isSelected, isDesktopCollapsed, onSelect, t }: PlainNavItemProps) {
     return (
-        <div className="relative group mt-2 pt-2 border-t border-slate-200 dark:border-slate-800">
-            <button
-                type="button"
-                className="w-full text-left flex items-center justify-between gap-3 rounded-md px-3 py-2.5 cursor-pointer text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                onClick={onToggleOpen}
-                aria-expanded={showToolsDropdown}
-            >
-                <div className={`flex items-center ${isDesktopCollapsed ? 'gap-0' : 'gap-3'}`}>
-                    <span className="material-symbols-outlined shrink-0" style={isDesktopCollapsed ? { fontSize: '18px' } : undefined}>construction</span>
-                    {isDesktopCollapsed && (
-                        <span
-                            className="material-symbols-outlined shrink-0 ml-0.5 text-slate-400 group-hover:text-primary transition-colors"
-                            style={{ fontSize: '18px' }}
-                        >
-                            chevron_right
-                        </span>
-                    )}
-                    <span className={`font-medium text-sm whitespace-nowrap overflow-hidden transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[150px] opacity-100'}`}>{t('sidebar.tools')}</span>
-                </div>
-                {!isDesktopCollapsed && (
-                    <span className="material-symbols-outlined text-[20px] transition-transform duration-300" style={{ transform: showToolsDropdown ? 'rotate(180deg)' : 'rotate(0deg)' }}>expand_more</span>
-                )}
-            </button>
-
-            {/* Dropdown Menu */}
-            {!isDesktopCollapsed && showToolsDropdown && (
-                <div className="flex flex-col gap-1 ml-4 pl-2 border-l border-slate-200 dark:border-slate-700 my-1">
-                    {tools.map(tool => (
-                        <button
-                            type="button"
-                            key={tool.id}
-                            onClick={() => onSelectMenu(tool.id)}
-                            className={`w-full text-left flex items-center gap-3 rounded-md px-3 py-2 cursor-pointer transition-colors ${activeMenu === tool.id ? 'text-primary bg-slate-50 dark:bg-slate-800/50' : 'text-slate-500 dark:text-slate-400 hover:text-primary'}`}
-                        >
-                            <span className="material-symbols-outlined text-[18px] shrink-0">{tool.icon}</span>
-                            <span className="font-medium text-sm">{t(`sidebar.menu_${tool.id}`, tool.name)}</span>
-                        </button>
-                    ))}
-                </div>
-            )}
-
-            {/* Flyout jika Collapsed */}
-            {isDesktopCollapsed && (
-                <div className="absolute left-[calc(100%+4px)] top-0 w-48 flex-col gap-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl p-2 z-[60] opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
-                    <div className="px-3 pt-1 pb-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 mb-1">{t('sidebar.tools')}</div>
-                    {tools.map(tool => (
-                        <button
-                            type="button"
-                            key={tool.id}
-                            onClick={() => onSelectMenu(tool.id)}
-                            className={`w-full text-left flex items-center gap-3 rounded-md px-3 py-2 cursor-pointer ${activeMenu === tool.id ? 'text-primary bg-slate-50 dark:bg-slate-800' : 'text-slate-600 dark:text-slate-300'}`}
-                        >
-                            <span className="material-symbols-outlined text-[18px]">{tool.icon}</span>
-                            <span className="font-medium text-sm truncate">{t(`sidebar.menu_${tool.id}`, tool.name)}</span>
-                        </button>
-                    ))}
-                </div>
-            )}
-        </div>
+        <button
+            type="button"
+            onClick={onSelect}
+            className={`w-full text-left flex items-center gap-3 rounded-md px-3 py-2.5 cursor-pointer transition-colors ${
+                isSelected
+                    ? 'bg-slate-100 dark:bg-slate-800 text-primary'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+            title={isDesktopCollapsed ? t(`sidebar.menu_${item.id}`, item.name) : undefined}
+        >
+            <span className="material-symbols-outlined shrink-0" style={{ fontVariationSettings: isSelected ? "'FILL' 1" : "'FILL' 0" }}>
+                {item.icon}
+            </span>
+            <span className={`font-medium text-sm whitespace-nowrap overflow-hidden transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[150px] opacity-100'}`}>
+                {t(`sidebar.menu_${item.id}`, item.name)}
+            </span>
+        </button>
     );
 }
+
 
 interface SidebarFooterProps {
     readonly isDesktopCollapsed: boolean;
@@ -198,56 +167,48 @@ interface SidebarFooterProps {
 
 function SidebarFooter({ isDesktopCollapsed, systemLoad, systemLoadColorClass, isSettingsOpen, onToggleSettings, onOpenModal, settingsRef, t }: SidebarFooterProps) {
     return (
-        <div className="p-4 border-t border-slate-200 dark:border-slate-800 mt-auto flex justify-between items-center relative" ref={settingsRef}>
-            <div className={`flex items-center text-slate-500 dark:text-slate-400 ${isDesktopCollapsed ? 'w-full flex-col justify-center gap-0.5' : 'gap-2'}`}>
-                <span className={`material-symbols-outlined text-[20px] ${systemLoadColorClass}`}>memory</span>
-                {isDesktopCollapsed ? (
-                    <span className={`text-[10px] font-bold leading-none ${systemLoadColorClass}`}>{systemLoad}%</span>
-                ) : (
-                    <span className="text-xs font-medium uppercase tracking-wider transition-all duration-300 overflow-hidden whitespace-nowrap max-w-[150px] opacity-100">
-                        {t('sidebar.system_load')} <span className={systemLoad > 80 ? 'text-red-500 font-bold' : ''}>{systemLoad}%</span>
-                    </span>
-                )}
-            </div>
+        <div className="p-4 border-t border-slate-200 dark:border-slate-800 mt-auto flex items-center relative" ref={settingsRef}>
+            {isDesktopCollapsed ? (
+                // Mode collapsed: bell di ATAS ikon system-load, satu kolom vertikal (tanpa
+                // tombol Settings -- popovernya butuh ruang horizontal yang tidak ada di rail
+                // 80px, lihat perilaku lama tombol Settings yang juga disembunyikan saat collapsed).
+                <div className="w-full flex flex-col items-center gap-2">
+                    <NotificationBell />
+                    <div className="flex flex-col items-center gap-0.5 text-slate-500 dark:text-slate-400">
+                        <span className={`material-symbols-outlined text-[20px] ${systemLoadColorClass}`}>memory</span>
+                        <span className={`text-[10px] font-bold leading-none ${systemLoadColorClass}`}>{systemLoad}%</span>
+                    </div>
+                </div>
+            ) : (
+                <>
+                    <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+                        <span className={`material-symbols-outlined text-[20px] ${systemLoadColorClass}`}>memory</span>
+                        <span className="text-xs font-medium uppercase tracking-wider transition-all duration-300 overflow-hidden whitespace-nowrap max-w-[150px] opacity-100">
+                            {t('sidebar.system_load')} <span className={systemLoad > 80 ? 'text-red-500 font-bold' : ''}>{systemLoad}%</span>
+                        </span>
+                    </div>
 
-            {!isDesktopCollapsed && (
-                <button type="button"
-                    onClick={onToggleSettings}
-                    className={`p-1.5 rounded-md flex items-center justify-center transition-colors ${isSettingsOpen ? 'bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-                >
-                    <span className="material-symbols-outlined text-[18px]">settings</span>
-                </button>
+                    {/* Bell bersampingan dengan Settings -- satu grup "status & aksi ambient" di kanan. */}
+                    <div className="ml-auto flex items-center gap-1">
+                        <NotificationBell />
+                        <button type="button"
+                            onClick={onToggleSettings}
+                            className={`p-1.5 rounded-md flex items-center justify-center transition-colors ${isSettingsOpen ? 'bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                        >
+                            <span className="material-symbols-outlined text-[18px]">settings</span>
+                        </button>
+                    </div>
+                </>
             )}
 
             {isSettingsOpen && !isDesktopCollapsed && (
                 <div className="absolute bottom-full mb-2 right-4 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 overflow-hidden text-sm font-medium">
                     <button type="button"
-                        onClick={() => onOpenModal('language')}
+                        onClick={() => onOpenModal('settings')}
                         className="w-full text-left px-4 py-3 flex items-center gap-3 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-100 dark:border-slate-800"
                     >
-                        <span className="material-symbols-outlined text-[18px] text-slate-400">translate</span>
-                        {t('settings.change_language')}
-                    </button>
-                    <button type="button"
-                        onClick={() => onOpenModal('logs')}
-                        className="w-full text-left px-4 py-3 flex items-center gap-3 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-100 dark:border-slate-800"
-                    >
-                        <span className="material-symbols-outlined text-[18px] text-slate-400">filter_list</span>
-                        {t('settings.system_logs')}
-                    </button>
-                    <button type="button"
-                        onClick={() => onOpenModal('updates')}
-                        className="w-full text-left px-4 py-3 flex items-center gap-3 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-100 dark:border-slate-800"
-                    >
-                        <span className="material-symbols-outlined text-[18px] text-slate-400">system_update</span>
-                        {t('settings.updates')}
-                    </button>
-                    <button type="button"
-                        onClick={() => onOpenModal('about')}
-                        className="w-full text-left px-4 py-3 flex items-center gap-3 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-100 dark:border-slate-800"
-                    >
-                        <span className="material-symbols-outlined text-[18px] text-slate-400">info</span>
-                        {t('settings.about')}
+                        <span className="material-symbols-outlined text-[18px] text-slate-400">settings</span>
+                        {t('settings.settings')}
                     </button>
                     <button type="button"
                         onClick={() => onOpenModal('quit')}
@@ -272,9 +233,9 @@ export default function Sidebar({
 }: SidebarProps) {
     const { t } = useTranslation();
     const [searchQuery, setSearchQuery] = useState('');
-    const [isToolsOpen, setIsToolsOpen] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [activeSettingsModal, setActiveSettingsModal] = useState<SettingsModalType>(null);
+    const [activeSettingsTab, setActiveSettingsTab] = useState<'general' | 'logs' | 'updates' | 'about'>('general');
     const settingsRef = useRef<HTMLDivElement>(null);
     const [systemLoad, setSystemLoad] = useState<number>(0);
     const [serviceStatus, setServiceStatus] = useState<Record<string, boolean>>({
@@ -310,15 +271,22 @@ export default function Sidebar({
         };
 
         const handleOpenSettingsModalEvent = (e: Event) => {
-            const customEvent = e as CustomEvent;
-            if (customEvent.detail?.modal) {
-                setActiveSettingsModal(customEvent.detail.modal);
+        const customEvent = e as CustomEvent;
+        if (customEvent.detail?.modal) {
+            const m = customEvent.detail.modal;
+            if (m === 'updates' || m === 'about' || m === 'logs' || m === 'general') {
+                setActiveSettingsTab(m);
+                setActiveSettingsModal('settings');
+            } else {
+                setActiveSettingsModal(m);
             }
-        };
+        }
+    };
 
         const handleUpdateReadyGlobal = () => {
-            setActiveSettingsModal('updates');
-        };
+        setActiveSettingsTab('updates');
+        setActiveSettingsModal('settings');
+    };
 
         const handleClickOutside = (event: MouseEvent) => {
             if (settingsRef.current && !settingsRef.current.contains(event.target as Node)) {
@@ -387,7 +355,7 @@ export default function Sidebar({
     const filteredMain = MAIN_MENU.filter(filterQuery);
     const filteredServices = SERVICES.filter(filterQuery);
     const filteredTools = TOOLS.filter(filterQuery);
-    const showToolsDropdown = isToolsOpen || (searchQuery !== '' && filteredTools.length > 0);
+    const filteredUtilities = UTILITIES.filter(filterQuery);
 
     return (
         <>
@@ -455,15 +423,39 @@ export default function Sidebar({
                         />
                     ))}
 
-                    <ToolsNavItem
-                        tools={filteredTools}
-                        isDesktopCollapsed={isDesktopCollapsed}
-                        showToolsDropdown={showToolsDropdown}
-                        onToggleOpen={() => !isDesktopCollapsed && setIsToolsOpen(!isToolsOpen)}
-                        activeMenu={activeMenu}
-                        onSelectMenu={onSelectMenu}
-                        t={t}
-                    />
+                    {/* Tools */}
+                    {filteredTools.length > 0 && (
+                        <div className={`px-3 pb-1 text-xs font-semibold text-slate-400 uppercase tracking-wider transition-all ${isDesktopCollapsed ? 'hidden' : 'pt-4 border-t border-slate-200 dark:border-slate-800 mt-2'}`}>
+                            {t('sidebar.tools')}
+                        </div>
+                    )}
+                    {filteredTools.map(tool => (
+                        <PlainNavItem
+                            key={tool.id}
+                            item={tool}
+                            isSelected={activeMenu === tool.id}
+                            isDesktopCollapsed={isDesktopCollapsed}
+                            onSelect={() => onSelectMenu(tool.id)}
+                            t={t}
+                        />
+                    ))}
+
+                    {/* Utilities */}
+                    {filteredUtilities.length > 0 && (
+                        <div className={`px-3 pb-1 text-xs font-semibold text-slate-400 uppercase tracking-wider transition-all ${isDesktopCollapsed ? 'hidden' : 'pt-4 border-t border-slate-200 dark:border-slate-800 mt-2'}`}>
+                            {t('sidebar.utilities')}
+                        </div>
+                    )}
+                    {filteredUtilities.map(utility => (
+                        <PlainNavItem
+                            key={utility.id}
+                            item={utility}
+                            isSelected={activeMenu === utility.id}
+                            isDesktopCollapsed={isDesktopCollapsed}
+                            onSelect={() => onSelectMenu(utility.id)}
+                            t={t}
+                        />
+                    ))}
                 </div>
 
                 <SidebarFooter
@@ -480,6 +472,7 @@ export default function Sidebar({
 
             <SettingsModals
                 activeModal={activeSettingsModal}
+                defaultTab={activeSettingsTab}
                 onClose={() => setActiveSettingsModal(null)}
             />
         </>

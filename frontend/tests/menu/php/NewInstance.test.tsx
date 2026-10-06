@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '../../test-utils';
 import { mockPywebviewApi } from '../../test-utils';
+import userEvent from '@testing-library/user-event';
 import NewPhpInstance from '../../../src/menu/php/NewInstance';
 
 const versions = [
@@ -36,7 +37,20 @@ describe('NewPhpInstance', () => {
 
         await waitFor(() => expect(setVersion).toHaveBeenCalledWith('8.3'));
         expect(setFilename).toHaveBeenCalledWith('php-8.3.zip');
-        expect(await screen.findByText(/PHP 8.3/)).toBeInTheDocument();
+
+        const user = userEvent.setup();
+        await user.click(await screen.findByRole('button'));
+        expect(screen.getByRole('option', { name: /PHP 8\.3/ })).toBeInTheDocument();
+    });
+
+    it('shows a search box in the version dropdown (searchable, not a plain picker)', async () => {
+        mockPywebviewApi({ get_php_versions: vi.fn().mockResolvedValue({ status: 'success', data: versions }) });
+        setup();
+        const user = userEvent.setup();
+
+        await user.click(await screen.findByRole('button'));
+
+        expect(screen.getByPlaceholderText('Search...')).toBeInTheDocument();
     });
 
     it('clears version/filename and shows "all versions installed" when the list is empty', async () => {
@@ -55,7 +69,7 @@ describe('NewPhpInstance', () => {
         setup();
 
         expect(await screen.findByText(/php.fetch_denied/)).toBeInTheDocument();
-        expect(screen.getByRole('combobox')).toBeDisabled();
+        expect(screen.getByRole('button', { name: /php.fetch_denied/ })).toBeDisabled();
     });
 
     it('shows the generic backend-connection error when the fetch call throws', async () => {
@@ -68,9 +82,11 @@ describe('NewPhpInstance', () => {
     it('calls setVersion and setFilename with the matching data when a different version is selected', async () => {
         mockPywebviewApi({ get_php_versions: vi.fn().mockResolvedValue({ status: 'success', data: versions }) });
         const { setVersion, setFilename } = setup();
-        await waitFor(() => expect(screen.getByRole('combobox')).not.toBeDisabled());
+        const user = userEvent.setup();
+        await waitFor(() => expect(screen.getByRole('button')).not.toBeDisabled());
 
-        fireEvent.change(screen.getByRole('combobox'), { target: { value: '8.2' } });
+        await user.click(screen.getByRole('button'));
+        await user.click(screen.getByRole('option', { name: /PHP 8\.2/ }));
 
         expect(setVersion).toHaveBeenCalledWith('8.2');
         expect(setFilename).toHaveBeenCalledWith('php-8.2.zip');
@@ -95,7 +111,7 @@ describe('NewPhpInstance', () => {
         mockPywebviewApi({ get_php_versions: vi.fn().mockResolvedValue({ status: 'success', data: versions }) });
         setup({ port: 9050, usedPorts: [] });
 
-        await waitFor(() => expect(screen.getByRole('combobox')).not.toBeDisabled());
+        await waitFor(() => expect(screen.getByRole('button')).not.toBeDisabled());
         expect(screen.queryByText('php.port_conflict')).not.toBeInTheDocument();
         expect(screen.queryByText('php.port_9000_tip')).not.toBeInTheDocument();
     });
@@ -103,7 +119,7 @@ describe('NewPhpInstance', () => {
     it('calls setPort with the numeric field value when the port input changes', async () => {
         mockPywebviewApi({ get_php_versions: vi.fn().mockResolvedValue({ status: 'success', data: versions }) });
         const { setPort } = setup();
-        await waitFor(() => expect(screen.getByRole('combobox')).not.toBeDisabled());
+        await waitFor(() => expect(screen.getByRole('button')).not.toBeDisabled());
 
         fireEvent.change(screen.getByLabelText('php.listening_port'), { target: { value: '9050' } });
 

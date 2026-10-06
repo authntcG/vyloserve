@@ -201,9 +201,9 @@ describe('RuntimesMain', () => {
             window.dispatchEvent(new CustomEvent('vylo_progress', { detail: { source: 'RuntimesManager', percent: 50, text: 'Downloading...' } }));
         });
 
-        // Modal order in the JSX: uninstall-confirm, node, python, java, go — all five share
-        // keepMounted={isProcessing}, so all render "Close" overlays at once; index 1 is Node's.
-        await user.click(screen.getAllByLabelText('Close')[1]);
+        // Modal order in the JSX: node, python, java, go
+        // keepMounted={isProcessing}, so all render "Close" overlays at once; index 0 is Node's.
+        await user.click(screen.getAllByLabelText('Close')[0]);
         const widget = await screen.findByRole('button', { name: /runtimes\.install_title/ });
         expect(widget).toBeInTheDocument();
 

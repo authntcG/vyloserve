@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { render, screen } from '../../../test-utils';
+import { render, screen, waitFor } from '../../../test-utils';
 import { mockPywebviewApi } from '../../../test-utils';
 import SettingsModals from '../../../../src/menu/tools/settings/SettingsModals';
 
@@ -12,190 +12,232 @@ describe('SettingsModals', () => {
         expect(screen.queryByText('settings.quit_desc')).not.toBeInTheDocument();
     });
 
-    it('shows the language options when the language modal is open', () => {
-        render(<SettingsModals activeModal="language" onClose={vi.fn()} />);
-        expect(screen.getByText('settings.lang_option_english')).toBeInTheDocument();
-        expect(screen.getByText('settings.lang_option_indonesian')).toBeInTheDocument();
-        expect(screen.getByRole('radio', { name: 'settings.lang_option_english' })).toBeChecked();
+    it('shows the general settings (language & theme) by default when settings modal is open', () => {
+        render(<SettingsModals activeModal="settings" onClose={vi.fn()} />);
+        expect(screen.getByText(/English/i)).toBeInTheDocument();
+        expect(screen.getByText(/Indonesian/i)).toBeInTheDocument();
+        expect(screen.getByRole('radio', { name: /English/i })).toBeChecked();
     });
 
-    it('closes without changing language when Apply is clicked without selecting a different language', async () => {
-        const user = userEvent.setup();
-        const saveSettings = vi.fn();
-        mockPywebviewApi({ save_app_settings: saveSettings });
-        const onClose = vi.fn();
-        render(<SettingsModals activeModal="language" onClose={onClose} />);
-
-        await user.click(screen.getByText('common.save'));
-
-        expect(saveSettings).not.toHaveBeenCalled();
-        expect(onClose).toHaveBeenCalledTimes(1);
-    });
-
-    it('changes and persists the language, then closes, when a different language is selected and applied', async () => {
+    it('instantly saves language when a different language is selected', async () => {
         const user = userEvent.setup();
         const saveSettings = vi.fn().mockResolvedValue({ status: 'success' });
-        mockPywebviewApi({ save_app_settings: saveSettings });
-        const onClose = vi.fn();
-        render(<SettingsModals activeModal="language" onClose={onClose} />);
+        mockPywebviewApi({ 
+            save_app_settings: saveSettings,
+            get_app_settings: vi.fn().mockResolvedValue({ status: 'success', data: { language: 'en', theme: 'vyloserve-dark' } })
+        });
+        
+        render(<SettingsModals activeModal="settings" onClose={vi.fn()} />);
 
-        await user.click(screen.getByRole('radio', { name: 'settings.lang_option_indonesian' }));
-        await user.click(screen.getByText('common.save'));
+        await user.click(screen.getByRole('radio', { name: /Indonesian/i }));
 
-        expect(saveSettings).toHaveBeenCalledWith({ language: 'id' });
-        expect(onClose).toHaveBeenCalledTimes(1);
+        await waitFor(() => {
+            expect(saveSettings).toHaveBeenCalledWith({ language: 'id' });
+        });
     });
 
-    it('shows the VyloServe about content with working GitHub and documentation links', () => {
-        render(<SettingsModals activeModal="about" onClose={vi.fn()} />);
+    it('shows the desktop notifications toggle on the General tab, defaulting to checked', async () => {
+        mockPywebviewApi({
+            get_app_settings: vi.fn().mockResolvedValue({ status: 'success', data: { language: 'en', theme: 'vyloserve-dark' } })
+        });
 
-        const githubLink = screen.getByText('settings.view_on_github').closest('a')!;
-        expect(githubLink).toHaveAttribute('href', 'https://github.com/authntcG/vyloserve/');
+        render(<SettingsModals activeModal="settings" onClose={vi.fn()} />);
 
-        const docsLink = screen.getByText('settings.documentation').closest('a')!;
-        expect(docsLink).toHaveAttribute('href', 'https://github.com/authntcG/vyloserve/blob/main/docs/index.md');
+        await waitFor(() => {
+            expect(screen.getByRole('checkbox', { name: 'Desktop Notifications' })).toBeChecked();
+        });
     });
 
-    it('closes the about modal via its custom footer close button', async () => {
+    it('reflects enable_desktop_notifications=false from saved settings', async () => {
+        mockPywebviewApi({
+            get_app_settings: vi.fn().mockResolvedValue({ status: 'success', data: { language: 'en', theme: 'vyloserve-dark', enable_desktop_notifications: false } })
+        });
+
+        render(<SettingsModals activeModal="settings" onClose={vi.fn()} />);
+
+        await waitFor(() => {
+            expect(screen.getByRole('checkbox', { name: 'Desktop Notifications' })).not.toBeChecked();
+        });
+    });
+
+    it('instantly saves enable_desktop_notifications when the toggle is clicked', async () => {
         const user = userEvent.setup();
-        const onClose = vi.fn();
-        render(<SettingsModals activeModal="about" onClose={onClose} />);
+        const saveSettings = vi.fn().mockResolvedValue({ status: 'success' });
+        mockPywebviewApi({
+            save_app_settings: saveSettings,
+            get_app_settings: vi.fn().mockResolvedValue({ status: 'success', data: { language: 'en', theme: 'vyloserve-dark', enable_desktop_notifications: true } })
+        });
 
-        await user.click(screen.getAllByText('common.close')[0]);
+        render(<SettingsModals activeModal="settings" onClose={vi.fn()} />);
+        await waitFor(() => {
+            expect(screen.getByRole('checkbox', { name: 'Desktop Notifications' })).toBeChecked();
+        });
 
-        expect(onClose).toHaveBeenCalledTimes(1);
+        await user.click(screen.getByRole('checkbox', { name: 'Desktop Notifications' }));
+
+        await waitFor(() => {
+            expect(saveSettings).toHaveBeenCalledWith({ enable_desktop_notifications: false });
+        });
     });
 
-    it('shows the destructive quit confirmation and calls close_app when confirmed', async () => {
+    it('shows the VyloServe about content when the about tab is clicked', async () => {
+        const user = userEvent.setup();
+        render(<SettingsModals activeModal="settings" onClose={vi.fn()} />);
+        
+        await user.click(screen.getByRole('button', { name: /settings.about/i }));
+        
+        expect(screen.getByText('VyloServe')).toBeInTheDocument();
+        expect(screen.getByText('settings.about_desc')).toBeInTheDocument();
+    });
+
+    it('fetches version when about tab is shown via settings open', async () => {
+        const getAppVersion = vi.fn().mockResolvedValue('1.2.3');
+        mockPywebviewApi({ get_app_version: getAppVersion });
+        const user = userEvent.setup();
+        render(<SettingsModals activeModal="settings" onClose={vi.fn()} />);
+
+        await user.click(screen.getByRole('button', { name: /settings.about/i }));
+        await waitFor(() => expect(screen.getByText('Version 1.2.3')).toBeInTheDocument());
+        expect(getAppVersion).toHaveBeenCalledTimes(1);
+    });
+
+    it('loads and displays log levels and sources from pywebview API on Logs tab', async () => {
+        const getAppSettings = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: { system_log_levels: ['error', 'warn'], system_log_sources: ['ApacheManager'] }
+        });
+        mockPywebviewApi({ get_app_settings: getAppSettings });
+
+        const user = userEvent.setup();
+        render(<SettingsModals activeModal="settings" onClose={vi.fn()} />);
+
+        await user.click(screen.getByRole('button', { name: /settings.system_logs/i }));
+
+        await waitFor(() => {
+            expect(getAppSettings).toHaveBeenCalled();
+        });
+        await waitFor(() => {
+            expect(screen.getByRole('checkbox', { name: 'settings.log_level_error' })).toBeChecked();
+            expect(screen.getByLabelText('settings.log_level_warn')).toBeChecked();
+            expect(screen.getByLabelText('settings.log_level_info')).not.toBeChecked();
+            expect(screen.getByRole('checkbox', { name: 'settings.log_source_apache' })).toBeChecked();
+            expect(screen.getByRole('checkbox', { name: 'settings.log_source_php' })).not.toBeChecked();
+        });
+    });
+
+    it('instantly saves log levels when toggled', async () => {
+        const getAppSettings = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: { system_log_levels: ['info', 'warn', 'error', 'success'], system_log_sources: [] }
+        });
+        const saveSettings = vi.fn().mockResolvedValue({ status: 'success' });
+        mockPywebviewApi({ get_app_settings: getAppSettings, save_app_settings: saveSettings });
+
+        const user = userEvent.setup();
+        render(<SettingsModals activeModal="settings" onClose={vi.fn()} />);
+
+        await user.click(screen.getByRole('button', { name: /settings.system_logs/i }));
+
+        // wait for load
+        await waitFor(() => expect(screen.getByRole('checkbox', { name: 'settings.log_level_error' })).toBeChecked());
+
+        await user.click(screen.getByRole('checkbox', { name: 'settings.log_level_error' }));
+
+        await waitFor(() => {
+            expect(screen.getByRole('checkbox', { name: 'settings.log_level_error' })).not.toBeChecked();
+            expect(saveSettings).toHaveBeenCalledWith({ system_log_levels: ['info', 'warn', 'success'] });
+        });
+    });
+
+    it('selects and deselects all log sources when the toggle button is clicked', async () => {
+        const getAppSettings = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: { system_log_levels: [], system_log_sources: [] }
+        });
+        const saveSettings = vi.fn().mockResolvedValue({ status: 'success' });
+        mockPywebviewApi({ get_app_settings: getAppSettings, save_app_settings: saveSettings });
+
+        const user = userEvent.setup();
+        render(<SettingsModals activeModal="settings" onClose={vi.fn()} />);
+
+        await user.click(screen.getByRole('button', { name: /settings.system_logs/i }));
+        
+        // wait for load
+        await waitFor(() => expect(screen.getByRole('button', { name: /select/i })).toBeInTheDocument());
+
+        await user.click(screen.getByRole('button', { name: /select/i }));
+
+        await waitFor(() => {
+            expect(screen.getByRole('checkbox', { name: 'settings.log_source_apache' })).toBeChecked();
+        });
+
+        await user.click(screen.getByRole('button', { name: /unselect/i }));
+
+        await waitFor(() => {
+            expect(screen.getByRole('checkbox', { name: 'settings.log_source_apache' })).not.toBeChecked();
+        });
+    });
+
+    it('shows a checkbox for the Tunnels category (regression: was missing entirely, causing TunnelsManager logs to be permanently filtered out)', async () => {
+        const getAppSettings = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: { system_log_levels: null, system_log_sources: null }
+        });
+        mockPywebviewApi({ get_app_settings: getAppSettings });
+
+        const user = userEvent.setup();
+        render(<SettingsModals activeModal="settings" onClose={vi.fn()} />);
+        await user.click(screen.getByRole('button', { name: /settings.system_logs/i }));
+
+        await waitFor(() => {
+            expect(screen.getByRole('checkbox', { name: 'settings.log_source_tunnels' })).toBeChecked();
+        });
+    });
+
+    it('includes TunnelsManager when "select all" sources is clicked, and excludes it when "unselect all" is clicked', async () => {
+        const getAppSettings = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: { system_log_levels: [], system_log_sources: [] }
+        });
+        const saveSettings = vi.fn().mockResolvedValue({ status: 'success' });
+        mockPywebviewApi({ get_app_settings: getAppSettings, save_app_settings: saveSettings });
+
+        const user = userEvent.setup();
+        render(<SettingsModals activeModal="settings" onClose={vi.fn()} />);
+        await user.click(screen.getByRole('button', { name: /settings.system_logs/i }));
+        await waitFor(() => expect(screen.getByRole('button', { name: /select/i })).toBeInTheDocument());
+
+        await user.click(screen.getByRole('button', { name: /select/i }));
+
+        await waitFor(() => {
+            expect(screen.getByRole('checkbox', { name: 'settings.log_source_tunnels' })).toBeChecked();
+        });
+        expect(saveSettings).toHaveBeenCalledWith(
+            expect.objectContaining({ system_log_sources: expect.arrayContaining(['TunnelsManager']) })
+        );
+    });
+
+    it('closes the app when Quit is confirmed', async () => {
         const user = userEvent.setup();
         const closeApp = vi.fn();
         mockPywebviewApi({ close_app: closeApp });
         render(<SettingsModals activeModal="quit" onClose={vi.fn()} />);
-        expect(screen.getByText('settings.quit_desc')).toBeInTheDocument();
 
-        await user.click(screen.getByRole('button', { name: 'settings.quit' }));
+        await user.click(screen.getByText('common.yes'));
 
         expect(closeApp).toHaveBeenCalledTimes(1);
     });
 
-    it('falls back to window.close() when close_app is not available', async () => {
+    it('closes the quit modal when Cancel or close is clicked', async () => {
         const user = userEvent.setup();
-        mockPywebviewApi();
-        const windowClose = vi.spyOn(window, 'close').mockImplementation(() => {});
-        render(<SettingsModals activeModal="quit" onClose={vi.fn()} />);
-
-        await user.click(screen.getByRole('button', { name: 'settings.quit' }));
-
-        expect(windowClose).toHaveBeenCalledTimes(1);
-    });
-
-    it('shows every level/source checked by default in the System Logs modal when nothing is persisted yet', async () => {
-        mockPywebviewApi();
-        render(<SettingsModals activeModal="logs" onClose={vi.fn()} />);
-
-        expect(await screen.findByRole('checkbox', { name: 'settings.log_level_info' })).toBeChecked();
-        expect(screen.getByRole('checkbox', { name: 'settings.log_level_error' })).toBeChecked();
-        expect(screen.getByRole('checkbox', { name: 'settings.log_source_apache settings.log_group_system' })).toBeChecked();
-        expect(screen.getByRole('checkbox', { name: 'settings.log_source_apache settings.log_group_file' })).toBeChecked();
-        expect(screen.getByRole('checkbox', { name: 'settings.log_source_database settings.log_group_system' })).toBeChecked();
-    });
-
-    it('does not render a "File Logs" toggle for modules with no file log (e.g. PHP), only "System Logs"', async () => {
-        mockPywebviewApi();
-        render(<SettingsModals activeModal="logs" onClose={vi.fn()} />);
-        await screen.findByRole('checkbox', { name: 'settings.log_source_php settings.log_group_system' });
-
-        expect(screen.queryByRole('checkbox', { name: 'settings.log_source_php settings.log_group_file' })).not.toBeInTheDocument();
-    });
-
-    it('toggles the Apache "System Logs" and "File Logs" categories independently of each other', async () => {
-        const user = userEvent.setup();
-        const saveSettings = vi.fn().mockResolvedValue({ status: 'success' });
-        mockPywebviewApi({ save_app_settings: saveSettings });
-        render(<SettingsModals activeModal="logs" onClose={vi.fn()} />);
-        await screen.findByRole('checkbox', { name: 'settings.log_source_apache settings.log_group_system' });
-
-        // Matikan HANYA log file Apache, sistemnya tetap aktif
-        await user.click(screen.getByRole('checkbox', { name: 'settings.log_source_apache settings.log_group_file' }));
-
-        expect(screen.getByRole('checkbox', { name: 'settings.log_source_apache settings.log_group_system' })).toBeChecked();
-        expect(screen.getByRole('checkbox', { name: 'settings.log_source_apache settings.log_group_file' })).not.toBeChecked();
-
-        await user.click(screen.getByText('common.save'));
-
-        const savedSources: string[] = saveSettings.mock.calls[0][0].system_log_sources;
-        expect(savedSources).toContain('ApacheManager');
-        expect(savedSources).not.toContain('ApacheFileLog');
-    });
-
-    it('restores a previously-saved partial filter from backend settings when the System Logs modal opens', async () => {
-        mockPywebviewApi({ get_app_settings: vi.fn().mockResolvedValue({ status: 'success', data: { system_log_levels: ['error'], system_log_sources: ['ApacheManager'] } }) });
-        render(<SettingsModals activeModal="logs" onClose={vi.fn()} />);
-
-        expect(await screen.findByRole('checkbox', { name: 'settings.log_level_error' })).toBeChecked();
-        expect(screen.getByRole('checkbox', { name: 'settings.log_level_info' })).not.toBeChecked();
-        expect(screen.getByRole('checkbox', { name: 'settings.log_source_apache settings.log_group_system' })).toBeChecked();
-        expect(screen.getByRole('checkbox', { name: 'settings.log_source_apache settings.log_group_file' })).not.toBeChecked();
-        expect(screen.getByRole('checkbox', { name: 'settings.log_source_php settings.log_group_system' })).not.toBeChecked();
-    });
-
-    const ALL_SOURCE_KEYS = [
-        'ApacheManager', 'ApacheFileLog', 'PhpManager', 'DatabaseManager', 'DatabaseFileLog',
-        'ProjectManager', 'RuntimesManager', 'GitManager', 'SslManager', 'DashboardManager', 'SettingsManager',
-    ];
-
-    it('saves an explicit list when a level checkbox is unchecked, and notifies LogsPanel to re-filter', async () => {
-        const user = userEvent.setup();
-        const saveSettings = vi.fn().mockResolvedValue({ status: 'success' });
-        mockPywebviewApi({ save_app_settings: saveSettings });
+        const closeApp = vi.fn();
+        mockPywebviewApi({ close_app: closeApp });
         const onClose = vi.fn();
-        const listener = vi.fn();
-        window.addEventListener('vylo_log_settings_changed', listener);
-        render(<SettingsModals activeModal="logs" onClose={onClose} />);
-        await screen.findByRole('checkbox', { name: 'settings.log_level_info' });
+        render(<SettingsModals activeModal="quit" onClose={onClose} />);
 
-        await user.click(screen.getByRole('checkbox', { name: 'settings.log_level_info' }));
-        await user.click(screen.getByText('common.save'));
+        await user.click(screen.getByText('Close', { selector: 'button' }));
 
-        expect(saveSettings).toHaveBeenCalledWith({
-            system_log_levels: ['warn', 'error', 'success'],
-            system_log_sources: ALL_SOURCE_KEYS,
-        });
-        expect(listener).toHaveBeenCalledTimes(1);
+        expect(closeApp).not.toHaveBeenCalled();
         expect(onClose).toHaveBeenCalledTimes(1);
-        window.removeEventListener('vylo_log_settings_changed', listener);
-    });
-
-    it('saves the full list literally (not collapsed to an empty-array sentinel) when every level/source remains checked', async () => {
-        const user = userEvent.setup();
-        const saveSettings = vi.fn().mockResolvedValue({ status: 'success' });
-        mockPywebviewApi({ save_app_settings: saveSettings });
-        render(<SettingsModals activeModal="logs" onClose={vi.fn()} />);
-        await screen.findByRole('checkbox', { name: 'settings.log_level_info' });
-
-        await user.click(screen.getByText('common.save'));
-
-        expect(saveSettings).toHaveBeenCalledWith({
-            system_log_levels: ['info', 'warn', 'error', 'success'],
-            system_log_sources: ALL_SOURCE_KEYS,
-        });
-    });
-
-    it('saves a genuinely empty array when every checkbox in a category is unchecked (regression: must NOT round-trip back to "show all")', async () => {
-        const user = userEvent.setup();
-        const saveSettings = vi.fn().mockResolvedValue({ status: 'success' });
-        mockPywebviewApi({ save_app_settings: saveSettings });
-        render(<SettingsModals activeModal="logs" onClose={vi.fn()} />);
-        await screen.findByRole('checkbox', { name: 'settings.log_level_info' });
-
-        for (const levelKey of ['info', 'warn', 'error', 'success']) {
-            await user.click(screen.getByRole('checkbox', { name: `settings.log_level_${levelKey}` }));
-        }
-        await user.click(screen.getByText('common.save'));
-
-        expect(saveSettings).toHaveBeenCalledWith({
-            system_log_levels: [],
-            system_log_sources: ALL_SOURCE_KEYS,
-        });
     });
 });

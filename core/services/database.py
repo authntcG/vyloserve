@@ -330,8 +330,8 @@ class DatabaseManager:
 
             def log_cb(msg, lvl): 
                 self._log(msg, lvl)
-            def prog_cb(pct, msg): 
-                if hasattr(self, 'api') and self.api: self.api.emit_progress(pct, msg)
+            def prog_cb(pct, msg, args=None):
+                if hasattr(self, 'api') and self.api: self.api.emit_progress(pct, msg, args)
 
             download_advanced(url, zip_path, log_cb=log_cb, progress_cb=prog_cb)
 
@@ -472,6 +472,9 @@ class DatabaseManager:
             for db in read_json(self.config_path):
                 self._tail_db_instance_logs(db)
         except Exception:
+            # Sengaja diam -- dipanggil tiap 2 detik dari api.py log watcher selama aplikasi
+            # berjalan; melaporkan tiap kegagalan baca-file (race rotasi log, I/O transien)
+            # lewat emit_log akan membanjiri panel System Logs kalau errornya persisten.
             pass
 
     def _parse_mysql_config(self, conf_file: str, config: dict):
@@ -602,7 +605,10 @@ class DatabaseManager:
         exe = os.path.join(db_obj['installDir'], 'bin', 'mysql.exe' if sys.platform == 'win32' else 'mysql')
         cmd = [exe, "-u", username, f"-P{db_obj['port']}", "-h", "127.0.0.1"]
         if old_pass: cmd.append(f"-p{old_pass}")
-        cmd.extend(["-e", f"ALTER USER '{username}'@'localhost' IDENTIFIED BY '{new_pass}'; FLUSH PRIVILEGES;"])
+        
+        safe_user = username.replace("'", "''")
+        safe_pass = new_pass.replace("'", "''")
+        cmd.extend(["-e", f"ALTER USER '{safe_user}'@'localhost' IDENTIFIED BY '{safe_pass}'; FLUSH PRIVILEGES;"])
         
         result = run_silent_command(cmd)
         if result.returncode != 0: raise RuntimeError(f"backend.database.mysql_fail|{result.stderr.strip()}")
@@ -611,7 +617,10 @@ class DatabaseManager:
         exe = os.path.join(db_obj['installDir'], 'bin', 'psql.exe' if sys.platform == 'win32' else 'psql')
         env = os.environ.copy()
         if old_pass: env['PGPASSWORD'] = old_pass
-        cmd = [exe, "-U", username, "-p", str(db_obj['port']), "-h", "127.0.0.1", "-c", f"ALTER ROLE {username} WITH PASSWORD '{new_pass}';"]
+        
+        safe_user = username.replace("\"", "\"\"")
+        safe_pass = new_pass.replace("'", "''")
+        cmd = [exe, "-U", username, "-p", str(db_obj['port']), "-h", "127.0.0.1", "-c", f"ALTER ROLE \"{safe_user}\" WITH PASSWORD '{safe_pass}';"]
         
         result = run_silent_command(cmd, env=env)
         if result.returncode != 0: raise RuntimeError(f"backend.database.postgres_fail|{result.stderr.strip()}")

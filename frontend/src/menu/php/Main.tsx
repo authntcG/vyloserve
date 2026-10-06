@@ -2,8 +2,11 @@ import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import Card from '../../components/Card';
 import Modal from '../../components/Modal';
+import Button from '../../components/Button';
+import ServiceToggleButton from '../../components/ServiceToggleButton';
 import BackgroundProgressWidget from '../../components/BackgroundProgressWidget';
 import { useToast } from '../../components/ToastContext';
+import { useAlert } from '../../components/AlertContext';
 
 import PageHeader from '../../components/PageHeader';
 import SkeletonCard from '../../components/SkeletonCard';
@@ -18,18 +21,10 @@ interface PhpInstance {
     status: 'running' | 'stopped'; dir: string; memory_limit: string;
 }
 
-const getStatusBtnClass = (isRunning: boolean) => isRunning ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600';
-
-const getStatusBtnContent = (isToggling: boolean, isRunning: boolean, t: any) => {
-    if (isToggling) {
-        return <><span className="material-symbols-outlined text-[18px] animate-spin">sync</span> {isRunning ? t('php.stopping') : t('php.starting')}</>;
-    }
-    return <><span className="material-symbols-outlined text-[18px]">{isRunning ? 'stop' : 'play_arrow'}</span> {isRunning ? t('php.stop_cgi') : t('php.start_cgi')}</>;
-};
-
 export default function PhpMain() {
     const { t } = useTranslation();
     const { showToast } = useToast();
+    const { confirm } = useAlert();
 
     // PHP STATES
     const [instances, setInstances] = useState<PhpInstance[]>([]);
@@ -47,9 +42,7 @@ export default function PhpMain() {
     const [settingsExtensions, setSettingsExtensions] = useState<any[]>([]);
     const [isLoadingSettings, setIsLoadingSettings] = useState(false);
     const [isSavingSettings, setIsSavingSettings] = useState(false);
-    const [deleteTarget, setDeleteTarget] = useState<PhpInstance | null>(null);
-    const [isDeleting, setIsDeleting] = useState(false);
-
+    
     // PROGRESS WIDGET
     const [progress, setProgress] = useState(0);
     const [progressText, setProgressText] = useState('');
@@ -140,15 +133,19 @@ export default function PhpMain() {
         finally { setIsSavingSettings(false); }
     };
 
-    const handleConfirmUninstall = async () => {
-        if (!deleteTarget) return;
-        setIsDeleting(true);
+    const handleConfirmUninstall = async (php: PhpInstance) => {
+        if (!await confirm({
+            title: t('php.confirm_uninstall'),
+            message: <p className="text-slate-700 dark:text-slate-300">{t('php.delete_prefix')}<strong className="text-slate-900 dark:text-white">{php.name}</strong>{t('php.delete_suffix')}</p>,
+            type: 'danger',
+            confirmText: t('php.yes_uninstall')
+        })) return;
+
         try {
-            const res = await window.pywebview?.api?.uninstall_php(deleteTarget.version);
+            const res = await window.pywebview?.api?.uninstall_php(php.version);
             showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
-            if (res?.status === 'success') { setDeleteTarget(null); fetchInstalledInstances(); }
+            if (res?.status === 'success') { fetchInstalledInstances(); }
         } catch (e){ console.error(e); showToast(t('php.delete_error'), "error"); }
-        finally { setIsDeleting(false); }
     };
 
     const handleToggleStatus = async (php: PhpInstance) => {
@@ -178,9 +175,9 @@ export default function PhpMain() {
                         </>
                     }
                     actions={
-                        <button type="button" onClick={() => setIsNewInstanceOpen(true)} className="bg-primary hover:bg-blue-600 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center gap-2 shadow-sm">
-                            <span className="material-symbols-outlined text-[18px]">add</span> {t('php.add_version')}
-                        </button>
+                        <Button variant="primary" icon="add" onClick={() => setIsNewInstanceOpen(true)} className="shadow-sm">
+                            {t('php.add_version')}
+                        </Button>
                     }
                 />
 
@@ -212,14 +209,23 @@ export default function PhpMain() {
                                                 <button type="button" onClick={() => window.pywebview?.api?.open_php_ini(php.version)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">{t('php.open_php_ini')}</button>
                                                 <button type="button" onClick={() => window.pywebview?.api?.open_php_dir(php.version)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">{t('php.open_directory')}</button>
                                                 <div className="border-t border-slate-200 dark:border-slate-700 my-1"></div>
-                                                <button type="button" onClick={() => setDeleteTarget(php)} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">{t('php.uninstall')}</button>
+                                                <button type="button" onClick={() => handleConfirmUninstall(php)} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">{t('php.uninstall')}</button>
                                             </>
                                         }
                                         footerActions={
                                             <>
-                                                <button type="button" onClick={() => handleToggleStatus(php)} disabled={togglingInstanceId === php.id} className={`flex-1 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm disabled:opacity-70 ${getStatusBtnClass(isRunning)}`}>
-                                                    {getStatusBtnContent(togglingInstanceId === php.id, isRunning, t)}
-                                                </button>
+                                                <ServiceToggleButton
+                                                    isRunning={isRunning}
+                                                    isToggling={togglingInstanceId === php.id}
+                                                    onClick={() => handleToggleStatus(php)}
+                                                    className="flex-1"
+                                                    labels={{
+                                                        start: t('php.start_cgi'),
+                                                        stop: t('php.stop_cgi'),
+                                                        starting: t('php.starting'),
+                                                        stopping: t('php.stopping'),
+                                                    }}
+                                                />
                                                 <button type="button" onClick={() => handleOpenSettings(php)} className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
                                                     <span className="material-symbols-outlined text-[18px]">tune</span> {t('php.config')}
                                                 </button>
@@ -248,9 +254,7 @@ export default function PhpMain() {
             <Modal isOpen={isSettingsOpen} onClose={() => !isSavingSettings && setIsSettingsOpen(false)} title={`${selectedInstance?.name || 'PHP'} ${t('php.configuration')}`} icon="tune" onApply={handleSaveSettings} applyText={isSavingSettings ? t('php.saving') : t('php.save_changes')} isApplyDisabled={isLoadingSettings || isSavingSettings || (selectedInstance ? usedPorts.filter(p => p !== selectedInstance.port).includes(Number(settingsConfig.port)) : false)} isLoading={isSavingSettings}>
                 <PhpSettings config={settingsConfig} setConfig={setSettingsConfig} extensions={settingsExtensions} setExtensions={setSettingsExtensions} isLoading={isLoadingSettings} usedPorts={selectedInstance ? usedPorts.filter(p => p !== selectedInstance.port) : []} />
             </Modal>
-            <Modal isOpen={deleteTarget !== null} onClose={() => !isDeleting && setDeleteTarget(null)} title={t('php.confirm_uninstall')} icon="delete_forever" onApply={handleConfirmUninstall} applyText={isDeleting ? t('php.uninstalling') : t('php.yes_uninstall')} isApplyDisabled={isDeleting} isDestructive={true} isLoading={isDeleting}>
-                <p className="text-slate-700 dark:text-slate-300">{t('php.delete_prefix')}<strong className="text-slate-900 dark:text-white">{deleteTarget?.name}</strong>{t('php.delete_suffix')}</p>
-            </Modal>
+
         </>
     );
 }

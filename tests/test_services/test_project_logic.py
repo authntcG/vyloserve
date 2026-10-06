@@ -211,7 +211,7 @@ def test_rollback_dir_removes_directory_and_reports_progress(mock_exists, mock_r
     project_manager._rollback_dir("C:\\target_dir")
 
     mock_rmtree.assert_called_once_with("C:\\target_dir", ignore_errors=True)
-    project_manager.api.emit_progress.assert_called_once_with(100, "backend.project.rolling_back")
+    project_manager.api.emit_progress.assert_called_once_with(100, "backend.project.rolling_back", None)
 
 @patch('os.path.exists', return_value=False)
 def test_rollback_dir_noop_when_directory_missing(mock_exists, project_manager):
@@ -237,7 +237,7 @@ def test_stream_composer_output_reports_progress_per_line(project_manager):
     ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
 
     final_percent, error_log = project_manager._stream_composer_output(
-        fake_process, current_percent=10.0, max_percent=60.0, prefix="Composer", ansi_escape=ansi_escape
+        fake_process, current_percent=10.0, max_percent=60.0, msg_key="backend.project.composer_create_project", ansi_escape=ansi_escape
     )
 
     assert final_percent == 11.0  # 2 baris non-kosong x +0.5
@@ -245,7 +245,8 @@ def test_stream_composer_output_reports_progress_per_line(project_manager):
     assert "Installing deps" in error_log  # kode ANSI berhasil dibersihkan
     assert project_manager.api.emit_progress.call_count == 2
     last_call_args = project_manager.api.emit_progress.call_args[0]
-    assert last_call_args[1].startswith("Composer: ")
+    assert last_call_args[1] == "backend.project.composer_create_project"
+    assert last_call_args[2]["line"].startswith("Installing deps")
 
 @patch('os.makedirs')
 @patch('urllib.request.urlretrieve')
@@ -289,11 +290,19 @@ def test_install_raw_project(mock_makedirs, project_manager):
         assert res['status'] == 'success'
         mock_file().write.assert_called_once()
 
+@patch('core.services.project.read_json', return_value={"require": {"laravel/framework": "^10.0"}})
 @patch('os.listdir', return_value=["composer.json", "artisan"])
 @patch('os.path.isdir', return_value=True)
-def test_detect_framework_laravel(mock_isdir, mock_listdir, project_manager):
+def test_detect_framework_laravel(mock_isdir, mock_listdir, mock_read_json, project_manager):
     res = project_manager.detect_framework("C:\\test_dir")
     assert res == 'laravel'
+
+@patch('core.services.project.read_json', return_value={"require": {"codeigniter4/framework": "^4.4"}})
+@patch('os.listdir', return_value=["spark", "public"])
+@patch('os.path.isdir', return_value=True)
+def test_detect_framework_codeigniter(mock_isdir, mock_listdir, mock_read_json, project_manager):
+    res = project_manager.detect_framework("C:\\test_dir")
+    assert res == 'codeigniter'
 
 @patch('os.listdir', return_value=["wp-admin", "wp-config-sample.php"])
 @patch('os.path.isdir', return_value=True)
@@ -304,6 +313,30 @@ def test_detect_framework_wordpress(mock_isdir, mock_listdir, project_manager):
 @patch('os.listdir', return_value=["index.php"])
 @patch('os.path.isdir', return_value=True)
 def test_detect_framework_raw(mock_isdir, mock_listdir, project_manager):
+    res = project_manager.detect_framework("C:\\test_dir")
+    assert res == 'raw'
+
+@patch('core.services.project.read_json', return_value={"require": {"zendframework/zend-mvc": "^3.0"}})
+@patch('os.listdir', return_value=["composer.json", "artisan", "public"])
+@patch('os.path.isdir', return_value=True)
+def test_detect_framework_custom_zend_project_with_artisan_script_is_not_laravel(mock_isdir, mock_listdir, mock_read_json, project_manager):
+    """
+    Regresi: project custom berbasis Zend yang dimodifikasi bisa saja punya file
+    bernama "artisan" (skrip CLI custom, bukan dari Laravel) DAN "composer.json" --
+    sebelumnya dua hal itu saja cukup untuk salah dideteksi sebagai "laravel", yang
+    lalu memicu NewProject.tsx menambahkan "/public" ke document root secara keliru.
+    Karena composer.json project ini TIDAK mendaftarkan "laravel/framework", deteksi
+    sekarang harus jatuh ke "raw", bukan "laravel".
+    """
+    res = project_manager.detect_framework("D:\\Projects\\TLKM\\PHP\\utonline")
+    assert res == 'raw'
+
+@patch('core.services.project.read_json', return_value={"require": {"php": "^8.1"}})
+@patch('os.listdir', return_value=["composer.json", "artisan"])
+@patch('os.path.isdir', return_value=True)
+def test_detect_framework_raw_project_with_coincidental_artisan_file_is_not_laravel(mock_isdir, mock_listdir, mock_read_json, project_manager):
+    """Regresi serupa: project raw apa pun yang kebetulan punya file "artisan" + composer.json
+    tanpa dependency laravel/framework tidak boleh dianggap Laravel."""
     res = project_manager.detect_framework("C:\\test_dir")
     assert res == 'raw'
 

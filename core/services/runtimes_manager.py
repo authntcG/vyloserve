@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 from typing import Optional
 import urllib.request
@@ -62,9 +62,9 @@ class RuntimesManager:
         """
         def log_cb(msg, lvl="info", args=None):
             self._emit_log(msg, lvl, args)
-        def download_cb(pct, msg):
+        def download_cb(pct, msg, args=None):
             clamped = max(start_pct, min(pct, end_pct))
-            self._emit_progress(clamped, msg)
+            self._emit_progress(clamped, msg, args)
         return log_cb, download_cb
 
 
@@ -104,13 +104,9 @@ class RuntimesManager:
             else:
                 flag = '-v' # Bawaan untuk node
 
-            is_windows_script = found_path.lower().endswith(('.cmd', '.bat'))
             creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
             
-            if is_windows_script:
-                result = subprocess.run(f'"{found_path}" {flag}', capture_output=True, text=True, shell=True, creationflags=creation_flags)
-            else:
-                result = subprocess.run([found_path, flag], capture_output=True, text=True, creationflags=creation_flags)
+            result = subprocess.run([found_path, flag], capture_output=True, text=True, creationflags=creation_flags)
             
             version_out = result.stdout.strip() or result.stderr.strip()
             
@@ -121,8 +117,8 @@ class RuntimesManager:
                     
                 return {"exists": True, "path": found_path, "version": final_version}
                 
-        except OSError:
-                pass
+        except OSError as e:
+            self._emit_log("backend.runtimes.version_check_failed", "warn", {"engine": command, "e": str(e)})
 
         return {"exists": True, "path": found_path, "version": "Unknown Version"}
 
@@ -243,10 +239,24 @@ class RuntimesManager:
             return {'status': 'error', 'message': "backend.runtimes.node_fetch_failed", 'args': {"e": str(e)}}
 
 
+    def _robust_rename(self, src: str, dst: str, max_retries: int = 5, delay: float = 1.0):
+        import time, shutil
+        for attempt in range(max_retries):
+            try:
+                if os.path.exists(dst):
+                    shutil.rmtree(dst)
+                os.rename(src, dst)
+                return
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    time.sleep(delay)
+                else:
+                    raise RuntimeError(f"Gagal memindahkan folder biner: {e}")
+
     def _finalize_node_install(self, node_dir: str, enable_corepack: bool, version: str, zip_filename: str):
         self._emit_progress(85, "backend.runtimes.reorganizing_dir")
         extracted_folder = os.path.join(self.bin_dir, zip_filename.replace('.zip', ''))
-        os.rename(extracted_folder, node_dir)
+        self._robust_rename(extracted_folder, node_dir)
         if enable_corepack:
             self._emit_progress(90, "backend.runtimes.node_enable_corepack")
             corepack_cmd = os.path.join(node_dir, 'corepack.cmd' if sys.platform == 'win32' else 'corepack')
@@ -575,7 +585,7 @@ class RuntimesManager:
                     break
             
             if extracted_folder:
-                os.rename(extracted_folder, java_dir)
+                self._robust_rename(extracted_folder, java_dir)
             else:
                 raise RuntimeError("Folder biner JDK tidak ditemukan setelah diekstrak.")
 

@@ -249,7 +249,8 @@ describe('GitMain', () => {
         await user.click(screen.getByText('tools.git.install_git'));
         await screen.findByText('Git 2.44.0');
 
-        await user.selectOptions(screen.getByDisplayValue('Git 2.44.0'), '1');
+        await user.click(screen.getByRole('button', { name: 'Git 2.44.0' }));
+        await user.click(screen.getByRole('option', { name: 'Git 2.43.0' }));
         await user.click(screen.getByText('tools.git.install_engine'));
 
         expect(install).toHaveBeenCalledWith('2.43.0', 'Git-2.43.0.exe', '2.43.0');
@@ -321,6 +322,12 @@ describe('GitMain', () => {
         await user.click(screen.getAllByLabelText('Close')[0]);
 
         expect(uninstall).not.toHaveBeenCalled();
-        expect(screen.queryByText('tools.git.uninstall_title')).not.toBeInTheDocument();
+        // Modal.tsx menunda unmount ~300ms untuk animasi keluar (lihat Modal.tsx) -- timeout
+        // default waitFor (1000ms) kadang tidak cukup saat SELURUH suite (52 file test) berjalan
+        // bersamaan (kontensi CPU antar worker vitest), menyebabkan flaky. Margin diperbesar jauh
+        // di atas 300ms supaya tahan terhadap beban sistem yang berat, bukan cuma lolos pas-pasan.
+        await waitFor(() => {
+            expect(screen.queryByText('tools.git.uninstall_title')).not.toBeInTheDocument();
+        }, { timeout: 5000 });
     });
 });

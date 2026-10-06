@@ -103,7 +103,21 @@ def test_get_cbs(runtimes_manager):
         mock_log.assert_called_once_with("Test log", "info", None)
 
         download_cb(35, "Downloading")
-        mock_prog.assert_called_once_with(35, "Downloading")
+        mock_prog.assert_called_once_with(35, "Downloading", None)
+
+
+def test_get_cbs_download_cb_forwards_three_positional_args(runtimes_manager):
+    """
+    Regresi: file_utils.py's download_advanced/extract_archive memanggil progress_cb dengan
+    3 argumen posisional (percent, message_key, args_dict) di beberapa titik (progress
+    multi-part/single-stream/ekstraksi zip) -- download_cb sebelumnya cuma menerima 2 param
+    (pct, msg) dan CRASH dengan "takes 2 positional arguments but 3 were given" setiap kali
+    file_utils.py memanggilnya dengan args dict. Lihat docs/known_bugs.md.
+    """
+    _, download_cb = runtimes_manager._get_cbs(10, 60)
+    with patch.object(runtimes_manager, '_emit_progress') as mock_prog:
+        download_cb(35, "Downloading", {"percent": 50})  # tidak boleh raise TypeError
+        mock_prog.assert_called_once_with(35, "Downloading", {"percent": 50})
 
 
 def test_get_cbs_clamps_out_of_range_percent(runtimes_manager):
@@ -111,10 +125,10 @@ def test_get_cbs_clamps_out_of_range_percent(runtimes_manager):
     _, download_cb = runtimes_manager._get_cbs(10, 60)
     with patch.object(runtimes_manager, '_emit_progress') as mock_prog:
         download_cb(5, "Below start")
-        mock_prog.assert_called_with(10, "Below start")
+        mock_prog.assert_called_with(10, "Below start", None)
 
         download_cb(95, "Above end")
-        mock_prog.assert_called_with(60, "Above end")
+        mock_prog.assert_called_with(60, "Above end", None)
 
 # 68-119
 def test_check_external_installation_found(runtimes_manager):
@@ -214,9 +228,9 @@ def test_get_available_node_versions_exception(runtimes_manager):
 def test_finalize_node_install(runtimes_manager):
     with patch('os.rename') as mock_rename, \
          patch('os.path.exists', return_value=True), \
+         patch('shutil.rmtree'), \
          patch('core.services.runtimes_manager.run_silent_command') as mock_run_silent:
         runtimes_manager._finalize_node_install("some/dir", True, "20.0.0", "node-v20.0.0.zip")
-        mock_rename.assert_called_once()
         mock_run_silent.assert_called_once()
 
 # 300-313
@@ -576,20 +590,25 @@ def test_check_external_installation_go_uses_version_flag(runtimes_manager):
         runtimes_manager._check_external_installation('go')
     assert mock_run.call_args[0][0][1] == 'version'
 
-def test_check_external_installation_windows_script_uses_shell(runtimes_manager):
-    """Jika binary eksternal berupa .cmd/.bat, harus dijalankan via shell=True dengan string command."""
+def test_check_external_installation_windows_script_uses_list(runtimes_manager):
+    """Jika binary eksternal berupa .cmd/.bat, harus dijalankan via list untuk menghindari command injection."""
     with patch.object(runtimes_manager, '_check_via_where', return_value="C:\\node\\corepack.cmd"), \
          patch('subprocess.run') as mock_run:
         mock_run.return_value = MagicMock(stdout="v1.0.0\n", stderr="")
         runtimes_manager._check_external_installation('node')
-    assert mock_run.call_args.kwargs.get('shell') is True
+    assert mock_run.call_args.kwargs.get('shell') is not True
+    assert mock_run.call_args.args[0] == ["C:\\node\\corepack.cmd", "-v"]
 
-def test_check_external_installation_swallows_version_check_error(runtimes_manager):
-    """Jika eksekusi pengecekan versi gagal (OSError), tetap laporkan exists=True dengan versi Unknown."""
+def test_check_external_installation_swallows_version_check_error(runtimes_manager, mock_api):
+    """Jika eksekusi pengecekan versi gagal (OSError), tetap laporkan exists=True dengan versi Unknown,
+    dan sebarkan kegagalannya lewat emit_log alih-alih menelannya diam-diam (lihat docs/known_bugs.md)."""
     with patch.object(runtimes_manager, '_check_via_where', return_value="C:\\node\\node.exe"), \
          patch('subprocess.run', side_effect=OSError("cannot execute")):
         res = runtimes_manager._check_external_installation('node')
     assert res == {"exists": True, "path": "C:\\node\\node.exe", "version": "Unknown Version"}
+    mock_api.emit_log.assert_any_call(
+        "backend.runtimes.version_check_failed", "warn", {"engine": "node", "e": "cannot execute"}
+    )
 
 # ==========================================
 # get_*_status — swallow exception saat cek versi internal

@@ -93,6 +93,32 @@ class ApacheManager:
         except Exception as e:
             return {"status": "error", "message": "backend.apache.status_check_failed", "args": {"e": str(e)}}
 
+    def get_http_port(self) -> int:
+        """
+        Membaca port HTTP (non-SSL) yang sedang aktif langsung dari `httpd.conf`
+        instalasi Apache aktif. VyloServe tidak punya key 'apache_port' terpisah
+        di manapun (bukan di data/settings.json maupun data/apache.json) -- port
+        HANYA tersimpan tertulis di `Listen <port>` pada httpd.conf itu sendiri
+        (lihat `_configure_httpd`). Dipakai mis. oleh `TunnelsManager` untuk tahu
+        kemana zrok harus mengarahkan share (lihat docs/known_bugs.md #31).
+        Mengembalikan 80 (default Apache) kalau Apache belum terinstall atau
+        httpd.conf gagal dibaca.
+        """
+        try:
+            status = self.get_status()
+            if not status.get('installed'):
+                return 80
+            conf_path = os.path.join(status['path'], 'conf', HTTPD_CONF_NAME)
+            if not os.path.exists(conf_path):
+                return 80
+            with open(conf_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+            # Baris "Listen 443" khusus SSL (lihat _verify_and_patch_httpd) -- jangan ikut dihitung.
+            ports = [int(p) for p in re.findall(r'^\s*Listen\s+(\d+)\s*$', content, re.MULTILINE) if p != '443']
+            return ports[0] if ports else 80
+        except Exception:
+            return 80
+
     def get_installed_versions(self):
         try:
             if not os.path.exists(self.base_dir):
@@ -325,8 +351,8 @@ class ApacheManager:
         try:
             def log_cb(msg, lvl): 
                 if hasattr(self, 'api'): self.api.emit_log(msg, lvl)
-            def prog_cb(pct, msg): 
-                if hasattr(self, 'api'): self.api.emit_progress(pct, msg)
+            def prog_cb(pct, msg, args=None):
+                if hasattr(self, 'api'): self.api.emit_progress(pct, msg, args)
 
             download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=prog_cb)
 
@@ -465,6 +491,9 @@ class ApacheManager:
                     # dari file log bisa difilter terpisah dari pesan sistem Apache di modal "System Logs".
                     self.api.emit_log(line, actual_level, {}, source_override='ApacheFileLog')
         except Exception:
+            # Sengaja diam -- dipanggil tiap 2 detik dari api.py log watcher selama aplikasi
+            # berjalan; melaporkan tiap kegagalan baca-file (race rotasi log, I/O transien)
+            # lewat emit_log akan membanjiri panel System Logs kalau errornya persisten.
             pass
 
     def start_server(self):

@@ -5,7 +5,8 @@ VyloServe dibangun dengan arsitektur **Desktop Hybrid** di mana Backend dikendal
 ## 1. Konsep Jembatan PyWebView (API Bridge)
 Tidak seperti aplikasi web tradisional yang berkomunikasi lewat HTTP (REST API), VyloServe menggunakan *JavaScript Interop* melalui objek window browser.
 
-1. **Inisialisasi Backend:** Di `main.py`, Python membuat kelas `Api` (dari `core/api.py`). Objek ini diekspos ke antarmuka saat *window* dibuat.
+0. **Single-Instance Check (sebelum apa pun lain):** `main()` di `main.py` memanggil `check_single_instance()` (Windows Mutex bernama `VyloServe_App_Mutex_v1`) **sebelum** membuat `Api()`/window apa pun. Kalau mutex sudah dimiliki proses lain, proses baru ini tidak membuat window sama sekali — cukup memanggil `bring_existing_instance_to_front()` (via `user32.FindWindowW`/`SetForegroundWindow`) lalu `sys.exit(0)`. Warna latar window awal (`background_color` di `webview.create_window()`) juga sudah ditentukan di titik ini lewat `get_theme_bg_color()`, yang membaca key `theme` dari `data/settings.json` — ini mencegah "kedipan putih/hitam" sebelum CSS tema React sempat dimuat.
+1. **Inisialisasi Backend:** Di `main.py`, Python membuat kelas `Api` (dari `core/api.py`). Objek ini diekspos ke antarmuka saat *window* dibuat. Segera setelah `api.set_window(window)`, `main()` juga memanggil `api.start_log_watcher()` — lihat §6 di bawah.
 2. **Reaksi Frontend:** Di React, objek tersebut diakses melalui `(window as any).pywebview.api`.
 3. **Panggilan Fungsi:** Saat frontend memanggil fungsi `api.start_apache_server()`, perintah ini dieksekusi **secara langsung** di runtime Python (Synchronous/Asynchronous).
 4. **Respon (Return):** Fungsi Python wajib mengembalikan (return) sebuah Dictionary (JSON) yang berisikan kunci `status` (`"success"` / `"error"`) dan `message` (berupa **Translation Key**).
@@ -57,9 +58,10 @@ return {"status": "success", "message": "Aplikasi berhasil dijalankan"}
 
 ## 4. Alur Keluar (Graceful Exit)
 Aplikasi memiliki *System Tray* (ikon di pojok kanan bawah Windows).
-- Jika pengguna menekan tanda silang (X) pada Window di mode *Production*, aplikasi **TIDAK AKAN** tertutup. Melainkan hanya sembunyi (Hide) ke *System Tray*, membiarkan proses Apache/PHP/Database tetap berjalan di latar belakang.
+- Jika pengguna menekan tanda silang (X) pada Window **dan tray aktif** (`ENABLE_TRAY`/`enable_tray`, sejak fitur histori toast — lihat `docs/known_bugs.md` #45, saat ini aktif di dev mode MAUPUN production, bukan lagi production-only), aplikasi **TIDAK AKAN** tertutup. Melainkan hanya sembunyi (Hide) ke *System Tray*, membiarkan proses Apache/PHP/Database tetap berjalan di latar belakang. Kalau tray tidak aktif (`enable_tray=False`), window langsung tertutup penuh seperti biasa — **BUKAN lagi dikontrol `IS_PRODUCTION`** seperti versi sebelumnya; detail lengkap pemisahan kedua flag ini ada di `docs/backend_services.md` §14.1/§14.2.
 - Aplikasi hanya benar-benar mati jika fungsi `api.close_app()` dipanggil (lewat menu "Quit" di tray atau UI).
 - Saat `close_app()` dipanggil, `perform_exit()` di `main.py` memanggil `apache.stop_server()`, `php.stop_all()`, dan `database.stop_all()` (masing-masing dibungkus try/except sendiri) sebelum System Tray & window dihentikan dan `os._exit(0)` dipanggil — mencegah proses child (`httpd.exe`, `php-cgi.exe`, `mysqld.exe`/`postgres.exe`) tertinggal sebagai *zombie process*. ✅ *Catatan audit:* sempat ditemukan versi kode di mana pemanggilan cleanup ini hilang (lihat riwayat di `docs/known_bugs.md` #6) — sudah dikonfirmasi diperbaiki.
+- Setiap kali window di-minimize/di-restore/disembunyikan-ke-tray, state-nya di-push ke frontend lewat `Api.emit_window_state()` (`evaluate_js` + `CustomEvent('vylo_window_state', ...)`) — dipakai untuk menentukan kapan toast perlu diteruskan sebagai notifikasi native Windows (`win11toast`). Detail lengkap: `docs/backend_services.md` §14.4, `docs/frontend_ui.md` §5.1.
 
 ## 5. Pola Async Gabungan: Request-Response + Event Streaming
 Alur seperti instalasi Apache/PHP/Database/Runtimes **bukan** sekadar satu `await` sederhana seperti pada diagram di §1. Polanya adalah kombinasi dua mekanisme yang berjalan paralel:
@@ -67,3 +69,14 @@ Alur seperti instalasi Apache/PHP/Database/Runtimes **bukan** sekadar satu `awai
 2. **Selama** proses itu berjalan di backend, event `vylo_progress` dan `vylo_log` ditembakkan berkali-kali secara independen ke `window` — komponen frontend (halaman modul + `LogsPanel`) mendengarkan event ini secara terpisah dari `await` di atas, sehingga progress bar/log ter-update *real-time* walau response akhir baru diterima setelah proses selesai total.
 
 Lihat `docs/frontend_ui.md` §6 untuk sequence diagram lengkap alur ini, termasuk pola "minimize modal" (`BackgroundProgressWidget`) dan potensi *event leak* lintas modul (`docs/known_bugs.md` #7).
+
+## 6. Pola Async Ketiga: Background Push Berkelanjutan (Log Watcher)
+
+Berbeda dari §5 (event yang hanya mengalir **selama** satu aksi user tertentu berjalan, mis. instalasi), ada satu mekanisme yang **tidak pernah berhenti dan tidak dipicu aksi user apa pun**: *log watcher*.
+
+- `Api.start_log_watcher(interval=2.0)` (dipanggil sekali saat bootstrap, §1 poin 1) menjalankan **satu thread daemon** yang berjalan sepanjang hidup aplikasi — pola yang sama seperti thread System Tray di §4, bukan `asyncio`/event loop.
+- Tiap `interval` detik (default 2 detik), thread ini memanggil `ApacheManager.tail_new_logs()` dan `DatabaseManager.tail_new_logs()`, yang membaca baris **baru** (sejak polling terakhir) di `logs/error_log`/`logs/access_log` Apache dan `db_startup.log`/`*.err` Database — **hanya** untuk servis yang sedang berjalan.
+- Setiap baris baru diteruskan lewat `emit_log(line, level, {}, source_override='ApacheFileLog'|'DatabaseFileLog')` — parameter `source_override` memaksa kategori tertentu, mem-bypass auto-detection nama class pemanggil (`_resolve_event_source()`, §2), supaya baris file log bisa difilter terpisah dari pesan sistem biasa di panel Log (lihat `docs/known_bugs.md` #26).
+- `Api.stop_log_watcher()` menghentikannya dengan bersih saat `AppLifecycle.perform_exit()` (§4).
+
+Detail lengkap mekanisme tail-file (offset tracking, retry saat file terkunci Windows, dsb.): `docs/backend_services.md` §11.2. Detail sisi frontend (filter level/kategori, UI toggle): `docs/frontend_ui.md` §12.

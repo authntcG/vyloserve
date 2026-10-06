@@ -1,6 +1,7 @@
 import { useState, forwardRef, useImperativeHandle, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useToast } from '../../components/ToastContext';
+import FieldLabel from '../../components/FieldLabel';
 import RuntimeVersionSelect from './RuntimeVersionSelect';
 
 export interface InstallNodeRef { submit: () => Promise<boolean>; }
@@ -56,7 +57,7 @@ const InstallNode = forwardRef<InstallNodeRef, any>((_, ref) => {
     return (
         <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('runtimes.node_version')}</label>
+                <FieldLabel>{t('runtimes.node_version')}</FieldLabel>
                 <RuntimeVersionSelect isLoading={isLoading} versionsList={versionsList} version={version} setVersion={setVersion} />
             </div>
 

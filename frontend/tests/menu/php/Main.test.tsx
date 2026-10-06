@@ -86,6 +86,7 @@ describe('PhpMain', () => {
 
         await user.click(screen.getByText('php.config'));
         await screen.findByText('curl');
+        expect(screen.getByRole('checkbox', { name: 'curl' })).toBeChecked();
         await user.click(screen.getByText('php.save_changes'));
 
         expect(saveConfig).toHaveBeenCalledWith('8.2', expect.objectContaining({ port: 9000 }), ['curl']);
@@ -325,18 +326,18 @@ describe('PhpMain', () => {
         await screen.findByText('php.add_version');
 
         await user.click(screen.getByText('php.add_version'));
-        await user.click(screen.getAllByLabelText('Close')[0]);
-        expect(screen.queryByText('php.install_php_version')).not.toBeInTheDocument();
+        await user.keyboard('{Escape}');
+        await waitFor(() => expect(screen.queryByText('php.install_php_version')).not.toBeInTheDocument());
 
         await user.click(screen.getByText('php.config'));
         await waitFor(() => expect(screen.getAllByLabelText('Close')[0]).toBeInTheDocument());
-        await user.click(screen.getAllByLabelText('Close')[0]);
-        expect(screen.queryByText('php.save_changes')).not.toBeInTheDocument();
+        await user.keyboard('{Escape}');
+        await waitFor(() => expect(screen.queryByText('php.save_changes')).not.toBeInTheDocument());
 
         await user.click(screen.getByText('php.uninstall'));
         await screen.findByText('php.confirm_uninstall');
-        await user.click(screen.getAllByLabelText('Close')[0]);
-        expect(screen.queryByText('php.confirm_uninstall')).not.toBeInTheDocument();
+        await user.click(screen.getByText('Cancel'));
+        await waitFor(() => expect(screen.queryByText('php.confirm_uninstall')).not.toBeInTheDocument());
     });
 
     it('minimizes the install modal into the background widget and restores it', async () => {
@@ -354,7 +355,7 @@ describe('PhpMain', () => {
         act(() => {
             window.dispatchEvent(new CustomEvent('vylo_progress', { detail: { source: 'PhpManager', percent: 40, text: 'Installing...' } }));
         });
-        await user.click(screen.getAllByLabelText('Close')[0]);
+        await user.keyboard('{Escape}');
 
         expect(await screen.findByRole('button', { name: /php\.processing/ })).toBeInTheDocument();
 

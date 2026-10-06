@@ -28,7 +28,7 @@ export default function EmptyState({ icon, title, description, actionText, onAct
                 <div className="mt-5 block">
                     <button type="button" 
                         onClick={onAction} 
-                        className="inline-block text-sm font-medium text-primary hover:text-blue-600 hover:underline outline-none transition-colors"
+                        className="inline-block text-sm font-medium text-primary hover:text-primary/80 hover:underline outline-none transition-colors"
                     >
                         {actionText}
                     </button>

@@ -50,7 +50,9 @@ def test_run_silent_command(mock_run):
             env={'VAR': '1'},
             creationflags=0x08000000,
             capture_output=True,
-            text=True
+            text=True,
+            encoding='utf-8',
+            errors='replace'
         )
         assert res.stdout == 'ok'
 

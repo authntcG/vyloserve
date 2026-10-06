@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useToast } from '../../components/ToastContext';
+import ToggleSwitch from '../../components/ToggleSwitch';
+import Select from '../../components/Select';
 import PageHeader from '../../components/PageHeader';
 interface ProjectData {
     id: string;
@@ -29,7 +31,7 @@ const PhpChips = ({ phpInstances, selectedPhp, togglePhpSelection, t }: any) => 
                     <button type="button"
                         key={php.id}
                         onClick={() => togglePhpSelection(php.version)}
-                        className={`text-[11px] font-medium px-2 py-1 rounded transition-colors border ${isSelected ? 'bg-blue-50 dark:bg-blue-900/30 border-primary/50 text-primary dark:text-blue-400 shadow-sm' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500 hover:border-slate-400'}`}
+                        className={`text-[11px] font-medium px-2 py-1 rounded transition-colors border ${isSelected ? 'bg-primary/10 dark:bg-primary/20 border-primary/50 text-primary shadow-sm' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500 hover:border-slate-400'}`}
                     >
                         {t('common.php_version', { version: php.version })}
                     </button>
@@ -51,7 +53,7 @@ const DbChips = ({ dbInstances, selectedDb, toggleDbSelection, t }: any) => {
                         key={db.id}
                         onClick={() => toggleDbSelection(db.id)}
                         title={db.name}
-                        className={`text-[11px] font-medium px-2 py-1 rounded transition-colors border ${isSelected ? 'bg-blue-50 dark:bg-blue-900/30 border-primary/50 text-primary dark:text-blue-400 shadow-sm' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500 hover:border-slate-400'}`}
+                        className={`text-[11px] font-medium px-2 py-1 rounded transition-colors border ${isSelected ? 'bg-primary/10 dark:bg-primary/20 border-primary/50 text-primary shadow-sm' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500 hover:border-slate-400'}`}
                     >
                         {shortName}
                     </button>
@@ -186,19 +188,19 @@ function getDashboardSuggestions(status: ServiceStatus, projects: ProjectData[],
     const suggestions = [];
     if (!status.apache && !status.php && !status.database) {
         suggestions.push({
-            icon: 'power_settings_new', color: 'text-amber-500', bg: 'bg-amber-50 dark:bg-amber-900/20', border: 'border-amber-200 dark:border-amber-800/50',
+            icon: 'power_settings_new', color: 'text-amber-600 dark:text-amber-500', bg: 'bg-amber-500/10 dark:bg-amber-500/20', border: 'border-amber-500/20 dark:border-amber-500/30',
             text: t('dashboard.suggestion_stopped')
         });
     }
     if (projects.length === 0 && !isLoadingProjects) {
         suggestions.push({
-            icon: 'add_box', color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-900/20', border: 'border-blue-200 dark:border-blue-800/50',
+            icon: 'add_box', color: 'text-primary', bg: 'bg-primary/10 dark:bg-primary/20', border: 'border-primary/20 dark:border-primary/30',
             text: t('dashboard.suggestion_no_project')
         });
     }
     if (suggestions.length === 0) {
         suggestions.push({
-            icon: 'check_circle', color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-900/20', border: 'border-emerald-200 dark:border-emerald-800/50',
+            icon: 'check_circle', color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-500/10 dark:bg-emerald-500/20', border: 'border-emerald-500/20 dark:border-emerald-500/30',
             text: t('dashboard.suggestion_optimal')
         });
     }
@@ -232,15 +234,17 @@ function renderSparkline(data: number[], id: string) {
         <div className="w-full h-12 mt-2 relative rounded overflow-hidden">
             <svg viewBox={`0 -2 ${width} ${height + 4}`} className="w-full h-full overflow-visible" preserveAspectRatio="none">
                 <defs>
+                    {/* amber/emerald pakai var(--theme-*) supaya ikut tema aktif; red TETAP hex statis
+                        (sengaja, lihat docs/ui_consistency_guide.md §1) -- lihat docs/known_bugs.md #42. */}
                     <linearGradient id={`grad-fill-${id}`} x1="0" x2="0" y1="0" y2="1">
                         <stop offset="0%" stopColor="#ef4444" stopOpacity="0.4" />
-                        <stop offset="50%" stopColor="#f59e0b" stopOpacity="0.2" />
-                        <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
+                        <stop offset="50%" stopColor="var(--theme-amber-500, #f59e0b)" stopOpacity="0.2" />
+                        <stop offset="100%" stopColor="var(--theme-emerald-500, #10b981)" stopOpacity="0.0" />
                     </linearGradient>
                     <linearGradient id={`grad-stroke-${id}`} x1="0" x2="0" y1="0" y2="1">
                         <stop offset="0%" stopColor="#ef4444" />
-                        <stop offset="50%" stopColor="#f59e0b" />
-                        <stop offset="100%" stopColor="#10b981" />
+                        <stop offset="50%" stopColor="var(--theme-amber-500, #f59e0b)" />
+                        <stop offset="100%" stopColor="var(--theme-emerald-500, #10b981)" />
                     </linearGradient>
                 </defs>
                 <path d={fillPath} fill={`url(#grad-fill-${id})`} stroke="none" />
@@ -268,16 +272,13 @@ function ApacheServiceCard({ included, onToggleIncluded, isRunning, selectedApac
                     <span className={`material-symbols-outlined shrink-0 transition-colors ${included ? 'text-primary' : 'text-slate-400'}`}>dns</span>
                     <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 truncate">{t('sidebar.menu_apache')}</span>
                 </div>
-                <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                    <input
-                        type="checkbox"
+                <div className="shrink-0">
+                    <ToggleSwitch
                         checked={included}
-                        onChange={(e) => onToggleIncluded(e.target.checked)}
-                        aria-label={t('sidebar.toggle_service', 'Toggle {{service}}', { service: t('sidebar.menu_apache') })}
-                        className="sr-only peer"
+                        onChange={onToggleIncluded}
+                        label={t('sidebar.toggle_service', 'Toggle {{service}}', { service: t('sidebar.menu_apache') })}
                     />
-                    <div className="w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
-                </label>
+                </div>
             </div>
 
             <div className={`flex flex-col gap-1 mt-1 transition-all ${included ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
@@ -285,15 +286,14 @@ function ApacheServiceCard({ included, onToggleIncluded, isRunning, selectedApac
                     <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">{t('dashboard.default_version')}</span>
                     <span className={`w-2 h-2 shrink-0 rounded-full ${isRunning ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300 dark:bg-slate-600'}`}></span>
                 </div>
-                <select
-                    value={selectedApache}
-                    onChange={(e) => onSelectApache(e.target.value)}
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs rounded-md p-1.5 outline-none focus:border-primary transition-colors cursor-pointer"
-                >
-                    {apacheVersions.length > 0 ? apacheVersions.map(v => (
-                        <option key={v} value={v}>{t('common.apache_version', { version: v })}</option>
-                    )) : <option>{t('dashboard.no_version_installed')}</option>}
-                </select>
+                <Select
+                    searchable={false}
+                    options={apacheVersions.map(v => ({ value: v, label: t('common.apache_version', 'Apache {{version}}', { version: v }) }))}
+                    value={selectedApache || null}
+                    onChange={onSelectApache}
+                    placeholder={t('dashboard.no_version_installed')}
+                    disabled={apacheVersions.length === 0}
+                />
             </div>
         </div>
     );
@@ -316,16 +316,13 @@ function PhpServiceCard({ included, onToggleIncluded, phpInstances, selectedPhp,
                     <span className={`material-symbols-outlined shrink-0 transition-colors ${included ? 'text-primary' : 'text-slate-400'}`}>php</span>
                     <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 truncate">{t('sidebar.menu_php')}</span>
                 </div>
-                <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                    <input
-                        type="checkbox"
+                <div className="shrink-0">
+                    <ToggleSwitch
                         checked={included}
-                        onChange={(e) => onToggleIncluded(e.target.checked)}
-                        aria-label={t('sidebar.toggle_service', 'Toggle {{service}}', { service: t('sidebar.menu_php') })}
-                        className="sr-only peer"
+                        onChange={onToggleIncluded}
+                        label={t('sidebar.toggle_service', 'Toggle {{service}}', { service: t('sidebar.menu_php') })}
                     />
-                    <div className="w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
-                </label>
+                </div>
             </div>
 
             <div className={`flex flex-col gap-1 mt-1 transition-all ${included ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
@@ -358,16 +355,13 @@ function DatabaseServiceCard({ included, onToggleIncluded, dbInstances, selected
                     <span className={`material-symbols-outlined shrink-0 transition-colors ${included ? 'text-primary' : 'text-slate-400'}`}>database</span>
                     <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 truncate">{t('sidebar.menu_database')}</span>
                 </div>
-                <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                    <input
-                        type="checkbox"
+                <div className="shrink-0">
+                    <ToggleSwitch
                         checked={included}
-                        onChange={(e) => onToggleIncluded(e.target.checked)}
-                        aria-label={t('sidebar.toggle_service', 'Toggle {{service}}', { service: t('sidebar.menu_database') })}
-                        className="sr-only peer"
+                        onChange={onToggleIncluded}
+                        label={t('sidebar.toggle_service', 'Toggle {{service}}', { service: t('sidebar.menu_database') })}
                     />
-                    <div className="w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
-                </label>
+                </div>
             </div>
 
             <div className={`flex flex-col gap-1 mt-1 transition-all ${included ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
@@ -432,7 +426,7 @@ function RecentProjectsSection({ isLoading, projects, onOpenBrowser, onOpenDir, 
                             <span className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">{proj.domain}</span>
                         </div>
                         {proj.framework && (
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-primary bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 rounded ml-2 shrink-0">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-primary bg-primary/10 dark:bg-primary/20 px-2 py-0.5 rounded ml-2 shrink-0">
                                 {proj.framework}
                             </span>
                         )}

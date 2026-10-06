@@ -63,7 +63,7 @@ describe('DashboardMain', () => {
         renderWithToast(<DashboardMain />);
 
         await waitFor(() => expect(screen.getByLabelText(/Toggle.*apache/)).not.toBeChecked());
-        expect(screen.getByRole('button', { name: 'common.php_version' })).toHaveClass('bg-blue-50');
+        expect(screen.getByRole('button', { name: 'common.php_version' })).toHaveClass('bg-primary/10');
     });
 
     it('shows the "no PHP installed" message when there are no PHP instances', async () => {
@@ -80,10 +80,10 @@ describe('DashboardMain', () => {
         await screen.findByRole('button', { name: 'common.php_version' });
 
         const chip = screen.getByRole('button', { name: 'common.php_version' });
-        expect(chip).toHaveClass('bg-blue-50');
+        expect(chip).toHaveClass('bg-primary/10');
 
         await user.click(chip);
-        expect(chip).not.toHaveClass('bg-blue-50');
+        expect(chip).not.toHaveClass('bg-primary/10');
         expect(screen.getByLabelText(/Toggle.*php/)).not.toBeChecked();
     });
 
@@ -215,11 +215,11 @@ describe('DashboardMain', () => {
         renderWithToast(<DashboardMain />);
         // On load, resolveInitialDbSelection auto-selects the only instance (chip starts selected)
         // while includedServices.database stays false (its own default), so deselect it first.
-        await waitFor(() => expect(screen.getByText('MDB')).toHaveClass('bg-blue-50'));
+        await waitFor(() => expect(screen.getByText('MDB')).toHaveClass('bg-primary/10'));
         const dbToggle = screen.getByLabelText(/Toggle.*database/);
         expect(dbToggle).not.toBeChecked();
         await user.click(screen.getByText('MDB'));
-        expect(screen.getByText('MDB')).not.toHaveClass('bg-blue-50');
+        expect(screen.getByText('MDB')).not.toHaveClass('bg-primary/10');
 
         await user.click(screen.getByText('MDB'));
 
@@ -232,14 +232,14 @@ describe('DashboardMain', () => {
             get_installed_php: vi.fn().mockResolvedValue([{ id: 'php1', version: '8.2', status: 'stopped' }]),
         }));
         renderWithToast(<DashboardMain />);
-        await waitFor(() => expect(screen.getByRole('button', { name: 'common.php_version' })).toHaveClass('bg-blue-50'));
+        await waitFor(() => expect(screen.getByRole('button', { name: 'common.php_version' })).toHaveClass('bg-primary/10'));
         await user.click(screen.getByRole('button', { name: 'common.php_version' }));
-        expect(screen.getByRole('button', { name: 'common.php_version' })).not.toHaveClass('bg-blue-50');
+        expect(screen.getByRole('button', { name: 'common.php_version' })).not.toHaveClass('bg-primary/10');
         expect(screen.getByLabelText(/Toggle.*php/)).not.toBeChecked();
 
         await user.click(screen.getByLabelText(/Toggle.*php/));
 
-        expect(screen.getByRole('button', { name: 'common.php_version' })).toHaveClass('bg-blue-50');
+        expect(screen.getByRole('button', { name: 'common.php_version' })).toHaveClass('bg-primary/10');
     });
 
     it('auto-selects the first database instance again when the database checkbox is re-checked after all chips were deselected', async () => {
@@ -248,15 +248,15 @@ describe('DashboardMain', () => {
             get_installed_databases: vi.fn().mockResolvedValue({ status: 'success', data: [{ id: 'db1', name: 'MariaDB', status: 'stopped' }] }),
         }));
         renderWithToast(<DashboardMain />);
-        await waitFor(() => expect(screen.getByText('MDB')).toHaveClass('bg-blue-50'));
+        await waitFor(() => expect(screen.getByText('MDB')).toHaveClass('bg-primary/10'));
         await user.click(screen.getByText('MDB'));
-        expect(screen.getByText('MDB')).not.toHaveClass('bg-blue-50');
+        expect(screen.getByText('MDB')).not.toHaveClass('bg-primary/10');
         const dbToggle = screen.getByLabelText(/Toggle.*database/);
         expect(dbToggle).not.toBeChecked();
 
         await user.click(dbToggle);
 
-        expect(screen.getByText('MDB')).toHaveClass('bg-blue-50');
+        expect(screen.getByText('MDB')).toHaveClass('bg-primary/10');
     });
 
     it('starts stopped PHP and database instances (not already-running ones) when starting all selected services', async () => {
@@ -317,8 +317,8 @@ describe('DashboardMain', () => {
         }));
         renderWithToast(<DashboardMain />);
 
-        await waitFor(() => expect(screen.getAllByRole('button', { name: 'common.php_version' })[1]).toHaveClass('bg-blue-50'));
-        expect(screen.getAllByRole('button', { name: 'common.php_version' })[0]).not.toHaveClass('bg-blue-50');
+        await waitFor(() => expect(screen.getAllByRole('button', { name: 'common.php_version' })[1]).toHaveClass('bg-primary/10'));
+        expect(screen.getAllByRole('button', { name: 'common.php_version' })[0]).not.toHaveClass('bg-primary/10');
     });
 
     it('falls back to window.open when the pywebview open_browser API is unavailable', async () => {

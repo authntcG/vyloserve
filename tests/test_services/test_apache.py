@@ -216,6 +216,27 @@ def test_apache_install_version(mock_configure, mock_move, mock_exists, mock_rem
     mock_move.assert_called_once()
     mock_configure.assert_called_once()
 
+@patch('core.services.apache.download_advanced')
+@patch('core.services.apache.extract_archive')
+@patch('core.services.apache.os.remove')
+@patch('core.services.apache.os.path.exists')
+@patch.object(ApacheManager, '_move_apache_extract')
+@patch.object(ApacheManager, '_configure_httpd')
+def test_apache_install_version_prog_cb_accepts_three_positional_args(mock_configure, mock_move, mock_exists, mock_remove, mock_extract, mock_download, apache_manager, mock_api):
+    """
+    Regresi: file_utils.py's download_advanced/extract_archive memanggil progress_cb dengan
+    3 argumen posisional (percent, message_key, args_dict) di beberapa titik -- prog_cb
+    sebelumnya cuma menerima 2 param (pct, msg) dan CRASH dengan "takes 2 positional
+    arguments but 3 were given". Lihat docs/known_bugs.md.
+    """
+    mock_exists.side_effect = lambda path: True if path.endswith('.zip') else False
+    apache_manager.install_version("2.4.68", "http://example.com", 8080)
+
+    prog_cb = mock_download.call_args.kwargs['progress_cb']
+    prog_cb(42, "backend.common.extracting_files", {"index": 1, "total": 5})  # tidak boleh raise
+
+    mock_api.emit_progress.assert_any_call(42, "backend.common.extracting_files", {"index": 1, "total": 5})
+
 @patch.object(ApacheManager, '_get_active_version', return_value="2.4.68")
 @patch.object(ApacheManager, 'get_status', return_value={"installed": True, "path": "test_path", "version": "2.4.68"})
 @patch('core.services.apache.start_silent_process')
@@ -617,6 +638,45 @@ def test_apache_open_apache_file_handles_exception(apache_manager):
     with patch.object(apache_manager, 'get_status', side_effect=RuntimeError("boom")):
         res = apache_manager.open_apache_file('httpd')
     assert res == {"status": "error", "message": "backend.error.unexpected", "args": {"e": "boom"}}
+
+# ==========================================
+# get_http_port -- dipakai TunnelsManager untuk tahu kemana zrok harus mengarah
+# (regresi: dulu TunnelsManager baca key 'apache_port' yang tidak pernah ada di
+# settings.json, selalu fallback ke 80 -- lihat docs/known_bugs.md #31)
+# ==========================================
+
+def test_get_http_port_returns_80_when_not_installed(apache_manager):
+    with patch.object(apache_manager, 'get_status', return_value={"installed": False}):
+        assert apache_manager.get_http_port() == 80
+
+def test_get_http_port_returns_80_when_conf_file_missing(apache_manager):
+    with patch.object(apache_manager, 'get_status', return_value={"installed": True, "path": "C:\\apache"}):
+        with patch('core.services.apache.os.path.exists', return_value=False):
+            assert apache_manager.get_http_port() == 80
+
+def test_get_http_port_reads_configured_port_from_httpd_conf(apache_manager):
+    conf_content = "ServerRoot \"C:/apache\"\nListen 8080\nDocumentRoot \"C:/www\"\n"
+    with patch.object(apache_manager, 'get_status', return_value={"installed": True, "path": "C:\\apache"}):
+        with patch('core.services.apache.os.path.exists', return_value=True):
+            with patch('builtins.open', mock_open(read_data=conf_content)):
+                assert apache_manager.get_http_port() == 8080
+
+def test_get_http_port_ignores_the_ssl_listen_443_line(apache_manager):
+    conf_content = "Listen 8080\nListen 443\n"
+    with patch.object(apache_manager, 'get_status', return_value={"installed": True, "path": "C:\\apache"}):
+        with patch('core.services.apache.os.path.exists', return_value=True):
+            with patch('builtins.open', mock_open(read_data=conf_content)):
+                assert apache_manager.get_http_port() == 8080
+
+def test_get_http_port_returns_80_when_no_listen_line_found(apache_manager):
+    with patch.object(apache_manager, 'get_status', return_value={"installed": True, "path": "C:\\apache"}):
+        with patch('core.services.apache.os.path.exists', return_value=True):
+            with patch('builtins.open', mock_open(read_data="ServerRoot \"C:/apache\"\n")):
+                assert apache_manager.get_http_port() == 80
+
+def test_get_http_port_returns_80_on_exception(apache_manager):
+    with patch.object(apache_manager, 'get_status', side_effect=RuntimeError("boom")):
+        assert apache_manager.get_http_port() == 80
 
 def test_apache_open_apache_file_error_path_uses_real_apache_filename(apache_manager):
     """

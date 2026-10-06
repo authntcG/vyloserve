@@ -2,13 +2,17 @@ import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import Card from '../../components/Card';
 import Modal from '../../components/Modal';
+import Button from '../../components/Button';
+import ServiceToggleButton from '../../components/ServiceToggleButton';
 import { useToast } from '../../components/ToastContext';
+import { useAlert } from '../../components/AlertContext';
 import BackgroundProgressWidget from '../../components/BackgroundProgressWidget';
 
 // ---> IMPORT UI KIT COMPONENTS <---
 import PageHeader from '../../components/PageHeader';
 import SkeletonCard from '../../components/SkeletonCard';
 import EmptyState from '../../components/EmptyState';
+import InfoBox from '../../components/InfoBox';
 import { clampPercent } from '../../utils/progress';
 
 import ApacheSettings from './Settings';
@@ -60,9 +64,18 @@ function ApacheStatusSection({ isFetching, isInstalled, installedVersion, isRunn
                 }
                 footerActions={
                     <>
-                        <button type="button" onClick={onToggleServer} disabled={isToggling} className={`flex-1 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm disabled:opacity-70 disabled:scale-100 ${isRunning ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600'}`}>
-                            {isToggling ? <><span className="material-symbols-outlined text-[18px] animate-spin">sync</span> {isRunning ? t('apache.stopping') : t('apache.starting')}</> : <><span className="material-symbols-outlined text-[18px]">{isRunning ? 'stop' : 'play_arrow'}</span> {isRunning ? t('apache.stop_server') : t('apache.start_server')}</>}
-                        </button>
+                        <ServiceToggleButton
+                            isRunning={isRunning}
+                            isToggling={isToggling}
+                            onClick={onToggleServer}
+                            className="flex-1"
+                            labels={{
+                                start: t('apache.start_server'),
+                                stop: t('apache.stop_server'),
+                                starting: t('apache.starting'),
+                                stopping: t('apache.stopping'),
+                            }}
+                        />
                         <button type="button" onClick={onOpenOptions} className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
                             <span className="material-symbols-outlined text-[18px]">tune</span> {t('apache.config')}
                         </button>
@@ -71,7 +84,7 @@ function ApacheStatusSection({ isFetching, isInstalled, installedVersion, isRunn
             >
                 <div className="flex flex-col gap-1">
                     <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('apache.listening_port')}</span>
-                    <span className="font-mono text-sm text-primary dark:text-blue-400">80, 443</span>
+                    <span className="font-mono text-sm text-primary">80, 443</span>
                 </div>
                 <div className="flex flex-col gap-1">
                     <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('apache.architecture')}</span>
@@ -129,7 +142,7 @@ function ApacheProjectCard({ project, onOpenDocumentRoot, onOpenSettings, onSync
                     </div>
                     <div className="flex flex-col gap-1">
                         <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('apache.php_engine')}</span>
-                        <span className="text-sm font-medium text-primary dark:text-blue-400 font-mono">{project.php_version || t('common.unknown')} <span className="text-slate-400 text-xs">(Port {project.php_port || t('common.not_available')})</span></span>
+                        <span className="text-sm font-medium text-primary font-mono">{project.php_version || t('common.unknown')} <span className="text-slate-400 text-xs">(Port {project.php_port || t('common.not_available')})</span></span>
                     </div>
                     <div className="flex flex-col gap-1 col-span-2">
                         <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('apache.local_domain')}</span>
@@ -140,14 +153,10 @@ function ApacheProjectCard({ project, onOpenDocumentRoot, onOpenSettings, onSync
                 </div>
                 {project.host_synced === false && (
                     <div className="flex flex-col gap-3 border-t border-slate-100 dark:border-slate-800/50 pt-3 mt-1">
-                        <div className="p-3 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800/30 rounded-lg flex gap-3 items-start animate-in fade-in">
-                            <span className="material-symbols-outlined text-red-500 dark:text-red-400 text-[20px] shrink-0">admin_panel_settings</span>
-                            <div className="flex flex-col gap-1.5 w-full">
-                                <span className="text-sm font-semibold text-red-800 dark:text-red-500">{t('apache.domain_not_routed')}</span>
-                                <span className="text-xs text-red-700 dark:text-red-400/80 leading-relaxed">{t('apache.domain_not_routed_desc')}</span>
-                                <button type="button" onClick={() => onSyncHost(project.id)} className="mt-1 self-start text-xs font-medium text-red-800 dark:text-red-300 bg-red-200 dark:bg-red-800/50 hover:bg-red-300 dark:hover:bg-red-700/60 px-3 py-1.5 rounded-md flex items-center gap-1.5"><span className="material-symbols-outlined text-[14px]">sync</span> {t('apache.retry_sync')}</button>
-                            </div>
-                        </div>
+                        <InfoBox tone="danger" icon="admin_panel_settings" title={t('apache.domain_not_routed')} className="animate-in fade-in">
+                            <span className="leading-relaxed">{t('apache.domain_not_routed_desc')}</span>
+                            <button type="button" onClick={() => onSyncHost(project.id)} className="mt-1 self-start text-xs font-medium text-red-800 dark:text-red-300 bg-red-200 dark:bg-red-800/50 hover:bg-red-300 dark:hover:bg-red-700/60 px-3 py-1.5 rounded-md flex items-center gap-1.5"><span className="material-symbols-outlined text-[14px]">sync</span> {t('apache.retry_sync')}</button>
+                        </InfoBox>
                     </div>
                 )}
             </div>
@@ -198,6 +207,7 @@ function ApacheProjectsSection({ isFetching, projects, onOpenDocumentRoot, onOpe
 export default function ApacheMain() {
     const { t } = useTranslation();
     const { showToast } = useToast();
+    const { confirm } = useAlert();
 
     // State Global & Instalasi
     const [isFetchingApacheStatus, setIsFetchingApacheStatus] = useState(true);
@@ -205,8 +215,7 @@ export default function ApacheMain() {
     const [installedApacheVersion, setInstalledApacheVersion] = useState<string | null>(null);
     const [apachePath, setApachePath] = useState<string>(t('apache.not_installed'));
     const [isApacheRunning, setIsApacheRunning] = useState(false);
-    const [isUninstalling, setIsUninstalling] = useState(false);
-    const [isTogglingServer, setIsTogglingServer] = useState(false);
+        const [isTogglingServer, setIsTogglingServer] = useState(false);
 
     const [isInstallServerOpen, setIsInstallServerOpen] = useState(false);
     const [availableVersions, setAvailableVersions] = useState<ApacheVersionData[]>([]);
@@ -225,7 +234,6 @@ export default function ApacheMain() {
     const [projects, setProjects] = useState<ProjectData[]>([]);
     const [isFetchingProjects, setIsFetchingProjects] = useState(true);
     const [isOptionsOpen, setIsOptionsOpen] = useState(false);
-    const [isUninstallServerOpen, setIsUninstallServerOpen] = useState(false);
     const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
     const [isProjectSettingsOpen, setIsProjectSettingsOpen] = useState(false);
     const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
@@ -412,13 +420,18 @@ export default function ApacheMain() {
     };
 
     const handleUninstall = async () => {
-        setIsUninstalling(true);
+        if (!await confirm({
+            title: t('apache.uninstall_apache'),
+            message: <p className="text-slate-700 dark:text-slate-300">{t('apache.confirm_uninstall')} <strong className="text-slate-900 dark:text-white">Apache Web Server</strong>?</p>,
+            type: 'danger',
+            confirmText: t('apache.yes_uninstall')
+        })) return;
+
         try {
             const res = await window.pywebview?.api?.uninstall_apache();
             showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
-            if (res?.status === 'success') { setIsUninstallServerOpen(false); fetchApacheStatus(); }
+            if (res?.status === 'success') { fetchApacheStatus(); }
         } catch (e) { console.error(e); showToast(t('apache.uninstall_error'), "error"); }
-        finally { setIsUninstalling(false); }
     };
 
     return (
@@ -435,9 +448,9 @@ export default function ApacheMain() {
                         </>
                     }
                     actions={
-                        <button type="button" onClick={handleOpenInstallModal} className="bg-primary hover:bg-blue-600 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center gap-2 shadow-sm">
-                            <span className="material-symbols-outlined text-[18px]">download</span> {t('apache.install_update')}
-                        </button>
+                        <Button variant="primary" icon="download" onClick={handleOpenInstallModal} className="shadow-sm">
+                            {t('apache.install_update')}
+                        </Button>
                     }
                 />
 
@@ -452,7 +465,7 @@ export default function ApacheMain() {
                     onOpenOptions={() => setIsOptionsOpen(true)}
                     onOpenConfig={() => window.pywebview?.api?.open_apache_config()}
                     onOpenDirectory={() => window.pywebview?.api?.open_apache_directory()}
-                    onUninstallClick={() => setIsUninstallServerOpen(true)}
+                    onUninstallClick={handleUninstall}
                     onInstallClick={handleOpenInstallModal}
                     t={t}
                 />
@@ -487,11 +500,9 @@ export default function ApacheMain() {
 
             <Modal isOpen={isOptionsOpen} onClose={() => setIsOptionsOpen(false)} title={t('apache.global_apache_config')} icon="tune" onApply={() => setIsOptionsOpen(false)}><ApacheSettings /></Modal>
             <Modal isOpen={isNewProjectModalOpen} keepMounted={isCreatingProject} onClose={() => setIsNewProjectModalOpen(false)} title={t('apache.create_new_project')} icon="add_box" onApply={handleCreateSubmit} applyText={isCreatingProject ? t('apache.installing_start') : t('apache.create_project')} isApplyDisabled={isCreatingProject}><NewApacheProject ref={projectFormRef} isCreatingExternal={isCreatingProject} /></Modal>
-            <Modal isOpen={isProjectSettingsOpen} onClose={() => !isUpdatingProject && setIsProjectSettingsOpen(false)} title={`${t('apache.vhost_settings_modal')}: ${selectedProject?.name}`} icon="settings" onApply={handleUpdateProjectSubmit} applyText={isUpdatingProject ? t('apache.saving') : t('apache.save_changes')} isApplyDisabled={isUpdatingProject} isLoading={isUpdatingProject}>{selectedProject && <ProjectSettings project={selectedProject as any} ref={projectSettingsRef} />}</Modal>
+            <Modal isOpen={isProjectSettingsOpen} onClose={() => !isUpdatingProject && setIsProjectSettingsOpen(false)} title={`${t('apache.vhost_settings_modal')}: ${selectedProject?.name}`} icon="settings" onApply={handleUpdateProjectSubmit} applyText={isUpdatingProject ? t('apache.saving') : t('apache.save_changes')} isApplyDisabled={isUpdatingProject} isLoading={isUpdatingProject}>{selectedProject && <ProjectSettings project={selectedProject} ref={projectSettingsRef} />}</Modal>
 
-            <Modal isOpen={isUninstallServerOpen} onClose={() => !isUninstalling && setIsUninstallServerOpen(false)} title={t('apache.uninstall_apache')} icon="warning" onApply={handleUninstall} applyText={isUninstalling ? t('apache.deleting') : t('apache.yes_uninstall')} isApplyDisabled={isUninstalling} isDestructive={true} isLoading={isUninstalling}>
-                <p className="text-slate-700 dark:text-slate-300">{t('apache.confirm_uninstall')} <strong className="text-slate-900 dark:text-white">Apache Web Server</strong>?</p>
-            </Modal>
+
 
             <Modal isOpen={isDeleteConfirmOpen} onClose={() => !isDeletingProject && setIsDeleteConfirmOpen(false)} title={t('apache.delete_virtual_host')} icon="delete" onApply={handleDeleteProjectSubmit} applyText={isDeletingProject ? t('apache.deleting') : t('apache.delete_project')} isApplyDisabled={isDeletingProject} isDestructive={true} isLoading={isDeletingProject}>
                 <p className="text-slate-700 dark:text-slate-300 mb-2">{t('apache.delete_project')} <strong className="text-slate-900 dark:text-white">{selectedProject?.domain}</strong>?</p>

@@ -13,4 +13,5 @@ pystray==0.19.5
 pythonnet==3.0.5
 pywebview==6.2.1
 typing_extensions==4.13.2
+win11toast==0.36.3
 zipp==3.20.2

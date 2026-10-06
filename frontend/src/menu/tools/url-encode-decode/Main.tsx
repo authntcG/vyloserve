@@ -2,7 +2,16 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import PageHeader from '../../../components/PageHeader';
 import Card from '../../../components/Card';
+import Tabs from '../../../components/Tabs';
 import { useToast } from '../../../components/ToastContext';
+
+function safeDecode(str: string) {
+    try {
+        return decodeURIComponent(str);
+    } catch {
+        return str;
+    }
+}
 
 export default function UrlMain() {
     const { t } = useTranslation();
@@ -58,10 +67,14 @@ export default function UrlMain() {
                 subtitle={<><span className="material-symbols-outlined text-[14px]">info</span> {t('tools.url.subtitle')}</>}
             />
 
-            <div className="flex gap-1 overflow-x-auto no-scrollbar mb-6 border-b border-slate-200 dark:border-slate-800">
-                <button type="button" onClick={() => { setMode('encode'); setInput(''); }} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${mode === 'encode' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>{t('tools.url.encode_url')}</button>
-                <button type="button" onClick={() => { setMode('decode'); setInput(''); }} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${mode === 'decode' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>{t('tools.url.decode_url')}</button>
-            </div>
+            <Tabs
+                tabs={[
+                    { value: 'encode', label: t('tools.url.encode_url') },
+                    { value: 'decode', label: t('tools.url.decode_url') },
+                ]}
+                value={mode}
+                onChange={(m) => { setMode(m); setInput(''); }}
+            />
 
             {/* Layout responsif menggunakan proporsi 7:5 (12 Grid) */}
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 pb-8 w-full min-w-0">
@@ -108,7 +121,7 @@ export default function UrlMain() {
                                 <div className="flex flex-col gap-1 border-b border-slate-100 dark:border-slate-800 pb-3 w-full min-w-0">
                                     <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{t('tools.url.protocol_origin')}</span>
                                     <div className="flex items-center gap-2 mt-1 w-full min-w-0">
-                                        <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded text-xs font-mono font-bold shrink-0">{parsedUrl.protocol.replaceAll(':', '')}</span>
+                                        <span className="px-2 py-1 bg-primary/10 dark:bg-primary/20 text-primary rounded text-xs font-mono font-bold shrink-0">{parsedUrl.protocol.replaceAll(':', '')}</span>
                                         <span className="font-mono text-sm text-slate-900 dark:text-slate-200 truncate">{parsedUrl.host}</span>
                                     </div>
                                 </div>
@@ -139,12 +152,12 @@ export default function UrlMain() {
                                                 const value = valueParts.join('=');
                                                 return (
                                                     <div key={`${key}-${idx}`} className="flex items-start gap-3 bg-slate-50 dark:bg-slate-900/50 p-2 rounded-lg border border-slate-100 dark:border-slate-800 w-full min-w-0">
-                                                        <span className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/20 px-2 py-0.5 rounded break-words max-w-[40%] shrink-0">
-                                                            {decodeURIComponent(key)}
+                                                        <span className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 dark:bg-emerald-500/20 px-2 py-0.5 rounded break-words max-w-[40%] shrink-0">
+                                                            {safeDecode(key)}
                                                         </span>
                                                         <span className="text-slate-400 text-xs mt-0.5 shrink-0">=</span>
                                                         <span className="font-mono text-xs text-slate-700 dark:text-slate-300 break-words min-w-0 flex-1">
-                                                            {decodeURIComponent(value || '')}
+                                                            {safeDecode(value || '')}
                                                         </span>
                                                     </div>
                                                 );

@@ -46,8 +46,12 @@ describe('ApacheInstallWizard', () => {
         expect(screen.getByText('apache.server_up_to_date')).toBeInTheDocument();
     });
 
-    it('lists available versions and marks the first one as latest stable', () => {
+    it('lists available versions and marks the first one as latest stable', async () => {
+        const user = userEvent.setup();
         setup();
+
+        await user.click(screen.getByRole('button', { name: /Apache 2\.4\.62/ }));
+
         expect(screen.getByRole('option', { name: 'Apache 2.4.62 apache.latest_stable' })).toBeInTheDocument();
         expect(screen.getByRole('option', { name: 'Apache 2.4.58' })).toBeInTheDocument();
     });
@@ -56,7 +60,8 @@ describe('ApacheInstallWizard', () => {
         const user = userEvent.setup();
         const { setVersion, setUrl } = setup();
 
-        await user.selectOptions(screen.getByRole('combobox'), '2.4.58');
+        await user.click(screen.getByRole('button', { name: /Apache 2\.4\.62/ }));
+        await user.click(screen.getByRole('option', { name: 'Apache 2.4.58' }));
 
         expect(setVersion).toHaveBeenCalledWith('2.4.58');
         expect(setUrl).toHaveBeenCalledWith('https://example.com/2.4.58.zip');
@@ -64,7 +69,7 @@ describe('ApacheInstallWizard', () => {
 
     it('disables the version select and port inputs while installing', () => {
         setup({ isInstalling: true });
-        expect(screen.getByRole('combobox')).toBeDisabled();
+        expect(screen.getByRole('button', { name: /Apache 2\.4\.62/ })).toBeDisabled();
     });
 
     it('shows the progress bar with percentage and text while installing', () => {

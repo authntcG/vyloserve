@@ -29,7 +29,7 @@ def get_silent_flags() -> int:
     """
     return 0x08000000 if sys.platform == 'win32' else 0
 
-def run_silent_command(cmd: List[str], cwd: Optional[str] = None, env: Optional[dict] = None) -> subprocess.CompletedProcess:
+def run_silent_command(cmd: List[str], cwd: Optional[str] = None, env: Optional[dict] = None, encoding: str = "utf-8") -> subprocess.CompletedProcess:
     """
     Menjalankan command shell (subprocess.run) secara tersembunyi (tanpa jendela console).
     Digunakan untuk perintah yang ditunggu hingga selesai (Synchronous).
@@ -48,7 +48,9 @@ def run_silent_command(cmd: List[str], cwd: Optional[str] = None, env: Optional[
         env=env,
         creationflags=get_silent_flags(), 
         capture_output=True, 
-        text=True
+        text=True,
+        encoding=encoding,
+        errors="replace"
     )
 
 def start_silent_process(cmd: List[str], cwd: Optional[str] = None, env: Optional[dict] = None) -> subprocess.Popen:

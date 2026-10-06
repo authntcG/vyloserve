@@ -26,8 +26,8 @@ class ProjectManager:
     def _log(self, msg: str, level: str = "info", args: dict = None):
         if hasattr(self, 'api') and self.api: self.api.emit_log(msg, level, args)
 
-    def _progress(self, pct: int, msg: str):
-        if hasattr(self, 'api') and self.api: self.api.emit_progress(pct, msg)
+    def _progress(self, pct: int, msg: str, args: dict = None):
+        if hasattr(self, 'api') and self.api: self.api.emit_progress(pct, msg, args)
     
     def _read_projects(self):
         return read_json(self.projects_file, list)
@@ -36,11 +36,25 @@ class ProjectManager:
         if not write_json(self.projects_file, projects) and hasattr(self, 'api'):
             self._log("backend.project.save_json_failed", "error")
 
+    def _composer_requires(self, directory: str, package: str) -> bool:
+        """
+        Cek apakah `package` (mis. "laravel/framework") benar-benar terdaftar di
+        require/require-dev composer.json milik project -- bukan sekadar menebak dari
+        nama file semata. Lihat docs/known_bugs.md untuk kasus nyata: project custom
+        berbasis Zend yang dimodifikasi tetap punya file bernama "artisan" (skrip CLI
+        custom, bukan dari Laravel) DAN "composer.json" (lazim di banyak framework),
+        sehingga heuristik nama-file saja salah mendeteksinya sebagai Laravel.
+        """
+        composer = read_json(os.path.join(directory, "composer.json"), dict)
+        return package in composer.get("require", {}) or package in composer.get("require-dev", {})
+
     def detect_framework(self, directory: str) -> str:
         if not os.path.isdir(directory): return "raw"
         files = os.listdir(directory)
-        if "artisan" in files and "composer.json" in files: return "laravel"
-        if "spark" in files and "public" in files: return "codeigniter"
+        if "artisan" in files and "composer.json" in files and self._composer_requires(directory, "laravel/framework"):
+            return "laravel"
+        if "spark" in files and "public" in files and self._composer_requires(directory, "codeigniter4/framework"):
+            return "codeigniter"
         if "wp-admin" in files or "wp-config-sample.php" in files: return "wordpress"
         return "raw"
 
@@ -91,7 +105,7 @@ class ProjectManager:
             return "codeigniter/framework", True
         return "", False
 
-    def _stream_composer_output(self, process, current_percent: float, max_percent: float, prefix: str, ansi_escape: re.Pattern) -> tuple[float, str]:
+    def _stream_composer_output(self, process, current_percent: float, max_percent: float, msg_key: str, ansi_escape: re.Pattern) -> tuple[float, str]:
         error_log = ""
         for line in process.stdout:
             clean_line = ansi_escape.sub('', line.strip())
@@ -99,7 +113,7 @@ class ProjectManager:
                 error_log += clean_line + " "
                 self._log("backend.project.composer_log", "info", {"line": clean_line})
                 if current_percent < max_percent: current_percent += 0.5
-                self._progress(int(current_percent), f"{prefix}: {clean_line[:62]}")
+                self._progress(int(current_percent), msg_key, {"line": clean_line[:62]})
         return current_percent, error_log
 
     def _run_composer_update_with_retries(self, php_exe: str, php_ini_path: str, composer_phar: str, target_dir: str, custom_env: dict, cflags: int, current_percent: float, ansi_escape: re.Pattern) -> bool:
@@ -115,7 +129,7 @@ class ProjectManager:
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=custom_env, cwd=target_dir, creationflags=cflags
             )
             
-            current_percent, _ = self._stream_composer_output(process_update, current_percent, 95.0, 'Instalasi Vendor', ansi_escape)
+            current_percent, _ = self._stream_composer_output(process_update, current_percent, 95.0, 'backend.project.composer_vendor_install', ansi_escape)
 
             process_update.wait()
             if process_update.returncode == 0:
@@ -135,7 +149,7 @@ class ProjectManager:
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=custom_env, creationflags=cflags
         )
         
-        current_percent, error_log = self._stream_composer_output(process_create, current_percent, 60.0, 'Composer', ansi_escape)
+        current_percent, error_log = self._stream_composer_output(process_create, current_percent, 60.0, 'backend.project.composer_create_project', ansi_escape)
         
         process_create.wait()
         return process_create.returncode == 0, error_log
@@ -348,6 +362,12 @@ class ProjectManager:
         doc_root = str(p.get('path', '')).replace('\\', '/') 
         saved_port, php_version = p.get('php_port'), p.get('php_version')
         
+        tunnel_alias = ""
+        tunnel_url = p.get('tunnel_url')
+        if tunnel_url:
+            raw_host = re.sub(r'^https?://', '', tunnel_url).strip("/")
+            tunnel_alias = f"\n    ServerAlias {raw_host}"
+
         if not doc_root.rstrip('/').endswith('public'):
             public_dir = os.path.join(doc_root, "public").replace('\\', '/')
             if os.path.exists(public_dir) and os.path.isdir(public_dir):
@@ -366,12 +386,12 @@ class ProjectManager:
         SetHandler "proxy:fcgi://127.0.0.1:{php_port}/"
     </FilesMatch>"""
 
-        vhost = f"<VirtualHost *:80>\n    ServerName {domain}\n    DocumentRoot \"{doc_root}\"\n    DirectoryIndex index.php index.html\n    <Directory \"{doc_root}\">\n        Options Indexes FollowSymLinks ExecCGI\n        AllowOverride All\n        Require all granted\n    </Directory>\n{fcgi_block}\n</VirtualHost>\n\n"
+        vhost = f"<VirtualHost *:80>\n    ServerName {domain}{tunnel_alias}\n    DocumentRoot \"{doc_root}\"\n    DirectoryIndex index.php index.html\n    <Directory \"{doc_root}\">\n        Options Indexes FollowSymLinks ExecCGI\n        AllowOverride All\n        Require all granted\n    </Directory>\n{fcgi_block}\n</VirtualHost>\n\n"
 
         if hasattr(self.api, 'ssl'):
             try:
                 domain_crt, domain_key = self.api.ssl.generate_domain_cert(domain)
-                vhost += f"<VirtualHost *:443>\n    ServerName {domain}\n    DocumentRoot \"{doc_root}\"\n    SSLEngine on\n    SSLCertificateFile \"{domain_crt.replace(chr(92), '/')}\"\n    SSLCertificateKeyFile \"{domain_key.replace(chr(92), '/')}\"\n    DirectoryIndex index.php index.html\n    <Directory \"{doc_root}\">\n        Options Indexes FollowSymLinks ExecCGI\n        AllowOverride All\n        Require all granted\n    </Directory>\n{fcgi_block}\n</VirtualHost>\n\n"
+                vhost += f"<VirtualHost *:443>\n    ServerName {domain}{tunnel_alias}\n    DocumentRoot \"{doc_root}\"\n    SSLEngine on\n    SSLCertificateFile \"{domain_crt.replace(chr(92), '/')}\"\n    SSLCertificateKeyFile \"{domain_key.replace(chr(92), '/')}\"\n    DirectoryIndex index.php index.html\n    <Directory \"{doc_root}\">\n        Options Indexes FollowSymLinks ExecCGI\n        AllowOverride All\n        Require all granted\n    </Directory>\n{fcgi_block}\n</VirtualHost>\n\n"
             except Exception: pass
             
         return vhost
@@ -472,6 +492,7 @@ class ProjectManager:
             if not project: return {"status": "error", "message": "backend.project.project_not_found"}
 
             if new_name: project['name'] = new_name
+            if 'tunnel_url' in payload: project['tunnel_url'] = payload.get('tunnel_url')
             if new_php and project.get('php_version') != new_php:
                 project['php_version'] = new_php
                 project['php_port'] = self._get_php_port_from_system(new_php)

@@ -2,6 +2,8 @@ import { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ProjectData } from './Main';
 import { useToast } from '../../components/ToastContext';
+import Select from '../../components/Select';
+import FieldLabel from '../../components/FieldLabel';
 
 interface Props {
     project: ProjectData;
@@ -83,7 +85,7 @@ const ProjectSettings = forwardRef<ProjectSettingsRef, Props>(({ project }, ref)
 
             {/* Opsi Edit Nama Project */}
             <div className="flex flex-col gap-2">
-                <label htmlFor="apache_project_name" className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('apache.project_name')}</label>
+                <FieldLabel htmlFor="apache_project_name">{t('apache.project_name')}</FieldLabel>
                 <input
                     id="apache_project_name"
                     type="text"
@@ -96,7 +98,7 @@ const ProjectSettings = forwardRef<ProjectSettingsRef, Props>(({ project }, ref)
 
             {/* Read-Only Domain Host */}
             <div className="flex flex-col gap-2">
-                <label htmlFor="apache_local_domain" className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('apache.local_domain')}</label>
+                <FieldLabel htmlFor="apache_local_domain">{t('apache.local_domain')}</FieldLabel>
                 <div className="flex shadow-sm rounded-lg opacity-80 cursor-not-allowed">
                     <input
                         id="apache_local_domain"
@@ -114,24 +116,20 @@ const ProjectSettings = forwardRef<ProjectSettingsRef, Props>(({ project }, ref)
 
             {/* Opsi Edit Binding PHP */}
             <div className="flex flex-col gap-2">
-                <label htmlFor="apache_php_routing" className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('apache.php_fastcgi_routing')}</label>
                 {isLoading ? (
-                    <div className="h-[42px] bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg animate-pulse"></div>
+                    <>
+                        <FieldLabel>{t('apache.php_fastcgi_routing')}</FieldLabel>
+                        <div className="h-[42px] bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg animate-pulse"></div>
+                    </>
                 ) : (
-                    <select
-                        id="apache_php_routing"
-                        value={phpVersion}
-                        onChange={(e) => setPhpVersion(e.target.value)}
-                        className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2.5 outline-none transition-colors"
-                    >
-                        {phpVersions.length > 0 ? (
-                            phpVersions.map(v => (
-                                <option key={v.version} value={v.version}>PHP {v.version} (FastCGI)</option>
-                            ))
-                        ) : (
-                            <option>{t('apache.no_php_installed')}</option>
-                        )}
-                    </select>
+                    <Select
+                        searchable={false}
+                        label={t('apache.php_fastcgi_routing')}
+                        options={phpVersions.map(v => ({ value: v.version, label: `PHP ${v.version} (FastCGI)` }))}
+                        value={phpVersion || null}
+                        onChange={setPhpVersion}
+                        placeholder={t('apache.no_php_installed')}
+                    />
                 )}
                 <p className="text-xs text-slate-500">{t('apache.php_routing_desc')}</p>
             </div>

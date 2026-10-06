@@ -23,15 +23,18 @@ export default function Card({
     const getStatusTheme = (statusText: string) => {
         const lowerText = statusText.toLowerCase();
 
-        // 1. Tema Sukses/Aktif (Hijau)
-        if (lowerText.includes('running') || lowerText.includes('active')) {
+        // 1. Tema Sukses/Aktif (Hijau) -- bg/border pakai opacity dari shade emerald-500 yang
+        // theme-aware (BUKAN emerald-100/900 stok Tailwind, yang tidak punya --theme-* sama
+        // sekali -- lihat docs/ui_consistency_guide.md §1 & docs/known_bugs.md #42).
+        if (lowerText.includes('running') || lowerText.includes('active') || lowerText.includes('install')) {
             return {
-                badge: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/50',
+                badge: 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 border-emerald-500/20 dark:border-emerald-500/30',
                 dot: 'bg-emerald-500'
             };
         }
 
-        // 2. Tema Peringatan/Error (Merah)
+        // 2. Tema Peringatan/Error (Merah) -- sengaja statis, red tidak punya --theme-red-*
+        // (sinyal bahaya universal lintas tema, lihat docs/ui_consistency_guide.md §1).
         if (lowerText.includes('error') || lowerText.includes('fail') || lowerText.includes('offline')) {
             return {
                 badge: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 border-red-200 dark:border-red-800/50',
@@ -39,11 +42,11 @@ export default function Card({
             };
         }
 
-        // 3. Tema Sistem/OS (Biru)
+        // 3. Tema Sistem/OS (dulu biru statis -- sekarang token primary, ikut tema aktif)
         if (lowerText.includes('native') || lowerText.includes('os') || lowerText.includes('system')) {
             return {
-                badge: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200 dark:border-blue-800/50',
-                dot: 'bg-blue-500'
+                badge: 'bg-primary/10 text-primary dark:bg-primary/20 border-primary/20 dark:border-primary/30',
+                dot: 'bg-primary'
             };
         }
 
