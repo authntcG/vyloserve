@@ -435,3 +435,25 @@ Implementasi awal menaruh `isBackgrounded`/`desktopNotificationsEnabled` di depe
 - `settingsRef` (dipakai `handleClickOutside` popover Settings di `Sidebar()`) sekarang membungkus SELURUH `SidebarFooter` (sebelumnya cuma baris settings/system-load) — efek sampingnya klik di `NotificationBell` tidak lagi otomatis dihitung "klik di luar" popover Settings, tapi ini tidak masalah karena `NotificationBell` independen mengelola outside-click untuk panelnya sendiri (lihat `docs/ui_consistency_guide.md`).
 - Test lama (`'places the notification bell beside the Settings button'`, sebelumnya `'shows the notification bell ... above the system-load/Settings row'`) ditulis ulang untuk memverifikasi STRUKTUR DOM yang benar (bukan cuma presence) — expanded: `settingsButton.parentElement.contains(bellButton)` (satu grup yang sama); collapsed: `bellButton.compareDocumentPosition(systemLoadIcon) & DOCUMENT_POSITION_FOLLOWING` (bell mendahului system-load di DOM, bukan sebaliknya) — pola yang sama dengan pelajaran di #40 soal `getByText(...)` presence-only memberi false confidence untuk regresi pengelompokan/urutan. **Divalidasi dengan sengaja mengembalikan ke layout lama** (bell baris terpisah di atas, urutan DOM collapsed dibalik) — kedua test baru terbukti gagal, lalu lulus lagi setelah fix dikembalikan.
 **Pelajaran untuk ke depannya:** Permintaan placement UI yang berbeda per breakpoint/mode (di sini: expanded vs collapsed) sering butuh STRUKTUR DOM yang benar-benar berbeda per mode (bukan cuma CSS `flex-direction`/`order` di atas struktur yang sama) terutama saat satu mode butuh elemen digabung ke grup yang sudah ada (bell+Settings) sementara mode lain butuh urutan vertikal independen — pertimbangkan percabangan render eksplisit (`isDesktopCollapsed ? (...) : (...)`) alih-alih mencoba memaksakan satu struktur DOM yang di-style ulang lewat class kondisional saja.
+
+## 48. 🚨 Bug: Kegagalan Evaluasi Cognitive Complexity & String Literals (SonarQube)
+**Deskripsi:** Log pipeline SonarQube melaporkan masalah `S3776` (Cognitive Complexity > 15), `S1192` (String literals duplicate), dan `S5869` (Flow control restructuring) pada service tunnels dan utils.
+**Solusi (Fixed):**
+- Mengubah struktur kode `core/services/tunnels.py` dengan mengekstrak method-method baru (seperti `_handle_zrok_install`, `_handle_cloudflare_install`) untuk mengurangi Cognitive Complexity.
+- Memindahkan string literal yang berulang ("status", "message", "args") menjadi variable konstan `STATUS`, `MESSAGE`, `ARGS` di level modul.
+- Menyederhanakan flow di `core/api.py` dan memperbaiki penamaan variable sesuai kaidah naming Python.
+**Pelajaran untuk ke depannya:** Selalu perhatikan *Cognitive Complexity* dan standar *clean code* saat membuat logika *branching* yang panjang. Gunakan method ekstraksi dan konstanta untuk nilai-nilai yang dipakai berulang.
+
+## 49. 🚨 Bug: Modal Install/Uninstall Tunnels Salah Target Engine & Zrok Fallback Gagal
+**Deskripsi:** Saat Tunnels memiliki dua opsi engine (Zrok dan Cloudflare), menekan tombol install/uninstall di satu modul justru membuka state terkait engine yang salah, atau crash karena engine "zrok" mengalami kegagalan versi fallback.
+**Solusi (Fixed):**
+- Melakukan isolasi state UI: memecah komponen Tunnels menjadi sub-komponen atomik (`InstallTunnel.tsx`, `TunnelsBody.tsx`). Modal instalasi kini secara eksplisit menerima argumen `engine` ("zrok" atau "cloudflare") dari aksi UI.
+- Memperbaiki test coverage dan memastikan `core/api.py` serta `core/services/tunnels.py` memproses engine yang tepat.
+**Pelajaran untuk ke depannya:** Gunakan *Single Source of Truth* untuk argumen `engine` yang spesifik pada sebuah modal interaktif, terutama saat satu komponen dapat menangani banyak varian modul.
+
+## 50. 🚨 Bug: Tombol Manage di Modul Tunnels Kehilangan Key `common.manage`
+**Deskripsi:** Saat *smoke test*, tombol "Manage" pada modul Tunnels tidak menampilkan terjemahan, melainkan menampilkan *fallback key* `common.manage` karena key tersebut belum ditambahkan ke file terjemahan.
+**Solusi (Fixed):**
+- Menambahkan key `manage: "Manage"` di `frontend/src/locales/en/translation.json` di bawah nested object `common`.
+- Menambahkan key `manage: "Kelola"` di `frontend/src/locales/id/translation.json` di bawah nested object `common`.
+**Pelajaran untuk ke depannya:** Sesuai *Golden Rules i18n*, setiap kali menambah teks statis di UI, periksa dan tambahkan selalu ke *kedua* file locale `.json` sebelum menganggap fitur UI tersebut selesai.
