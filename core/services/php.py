@@ -170,7 +170,7 @@ class PhpManager:
                 download_advanced(f"https://windows.php.net/downloads/releases/archives/{filename}", file_path, log_cb=log_cb, progress_cb=prog_cb)
             else: raise http_err
 
-    def install_version(self, version: str, filename: str, port: int):
+    def install_version(self, version: str, filename: str, port: int, is_update: bool = False):
         target_dir = os.path.join(self.base_dir, version)
         file_path = os.path.join(self.base_dir, filename)
 
@@ -206,7 +206,8 @@ class PhpManager:
             self._install_composer(target_dir)
             
             self._log("backend.php.ready", "success", {"version": version, "port": port})
-            self._progress(100, "backend.php.installation_complete")
+            if not is_update:
+                self._progress(100, "backend.php.installation_complete")
             return {"status": "success", "message": "backend.php.install_success", "args": {"version": version}}
         
         except Exception as e:
@@ -215,6 +216,39 @@ class PhpManager:
             if os.path.exists(target_dir): shutil.rmtree(target_dir, ignore_errors=True)
             self._progress(0, "backend.php.failed")
             return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def update_version(self, old_version: str, new_version: str, filename: str):
+        old_dir = os.path.join(self.base_dir, old_version)
+        ini_path = os.path.join(old_dir, PHP_INI)
+        port = self._get_port_from_ini(ini_path)
+
+        self.stop_php(old_version)
+
+        ini_backup = None
+        if os.path.exists(ini_path):
+            with open(ini_path, 'r', encoding='utf-8', errors='ignore') as f:
+                ini_backup = f.read()
+
+        res = self.install_version(new_version, filename, port, is_update=True)
+        if res['status'] != 'success':
+            return res
+
+        new_dir = os.path.join(self.base_dir, new_version)
+        new_ini_path = os.path.join(new_dir, PHP_INI)
+        if ini_backup and os.path.exists(new_dir):
+            with open(new_ini_path, 'w', encoding='utf-8') as f:
+                f.write(ini_backup)
+            self._log("backend.php.config_migrated", "info")
+
+        shutil.rmtree(old_dir, ignore_errors=True)
+
+        try:
+            if hasattr(self.api, 'project'): self.api.project.sync_apache_vhosts()
+            if hasattr(self.api, 'apache') and self.api.apache.check_is_running(): self.api.apache.restart_server()
+        except Exception: pass
+
+        self._progress(100, "backend.php.update_success", {"version": new_version})
+        return {"status": "success", "message": "backend.php.update_success", "args": {"old": old_version, "new": new_version}}
 
     def _parse_config_file(self, php_ini_path: str, config: dict, active_exts: set):
         if not os.path.exists(php_ini_path): return

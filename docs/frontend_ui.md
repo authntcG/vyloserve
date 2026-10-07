@@ -39,16 +39,27 @@ frontend/src/
 │   ├── AlertContext.tsx         # Provider dialog alert/confirm — lihat §6.7
 │   ├── AppInterceptor.tsx       # export default GlobalAppInterceptor
 │   ├── BackgroundProgressWidget.tsx
+│   ├── Button.tsx               # Komponen bersama — lihat docs/ui_consistency_guide.md §2
 │   ├── Card.tsx
 │   ├── EmptyState.tsx
+│   ├── FieldLabel.tsx           # Komponen bersama — lihat docs/ui_consistency_guide.md §2
 │   ├── HeaderMobile.tsx
+│   ├── InfoBox.tsx              # Komponen bersama — lihat docs/ui_consistency_guide.md §2
 │   ├── LogFileViewerModal.tsx   # Lihat §6.3.1
 │   ├── LogsPanel.tsx
 │   ├── Modal.tsx
+│   ├── NotificationBell.tsx     # Bell histori toast + notifikasi native — lihat §4.4, docs/ui_consistency_guide.md §2
+│   ├── OsCompatibilityCard.tsx  # Komponen bersama — lihat docs/ui_consistency_guide.md §2
 │   ├── PageHeader.tsx
+│   ├── Select.tsx               # Dropdown generik — lihat docs/ui_consistency_guide.md §2
+│   ├── ServiceToggleButton.tsx  # Komponen bersama — lihat docs/ui_consistency_guide.md §2
 │   ├── Sidebar.tsx
 │   ├── SkeletonCard.tsx
-│   └── ToastContext.tsx         # Provider toast non-blocking — lihat §6.7
+│   ├── Tabs.tsx                 # Komponen bersama — lihat docs/ui_consistency_guide.md §2
+│   ├── ToastContext.tsx         # Provider toast non-blocking + histori — lihat §6.7, §5.5
+│   └── ToggleSwitch.tsx         # Komponen bersama — lihat docs/ui_consistency_guide.md §2
+├── hooks/                        # Custom hooks lintas-komponen
+│   └── useWindowPresence.ts     # Deteksi fokus/minimize/hidden window — lihat §5.1, docs/known_bugs.md #45
 ├── menu/
 │   ├── apache/     Main.tsx, NewProject.tsx, ProjectSettings.tsx, Settings.tsx, InstallWizard.tsx
 │   ├── php/        Main.tsx, NewInstance.tsx, Settings.tsx
@@ -65,8 +76,11 @@ frontend/src/
 ├── utils/                        # Helper murni (BUKAN komponen React), tidak punya state/hook sendiri
 │   ├── a11y.ts                  # onEnterOrSpace(handler) — keyboard support (Enter/Space) utk elemen
 │   │                             # non-native yang diberi role ARIA (mis. listbox custom)
-│   └── progress.ts              # clampPercent(value) — clamp hasil event `vylo_progress` ke [0, 100]
-│                                 # sebagai pengaman sisi frontend, lihat §3.3
+│   ├── progress.ts              # clampPercent(value) — clamp hasil event `vylo_progress` ke [0, 100]
+│   │                             # sebagai pengaman sisi frontend, lihat §3.3
+│   ├── theme.ts                 # applyTheme(theme) — set data-theme + toggle class dark, lihat §2.1
+│   └── version.ts               # compareVersions(v1, v2) — perbandingan semver numerik per-segmen
+│                                 # (bukan string inequality), dipakai badge "Update Available" PHP/Database
 └── locales/{en,id}/translation.json
 ```
 
@@ -559,7 +573,7 @@ sequenceDiagram
 
 | File | Peran |
 |---|---|
-| `Main.tsx` | Daftar instance PHP FastCGI multi-versi. Tiap instance start/stop independen (`start_php(version)`/`stop_php(version)`). Config dibuka on-demand (fetch saat modal dibuka, bukan preload). |
+| `Main.tsx` | Daftar instance PHP FastCGI multi-versi. Tiap instance start/stop independen (`start_php(version)`/`stop_php(version)`). Config dibuka on-demand (fetch saat modal dibuka, bukan preload). **Cek update versi engine**: `fetchAvailableVersions()` mengambil daftar versi online sekali di background, tiap instance dibandingkan via `compareVersions()` (`utils/version.ts`) terhadap versi *minor* yang sama (`majorMinor` match) — kalau ada versi lebih baru, badge amber "Update" muncul di judul `<Card>` + tombol "Update to {versi}" di `dropdownActions` (`handleUpdatePhp()` → `api.update_php()`, konfirmasi 1 langkah). Ini pola REFERENSI yang ditiru modul Database (lihat §12) — lihat `docs/ui_consistency_guide.md` §2 "Pola Badge Update Available" dan `docs/known_bugs.md` #51/#52. |
 | `NewInstance.tsx` | Pilih versi, validasi port real-time terhadap `usedPorts` (dihitung dari instance existing), rekomendasi port otomatis `max(usedPorts)+1`. |
 | `Settings.tsx` | Form config generik (port, memory_limit, dll) + toggle ekstensi (search filter client-side) — validasi konflik port real-time (exclude diri sendiri). |
 
@@ -569,7 +583,7 @@ sequenceDiagram
 
 | File | Peran |
 |---|---|
-| `Main.tsx` | Dual-engine (MySQL/MariaDB & PostgreSQL), tab filter client-side. Listener progress unik: `percent < 0` = reset/cancel, `percent >= 100` = auto-close modal + refetch (timer auto-hide sekarang cancelable — lihat §3.4). Dropdown aksi per-instance juga punya shortcut lihat `db_startup.log`/native `.err` (MySQL saja) via `LogFileViewerModal` (`api.get_database_log_content`) — lihat §6.3.1. |
+| `Main.tsx` | Dual-engine (MySQL/MariaDB & PostgreSQL), tab filter client-side. Listener progress unik: `percent < 0` = reset/cancel, `percent >= 100` = auto-close modal + refetch (timer auto-hide sekarang cancelable — lihat §3.4). Dropdown aksi per-instance juga punya shortcut lihat `db_startup.log`/native `.err` (MySQL saja) via `LogFileViewerModal` (`api.get_database_log_content`) — lihat §6.3.1. **Cek update versi engine**: `checkForUpdates()` memanggil `get_available_databases(engine)` sekali per engine UNIK yang terinstal (bukan per-instance), dibandingkan via `compareVersions()` (`utils/version.ts`, BUKAN `!==` string mentah — versi terpasang yang sudah lebih baru dari hasil cek tidak boleh keliru ditandai "ada update"). Badge+dropdown mengikuti pola PHP persis (§11) via `handleUpdateDatabase()`, DITAMBAH satu langkah konfirmasi backup opsional sebelum update dijalankan (`update_database(..., backup_data)`) — beda fungsional nyata dari PHP, karena `update_php()` backend tidak punya kemampuan backup. Lihat `docs/ui_consistency_guide.md` §2 dan `docs/known_bugs.md` #51/#52. |
 | `NewInstance.tsx` (forwardRef, expose `getFormData()` — **beda pola** dari modul lain yang expose `submit()`; parent yang panggil `api.install_database()` langsung) | Custom dropdown searchable untuk versi, deteksi OS, password wajib untuk PostgreSQL. Dropdown pencarian versi (bagian JSX paling kompleks) diekstrak ke `VersionDropdown` — lihat §5.1. `role="option"` pada item dropdown **sengaja dipertahankan** (bukan native `<option>`) karena butuh render checkmark/styling custom — lihat §5.2. |
 | `Settings.tsx` | Form config berbeda total per engine: MySQL (`innodb_buffer_pool_size`, `character_set_server`) vs PostgreSQL (`shared_buffers`, `work_mem`). |
 | `ChangePassword.tsx` (forwardRef, expose `submit()`) | Mengharuskan instance `status === 'running'`. Panggil `api.change_db_credentials(id, user, old, new)`. |
@@ -609,8 +623,10 @@ Struktur sama seperti Runtimes (deteksi eksternal/native, PATH toggle terkunci j
 ### Base64 & URL Encode/Decode
 **100% client-side** — tidak ada pemanggilan `window.pywebview.api` sama sekali kecuali clipboard/toast. Base64: `TextEncoder`/`TextDecoder` + `btoa`/`atob` (UTF-8 safe), mendukung mode file (drag-drop → `FileReader.readAsDataURL`, deteksi otomatis preview image dari data-URI). Logic encode/decode diekstrak jadi pure function `encodeTextToBase64()`/`decodeBase64Input()`, dan panel kiri/kanan jadi `EditorSection`/`PayloadInfoCard` — lihat §5.1. URL tool: parsing native `URL` API untuk visualisasi hierarki protocol/host/path/query.
 
-### Tunnels (`tools/tunnels/Main.tsx`, `InstallZrok.tsx`)
-Modul baru — integrasi tool tunneling pihak ketiga **[zrok](https://zrok.io)** untuk expose project lokal (domain `.local` Apache) ke internet publik sementara. Mengikuti pola "Golden Standard" (`PageHeader + SkeletonCard + EmptyState + Card + Modal`, lihat §7) seperti modul lain. `ProjectDropdown` (combobox searchable, pola sama seperti `VersionDropdown` di `database/NewInstance.tsx`, lihat §7.1) untuk memilih project Apache yang akan di-tunnel. `InstallZrok.tsx` adalah wizard instalasi environment zrok (mirip `InstallWizard.tsx` Apache/`InstallNode.tsx` Runtimes). Didaftarkan di `Sidebar.tsx` grup `TOOLS` (`id: 'tunnels'`, ikon `router`) dan di-render `App.tsx` (`activeMenu === 'tunnels'`).
+### Tunnels (`tools/tunnels/Main.tsx`, `InstallTunnel.tsx`)
+Integrasi DUA provider tunneling pihak ketiga untuk expose project lokal (domain `.local` Apache) ke internet publik sementara: **[zrok](https://zrok.io)** (butuh akun+token, lihat `ZrokEnableForm`/`ZrokAccountCard`) dan **Cloudflare Tunnel** (`cloudflared`, mode *quick tunnel*, tanpa akun/token — langsung share). Dipilih lewat tab internal `ActiveTab = 'all' | 'zrok' | 'cloudflare'` di dalam `Main.tsx` (bukan dua entri menu Sidebar terpisah). Mengikuti pola "Golden Standard" (`PageHeader + SkeletonCard + EmptyState + Card + Modal`, lihat §7) seperti modul lain. `ProjectDropdown` (combobox searchable, pola sama seperti `VersionDropdown` di `database/NewInstance.tsx`, lihat §7.1) untuk memilih project Apache yang akan di-tunnel. `InstallTunnel.tsx` adalah wizard instalasi environment yang **provider-agnostic** — menerima `fetchVersionsApi`/`installApi` sebagai props berupa fungsi yang sudah terikat ke provider tertentu (`Main.tsx` me-render dua instance terpisah, satu per provider; lihat `docs/known_bugs.md` #49 soal kenapa isolasi lewat callback ini dipilih, bukan argumen string `engine`). Didaftarkan di `Sidebar.tsx` grup `TOOLS` (`id: 'tunnels'`, ikon `router`) dan di-render `App.tsx` (`activeMenu === 'tunnels'`). `tunnels/Main.tsx` (1023 baris) adalah file frontend TERBESAR di repo ini.
+
+JSX diekstrak ke beberapa sub-komponen module-scope (pola sama §7.1): `ZrokSections` (pembungkus status+daftar share aktif+tombol uninstall, khusus zrok), `ShareTargetField` (pemilih target: project Apache via `ProjectDropdown` ATAU custom URL manual, dipakai kedua provider), dan `ShareModeButton` (satu tombol pill individual di dalam segmented control pemilih mode). **Segmented Control Switch** dipakai untuk memilih mode "Project" vs "Custom URL" — alih-alih `<select>`/`<Tabs>` standar, karena cuma 2 opsi mutually-exclusive yang lebih natural sebagai pill penuh (lihat `docs/ui_consistency_guide.md` §2 "BUKAN domain `<Tabs>`"): flex container berlatar gelap (`bg-slate-900/50`), tiap opsi `flex-1` supaya terbagi rata, opsi aktif mendapat background menonjol (`bg-slate-700`).
 
 ### `SettingsModals.tsx`
 **Direstrukturisasi total** (fitur *Unified Settings System with Theme Support*) dari beberapa modal terpisah menjadi **SATU modal tab** + 1 modal terpisah untuk konfirmasi keluar aplikasi. `SettingsModalType` sekarang hanya `'settings' | 'quit' | null` (versi dokumentasi lama menyebut 5 modal terpisah `language/about/quit/logs/updates` — ini **sudah tidak akurat**).
@@ -693,7 +709,7 @@ Proyek ini pakai Tailwind v4 (`@import "tailwindcss";` di `src/index.css`), yang
    ```
    Ini membuat CSS pihak ketiga ikut sistem cascade layer Tailwind (layer `base`/`components` selalu kalah dari layer `utilities`), sehingga utility Tailwind (termasuk `text-[Npx]`) bisa benar-benar menindihnya sesuai ekspektasi developer.
 3. **WAJIB** posisikan `@import` baru itu **paling atas file**, tepat setelah `@import "tailwindcss";` dan **sebelum** rule non-`@import` apa pun (termasuk `@tailwind base/components/utilities;` yang lama, `@theme`, dsb) — spesifikasi CSS mewajibkan semua `@import` berada di awal stylesheet (kecuali `@charset`); `@import` yang ditaruh setelah rule lain dianggap invalid dan **diabaikan browser** (linter: `css:S8778`). Ini bukan teori — pernah kejadian nyata saat menambahkan `@import ... layer(base)` di atas, taruh setelah `@tailwind base/components/utilities;` karena "terasa" lebih logis dikelompokkan dekat `@theme`, dan baru ketahuan lewat SonarQube (lihat `docs/known_bugs.md` #20, bagian *Follow-up bug*).
-4. Kalau butuh override inline satu elemen saja (bukan aturan global), **inline style `style={{ fontSize: 'Npx' }}` tetap aman dipakai** — inline style selalu menang atas layer manapun tanpa perlu utak-atik cascade, jadi valid sebagai override lokal per-elemen (lihat contoh pasangan ikon "Tools" di sidebar collapsed, §2.4, yang sengaja dikecilkan sama-sama ke 18px lewat inline style supaya muat berdampingan di rail 80px).
+4. Kalau butuh override inline satu elemen saja (bukan aturan global), **inline style `style={{ fontSize: 'Npx' }}` tetap aman dipakai** — inline style selalu menang atas layer manapun tanpa perlu utak-atik cascade, jadi valid sebagai override lokal per-elemen. (Catatan: tidak ada lagi pemakaian nyata teknik ini di `frontend/src` saat ini — semua ukuran ikon sekarang konsisten lewat utility `text-[Npx]` langsung, seperti ikon footer `Sidebar.tsx`'s `text-[18px]`, berkat fix cascade layer di poin 1-3 di atas. Teknik inline style ini tetap didokumentasikan sebagai *fallback* valid kalau suatu saat butuh override super-lokal yang tidak mau diseragamkan lewat class.)
 
 ### 17.2 Cara Verifikasi Cepat (Sebelum Menyalahkan "Class Tidak Jalan")
 
@@ -703,7 +719,3 @@ Kalau sebuah utility Tailwind (apa pun, bukan cuma ikon) sepertinya "tidak berpe
 getComputedStyle(document.querySelector('SELECTOR_ELEMEN')).PROPERTY_YANG_DICURIGAI
 ```
 Kalau hasilnya berbeda dari yang diharapkan class Tailwind tersebut, curigai ada CSS lain (biasanya library pihak ketiga yang diimport global) yang mendefinisikan selector sama tapi tidak ikut sistem layer — cek urutan `<style>`/`<link>` di `<head>` browser DAN apakah masing-masing dibungkus `@layer` atau tidak, jangan cuma cek urutan import di kode sumber (urutan source TIDAK menentukan pemenang kalau salah satu unlayered).
-### 14.1 Modul: Tunnels (zrok)
-
-Modul ini mengelola public sharing menggunakan zrok engine. Pada modul ini diimplementasikan **Segmented Control Switch UI Pattern** (melalui sub-komponen ZrokSections / ShareTargetField) alih-alih menggunakan HTML <select> biasa.
-Pola UI ini menggunakan flex container berlatar belakang gelap (bg-slate-900/50) dengan item yang memiliki class flex-1 sehingga opsi-opsi terbagi rata, serta tombol aktif memiliki background yang menonjol (contoh: bg-slate-700). Ini memberikan UX yang jauh lebih baik untuk memilih opsi sedikit (seperti Project vs Custom URL) dibandingkan dropdown standar.

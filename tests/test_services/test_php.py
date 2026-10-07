@@ -596,3 +596,47 @@ def test_stop_all_stops_every_running_process(php_mgr):
     assert res['status'] == 'success'
     assert res['args']['count'] == 2
     assert mock_stop.call_count == 2
+
+@patch('core.services.php.PhpManager.install_version')
+@patch('core.services.php.PhpManager.stop_php')
+@patch('core.services.php.shutil.rmtree')
+@patch('core.services.php.os.path.exists')
+@patch('core.services.php.PhpManager._get_port_from_ini')
+def test_php_update_version_success(mock_get_port, mock_exists, mock_rmtree, mock_stop, mock_install, php_mgr):
+    import builtins
+    
+    mock_get_port.return_value = 9005
+    mock_exists.side_effect = lambda path: True  # Pretend ini exists, new dir exists
+    mock_install.return_value = {"status": "success"}
+
+    old_version = "8.1.10"
+    new_version = "8.1.25"
+    filename = "php-8.1.25.zip"
+
+    with patch('builtins.open', mock_open(read_data="; test ini")) as mock_file:
+        res = php_mgr.update_version(old_version, new_version, filename)
+
+    assert res['status'] == 'success'
+    assert res['message'] == 'backend.php.update_success'
+    assert res['args']['old'] == old_version
+    assert res['args']['new'] == new_version
+
+    mock_stop.assert_called_once_with(old_version)
+    mock_install.assert_called_once_with(new_version, filename, 9005, is_update=True)
+    mock_rmtree.assert_called_once()
+    
+    handle = mock_file()
+    handle.write.assert_called_once_with("; test ini")
+
+@patch('core.services.php.PhpManager.install_version')
+@patch('core.services.php.PhpManager.stop_php')
+@patch('core.services.php.PhpManager._get_port_from_ini')
+def test_php_update_version_install_fails(mock_get_port, mock_stop, mock_install, php_mgr):
+    mock_get_port.return_value = 9005
+    mock_install.return_value = {"status": "error", "message": "download failed"}
+
+    res = php_mgr.update_version("8.1.10", "8.1.25", "php.zip")
+
+    assert res['status'] == 'error'
+    assert res['message'] == 'download failed'
+    mock_stop.assert_called_once_with("8.1.10")

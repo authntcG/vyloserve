@@ -582,10 +582,12 @@ def test_get_available_versions_swallows_network_error_and_falls_back(apache_man
 
 @patch('core.services.apache.download_advanced', side_effect=OSError("network down"))
 @patch('core.services.apache.os.remove')
-@patch('core.services.apache.os.path.exists', side_effect=[False, True])
 @patch('core.services.apache.shutil.rmtree')
-def test_install_version_rolls_back_on_download_failure(mock_rmtree, mock_exists, mock_remove, mock_download, apache_manager):
-    res = apache_manager.install_version("2.4.60", "http://example.com/apache.zip", 8080)
+def test_install_version_rolls_back_on_download_failure(mock_rmtree, mock_remove, mock_download, apache_manager):
+    with patch.object(apache_manager, 'get_status', return_value={"installed": False}), \
+         patch('core.services.apache.os.path.exists', side_effect=lambda path: "apache-2.4.60.zip" in path):
+        # We need os.path.exists(target_dir) to be False, and os.path.exists(zip_path) to be True in the except block
+        res = apache_manager.install_version("2.4.60", "http://example.com/apache.zip", 8080)
 
     assert res['status'] == 'error'
     assert res['message'] == 'backend.apache.install_failed'

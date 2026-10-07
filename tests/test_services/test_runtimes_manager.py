@@ -31,13 +31,14 @@ def test_toggle_user_path_enable(mock_send_msg, mock_close, mock_set, mock_query
     """Test enabling a path in Windows Registry."""
     mock_query.return_value = (r"C:\Windows;", 1)
     
-    res = runtimes_manager.toggle_user_path("node", True)
+    with patch.object(runtimes_manager, '_get_engine_dir', return_value=os.path.join(runtimes_manager.bin_dir, 'runtimes', 'node', '20.0.0')):
+        res = runtimes_manager.toggle_user_path("node", True)
     assert res['status'] == 'success'
     
     # Check that SetValueEx was called with the new path appended
     args = mock_set.call_args[0]
     assert args[1] == 'Path'
-    assert 'bin\\node' in args[4]
+    assert 'runtimes\\node\\20.0.0' in args[4]
     assert 'C:\\Windows' in args[4]
     
     # Check that Windows broadcast message was sent
@@ -50,10 +51,12 @@ def test_toggle_user_path_enable(mock_send_msg, mock_close, mock_set, mock_query
 @patch('ctypes.windll.user32.SendMessageTimeoutW')
 def test_toggle_user_path_disable(mock_send_msg, mock_close, mock_set, mock_query, mock_open_key, runtimes_manager):
     """Test disabling a path in Windows Registry."""
-    mock_path = f"C:\\Windows;{os.path.join(runtimes_manager.bin_dir, 'node')};"
+    fake_node_dir = os.path.join(runtimes_manager.bin_dir, 'runtimes', 'node', '20.0.0')
+    mock_path = f"C:\\Windows;{fake_node_dir};"
     mock_query.return_value = (mock_path, 1)
     
-    res = runtimes_manager.toggle_user_path("node", False)
+    with patch.object(runtimes_manager, '_get_engine_dir', return_value=fake_node_dir):
+        res = runtimes_manager.toggle_user_path("node", False)
     assert res['status'] == 'success'
     
     # Check that SetValueEx was called without the node path
@@ -155,11 +158,12 @@ def test_is_in_user_path_exception(runtimes_manager):
 
 # 134-137
 def test_get_paths_to_toggle(runtimes_manager):
-    assert len(runtimes_manager._get_paths_to_toggle('node')) == 1
-    assert len(runtimes_manager._get_paths_to_toggle('python')) == 2
-    assert len(runtimes_manager._get_paths_to_toggle('java')) == 1
-    assert len(runtimes_manager._get_paths_to_toggle('go')) == 1
-    assert len(runtimes_manager._get_paths_to_toggle('unknown')) == 0
+    with patch.object(runtimes_manager, '_get_engine_dir', return_value="C:\\fake_dir"):
+        assert len(runtimes_manager._get_paths_to_toggle('node')) == 1
+        assert len(runtimes_manager._get_paths_to_toggle('python')) == 2
+        assert len(runtimes_manager._get_paths_to_toggle('java')) == 1
+        assert len(runtimes_manager._get_paths_to_toggle('go')) == 1
+        assert len(runtimes_manager._get_paths_to_toggle('unknown')) == 0
 
 # 142, 155-162, 180-182
 def test_toggle_user_path_java(runtimes_manager):
@@ -179,19 +183,22 @@ def test_toggle_user_path_java(runtimes_manager):
         mock_del.assert_called_with(mock_key, 'JAVA_HOME')
 
 def test_toggle_user_path_exception(runtimes_manager):
-    with patch('winreg.OpenKey', side_effect=Exception("Test Exception")):
+    with patch('winreg.OpenKey', side_effect=Exception("Test Exception")), \
+         patch.object(runtimes_manager, '_get_engine_dir', return_value="C:\\fake_dir"):
         res = runtimes_manager.toggle_user_path('node', True)
         assert res['status'] == 'error'
         assert res['message'] == 'backend.runtimes.registry_error'
         assert "Test Exception" in res['args']['e']
 
 def test_toggle_user_path_invalid_engine(runtimes_manager):
-    res = runtimes_manager.toggle_user_path('invalid', True)
+    with patch.object(runtimes_manager, '_get_engine_dir', return_value=None):
+        res = runtimes_manager.toggle_user_path('invalid', True)
     assert res['status'] == 'error'
 
 # 188-201
 def test_get_node_status(runtimes_manager):
-    with patch('os.path.exists', return_value=True), \
+    with patch.object(runtimes_manager, '_get_engine_dir', return_value="C:\\fake_dir"), \
+         patch('os.path.exists', return_value=True), \
          patch('subprocess.run') as mock_run, \
          patch.object(runtimes_manager, '_is_in_user_path', return_value=True), \
          patch.object(runtimes_manager, '_check_external_installation', return_value={"exists": False}):
@@ -235,7 +242,8 @@ def test_finalize_node_install(runtimes_manager):
 
 # 300-313
 def test_get_python_status(runtimes_manager):
-    with patch('os.path.exists', return_value=True), \
+    with patch.object(runtimes_manager, '_get_engine_dir', return_value="C:\\fake_dir"), \
+         patch('os.path.exists', return_value=True), \
          patch('subprocess.run') as mock_run, \
          patch.object(runtimes_manager, '_is_in_user_path', return_value=False), \
          patch.object(runtimes_manager, '_check_external_installation', return_value={"exists": False}):
@@ -312,11 +320,12 @@ def test_uninstall_python(runtimes_manager):
          patch('shutil.rmtree') as mock_rmtree:
         res = runtimes_manager.uninstall_python()
         assert res['status'] == 'success'
-        mock_rmtree.assert_called_once()
+        assert mock_rmtree.call_count == 2
 
 # 474-488
 def test_get_java_status(runtimes_manager):
-    with patch('os.path.exists', return_value=True), \
+    with patch.object(runtimes_manager, '_get_engine_dir', return_value="C:\\fake_dir"), \
+         patch('os.path.exists', return_value=True), \
          patch('subprocess.run') as mock_run, \
          patch.object(runtimes_manager, '_is_in_user_path', return_value=False), \
          patch.object(runtimes_manager, '_check_external_installation', return_value={"exists": False}):
@@ -354,11 +363,12 @@ def test_uninstall_java(runtimes_manager):
          patch('shutil.rmtree') as mock_rmtree:
         res = runtimes_manager.uninstall_java()
         assert res['status'] == 'success'
-        mock_rmtree.assert_called_once()
+        assert mock_rmtree.call_count == 2
 
 # 603-617
 def test_get_go_status(runtimes_manager):
-    with patch('os.path.exists', return_value=True), \
+    with patch.object(runtimes_manager, '_get_engine_dir', return_value="C:\\fake_dir"), \
+         patch('os.path.exists', return_value=True), \
          patch('subprocess.run') as mock_run, \
          patch.object(runtimes_manager, '_is_in_user_path', return_value=False), \
          patch.object(runtimes_manager, '_check_external_installation', return_value={"exists": False}):
@@ -434,7 +444,11 @@ def test_install_go_latest(runtimes_manager):
     with patch('urllib.request.urlopen') as mock_urlopen, \
          patch('core.services.runtimes_manager.download_advanced'), \
          patch('core.services.runtimes_manager.extract_archive'), \
-         patch('os.remove'):
+         patch('os.remove'), \
+         patch('os.path.exists', return_value=True), \
+         patch('os.listdir', return_value=[]), \
+         patch('shutil.rmtree'), \
+         patch.object(runtimes_manager, '_robust_rename'):
 
         mock_response = MagicMock()
         mock_response.read.return_value = json.dumps([{"version": "go1.22.0"}]).encode('utf-8')
@@ -455,7 +469,7 @@ def test_uninstall_node(runtimes_manager):
         res = runtimes_manager.uninstall_node()
     assert res == {"status": "success"}
     mock_toggle.assert_called_once_with('node', False)
-    mock_rmtree.assert_called_once()
+    assert mock_rmtree.call_count == 2
 
 def test_uninstall_go(runtimes_manager):
     """
@@ -469,7 +483,7 @@ def test_uninstall_go(runtimes_manager):
         res = runtimes_manager.uninstall_go()
     assert res == {"status": "success"}
     mock_toggle.assert_called_once_with('go', False)
-    mock_rmtree.assert_called_once()
+    assert mock_rmtree.call_count == 2
 
 # ==========================================
 # install_python — alur sukses penuh (sebelumnya hanya error path yang ditest)
@@ -487,10 +501,10 @@ def test_install_python_success(runtimes_manager):
     assert res == {"status": "success"}
     mock_download.assert_called_once()
     mock_extract.assert_called_once()
-    mock_finalize.assert_called_once_with(os.path.join(runtimes_manager.bin_dir, 'python'), True, "3.12.1")
+    mock_finalize.assert_called_once_with(os.path.join(runtimes_manager.bin_dir, 'runtimes', 'python', '3.12.1'), True, "3.12.1")
 
 def test_install_python_removes_zip_after_extract(runtimes_manager):
-    with patch('os.path.exists', side_effect=[False, True]), \
+    with patch('os.path.exists', side_effect=lambda p: p.endswith('.zip')), \
          patch('os.makedirs'), \
          patch('core.services.runtimes_manager.download_advanced'), \
          patch('core.services.runtimes_manager.extract_archive'), \
@@ -518,7 +532,7 @@ def test_install_java_success(runtimes_manager):
     mock_extract.assert_called_once()
     mock_rename.assert_called_once_with(
         os.path.join(runtimes_manager.bin_dir, "jdk-21.0.1+12"),
-        os.path.join(runtimes_manager.bin_dir, 'java'),
+        os.path.join(runtimes_manager.bin_dir, 'runtimes', 'java', '21'),
     )
 
 def test_install_java_raises_when_extracted_jdk_folder_not_found(runtimes_manager):
@@ -615,7 +629,8 @@ def test_check_external_installation_swallows_version_check_error(runtimes_manag
 # ==========================================
 
 def test_get_node_status_swallows_version_check_error(runtimes_manager):
-    with patch('os.path.exists', return_value=True), \
+    with patch.object(runtimes_manager, '_get_engine_dir', return_value="C:\\fake_dir"), \
+         patch('os.path.exists', return_value=True), \
          patch('subprocess.run', side_effect=OSError("crashed")), \
          patch.object(runtimes_manager, '_is_in_user_path', return_value=False), \
          patch.object(runtimes_manager, '_check_external_installation', return_value={"exists": False}):
@@ -663,7 +678,7 @@ def test_finalize_python_install_raises_when_get_pip_fails(runtimes_manager):
 # ==========================================
 
 def test_install_node_removes_zip_after_successful_extract(runtimes_manager):
-    with patch('os.path.exists', side_effect=[False, True]), \
+    with patch('os.path.exists', side_effect=lambda p: p.endswith('.zip')), \
          patch('core.services.runtimes_manager.download_advanced'), \
          patch('core.services.runtimes_manager.extract_archive'), \
          patch('os.remove') as mock_remove, \
@@ -672,10 +687,13 @@ def test_install_node_removes_zip_after_successful_extract(runtimes_manager):
     mock_remove.assert_called_once_with(os.path.join(runtimes_manager.bin_dir, "node_20.14.0.zip"))
 
 def test_install_go_removes_zip_after_successful_extract(runtimes_manager):
-    with patch('os.path.exists', side_effect=[False, True]), \
+    with patch('os.path.exists', side_effect=lambda p: p.endswith('.zip') or p.endswith('go')), \
+         patch('os.listdir', return_value=[]), \
          patch('core.services.runtimes_manager.download_advanced'), \
          patch('core.services.runtimes_manager.extract_archive'), \
-         patch('os.remove') as mock_remove:
+         patch('os.remove') as mock_remove, \
+         patch('shutil.rmtree'), \
+         patch.object(runtimes_manager, '_robust_rename'):
         res = runtimes_manager.install_go("1.22.0")
     assert res['status'] == 'success'
     mock_remove.assert_called_once()

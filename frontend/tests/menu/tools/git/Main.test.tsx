@@ -24,14 +24,14 @@ describe('GitMain', () => {
         expect(screen.getByText('tools.git.install_git')).not.toBeDisabled();
     });
 
-    it('shows the locked external-install card and disables the install button when an external git is detected', async () => {
+    it('shows the locked external-install card but keeps the install button enabled when an external git is detected', async () => {
         mockPywebviewApi(mockGitStatus(externalLocked));
         renderWithToast(<GitMain />);
 
         expect(await screen.findByText('tools.git.native_os_card_title')).toBeInTheDocument();
         expect(screen.getByText('C:/Git/bin/git.exe')).toBeInTheDocument();
         expect(screen.queryByText('tools.git.not_installed_title')).not.toBeInTheDocument();
-        expect(screen.getByText('tools.git.install_git')).toBeDisabled();
+        expect(screen.getByText('tools.git.install_git')).not.toBeDisabled();
     });
 
     it('shows the core system and global config cards when git is installed', async () => {
@@ -59,12 +59,14 @@ describe('GitMain', () => {
     it('disables the register-PATH toggle (preventing any change) while an external git exists', async () => {
         const installedWithExternal = {
             status: 'success',
-            data: { installed: true, version: '2.44.0', in_path: false, external: { exists: true, path: 'C:/Git/bin/git.exe', version: '2.40.0' } },
+            data: { installed: true, version: '2.44.0', in_path: true, external: { exists: true, path: 'C:/Git/bin/git.exe', version: '2.40.0' } },
         };
         mockPywebviewApi(mockGitStatus(installedWithExternal as typeof notInstalled));
         renderWithToast(<GitMain />);
 
-        expect(await screen.findByLabelText('tools.git.register_path')).toBeDisabled();
+        const toggle = await screen.findByLabelText('tools.git.register_path');
+        expect(toggle).toBeDisabled();
+        expect(toggle).not.toBeChecked();
     });
 
     it('saves the global git config and shows a success toast', async () => {

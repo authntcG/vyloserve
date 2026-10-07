@@ -10,6 +10,7 @@
         "apply": "Terapkan Perubahan",
         "connecting_engine": "Menghubungkan ke Mesin VyloServe...",
         "unknown": "Tidak Diketahui",
+        "installed": "Terinstal",
         "not_available": "T/T",
         "apache_version": "Apache {{version}}",
         "php_version": "PHP {{version}}",
@@ -242,7 +243,14 @@
         "search_extension": "Cari nama ekstensi...",
         "no_extensions_found": "Tidak ada ekstensi ditemukan di folder ext/.",
         "no_extensions_match": "Tidak ada ekstensi yang cocok dengan pencarian Anda.",
-        "version_fetch_error_prefix": "Error: "
+        "version_fetch_error_prefix": "Error: ",
+        "confirm_update": "Konfirmasi Pembaruan",
+        "update_prefix": "Apakah Anda yakin ingin memperbarui PHP ",
+        "update_middle": " ke ",
+        "update_suffix": "? Konfigurasi Anda akan dipertahankan.",
+        "yes_update": "Ya, Perbarui",
+        "update_to": "Perbarui ke {{version}}",
+        "update": "Pembaruan"
     },
     "database": {
         "fetch_db_error": "Gagal memuat instalasi database.",
@@ -326,7 +334,20 @@
         "enter_new_password": "Masukkan password baru",
         "network_connection": "Koneksi Jaringan",
         "performance_tweaks": "Penyesuaian Performa",
-        "save_restart_warning": "Menyimpan konfigurasi file akan secara otomatis memulai ulang mesin database untuk menerapkan perubahan."
+        "save_restart_warning": "Menyimpan konfigurasi file akan secara otomatis memulai ulang mesin database untuk menerapkan perubahan.",
+        "confirm_update": "Konfirmasi Pembaruan",
+        "update_prefix": "Apakah Anda yakin ingin memperbarui Database ",
+        "update_middle": " ke ",
+        "update_suffix": "?",
+        "yes_update": "Ya, Perbarui",
+        "cancel_update": "Batal",
+        "update_to": "Perbarui ke {{version}}",
+        "update": "Pembaruan",
+        "backup_data_title": "Cadangkan Direktori Data?",
+        "backup_data_desc": "Apakah Anda ingin membuat cadangan direktori data sebelum memperbarui? Sangat disarankan untuk mencegah kehilangan data jika versi baru tidak kompatibel.",
+        "yes_backup": "Ya, Cadangkan Data",
+        "no_backup": "Tidak, Lewati Cadangan",
+        "updating_engine": "Memperbarui engine..."
     },
     "runtimes": {
         "external_lock_warning": "Opsi dikunci karena terdeteksi instalasi {{engine}} eksternal resmi.",
@@ -422,7 +443,11 @@
         "native": "Bawaan",
         "native_os": "Sistem Operasi Bawaan",
         "go_arch_desc_1": "Biner yang diunduh difokuskan untuk arsitektur ",
-        "go_arch_desc_2": "."
+        "go_arch_desc_2": ".",
+        "update_change_version": "Perbarui / Ubah",
+        "update_title": "Perbarui ",
+        "update_engine_btn": "Perbarui Engine",
+        "updating_btn": "Memperbarui..."
     },
     "dashboard": {
         "title": "Dasbor",
@@ -637,7 +662,8 @@
             "yes_uninstall": "Ya, Uninstall",
             "uninstall_confirm": "Apakah Anda yakin ingin menghapus PortableGit dari VyloServe?",
             "uninstall_warning": "Aksi ini akan menghapus direktori Git dan membersihkan konfigurasi PATH dari sistem.",
-            "native_os_card_title": "Git (OS Native)"
+            "native_os_card_title": "Git (OS Native)",
+            "update_git": "Update Git"
         },
         "qr": {
             "download_success": "QR Code berhasil diunduh sebagai",
@@ -774,7 +800,9 @@
             "all_overview_subtitle": "Kelola semua mesin tunneling Anda.",
             "services_installed": "{{count}} layanan terinstal",
             "services_installed_plural": "{{count}} layanan terinstal"
-        }
+        },
+        "update_btn": "Perbarui",
+        "updating_btn": "Memperbarui..."
     },
     "components": {
         "logs": {
@@ -886,10 +914,12 @@
             "multi_stopped": "{{count}} PHP dihentikan.",
             "fetching_versions": "Mengambil daftar versi PHP terbaru dari server...",
             "starting_service": "Memulai Servis PHP...",
-            "stopping_service": "Menghentikan Servis PHP..."
+            "stopping_service": "Menghentikan Servis PHP...",
+            "update_success": "Berhasil memperbarui PHP {{old}} ke {{new}}",
+            "config_migrated": "Konfigurasi PHP dimigrasi"
         },
         "database": {
-            "not_found": "Database tidak ditemukan.",
+            "not_found": "Instans database tidak ditemukan.",
             "port_in_use": "Port {{port}} sudah digunakan.",
             "engine_running": "Engine {{name}} berjalan di port {{port}}.",
             "started_success": "{{name}} berhasil dijalankan.",
@@ -935,7 +965,13 @@
             "multi_stopped": "{{count}} Database dihentikan.",
             "none_running": "Tidak ada yang berjalan.",
             "starting_service": "Memulai Servis Database...",
-            "stopping_service": "Menghentikan Servis Database..."
+            "stopping_service": "Menghentikan Servis Database...",
+            "downloading_update": "Mengunduh pembaruan database...",
+            "extracting_update": "Mengekstrak arsip pembaruan...",
+            "update_success": "Database berhasil diperbarui.",
+            "update_complete": "Pembaruan selesai.",
+            "update_failed_rollback": "Pembaruan gagal. Mengembalikan ke versi sebelumnya.",
+            "update_failed": "Pembaruan gagal."
         },
         "dashboard": {
             "read_failed": "Gagal membaca config dashboard: {{e}}",

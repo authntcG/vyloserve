@@ -10,6 +10,7 @@
         "apply": "Apply",
         "connecting_engine": "Connecting to VyloServe Engine...",
         "unknown": "Unknown",
+        "installed": "Installed",
         "not_available": "N/A",
         "apache_version": "Apache {{version}}",
         "php_version": "PHP {{version}}",
@@ -242,7 +243,14 @@
         "search_extension": "Search extension name...",
         "no_extensions_found": "No extensions found in the ext/ folder.",
         "no_extensions_match": "No extensions match your search.",
-        "version_fetch_error_prefix": "Error: "
+        "version_fetch_error_prefix": "Error: ",
+        "confirm_update": "Confirm Update",
+        "update_prefix": "Are you sure you want to update PHP ",
+        "update_middle": " to ",
+        "update_suffix": "? Your configuration will be preserved.",
+        "yes_update": "Yes, Update",
+        "update_to": "Update to {{version}}",
+        "update": "Update"
     },
     "database": {
         "fetch_db_error": "Failed to load database installations.",
@@ -326,7 +334,20 @@
         "enter_new_password": "Enter new password",
         "network_connection": "Network Connection",
         "performance_tweaks": "Performance Tweaks",
-        "save_restart_warning": "Saving file configurations will automatically restart the database engine to apply the changes."
+        "save_restart_warning": "Saving file configurations will automatically restart the database engine to apply the changes.",
+        "confirm_update": "Confirm Update",
+        "update_prefix": "Are you sure you want to update Database ",
+        "update_middle": " to ",
+        "update_suffix": "?",
+        "yes_update": "Yes, Update",
+        "cancel_update": "Cancel",
+        "update_to": "Update to {{version}}",
+        "update": "Update",
+        "backup_data_title": "Backup Data Directory?",
+        "backup_data_desc": "Do you want to create a backup of your data directory before updating? This is highly recommended to prevent data loss if the new version is incompatible.",
+        "yes_backup": "Yes, Backup Data",
+        "no_backup": "No, Skip Backup",
+        "updating_engine": "Updating engine..."
     },
     "runtimes": {
         "external_lock_warning": "Option locked because an official external {{engine}} installation was detected.",
@@ -422,7 +443,11 @@
         "native": "Native",
         "native_os": "Native OS",
         "go_arch_desc_1": "The downloaded binaries are focused on the ",
-        "go_arch_desc_2": " architecture."
+        "go_arch_desc_2": " architecture.",
+        "update_change_version": "Update / Change",
+        "update_title": "Update ",
+        "update_engine_btn": "Update Engine",
+        "updating_btn": "Updating..."
     },
     "dashboard": {
         "title": "Dashboard",
@@ -637,7 +662,8 @@
             "yes_uninstall": "Yes, Uninstall",
             "uninstall_confirm": "Are you sure you want to remove PortableGit from VyloServe?",
             "uninstall_warning": "This action will delete the Git directory and clear PATH configurations from the system.",
-            "native_os_card_title": "Git (Native OS)"
+            "native_os_card_title": "Git (Native OS)",
+            "update_git": "Update Git"
         },
         "qr": {
             "download_success": "QR Code successfully downloaded as",
@@ -774,7 +800,9 @@
             "all_overview_subtitle": "Manage all your tunneling engines.",
             "services_installed": "{{count}} service installed",
             "services_installed_plural": "{{count}} services installed"
-        }
+        },
+        "update_btn": "Update",
+        "updating_btn": "Updating..."
     },
     "components": {
         "logs": {
@@ -886,10 +914,12 @@
             "multi_stopped": "{{count}} PHP instances stopped.",
             "fetching_versions": "Fetching latest PHP versions from server...",
             "starting_service": "Starting PHP Service...",
-            "stopping_service": "Stopping PHP Service..."
+            "stopping_service": "Stopping PHP Service...",
+            "update_success": "Successfully updated PHP {{old}} to {{new}}",
+            "config_migrated": "PHP configuration migrated"
         },
         "database": {
-            "not_found": "Database not found.",
+            "not_found": "Database instance not found.",
             "port_in_use": "Port {{port}} is already in use.",
             "engine_running": "Engine {{name}} is running on port {{port}}.",
             "started_success": "{{name}} started successfully.",
@@ -935,7 +965,13 @@
             "multi_stopped": "{{count}} Database(s) stopped.",
             "none_running": "None running.",
             "starting_service": "Starting Database Service...",
-            "stopping_service": "Stopping Database Service..."
+            "stopping_service": "Stopping Database Service...",
+            "downloading_update": "Downloading database update...",
+            "extracting_update": "Extracting update archive...",
+            "update_success": "Database updated successfully.",
+            "update_complete": "Update complete.",
+            "update_failed_rollback": "Update failed. Rolling back to previous version.",
+            "update_failed": "Update failed."
         },
         "dashboard": {
             "read_failed": "Failed to read dashboard config: {{e}}",

@@ -35,15 +35,46 @@ class TunnelsManager:
         self.api = api_ref
         self.base_dir = get_project_root()
         
-        # Zrok
-        self.zrok_dir = os.path.join(self.base_dir, 'bin', 'zrok')
-        self.zrok_exe = os.path.join(self.zrok_dir, 'zrok.exe')
         self.active_shares: Dict[str, Dict[str, Any]] = {}
-
-        # Cloudflare
-        self.cloudflared_dir = os.path.join(self.base_dir, 'bin', 'cloudflared')
-        self.cloudflared_exe = os.path.join(self.cloudflared_dir, 'cloudflared.exe')
         self.active_cloudflare_shares: Dict[str, Dict[str, Any]] = {}
+
+    def _get_tunnel_parent_dir(self, tunnel: str) -> str:
+        return os.path.join(self.base_dir, 'bin', 'tunnels', tunnel)
+
+    def _get_tunnel_dir(self, tunnel: str) -> str:
+        parent = self._get_tunnel_parent_dir(tunnel)
+        if os.path.exists(parent):
+            for item in os.listdir(parent):
+                item_path = os.path.join(parent, item)
+                if os.path.isdir(item_path): return item_path
+        old_dir = os.path.join(self.base_dir, 'bin', tunnel)
+        return old_dir if os.path.exists(old_dir) else os.path.join(parent, 'unknown')
+
+    def _clear_engine(self, tunnel: str):
+        paths_to_clear = [self._get_tunnel_parent_dir(tunnel), os.path.join(self.base_dir, 'bin', tunnel)]
+        if tunnel == 'zrok':
+            paths_to_clear.append(os.path.join(self.base_dir, 'bin', 'tunnels', 'zrok_extract'))
+            
+        for path in paths_to_clear:
+            if os.path.exists(path):
+                import shutil
+                shutil.rmtree(path, ignore_errors=True)
+
+    @property
+    def zrok_dir(self):
+        return self._get_tunnel_dir('zrok')
+
+    @property
+    def zrok_exe(self):
+        return os.path.join(self.zrok_dir, 'zrok.exe')
+
+    @property
+    def cloudflared_dir(self):
+        return self._get_tunnel_dir('cloudflared')
+
+    @property
+    def cloudflared_exe(self):
+        return os.path.join(self.cloudflared_dir, 'cloudflared.exe')
 
     def _log(self, msg: str, level: str = "info", args: dict = None):
         if hasattr(self, 'api') and self.api: self.api.emit_log(msg, level, args)
@@ -216,35 +247,36 @@ class TunnelsManager:
             "active_shares": self._list_active_shares()
         }
 
-    def _resolve_zrok_download_url(self, version: str) -> Optional[str]:
-        """Cari URL aset Windows AMD64 dari GitHub Releases untuk versi zrok yang diminta."""
+    def _resolve_zrok_download_url(self, version: str) -> "tuple[Optional[str], str]":
+        """Cari URL aset Windows AMD64 dari GitHub Releases untuk versi zrok yang diminta, mengembalikan (url, actual_version)."""
+        actual_version = version
         if version == "latest":
             try:
                 req_latest = urllib.request.Request("https://github.com/openziti/zrok/releases/latest", headers=GITHUB_API_HEADERS)
                 res = urllib.request.urlopen(req_latest, timeout=10)
-                version = res.url.split("/")[-1]
+                actual_version = res.url.split("/")[-1]
             except Exception:
-                version = "v0.4.42"
+                actual_version = "v0.4.42"
                 
-        clean_version = version.lstrip('v')
-        guessed_url = f"https://github.com/openziti/zrok/releases/download/{version}/zrok_{clean_version}_windows_amd64.tar.gz"
+        clean_version = actual_version.lstrip('v')
+        guessed_url = f"https://github.com/openziti/zrok/releases/download/{actual_version}/zrok_{clean_version}_windows_amd64.tar.gz"
         
-        url = f'https://api.github.com/repos/openziti/zrok/releases/tags/{version}'
+        url = f'https://api.github.com/repos/openziti/zrok/releases/tags/{actual_version}'
         try:
             req = urllib.request.Request(url, headers=GITHUB_API_HEADERS)
             with urllib.request.urlopen(req, timeout=10) as response:
                 data = json.loads(response.read().decode())
                 for asset in data.get('assets', []):
                     if 'windows_amd64.tar.gz' in asset['name'] or 'windows_amd64.zip' in asset['name']:
-                        return asset['browser_download_url']
+                        return asset['browser_download_url'], actual_version
         except Exception:
             try:
                 req_head = urllib.request.Request(guessed_url, headers=GITHUB_API_HEADERS, method='HEAD')
                 urllib.request.urlopen(req_head, timeout=10)
-                return guessed_url
+                return guessed_url, actual_version
             except Exception:
-                return None
-        return None
+                return None, actual_version
+        return None, actual_version
 
     def _download_zrok_archive(self, download_url: str, archive_path: str) -> None:
         """Unduh arsip zrok sambil melaporkan progress 0-80%."""
@@ -263,39 +295,43 @@ class TunnelsManager:
                     percent = int((downloaded / total_size) * 80) # Scale to 0-80%
                     self._progress(percent, "backend.zrok.downloading", {"url": download_url})
 
-    def _normalize_zrok_exe_name(self) -> None:
+    def _normalize_zrok_exe_name(self, target_dir: str) -> None:
         """Rilis zrok terbaru kadang menamai binari 'zrok2.exe' dsb; samakan jadi zrok.exe."""
-        if os.path.exists(self.zrok_exe):
+        target_exe = os.path.join(target_dir, 'zrok.exe')
+        if os.path.exists(target_exe):
             return
         import glob
-        exe_files = glob.glob(os.path.join(self.zrok_dir, "zrok*.exe"))
+        exe_files = glob.glob(os.path.join(target_dir, "zrok*.exe"))
         if not exe_files:
             return
         for _ in range(10):
             try:
                 # if dest exists for some reason, remove it
-                if os.path.exists(self.zrok_exe):
-                    os.remove(self.zrok_exe)
-                os.rename(exe_files[0], self.zrok_exe)
+                if os.path.exists(target_exe):
+                    os.remove(target_exe)
+                os.rename(exe_files[0], target_exe)
                 return
             except Exception:
                 time.sleep(0.5)
-        self._log(MSG_UNEXPECTED_ERROR, "error", {"e": f"Failed to rename after retries: {exe_files[0]} to {self.zrok_exe}"})
+        self._log(MSG_UNEXPECTED_ERROR, "error", {"e": f"Failed to rename after retries: {exe_files[0]} to {target_exe}"})
 
     def install_zrok(self, version: str = "latest") -> dict:
         try:
             self._log("backend.zrok.fetching_latest", "info")
             self._progress(10, "backend.zrok.fetching_latest")
             
-            download_url = self._resolve_zrok_download_url(version)
+            download_url, actual_version = self._resolve_zrok_download_url(version)
             
             if not download_url:
                 self._log("backend.zrok.release_not_found", "error")
                 return {"status": "error", "message": "backend.zrok.release_not_found"}
 
-            os.makedirs(self.zrok_dir, exist_ok=True)
+            self._clear_engine('zrok')
+            target_dir = os.path.join(self._get_tunnel_parent_dir('zrok'), actual_version)
+            os.makedirs(target_dir, exist_ok=True)
+            
             filename = download_url.split('/')[-1]
-            archive_path = os.path.join(self.zrok_dir, filename)
+            archive_path = os.path.join(target_dir, filename)
 
             self._log("backend.zrok.downloading", "info", {"url": download_url})
             self._download_zrok_archive(download_url, archive_path)
@@ -310,12 +346,12 @@ class TunnelsManager:
             def ext_cb(p, msg, args=None):
                 self._progress(80 + int(p * 0.19), MSG_ZROK_EXTRACTING)
             
-            extract_archive(archive_path, self.zrok_dir, ext_cb)
+            extract_archive(archive_path, target_dir, ext_cb)
             os.remove(archive_path)
 
-            self._normalize_zrok_exe_name()
+            self._normalize_zrok_exe_name(target_dir)
 
-            if not os.path.exists(self.zrok_exe):
+            if not os.path.exists(os.path.join(target_dir, 'zrok.exe')):
                 self._log("backend.zrok.extract_failed", "error")
                 return {"status": "error", "message": "backend.zrok.extract_failed"}
 
@@ -385,8 +421,7 @@ class TunnelsManager:
             for share_id in list(self.active_shares):  # NOSONAR (python:S7504): lihat komentar di atas
                 self.stop_zrok_share(share_id)
 
-            if os.path.exists(self.zrok_dir):
-                shutil.rmtree(self.zrok_dir, ignore_errors=True)
+            self._clear_engine('zrok')
 
             self._log("backend.zrok.uninstalled", "warn")
             return {"status": "success", "message": "backend.zrok.uninstalled"}
@@ -617,37 +652,49 @@ class TunnelsManager:
             "active_shares": self._list_active_cloudflare_shares()
         }
 
-    def _resolve_cloudflare_download_url(self, version: str) -> Optional[str]:
+    def _resolve_cloudflare_download_url(self, version: str) -> "tuple[Optional[str], str]":
+        actual_version = version
         if version == "latest":
-            return "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+            try:
+                req_latest = urllib.request.Request("https://api.github.com/repos/cloudflare/cloudflared/releases/latest", headers=GITHUB_API_HEADERS)
+                with urllib.request.urlopen(req_latest, timeout=10) as response:
+                    data = json.loads(response.read().decode())
+                    actual_version = data.get('tag_name', 'latest')
+            except Exception:
+                actual_version = "latest"
+            return "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe", actual_version
             
-        url = f'https://api.github.com/repos/cloudflare/cloudflared/releases/tags/{version}'
+        url = f'https://api.github.com/repos/cloudflare/cloudflared/releases/tags/{actual_version}'
         try:
             req = urllib.request.Request(url, headers=GITHUB_API_HEADERS)
             with urllib.request.urlopen(req, timeout=10) as response:
                 data = json.loads(response.read().decode())
                 for asset in data.get('assets', []):
                     if 'cloudflared-windows-amd64.exe' in asset['name']:
-                        return asset['browser_download_url']
+                        return asset['browser_download_url'], actual_version
         except Exception:
-            return None
-        return None
+            return None, actual_version
+        return None, actual_version
 
     def install_cloudflare(self, version: str = "latest") -> dict:
         try:
             self._log("backend.cloudflare.fetching_latest", "info")
             self._progress(10, "backend.cloudflare.fetching_latest")
             
-            download_url = self._resolve_cloudflare_download_url(version)
+            download_url, actual_version = self._resolve_cloudflare_download_url(version)
             if not download_url:
                 self._log("backend.cloudflare.release_not_found", "error")
                 return {"status": "error", "message": "backend.cloudflare.release_not_found"}
 
-            os.makedirs(self.cloudflared_dir, exist_ok=True)
+            self._clear_engine('cloudflared')
+            target_dir = os.path.join(self._get_tunnel_parent_dir('cloudflared'), actual_version)
+            os.makedirs(target_dir, exist_ok=True)
+            target_exe = os.path.join(target_dir, 'cloudflared.exe')
+
             self._log("backend.cloudflare.downloading", "info", {"url": download_url})
             
             req = urllib.request.Request(download_url, headers=GITHUB_API_HEADERS)
-            with urllib.request.urlopen(req, timeout=15) as response, open(self.cloudflared_exe, 'wb') as out_file:
+            with urllib.request.urlopen(req, timeout=15) as response, open(target_exe, 'wb') as out_file:
                 total_size = int(response.info().get('Content-Length', 0))
                 downloaded = 0
                 block_size = 8192
@@ -675,8 +722,7 @@ class TunnelsManager:
             for share_id in list(self.active_cloudflare_shares):  # NOSONAR
                 self.stop_cloudflare_share(share_id)
 
-            if os.path.exists(self.cloudflared_dir):
-                shutil.rmtree(self.cloudflared_dir, ignore_errors=True)
+            self._clear_engine('cloudflared')
 
             self._log("backend.cloudflare.uninstalled", "warn")
             return {"status": "success", "message": "backend.cloudflare.uninstalled"}

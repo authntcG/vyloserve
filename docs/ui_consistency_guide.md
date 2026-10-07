@@ -231,6 +231,20 @@ Tombol lonceng notifikasi tanpa props — membaca `history`/`unreadCount`/`clear
 - `unreadCount` reset ke 0 saat panel DIBUKA (bukan saat masing-masing toast auto-dismiss) — entri histori tetap ada, cuma badge-nya yang hilang.
 - Entri histori direkam saat `showToast()` DIPANGGIL (bukan saat toast auto-dismiss), cap `MAX_TOAST_HISTORY = 100`, session-only (tidak persisten lintas restart aplikasi — `useState` polos cukup, app ini SPA desktop long-lived).
 
+### Pola "Badge Update Available + Aksi Dropdown" (BUKAN komponen bersama — konvensi berulang, lihat `docs/known_bugs.md` #51/#52)
+Dipakai identik di `php/Main.tsx` (sumber pola asli) dan `database/Main.tsx` (meniru persis): badge amber kecil di sebelah nama instance pada judul `<Card>`, plus tombol aksi "Update to {versi}" di `dropdownActions` (menu "..."):
+```tsx
+{updateVer && (
+    <span className="bg-amber-500/10 dark:bg-amber-500/20 text-amber-600 dark:text-amber-500 text-[10px] uppercase font-bold px-1.5 py-0.5 rounded flex items-center gap-1" title={t('xxx.update_to', { version: updateVer.version })}>
+        <span className="material-symbols-outlined text-[12px]">upgrade</span> {t('xxx.update')}
+    </span>
+)}
+```
+- Warna badge **WAJIB** pola opacity-of-covered-shade (`bg-amber-500/10 dark:bg-amber-500/20 text-amber-600 dark:text-amber-500`, sama seperti tone warning `<InfoBox>`) — BUKAN shade stok (`bg-amber-100`, `dark:bg-amber-900/30`, dst). Kedua modul sempat salah pakai shade stok (ditemukan & diperbaiki bersamaan, lihat `docs/known_bugs.md` #51) karena pola ini ditambahkan SETELAH audit Fase 4 (§1) selesai — jadi tidak ikut tersapu audit itu.
+- Deteksi "ada update" **WAJIB** pakai `compareVersions()` (`frontend/src/utils/version.ts`, perbandingan numerik per-segmen) — BUKAN `!==` string mentah, yang keliru menandai "ada update" kalau versi terpasang justru LEBIH BARU dari hasil cek API.
+- Database punya langkah konfirmasi tambahan (pilihan backup sebelum update) yang PHP tidak punya — perbedaan ini genuinely fungsional (backend `update_database()` punya parameter `backup_data`, `update_php()` tidak), bukan sekadar variasi gaya.
+- Kalau modul ketiga butuh pola yang sama, pertimbangkan ekstraksi ke komponen bersama (mis. `<UpdateBadge>`) alih-alih menyalin lagi untuk ketiga kalinya — ambang yang sama seperti disebutkan untuk pola "tombol status install" di atas.
+
 ## 3. Status Migrasi & Fase 2/3/4
 
 **Fase 1** migrasi ke komponen bersama di atas untuk: `Modal`/`AlertContext`/`LogFileViewerModal`, tombol primary per-halaman (Apache/PHP/Database/Git/QR Generator), 2 tombol Tunnels yang full-hardcoded, 6 lokasi `ToggleSwitch`, dan 3 combobox custom (Database/Tunnels×2).

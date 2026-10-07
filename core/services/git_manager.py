@@ -132,7 +132,8 @@ class GitManager:
         if internal_installed:
             try:
                 res = subprocess.run([git_exe, '--version'], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
-                internal_version = res.stdout.strip().replace('git version ', '')
+                raw_ver = res.stdout.strip().replace('git version ', '')
+                internal_version = raw_ver.replace('.windows.', '.')
             except Exception: internal_version = "Unknown"
 
         external_info = self._check_external_installation()

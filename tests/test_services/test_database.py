@@ -403,6 +403,30 @@ def test_db_get_installed_handles_exception(db_mgr):
         res = db_mgr.get_installed()
     assert res == {"status": "error", "message": "backend.error.unexpected", "args": {"e": "json corrupt"}}
 
+def test_db_get_installed_falls_back_to_default_port_when_missing(db_mgr):
+    """
+    Regresi: entri lama/korup tanpa field 'port' (mis. dari instalasi yang gagal
+    sebagian, atau sisa duplikat sebelum fix dedupe di _register_database)
+    sebelumnya membuat check_port_in_use(None) melempar TypeError di dalam
+    enrich_status() -- karena enrich_status dijalankan lewat
+    ThreadPoolExecutor.map() dan exception-nya ditangkap oleh try/except di
+    level get_installed(), SATU entri rusak membuat SELURUH daftar gagal
+    dimuat (status 'error'), bukan cuma entri itu saja -- termasuk database
+    LAIN yang baru saja selesai diinstal dengan benar, sehingga tidak pernah
+    muncul di UI meski instalasinya sendiri sukses. Lihat docs/known_bugs.md.
+    """
+    with patch('core.services.database.read_json', return_value=[
+        {"id": "legacy_mysql", "engine": "mysql", "name": "MySQL legacy", "version": "5.7", "installDir": "C:/db", "dataDir": "C:/data"},
+        {"id": "legacy_pg", "engine": "postgres", "name": "Postgres legacy", "version": "14", "installDir": "C:/db2", "dataDir": "C:/data2", "port": None},
+    ]):
+        with patch('core.services.database.check_port_in_use', return_value=False) as mock_check:
+            res = db_mgr.get_installed()
+
+    assert res['status'] == 'success'
+    assert len(res['data']) == 2
+    mock_check.assert_any_call(3306)  # default MySQL saat 'port' tidak ada sama sekali
+    mock_check.assert_any_call(5432)  # default PostgreSQL saat 'port' eksplisit None
+
 # ==========================================
 # _wait_for_startup — deteksi crash proses
 # ==========================================
@@ -561,19 +585,29 @@ def test_fetch_postgres_versions_uses_linux_os_target(db_mgr):
 # ==========================================
 
 @patch('core.services.database.os.makedirs')
+@patch('core.services.database.os.path.exists', return_value=True)
 @patch('core.services.database.run_silent_command')
-def test_init_database_mysql_success(mock_run, mock_makedirs, db_mgr):
+def test_init_database_mysql_success(mock_run, mock_exists, mock_makedirs, db_mgr):
     mock_run.return_value = MagicMock(returncode=0, stderr="")
     db_mgr._init_database("mysql", "C:\\install", "C:\\data", "rootpass")
     mock_run.assert_called_once()
     assert "mysql_install_db" in mock_run.call_args[0][0][0]
 
 @patch('core.services.database.os.makedirs')
+@patch('core.services.database.os.path.exists', return_value=True)
 @patch('core.services.database.run_silent_command')
-def test_init_database_mysql_raises_on_failure(mock_run, mock_makedirs, db_mgr):
+def test_init_database_mysql_raises_on_failure(mock_run, mock_exists, mock_makedirs, db_mgr):
     mock_run.return_value = MagicMock(returncode=1, stderr="disk full")
     with pytest.raises(RuntimeError, match="MariaDB Init Error"):
         db_mgr._init_database("mysql", "C:\\install", "C:\\data", "rootpass")
+
+@patch('core.services.database.os.makedirs')
+@patch('core.services.database.os.path.exists', return_value=False)
+@patch('core.services.database.run_silent_command')
+def test_init_database_mysql_raises_when_installer_missing(mock_run, mock_exists, mock_makedirs, db_mgr):
+    with pytest.raises(RuntimeError, match="MariaDB Init Error.*tidak ditemukan"):
+        db_mgr._init_database("mysql", "C:\\install", "C:\\data", "rootpass")
+    mock_run.assert_not_called()  # subprocess tidak boleh dipanggil kalau binary-nya sendiri tidak ada
 
 @patch('core.services.database.os.makedirs')
 @patch('core.services.database.os.remove')
@@ -591,13 +625,23 @@ def test_init_database_postgres_writes_and_cleans_up_pwfile(mock_run, mock_exist
     assert "initdb" in mock_run.call_args[0][0][0]
 
 @patch('core.services.database.os.makedirs')
-@patch('core.services.database.os.path.exists', return_value=False)
+@patch('core.services.database.os.path.exists')
 @patch('core.services.database.run_silent_command')
 def test_init_database_postgres_raises_on_failure(mock_run, mock_exists, mock_makedirs, db_mgr):
+    # installer ADA (lolos pre-flight check), tapi pw.txt dianggap tidak ada (skip os.remove)
+    mock_exists.side_effect = lambda p: p.endswith('initdb.exe')
     mock_run.return_value = MagicMock(returncode=1, stderr="init failed")
     with patch('builtins.open', mock_open()):
         with pytest.raises(RuntimeError, match="PostgreSQL Init Error"):
             db_mgr._init_database("postgres", "C:\\install", "C:\\data", "")
+
+@patch('core.services.database.os.makedirs')
+@patch('core.services.database.os.path.exists', return_value=False)
+@patch('core.services.database.run_silent_command')
+def test_init_database_postgres_raises_when_installer_missing(mock_run, mock_exists, mock_makedirs, db_mgr):
+    with pytest.raises(RuntimeError, match="PostgreSQL Init Error.*tidak ditemukan"):
+        db_mgr._init_database("postgres", "C:\\install", "C:\\data", "")
+    mock_run.assert_not_called()  # subprocess tidak boleh dipanggil kalau binary-nya sendiri tidak ada
 
 # ==========================================
 # _register_database
@@ -611,6 +655,33 @@ def test_register_database_appends_entry(mock_read_json, mock_write_json, db_mgr
     assert written[0]["id"] == "mysql_8_0"
     assert written[0]["port"] == 3306
     assert written[0]["name"] == "MariaDB 8.0"
+
+@patch('core.services.database.write_json')
+@patch('core.services.database.read_json')
+def test_register_database_replaces_existing_entry_with_same_id(mock_read_json, mock_write_json, db_mgr):
+    """
+    Regresi: me-register ulang id yang sama (mis. retry instalasi setelah
+    percobaan sebelumnya gagal/terputus di tengah jalan) dulu menghasilkan DUA
+    entri dengan id yang sama di database.json -- entri lama yang kadang tidak
+    lengkap (field 'port' kosong/None) tertinggal berdampingan dengan entri
+    baru yang valid, memicu bug "satu entri rusak = seluruh daftar gagal
+    dimuat" (lihat test_db_get_installed_falls_back_to_default_port_when_missing
+    di atas). Register ulang sekarang WAJIB menggantikan entri lama, bukan
+    menumpuknya.
+    """
+    mock_read_json.return_value = [
+        {"id": "mysql_8_0", "engine": "mysql", "version": "8.0-old", "port": None, "name": "stale"},
+        {"id": "other_db", "engine": "postgres", "version": "14", "port": 5432, "name": "untouched"},
+    ]
+
+    db_mgr._register_database("mysql_8_0", "mysql", "8.0", "3306", "C:\\data", "C:\\install")
+
+    written = mock_write_json.call_args[0][1]
+    matching = [db for db in written if db["id"] == "mysql_8_0"]
+    assert len(matching) == 1
+    assert matching[0]["version"] == "8.0"
+    assert matching[0]["port"] == 3306
+    assert any(db["id"] == "other_db" for db in written)
 
 # ==========================================
 # install_database — guard & rollback saat gagal
@@ -905,3 +976,55 @@ def test_check_is_running_cleans_up_dead_processes(db_mgr):
     db_mgr.processes["db_1"] = mock_proc
     assert db_mgr.check_is_running() is False
     assert "db_1" not in db_mgr.processes
+
+@patch('core.services.database.DatabaseManager.stop_database')
+@patch('core.services.database.os.path.exists')
+@patch('core.services.database.os.makedirs')
+@patch('core.utils.file_utils.download_advanced')
+@patch('core.utils.file_utils.extract_archive')
+@patch('core.services.database.os.remove')
+@patch('core.utils.file_utils.write_json')
+@patch('core.services.database.read_json')
+@patch('core.services.database.shutil')
+def test_update_database_success(mock_shutil, mock_read_json, mock_write_json, mock_remove, mock_extract, mock_download, mock_makedirs, mock_exists, mock_stop, db_mgr):
+    import builtins
+    from unittest.mock import MagicMock
+    
+    mock_read_json.return_value = [{"id": "mysql_10", "engine": "mysql", "version": "10.0", "installDir": "/bin/mysql_10", "dataDir": "/data/mysql_10"}]
+    mock_exists.return_value = True
+
+    db_mgr._unwrap_single_subdir = MagicMock()
+    db_mgr._resolve_mariadb_url = MagicMock(return_value="resolved_url")
+    
+    res = db_mgr.update_database("mysql_10", "10.1", "http://url", backup_data=True)
+
+    assert res['status'] == 'success'
+    mock_stop.assert_called_once_with("mysql_10")
+    assert mock_shutil.move.called
+    assert mock_shutil.copytree.called
+    mock_download.assert_called_once()
+    mock_extract.assert_called_once()
+    
+    written_data = mock_write_json.call_args[0][1]
+    assert written_data[0]['version'] == '10.1'
+
+@patch('core.services.database.read_json')
+@patch('core.services.database.os.path.exists')
+@patch('core.services.database.shutil')
+@patch('core.utils.file_utils.download_advanced')
+def test_update_database_rollback_on_failure(mock_download, mock_shutil, mock_exists, mock_read_json, db_mgr):
+    from unittest.mock import MagicMock
+    mock_read_json.return_value = [{"id": "mysql_10", "engine": "mysql", "version": "10.0", "installDir": "/bin/mysql_10", "dataDir": "/data/mysql_10"}]
+    mock_exists.return_value = True
+    
+    db_mgr.stop_database = MagicMock()
+    
+    mock_download.side_effect = Exception("Download failed")
+    
+    res = db_mgr.update_database("mysql_10", "10.1", "http://url", backup_data=False)
+    
+    assert res['status'] == 'error'
+    assert res['message'] == 'backend.database.update_failed_rollback'
+    
+    assert mock_shutil.move.called
+    assert mock_shutil.rmtree.called

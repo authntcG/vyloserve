@@ -62,26 +62,38 @@ const NewDbInstance = forwardRef<NewDbInstanceRef, Props>(({ activeTab, usedPort
         }
     }, [isInstalling]);
 
-    const fetchOnlineVersions = async (engine: string) => {
-        setIsFetchingVersions(true);
-        try {
-            const api = window.pywebview?.api;
-            if (api && typeof api.get_available_databases === 'function') {
-                const res = await api.get_available_databases(engine);
-                if (res.status === 'success') {
-                    setAvailableVersions(res.data);
-                    if (res.data.length > 0) setSelectedVersion(res.data[0].version);
-                } else setAvailableVersions([]);
-            }
-        } catch (error){ console.error(error);
-            console.error("Gagal menarik versi DB online", error);
-        } finally {
-            setIsFetchingVersions(false);
-        }
-    };
-
     useEffect(() => {
+        // ---> GUARD TERHADAP RESPON ASYNC BASI (STALE) <---
+        // `get_available_databases('mysql')` jauh lebih lambat (resolve tiap versi lewat
+        // scraping HTML per-versi di backend) dibanding `get_available_databases('postgres')`
+        // (satu kali fetch halaman). Kalau user switch engine dengan cepat, request LAMA bisa
+        // resolve SETELAH request BARU -- tanpa guard ini, hasilnya `availableVersions` terisi
+        // versi engine SEBELUMNYA padahal `engineFamily` sudah berpindah, sehingga
+        // `getFormData()` mengirim `engine` yang benar tapi `version`/`url` milik engine lain
+        // (mis. versi MariaDB "13.1.1" terpasang sebagai PostgreSQL). Lihat docs/known_bugs.md #52.
+        let ignore = false;
+
+        const fetchOnlineVersions = async (engine: string) => {
+            setIsFetchingVersions(true);
+            try {
+                const api = window.pywebview?.api;
+                if (api && typeof api.get_available_databases === 'function') {
+                    const res = await api.get_available_databases(engine);
+                    if (ignore) return;
+                    if (res.status === 'success') {
+                        setAvailableVersions(res.data);
+                        if (res.data.length > 0) setSelectedVersion(res.data[0].version);
+                    } else setAvailableVersions([]);
+                }
+            } catch (error) {
+                if (!ignore) console.error("Gagal menarik versi DB online", error);
+            } finally {
+                if (!ignore) setIsFetchingVersions(false);
+            }
+        };
+
         fetchOnlineVersions(engineFamily);
+        return () => { ignore = true; };
     }, [engineFamily]);
 
     useEffect(() => {

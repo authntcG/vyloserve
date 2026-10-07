@@ -12,11 +12,13 @@ VyloServe dirancang sebagai alternatif yang jauh lebih cepat, estetik, dan ringa
 - **Multi-Version (Switcher):** Mendukung instalasi banyak versi PHP sekaligus secara portable. Pengguna bisa memilih versi aktif melalui UI.
 - **Manajemen Ekstensi:** Memudahkan pengguna mengaktifkan/menonaktifkan ekstensi (`php_*.dll`) langsung dari UI tanpa perlu membuka `php.ini` manual.
 - **Pengaturan Dinamis:** Dapat mengubah `memory_limit`, `upload_max_filesize`, dan variabel `php.ini` lainnya dari UI.
+- **Cek & Update Versi (Patch):** Instance PHP yang terinstal dicek otomatis di latar belakang terhadap versi patch terbaru pada baris major.minor yang sama (mis. 8.2.x terbaru, bukan loncat ke 8.3). Kalau ada, kartu instance mendapat badge kecil "Update" di sebelah namanya dan opsi "Update to {versi}" muncul di menu "..." — pola referensi yang kemudian ditiru modul Database (lihat §3). Beda dengan Database, update PHP hanya satu langkah konfirmasi (tanpa opsi backup, karena `update_php()` backend tidak punya kemampuan itu).
 
 ## 3. Database (MySQL/MariaDB & PostgreSQL)
 - **Instalasi Dual-Engine:** Mendukung MariaDB (pengganti MySQL ringan) dan PostgreSQL.
 - **Silent Start:** Menjalankan instance database melalui *daemon* tanpa menggunakan Windows Services. Membaca port secara kustom agar tidak bertabrakan dengan database sistem pengguna.
 - **Auto-Password & Config:** Melakukan parsing otomatis terhadap `my.ini` dan `postgresql.conf` untuk menyesuaikan penggunaan memori (seperti `shared_buffers`).
+- **Cek & Update Versi Engine:** Setiap instance database yang terinstal dicek otomatis di latar belakang terhadap versi terbaru yang tersedia untuk engine-nya (sekali per engine unik, bukan per-instance, dibandingkan secara semantik lewat `compareVersions()` agar versi yang sudah lebih baru dari hasil cek tidak keliru ditandai "ada update"). Kalau ada versi lebih baru, kartu instance terkait mendapat badge kecil "Update" di sebelah namanya dan opsi "Update to {versi}" muncul di menu "..." — pola yang sama persis dengan modul PHP. Alur update terdiri dari dua konfirmasi berurutan — (1) konfirmasi update ke versi target, (2) pilihan opsional membuat cadangan (*backup*) direktori data sebelum memperbarui (langkah ini khusus Database, PHP tidak punya ini) — lalu dijalankan dengan progress bar real-time dan *auto-rollback* otomatis ke versi sebelumnya kalau proses update gagal di tengah jalan.
 
 ## 4. Runtimes Manager
 Mengelola instalasi engine pemrograman pihak ketiga. Path sistem (Windows Registry) akan disuntikkan secara otomatis.
@@ -24,6 +26,7 @@ Mengelola instalasi engine pemrograman pihak ketiga. Path sistem (Windows Regist
 - **Python:** Mengunduh modul Embeddable Python, dilengkapi dengan injeksi *pip* (`get-pip.py`).
 - **Java (JDK):** Mengunduh OpenJDK dari repositori Adoptium (Temurin).
 - **Go:** Mengunduh *Go archive* dari peladen resmi Google.
+- **Deteksi Instalasi Eksternal:** Kalau sebuah engine (Node/Python/Java/Go) sudah terpasang secara global di sistem pengguna di luar VyloServe, UI menampilkan badge peringatan di tab engine terkait dan mengunci toggle "Register to PATH" (mencegah dua instalasi engine yang sama bentrok memperebutkan variabel PATH sistem) — pengguna tetap bisa menginstal versi portable VyloServe-nya, hanya saja tidak bisa didaftarkan ke PATH selama instalasi eksternal itu ada.
 
 ## 5. Project Manager
 - **Composer Integration:** Dapat menciptakan proyek PHP (seperti Laravel, CodeIgniter 4) secara otomatis melalui UI menggunakan Composer (yang telah di-embed).

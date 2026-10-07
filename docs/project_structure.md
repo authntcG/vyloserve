@@ -24,15 +24,19 @@ vyloserve/
 ├── frontend/                   # Repositori UI berbasis React (Vite + TS)
 │   ├── src/
 │   │   ├── components/         # Komponen UI Reusable, struktur FLAT (Modal, Card, PageHeader, dll — TIDAK ada subfolder ui/)
-│   │   │                       # Termasuk DUA context provider terpisah: ToastContext (notifikasi sekilas/auto-dismiss)
-│   │   │                       # dan AlertContext (dialog alert()/confirm() modal, menggantikan window.alert/confirm native)
+│   │   │                       # Termasuk DUA context provider terpisah: ToastContext (notifikasi sekilas/auto-dismiss,
+│   │   │                       # juga menyimpan histori toast session-only utk NotificationBell) dan AlertContext
+│   │   │                       # (dialog alert()/confirm() modal, menggantikan window.alert/confirm native).
+│   │   │                       # NotificationBell.tsx: ikon lonceng+badge unread di Sidebar, panel histori toast,
+│   │   │                       # terintegrasi notifikasi native Windows — lihat docs/known_bugs.md #45/#46
 │   │   ├── locales/            # Berkas i18n JSON untuk bahasa (en, id)
 │   │   ├── menu/                # Halaman utama aplikasi: apache/ (termasuk CRUD Project & Virtual Host,
 │   │   │                        # TIDAK ada folder project/ terpisah), php/, database/, dashboard/, runtimes/,
 │   │   │                        # tools/ (git/, qr-generator/, base64-encode-decode/, url-encode-decode/, tunnels/, settings/)
 │   │   ├── utils/               # Helper murni lintas-halaman (BUKAN komponen React) — lihat docs/frontend_ui.md §1
 │   │   │   ├── a11y.ts          # onEnterOrSpace() — keyboard support (Enter/Space) utk elemen non-native
-│   │   │   └── progress.ts      # clampPercent() — clamp nilai progress vylo_progress ke [0, 100]
+│   │   │   ├── progress.ts      # clampPercent() — clamp nilai progress vylo_progress ke [0, 100]
+│   │   │   └── version.ts       # compareVersions() — bandingkan versi semantik (bukan string !=), dipakai PHP & Database
 │   │   ├── hooks/               # Custom React hooks lintas-komponen (BUKAN komponen React, nol JSX)
 │   │   │   └── useWindowPresence.ts # Deteksi fokus/minimize/hidden-ke-tray window — lihat docs/frontend_ui.md §5.1
 │   │   ├── i18n.ts             # Konfigurasi react-i18next (TIDAK ada folder contexts/)
@@ -42,9 +46,10 @@ vyloserve/
 ├── tests/                      # Folder Unit Test (Pytest)
 │   ├── test_utils/             # Pengujian modul utils
 │   └── test_services/          # Pengujian layanan utama (Mocks heavily applied)
-├── bin/                        # (Ter-Generate) Folder instalasi engine (Apache, PHP, Node)
+├── bin/                        # (Ter-Generate) Folder instalasi engine (Apache, PHP, Node) — arsip unduhan (.zip)
+│                               # juga diunduh LANGSUNG ke subfolder bin/<service>/ masing-masing, BUKAN ke direktori
+│                               # temp terpisah (tidak ada folder tmp/ — tiap service pakai bin_dir/base_dir sendiri)
 ├── data/                       # (Ter-Generate) Folder konfigurasi aplikasi, SSL, & logs
-├── tmp/                        # (Ter-Generate) Direktori sementara untuk unduhan (.zip)
 ├── www/                        # (Ter-Generate) Direktori utama penyimpan proyek Web
 ├── main.py                     # Entrypoint aplikasi (PyWebView & System Tray)
 ├── requirements.txt            # Dependensi Python
@@ -53,7 +58,6 @@ vyloserve/
 
 ## Penjelasan Direktori *Generate*
 Direktori-direktori berikut tidak disimpan di Git (di-ignore), namun akan terbuat secara otomatis saat aplikasi dijalankan dan digunakan oleh pengguna:
-*   `bin/`: Seluruh binary executable dari layanan (Apache, PHP, dsb) akan diletakkan di sini. Aplikasi VyloServe bersifat mandiri dan *portable*, tidak bergantung pada instalasi C:/Program Files.
+*   `bin/`: Seluruh binary executable dari layanan (Apache, PHP, dsb) akan diletakkan di sini. Aplikasi VyloServe bersifat mandiri dan *portable*, tidak bergantung pada instalasi C:/Program Files. Arsip unduhan (`.zip`/`.tar.gz`) juga diunduh LANGSUNG ke subfolder service-nya sendiri di sini (mis. `bin/database/<db_id>.zip`) sebelum diekstrak ke tempat yang sama — tidak ada direktori temp terpisah.
 *   `data/`: Menyimpan konfigurasi state dalam bentuk JSON (seperti `apache.json`, `settings.json`, `dashboard.json`), serta kunci SSL (`VyloServeRootCA.key`).
-*   `tmp/`: Digunakan oleh Backend untuk meletakkan file tarball/zip saat sedang proses pengunduhan, sebelum di ekstrak ke `bin/`.
 *   `www/`: Direktori *Document Root* global. Di sinilah proyek-proyek seperti Laravel atau CodeIgniter akan diletakkan.

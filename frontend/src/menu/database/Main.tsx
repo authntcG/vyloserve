@@ -14,6 +14,7 @@ import PageHeader from '../../components/PageHeader';
 import SkeletonCard from '../../components/SkeletonCard';
 import EmptyState from '../../components/EmptyState';
 import { clampPercent } from '../../utils/progress';
+import { compareVersions } from '../../utils/version';
 
 import NewDbInstance, { type NewDbInstanceRef } from './NewInstance';
 import DbSettings from './Settings';
@@ -21,10 +22,13 @@ import ChangePassword, { type ChangePasswordRef } from './ChangePassword';
 
 type DbEngineType = 'mysql' | 'postgres';
 
+
 interface DbInstance {
     id: string; name: string; engine: DbEngineType; version: string;
     port: number; status: 'running' | 'stopped'; dataDir: string;
 }
+
+interface AvailableUpdate { version: string; url: string; }
 
 export default function DatabaseMain() {
     const { t } = useTranslation();
@@ -54,6 +58,14 @@ export default function DatabaseMain() {
     const [isInstalling, setIsInstalling] = useState(false);
     const hideProgressTimeoutRef = useRef<number | null>(null);
 
+    // ---> STATE UNTUK CEK & EKSEKUSI UPDATE VERSI ENGINE PER-INSTANCE <---
+    // Keyed by db.id -- hanya berisi entri untuk instance yang punya versi lebih baru
+    // tersedia (dibandingkan terhadap data[0] hasil get_available_databases, yang
+    // sudah terurut terbaru-duluan -- lihat core/services/database.py). Progress saat
+    // update BERBAGI state isInstalling/progress/progressText dengan alur install biasa
+    // (pola yang sama dengan php/Main.tsx's handleUpdatePhp -- bukan state terpisah).
+    const [availableUpdates, setAvailableUpdates] = useState<Record<string, AvailableUpdate>>({});
+
     const newDbRef = useRef<NewDbInstanceRef>(null);
     const passwordRef = useRef<ChangePasswordRef>(null);
 
@@ -62,11 +74,43 @@ export default function DatabaseMain() {
 
     const filteredInstances = dbInstances.filter(db => activeTab === 'all' || db.engine === activeTab);
 
+    // Cek update yang tersedia untuk tiap ENGINE unik yang terinstal (bukan per-instance --
+    // kalau ada 2 instance MySQL, cukup 1x panggilan get_available_databases('mysql')),
+    // lalu bandingkan versi terbaru hasilnya terhadap versi masing-masing instance lewat
+    // compareVersions() (perbandingan numerik per-segmen, bukan string inequality --
+    // konsisten dengan pola hasUpdate/updateVer di php/Main.tsx).
+    const checkForUpdates = useCallback(async (instances: DbInstance[]) => {
+        const api = window.pywebview?.api;
+        if (!api || typeof api.get_available_databases !== 'function' || instances.length === 0) {
+            setAvailableUpdates({});
+            return;
+        }
+        const engines = Array.from(new Set(instances.map(db => db.engine)));
+        const updates: Record<string, AvailableUpdate> = {};
+        await Promise.all(engines.map(async (engine) => {
+            try {
+                const res = await api.get_available_databases(engine);
+                if (res?.status !== 'success' || !res.data?.length) return;
+                const latest = res.data[0];
+                instances
+                    .filter(db => db.engine === engine && compareVersions(latest.version, db.version) > 0)
+                    .forEach(db => { updates[db.id] = { version: latest.version, url: latest.url }; });
+            } catch (e) { console.error(e); }
+        }));
+        setAvailableUpdates(updates);
+    }, []);
+
     const fetchDatabases = async () => {
         setIsLoading(true);
         try {
             const res = await window.pywebview?.api?.get_installed_databases();
-            if (res?.status === 'success') setDbInstances(res.data || []);
+            if (res?.status === 'success') {
+                const instances = res.data || [];
+                setDbInstances(instances);
+                checkForUpdates(instances);
+            } else if (res?.status === 'error') {
+                showToast(t(res.message || 'database.fetch_db_error', res.args || {}) as string, "error");
+            }
         } catch (e){ console.error(e); showToast(t('database.fetch_db_error'), "error"); }
         finally { setIsLoading(false); }
     };
@@ -99,7 +143,7 @@ export default function DatabaseMain() {
                 if (p > 0 && p < 100) setIsInstalling(true);
                 setProgress(clampPercent(p)); setProgressText(t(e.detail.text || '', e.detail.args || {}) as string);
                 if (p >= 100) {
-                    hideProgressTimeoutRef.current = window.setTimeout(() => { setProgress(0); setIsInstalling(false); setIsNewInstanceOpen(false); fetchDatabases(); }, 3000);
+                    hideProgressTimeoutRef.current = window.setTimeout(() => { setProgress(0); }, 3000);
                 }
             }
         };
@@ -125,6 +169,8 @@ export default function DatabaseMain() {
         finally { setTogglingDbId(null); }
     };
 
+
+
     const handleInstallDatabase = async () => {
         const formData = newDbRef.current?.getFormData();
         if (!formData) return showToast(t('database.read_install_data_error'), "error");
@@ -136,8 +182,15 @@ export default function DatabaseMain() {
 
             setIsInstalling(true); setProgressText(t('database.preparing_engine'));
             const res = await window.pywebview?.api?.install_database(formData.engine, formData.version, formData.url, formData.port, formData.rootPass);
-            if (res?.status === 'error') { showToast(t(res.message || '', res.args || {}) as string, "error"); setIsInstalling(false); setProgress(0); }
-        } catch (e){ console.error(e); showToast(t('database.install_error'), "error"); setIsInstalling(false); setProgress(0); }
+            if (res?.status === 'error') {
+                showToast(t(res.message || '', res.args || {}) as string, "error");
+            } else if (res?.status === 'success') {
+                showToast(t(res.message || '', res.args || {}) as string, "success");
+                setIsNewInstanceOpen(false);
+                fetchDatabases();
+            }
+        } catch (e){ console.error(e); showToast(t('database.install_error'), "error"); }
+        finally { setIsInstalling(false); setProgress(0); }
     };
 
     const handleConfirmUninstall = async (db: DbInstance) => {
@@ -164,6 +217,48 @@ export default function DatabaseMain() {
             showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
             if (res?.status === 'success') { fetchDatabases(); }
         } catch (e){ console.error(e); showToast(t('database.delete_error'), "error"); }
+    };
+
+    const handleUpdateDatabase = async (db: DbInstance) => {
+        const update = availableUpdates[db.id];
+        if (!update) return;
+
+        // Langkah 1: konfirmasi update (Yes/Cancel) -- batal di sini membatalkan seluruhnya.
+        const confirmedUpdate = await confirm({
+            title: t('database.confirm_update'),
+            message: (
+                <p className="text-slate-700 dark:text-slate-300">
+                    {t('database.update_prefix')}<strong className="text-slate-900 dark:text-white">{db.name}</strong>
+                    {t('database.update_middle')}<strong className="text-slate-900 dark:text-white">{update.version}</strong>{t('database.update_suffix')}
+                </p>
+            ),
+            type: 'warning',
+            confirmText: t('database.yes_update'),
+            cancelText: t('database.cancel_update'),
+        });
+        if (!confirmedUpdate) return;
+
+        // Langkah 2: pilihan backup -- KEDUA tombol tetap melanjutkan update, cuma beda
+        // nilai backup_data yang dikirim ke backend (lihat update_database() di
+        // core/services/database.py, yang menangani backup+rollback otomatis kalau gagal).
+        // Ini BUKAN "lanjut vs batal" seperti langkah 1 -- tidak ada opsi batal di sini
+        // karena user sudah commit untuk update di langkah 1.
+        const shouldBackup = await confirm({
+            title: t('database.backup_data_title'),
+            message: <p className="text-slate-700 dark:text-slate-300">{t('database.backup_data_desc')}</p>,
+            type: 'warning',
+            confirmText: t('database.yes_backup'),
+            cancelText: t('database.no_backup'),
+        });
+
+        setIsInstalling(true);
+        setProgressText(t('database.updating_engine'));
+        try {
+            const res = await window.pywebview?.api?.update_database(db.id, update.version, update.url, shouldBackup);
+            showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
+            if (res?.status === 'success') fetchDatabases();
+        } catch (e) { console.error(e); showToast(t('database.install_error'), "error"); }
+        finally { setIsInstalling(false); setProgress(0); }
     };
 
     const fetchDbLogContent = useCallback(() => {
@@ -257,9 +352,27 @@ export default function DatabaseMain() {
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
                         {filteredInstances.map(db => {
                             const isRunning = db.status === 'running';
+                            const update = availableUpdates[db.id];
                             return (
                                 <Card
-                                    key={db.id} title={db.name} status={db.status} gridCols="grid-cols-2 md:grid-cols-3"
+                                    key={db.id}
+                                    title={
+                                        <div className="flex items-center gap-2">
+                                            <span>{db.name}</span>
+                                            {/* ---> IKON/BADGE "UPDATE" -- mengikuti pola persis php/Main.tsx's updateVer
+                                                 badge, bukan notice box terpisah. Aksi update sendiri ada di menu
+                                                 dropdown (titik tiga) di bawah, bukan tombol langsung di badge ini. <--- */}
+                                            {update && (
+                                                <span
+                                                    className="bg-amber-500/10 dark:bg-amber-500/20 text-amber-600 dark:text-amber-500 text-[10px] uppercase font-bold px-1.5 py-0.5 rounded flex items-center gap-1"
+                                                    title={t('database.update_to', { version: update.version }) as string}
+                                                >
+                                                    <span className="material-symbols-outlined text-[12px]">upgrade</span> {t('database.update')}
+                                                </span>
+                                            )}
+                                        </div>
+                                    }
+                                    status={db.status} gridCols="grid-cols-2 md:grid-cols-3"
                                     dropdownActions={
                                         <>
                                             {/* ---> TEKS "Open Config" DIKEMBALIKAN KE OPEN MY.INI/POSTGRESQL.CONF <--- */}
@@ -278,6 +391,12 @@ export default function DatabaseMain() {
                                             </button>
 
                                             <div className="border-t border-slate-200 dark:border-slate-700 my-1"></div>
+                                            {update && (
+                                                <button type="button" onClick={() => handleUpdateDatabase(db)} disabled={isInstalling} className="w-full text-left px-4 py-2 text-sm text-primary hover:bg-slate-100 dark:hover:bg-slate-700 font-medium disabled:opacity-50">
+                                                    <span className="material-symbols-outlined text-[16px] align-text-bottom mr-1">upgrade</span>
+                                                    {t('database.update_to', { version: update.version })}
+                                                </button>
+                                            )}
                                             <button type="button" onClick={() => handleConfirmUninstall(db)} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20">{t('database.drop_engine')}</button>
                                         </>
                                     }
@@ -321,7 +440,7 @@ export default function DatabaseMain() {
                 fetchContent={fetchDbLogContent}
             />
 
-            <BackgroundProgressWidget isOpen={isInstalling && !isNewInstanceOpen} progress={progress} progressText={progressText} title={t('database.installing_db')} onRestore={() => setIsNewInstanceOpen(true)} />
+            <BackgroundProgressWidget isOpen={isInstalling && !isNewInstanceOpen} progress={progress} progressText={progressText} title={t('database.processing')} onRestore={() => setIsNewInstanceOpen(true)} />
 
             <Modal keepMounted={isInstalling} isOpen={isNewInstanceOpen} onClose={() => setIsNewInstanceOpen(false)} title={t('database.install_db_title')} icon="download" onApply={handleInstallDatabase} applyText={isInstalling ? t('database.processing') : t('database.install_btn')} isApplyDisabled={isInstalling}>
                 <NewDbInstance ref={newDbRef} activeTab={activeTab} usedPorts={usedPorts} isInstalling={isInstalling} progress={progress} progressText={progressText} />

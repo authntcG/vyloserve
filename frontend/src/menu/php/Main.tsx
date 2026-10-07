@@ -12,6 +12,7 @@ import PageHeader from '../../components/PageHeader';
 import SkeletonCard from '../../components/SkeletonCard';
 import EmptyState from '../../components/EmptyState';
 import { clampPercent } from '../../utils/progress';
+import { compareVersions } from '../../utils/version';
 
 import NewPhpInstance from './NewInstance';
 import PhpSettings from './Settings';
@@ -43,6 +44,9 @@ export default function PhpMain() {
     const [isLoadingSettings, setIsLoadingSettings] = useState(false);
     const [isSavingSettings, setIsSavingSettings] = useState(false);
     
+    // UPDATE STATES
+    const [availableVersions, setAvailableVersions] = useState<any[]>([]);
+    
     // PROGRESS WIDGET
     const [progress, setProgress] = useState(0);
     const [progressText, setProgressText] = useState('');
@@ -61,8 +65,16 @@ export default function PhpMain() {
         finally { setIsLoading(false); }
     };
 
+    const fetchAvailableVersions = async () => {
+        try {
+            const response = await window.pywebview?.api?.get_php_versions();
+            if (response?.status === 'success') setAvailableVersions(response.data || []);
+        } catch (e) { console.error(e); }
+    };
+
     useEffect(() => {
         fetchInstalledInstances();
+        fetchAvailableVersions();
         const handleStatusChange = (e: any) => { if (['php', 'all'].includes(e.detail?.service)) fetchInstalledInstances(); };
         window.addEventListener('service_status_changed', handleStatusChange);
         return () => window.removeEventListener('service_status_changed', handleStatusChange);
@@ -99,6 +111,22 @@ export default function PhpMain() {
     }, []);
 
     // --- PHP HANDLERS ---
+    const handleUpdatePhp = async (php: PhpInstance, newVersion: string, filename: string) => {
+        if (!await confirm({
+            title: t('php.confirm_update'),
+            message: `${t('php.update_prefix')}${php.version}${t('php.update_middle')}${newVersion}${t('php.update_suffix')}`,
+            confirmText: t('php.yes_update')
+        })) return;
+
+        setIsInstalling(true);
+        try {
+            const res = await window.pywebview?.api?.update_php(php.version, newVersion, filename);
+            showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
+            if (res?.status === 'success') { fetchInstalledInstances(); fetchAvailableVersions(); }
+        } catch (e){ console.error(e); showToast(t('php.system_error'), "error"); }
+        finally { setIsInstalling(false); }
+    };
+
     const handleInstallPhp = async () => {
         if (!installVersion) return showToast(t('php.select_php_version_warning'), "warning");
         if (usedPorts.includes(installPort)) return showToast(t('php.port_in_use_error'), "error");
@@ -201,14 +229,27 @@ export default function PhpMain() {
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
                             {instances.map(php => {
                                 const isRunning = php.status === 'running';
+                                const majorMinor = php.version.split('.').slice(0, 2).join('.');
+                                const updateVer = availableVersions.find(v => v.version.split('.').slice(0, 2).join('.') === majorMinor && compareVersions(v.version, php.version) > 0);
                                 return (
                                     <Card
-                                        key={php.id} title={php.name} status={php.status} gridCols="grid-cols-2 md:grid-cols-3"
+                                        key={php.id} title={
+                                            <div className="flex items-center gap-2">
+                                                <span>{php.name}</span>
+                                                {updateVer && <span className="bg-amber-500/10 dark:bg-amber-500/20 text-amber-600 dark:text-amber-500 text-[10px] uppercase font-bold px-1.5 py-0.5 rounded flex items-center gap-1" title={t('php.update_to', { version: updateVer.version })}><span className="material-symbols-outlined text-[12px]">upgrade</span> {t('php.update')}</span>}
+                                            </div>
+                                        } status={php.status} gridCols="grid-cols-2 md:grid-cols-3"
                                         dropdownActions={
                                             <>
                                                 <button type="button" onClick={() => window.pywebview?.api?.open_php_ini(php.version)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">{t('php.open_php_ini')}</button>
                                                 <button type="button" onClick={() => window.pywebview?.api?.open_php_dir(php.version)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">{t('php.open_directory')}</button>
                                                 <div className="border-t border-slate-200 dark:border-slate-700 my-1"></div>
+                                                {updateVer && (
+                                                    <button type="button" onClick={() => handleUpdatePhp(php, updateVer.version, updateVer.filename)} className="w-full text-left px-4 py-2 text-sm text-primary hover:bg-slate-100 dark:hover:bg-slate-700 font-medium">
+                                                        <span className="material-symbols-outlined text-[16px] align-text-bottom mr-1">upgrade</span>
+                                                        {t('php.update_to', { version: updateVer.version })}
+                                                    </button>
+                                                )}
                                                 <button type="button" onClick={() => handleConfirmUninstall(php)} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">{t('php.uninstall')}</button>
                                             </>
                                         }

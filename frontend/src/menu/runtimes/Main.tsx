@@ -29,6 +29,7 @@ interface EngineExternalInfo {
 interface EngineData {
     installed: boolean;
     version: string;
+    hasUpdate?: boolean;
     in_path: boolean;
     external: EngineExternalInfo;
 }
@@ -195,27 +196,33 @@ function RuntimesSubtitle({ isLoading, activeEnginesCount, t }: RuntimesSubtitle
 
 interface RuntimesHeaderActionsProps {
     readonly activeEngine: EngineData;
+    readonly hasUpdate?: boolean;
     readonly activeTab: RuntimeEngine;
     readonly isLoading: boolean;
     readonly onOpenInstall: () => void;
     readonly t: any;
 }
 
-function RuntimesHeaderActions({ activeEngine, activeTab, isLoading, onOpenInstall, t }: RuntimesHeaderActionsProps) {
-    // Warna "installed" (emerald) disamakan dengan InstallHeaderButton di tools/tunnels/Main.tsx --
-    // acuan tunggal untuk status ini. Sebelumnya tombol ini cuma pakai `disabled:bg-slate-400`
-    // (jadi abu-abu, bukan emerald) dan hover hardcoded `hover:bg-blue-600` (lihat docs/ui_consistency_guide.md §1).
+function RuntimesHeaderActions({ activeEngine, hasUpdate, activeTab, isLoading, onOpenInstall, t }: RuntimesHeaderActionsProps) {
+    if (activeEngine.installed && !hasUpdate) {
+        return (
+            <button type="button" disabled className="text-white text-sm font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2 shadow-sm bg-emerald-500 opacity-80 cursor-default whitespace-nowrap shrink-0">
+                <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                {t('common.installed') || 'Installed'}
+            </button>
+        );
+    }
     const colorClass = activeEngine.installed
-        ? 'bg-emerald-500 hover:bg-emerald-600 disabled:opacity-100 disabled:cursor-default border-transparent'
+        ? 'bg-amber-500 hover:bg-amber-600 border-transparent'
         : 'bg-primary hover:bg-primary/90 border border-transparent';
     return (
         <button type="button"
             onClick={onOpenInstall}
-            disabled={activeEngine.installed || isLoading}
+            disabled={isLoading}
             className={`text-white text-sm font-medium py-2 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-sm whitespace-nowrap shrink-0 ${colorClass}`}
         >
-            <span className="material-symbols-outlined text-[18px]">{activeEngine.installed ? 'check_circle' : 'add'}</span>
-            {activeEngine.installed ? t('runtimes.installed') : `${t('runtimes.add')}${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}`}
+            <span className="material-symbols-outlined text-[18px]">{activeEngine.installed ? 'upgrade' : 'add'}</span>
+            {activeEngine.installed ? t('runtimes.update_change_version') : `${t('runtimes.add')}${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}`}
         </button>
     );
 }
@@ -275,12 +282,63 @@ export default function RuntimesMain() {
                     api.get_go_status()
                 ]);
 
+                // Check updates
+                let nodeUpdate = false, pythonUpdate = false, javaUpdate = false, goUpdate = false;
+                
+                const compareVersions = (v1: string, v2: string) => {
+                    const p1 = v1.replace(/^v/i, '').replace(/^go/i, '').split(/[.-]/).map(Number);
+                    const p2 = v2.replace(/^v/i, '').replace(/^go/i, '').split(/[.-]/).map(Number);
+                    for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
+                        if ((p1[i] || 0) > (p2[i] || 0)) return 1;
+                        if ((p1[i] || 0) < (p2[i] || 0)) return -1;
+                    }
+                    return 0;
+                };
+
+                if (nodeStatus?.installed && nodeStatus.version) {
+                    const res = await api.get_available_node_versions();
+                    if (res?.status === 'success' && res.data?.length > 0) {
+                        const localNorm = nodeStatus.version.replace(/^v/i, '');
+                        const remoteNorm = res.data[0].value.replace(/^v/i, '');
+                        if (compareVersions(remoteNorm, localNorm) > 0) nodeUpdate = true;
+                    }
+                }
+                
+                if (goStatus?.installed && goStatus.version) {
+                    const res = await api.get_available_go_versions();
+                    if (res?.status === 'success' && res.data?.length > 0) {
+                        const localNorm = goStatus.version.replace(/^go/i, '');
+                        const remoteNorm = res.data[0].value.replace(/^go/i, '');
+                        if (compareVersions(remoteNorm, localNorm) > 0) goUpdate = true;
+                    }
+                }
+                
+                if (pythonStatus?.installed && pythonStatus.version) {
+                    const res = await api.get_available_python_versions();
+                    if (res?.status === 'success' && res.data?.length > 0) {
+                        const minM = pythonStatus.version.split('.').slice(0, 2).join('.');
+                        if (res.data.some((v: any) => v.value.startsWith(minM + '.') && v.value !== pythonStatus.version)) {
+                            pythonUpdate = true;
+                        }
+                    }
+                }
+                
+                if (javaStatus?.installed && javaStatus.version) {
+                    const res = await api.get_available_java_versions();
+                    if (res?.status === 'success' && res.data?.length > 0) {
+                        const minM = javaStatus.version.split('.').slice(0, 2).join('.');
+                        if (res.data.some((v: any) => v.value.startsWith(minM + '.') && v.value !== javaStatus.version)) {
+                            javaUpdate = true;
+                        }
+                    }
+                }
+
                 setRuntimeData(prev => ({
                     ...prev,
-                    node: { ...prev.node, ...nodeStatus },
-                    python: { ...prev.python, ...pythonStatus },
-                    java: { ...prev.java, ...javaStatus },
-                    go: { ...prev.go, ...goStatus }
+                    node: { ...prev.node, ...nodeStatus, hasUpdate: nodeUpdate },
+                    python: { ...prev.python, ...pythonStatus, hasUpdate: pythonUpdate },
+                    java: { ...prev.java, ...javaStatus, hasUpdate: javaUpdate },
+                    go: { ...prev.go, ...goStatus, hasUpdate: goUpdate }
                 }));
             }
         } catch (error){ console.error(error);
@@ -417,6 +475,7 @@ export default function RuntimesMain() {
                 actions={
                     <RuntimesHeaderActions
                         activeEngine={runtimeData[activeTab]}
+                        hasUpdate={runtimeData[activeTab].hasUpdate}
                         activeTab={activeTab}
                         isLoading={isLoading}
                         onOpenInstall={handleOpenInstall}
@@ -535,10 +594,10 @@ export default function RuntimesMain() {
                 isOpen={isNodeModalOpen && !isMinimized}
                 keepMounted={isProcessing}
                 onClose={() => isProcessing ? setIsMinimized(true) : setIsNodeModalOpen(false)}
-                title={`${t('runtimes.install_title')}Node.js`}
+                title={`${runtimeData.node.installed ? t('runtimes.update_title') : t('runtimes.install_title')}Node.js`}
                 icon="javascript"
                 onApply={handleInstallNodeSubmit}
-                applyText={isProcessing ? t('runtimes.installing_btn') : t('runtimes.install_engine_btn')}
+                applyText={isProcessing ? (runtimeData.node.installed ? t('runtimes.updating_btn') : t('runtimes.installing_btn')) : (runtimeData.node.installed ? t('runtimes.update_engine_btn') : t('runtimes.install_engine_btn'))}
                 isApplyDisabled={isProcessing}
             >
                 <div className={isProcessing ? "opacity-40 pointer-events-none transition-opacity" : ""}>
@@ -551,10 +610,10 @@ export default function RuntimesMain() {
                 isOpen={isPythonModalOpen && !isMinimized}
                 keepMounted={isProcessing}
                 onClose={() => isProcessing ? setIsMinimized(true) : setIsPythonModalOpen(false)}
-                title={`${t('runtimes.install_title')}Python`}
+                title={`${runtimeData.python.installed ? t('runtimes.update_title') : t('runtimes.install_title')}Python`}
                 icon="data_object"
                 onApply={handleInstallPythonSubmit}
-                applyText={isProcessing ? t('runtimes.installing_btn') : t('runtimes.install_engine_btn')}
+                applyText={isProcessing ? (runtimeData.python.installed ? t('runtimes.updating_btn') : t('runtimes.installing_btn')) : (runtimeData.python.installed ? t('runtimes.update_engine_btn') : t('runtimes.install_engine_btn'))}
                 isApplyDisabled={isProcessing}
             >
                 <div className={isProcessing ? "opacity-40 pointer-events-none transition-opacity" : ""}>
@@ -567,10 +626,10 @@ export default function RuntimesMain() {
                 isOpen={isJavaModalOpen && !isMinimized}
                 keepMounted={isProcessing}
                 onClose={() => isProcessing ? setIsMinimized(true) : setIsJavaModalOpen(false)}
-                title={`${t('runtimes.install_title')}Java (JDK)`}
+                title={`${runtimeData.java.installed ? t('runtimes.update_title') : t('runtimes.install_title')}Java (JDK)`}
                 icon="coffee"
                 onApply={handleInstallJavaSubmit}
-                applyText={isProcessing ? t('runtimes.installing_btn') : t('runtimes.install_engine_btn')}
+                applyText={isProcessing ? (runtimeData.java.installed ? t('runtimes.updating_btn') : t('runtimes.installing_btn')) : (runtimeData.java.installed ? t('runtimes.update_engine_btn') : t('runtimes.install_engine_btn'))}
                 isApplyDisabled={isProcessing}
             >
                 <div className={isProcessing ? "opacity-40 pointer-events-none transition-opacity" : ""}>
@@ -583,10 +642,10 @@ export default function RuntimesMain() {
                 isOpen={isGoModalOpen && !isMinimized}
                 keepMounted={isProcessing}
                 onClose={() => isProcessing ? setIsMinimized(true) : setIsGoModalOpen(false)}
-                title={`${t('runtimes.install_title')}Go Compiler`}
+                title={`${runtimeData.go.installed ? t('runtimes.update_title') : t('runtimes.install_title')}Go Compiler`}
                 icon="rocket_launch"
                 onApply={handleInstallGoSubmit}
-                applyText={isProcessing ? t('runtimes.installing_btn') : t('runtimes.install_engine_btn')}
+                applyText={isProcessing ? (runtimeData.go.installed ? t('runtimes.updating_btn') : t('runtimes.installing_btn')) : (runtimeData.go.installed ? t('runtimes.update_engine_btn') : t('runtimes.install_engine_btn'))}
                 isApplyDisabled={isProcessing}
             >
                 <div className={isProcessing ? "opacity-40 pointer-events-none transition-opacity" : ""}>

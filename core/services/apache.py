@@ -342,6 +342,12 @@ class ApacheManager:
 
     def install_version(self, version: str, download_url: str, http_port: int):
         if hasattr(self, 'api'): self.api.emit_log("backend.apache.download_start", "info", {"version": version})
+        
+        # Simpan info versi lama untuk migrasi konfigurasi
+        old_status = self.get_status()
+        old_version = old_status.get("version") if old_status.get("installed") else None
+        old_path = old_status.get("path") if old_status.get("installed") else None
+
         target_dir = os.path.join(self.base_dir, version)
         zip_path = os.path.join(self.base_dir, f"apache-{version}.zip")
         temp_extract_dir = os.path.join(self.base_dir, f"temp_{version}")
@@ -362,8 +368,21 @@ class ApacheManager:
                 
             self._move_apache_extract(temp_extract_dir, target_dir)
 
+            # Migrasi konfigurasi dari folder lama (jika ada)
+            if old_path and os.path.exists(os.path.join(old_path, "conf")):
+                shutil.copytree(os.path.join(old_path, "conf"), os.path.join(target_dir, "conf"), dirs_exist_ok=True)
+
             if hasattr(self, 'api'): self.api.emit_progress(80, "backend.apache.configuring")
             self._configure_httpd(target_dir, http_port)
+
+            # Auto-activate the newly installed version (ini akan otomatis me-restart server jika sedang menyala)
+            self.set_active_version(version)
+            
+            # Hapus folder versi lama (cleanup) setelah versi baru menyala
+            if old_path and old_path != target_dir and os.path.exists(old_path):
+                # Beri waktu sejenak agar proses httpd lama benar-benar mati di OS (mencegah PermissionError di Windows)
+                time.sleep(1)
+                shutil.rmtree(old_path, ignore_errors=True)
 
             if hasattr(self, 'api'):
                 self.api.emit_progress(100, "backend.apache.done")

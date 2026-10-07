@@ -2,7 +2,7 @@
 import { type ReactNode } from 'react';
 
 export interface CardProps {
-    readonly title: string;
+    readonly title: string | ReactNode;
     readonly status?: string | null; // Diubah menjadi string universal agar bisa menerima teks apapun
     readonly gridCols?: string;
     readonly dropdownActions?: ReactNode;

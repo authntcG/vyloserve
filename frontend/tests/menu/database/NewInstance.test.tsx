@@ -103,6 +103,35 @@ describe('NewDbInstance', () => {
         expect(screen.getByText('database.postgres_password_req')).toBeInTheDocument();
     });
 
+    it('ignores a stale engine fetch that resolves AFTER a newer one (out-of-order race)', async () => {
+        const user = userEvent.setup();
+        const postgresVersions = [{ name: 'PostgreSQL 16.15', version: '16.15', url: 'https://example.com/pg-16.15.zip' }];
+
+        let resolveMysql: (v: { status: string; data: typeof mysqlVersions }) => void;
+        const mysqlPromise = new Promise<{ status: string; data: typeof mysqlVersions }>((resolve) => { resolveMysql = resolve; });
+
+        const getAvailable = vi.fn()
+            .mockReturnValueOnce(mysqlPromise) // fetch awal saat mount (engineFamily='mysql'), sengaja digantung
+            .mockResolvedValueOnce({ status: 'success', data: postgresVersions }); // fetch setelah switch ke postgres, resolve duluan
+        mockPywebviewApi({ get_available_databases: getAvailable });
+        const { ref } = setup();
+
+        await user.click(screen.getByRole('button', { name: 'database.mysql_mariadb' }));
+        await user.click(screen.getByRole('option', { name: 'database.postgres' }));
+        await screen.findByText('PostgreSQL 16.15');
+
+        // fetch mysql yang tertunda BARU resolve sekarang, SETELAH postgres sudah tampil
+        resolveMysql!({ status: 'success', data: mysqlVersions });
+        await waitFor(() => expect(getAvailable).toHaveBeenCalledTimes(2));
+
+        // harus TETAP postgres -- respon mysql yang basi tidak boleh menimpa state
+        expect(screen.queryByText('MySQL 8.0')).not.toBeInTheDocument();
+        expect(screen.getByText('PostgreSQL 16.15')).toBeInTheDocument();
+        expect(ref.current?.getFormData()).toEqual({
+            engine: 'postgres', version: '16.15', url: 'https://example.com/pg-16.15.zip', port: 5432, rootPass: '',
+        });
+    });
+
     it('re-syncs engine and port when activeTab changes away from "all"', async () => {
         mockPywebviewApi({ get_available_databases: vi.fn().mockResolvedValue({ status: 'success', data: [] }) });
         const ref = createRef<NewDbInstanceRef>();

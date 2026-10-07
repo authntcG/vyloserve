@@ -265,6 +265,9 @@ class Api:
     def install_php(self, version: str, filename: str, port: int):
         return self.php.install_version(version, filename, int(port))
     
+    def update_php(self, old_version: str, new_version: str, filename: str):
+        return self.php.update_version(old_version, new_version, filename)
+
     def get_installed_php(self):
         return self.php.get_installed_instances()
     
@@ -435,6 +438,9 @@ class Api:
     def install_database(self, engine: str, version: str, url: str, port: int, root_pass: str):
         return self.database.install_database(engine, version, url, port, root_pass)
     
+    def update_database(self, db_id: str, new_version: str, url: str, backup_data: bool = False):
+        return self.database.update_database(db_id, new_version, url, backup_data)
+
     def uninstall_database(self, db_id: str, delete_data: bool = False):
         return self.database.uninstall_database(db_id, delete_data)
     

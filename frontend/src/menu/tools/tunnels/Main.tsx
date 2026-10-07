@@ -358,20 +358,28 @@ function TunnelOverviewCard({ title, description, icon, installed, notInstalledT
     );
 }
 
-function InstallHeaderButton({ installed, isLoading, label, onClick }: { readonly installed?: boolean; readonly isLoading: boolean; readonly label: string; readonly onClick: () => void }) {
+function InstallHeaderButton({ installed, hasUpdate, isLoading, label, onClick }: { readonly installed?: boolean; readonly hasUpdate?: boolean; readonly isLoading: boolean; readonly label: string; readonly onClick: () => void }) {
     const { t } = useTranslation();
+    if (installed && !hasUpdate) {
+        return (
+            <button type="button" disabled className="text-white text-sm font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2 shadow-sm bg-emerald-500 opacity-80 cursor-default">
+                <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                {t('common.installed') || 'Installed'}
+            </button>
+        );
+    }
     const colorClass = installed
-        ? 'bg-emerald-500 hover:bg-emerald-600 disabled:opacity-100 disabled:cursor-default border-transparent'
-        : 'bg-primary hover:bg-blue-600 border border-transparent';
+        ? 'bg-amber-500 hover:bg-amber-600 border-transparent'
+        : 'bg-primary hover:bg-primary/90 border border-transparent';
     return (
         <button type="button"
             onClick={onClick}
-            disabled={installed || isLoading}
+            disabled={isLoading}
             className={`text-white text-sm font-medium py-2 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-sm ${colorClass}`}>
             <span className="material-symbols-outlined text-[18px]">
-                {installed ? 'check_circle' : 'download'}
+                {installed ? 'upgrade' : 'download'}
             </span> 
-            {installed ? t('runtimes.installed') : label}
+            {installed ? t('tools.update_btn') : label}
         </button>
     );
 }
@@ -694,16 +702,14 @@ function TunnelsBody({ activeTab, zrokStatus, cfStatus, isZrokLoading, isCfLoadi
 
 
 
-function TunnelsInstallModal({ activeTab, isOpen, isInstalling, onClose, onApply, progress, progressText, cfInstallRef, zrokInstallRef }: any) {
+function TunnelsInstallModal({ activeTab, isOpen, isInstalling, onClose, onApply, progress, progressText, cfInstallRef, zrokInstallRef, installed }: any) {
     const { t } = useTranslation();
     
     let applyText = '';
     if (isInstalling) {
-        applyText = t('common.installing');
-    } else if (activeTab === 'cloudflare') {
-        applyText = t('tools.cloudflare.install_cloudflare');
+        applyText = installed ? t('tools.updating_btn') : t('common.installing');
     } else {
-        applyText = t('tools.zrok.install_zrok');
+        applyText = installed ? t('tools.update_btn') : (activeTab === 'cloudflare' ? t('tools.cloudflare.install_cloudflare') : t('tools.zrok.install_zrok'));
     }
     
     return (
@@ -711,7 +717,7 @@ function TunnelsInstallModal({ activeTab, isOpen, isInstalling, onClose, onApply
             isOpen={isOpen} 
             keepMounted={isInstalling} 
             onClose={onClose} 
-            title={activeTab === 'cloudflare' ? t('tools.cloudflare.install_cloudflare') : t('tools.zrok.install_zrok')} 
+            title={installed ? (t('tools.update_btn') + ' ' + (activeTab === 'cloudflare' ? 'Cloudflared' : 'zrok')) : (activeTab === 'cloudflare' ? t('tools.cloudflare.install_cloudflare') : t('tools.zrok.install_zrok'))} 
             icon="cloud_download" 
             onApply={onApply} 
             applyText={applyText} 
@@ -794,6 +800,37 @@ export default function TunnelsMain({ initialTab = 'all' }: { readonly initialTa
     
     const fetchData = () => { fetchZrokData(); fetchCfData(); };
     
+    const [zrokUpdateAvailable, setZrokUpdateAvailable] = useState(false);
+    const [cfUpdateAvailable, setCfUpdateAvailable] = useState(false);
+
+    useEffect(() => {
+        const checkUpdates = async () => {
+            if (zrokStatus?.installed && zrokStatus.version) {
+                try {
+                    const res = await window.pywebview?.api?.get_available_zrok_versions();
+                    if (res?.status === 'success' && res.data?.length > 0) {
+                        const localNorm = zrokStatus.version.replace(/^v/i, '');
+                        const remoteNorm = res.data[0].value.replace(/^v/i, '');
+                        if (remoteNorm !== localNorm && remoteNorm !== 'latest') setZrokUpdateAvailable(true);
+                        else setZrokUpdateAvailable(false);
+                    }
+                } catch (e) {}
+            }
+            if (cfStatus?.installed && cfStatus.version) {
+                try {
+                    const res = await window.pywebview?.api?.get_available_cloudflare_versions();
+                    if (res?.status === 'success' && res.data?.length > 0) {
+                        const localNorm = cfStatus.version.replace(/^v/i, '');
+                        const remoteNorm = res.data[0].value.replace(/^v/i, '');
+                        if (remoteNorm !== localNorm && remoteNorm !== 'latest') setCfUpdateAvailable(true);
+                        else setCfUpdateAvailable(false);
+                    }
+                } catch (e) {}
+            }
+        };
+        checkUpdates();
+    }, [zrokStatus?.installed, zrokStatus?.version, cfStatus?.installed, cfStatus?.version]);
+
     const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
     const [uninstallTarget, setUninstallTarget] = useState<'zrok' | 'cloudflare' | null>(null);
     const [isUninstalling, setIsUninstalling] = useState(false);
@@ -916,6 +953,7 @@ export default function TunnelsMain({ initialTab = 'all' }: { readonly initialTa
                     activeTab !== 'all' ? (
                         <InstallHeaderButton 
                             installed={activeTab === 'cloudflare' ? cfStatus?.installed : zrokStatus?.installed} 
+                            hasUpdate={activeTab === 'cloudflare' ? cfUpdateAvailable : zrokUpdateAvailable}
                             isLoading={activeTab === 'cloudflare' ? isCfLoading : isZrokLoading} 
                             label={activeTab === 'cloudflare' ? t('tools.cloudflare.install_cloudflare') : t('tools.zrok.install_zrok')}
                             onClick={openInstallModal} 
@@ -961,6 +999,7 @@ export default function TunnelsMain({ initialTab = 'all' }: { readonly initialTa
             />
 
             <TunnelsInstallModal 
+                installed={activeTab === 'cloudflare' ? cfStatus?.installed : zrokStatus?.installed}
                 activeTab={activeTab} 
                 isOpen={isInstallModalOpen} 
                 isInstalling={isInstalling} 

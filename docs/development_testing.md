@@ -55,6 +55,8 @@ tests/
 │                                          #   docs/known_bugs.md #19) — jalankan sebelum
 │                                          #   serah terima fitur apa pun yang menambah/
 │                                          #   mengubah pesan backend (message/log/progress)
+├── test_main.py                          # Unit test untuk main.py (class AppLifecycle,
+│                                          #   setup_systray) — lihat docs/backend_services.md §14.3
 ├── test_services/
 │   ├── test_apache.py                    # Unit test untuk core/services/apache.py
 │   ├── test_api.py                       # Unit test untuk core/api.py (Facade/Router)
@@ -189,6 +191,8 @@ frontend/
 │   ├── test-utils.tsx                # Helper bersama: mockPywebviewApi(), renderWithToast(), re-export RTL
 │   ├── i18n.test.ts                  # Smoke test src/i18n.ts asli (vi.unmock react-i18next) + parity penuh key en/id
 │   ├── components/                   # Mirror src/components/*.tsx
+│   ├── hooks/                        # Mirror src/hooks/*.ts (mis. useWindowPresence.test.ts)
+│   ├── utils/                        # Mirror src/utils/*.ts (mis. progress.test.ts, version.test.ts)
 │   └── menu/                         # Mirror src/menu/**/*.tsx (apache/, php/, database/, runtimes/, dashboard/, tools/)
 ├── tsconfig.test.json                # tsconfig khusus untuk src/ + tests/ (types vitest/globals, testing-library)
 └── vite.config.ts                    # blok `test: {...}` + `coverage: {...}` di sini
@@ -197,7 +201,7 @@ Pola: `tests/<mirror-struktur-src>/<NamaKomponen>.test.tsx`.
 
 Helper bersama ada di `tests/test-utils.tsx` (re-export semua dari `@testing-library/react` ditambah `mockPywebviewApi()` dan `renderWithToast()`) — **selalu pakai helper ini, jangan tulis ulang boilerplate mock `window.pywebview.api` atau `<ToastProvider>` wrapper di tiap file test**. Untuk sekelompok komponen yang bentuknya identik (mis. empat form `InstallGo/Java/Node/Python.tsx` yang sama-sama forwardRef + `submit()` + fetch-versions-on-mount), buat SATU factory function bersama (lihat `tests/menu/runtimes/installRuntimeTestKit.tsx`) lalu panggil dari tiap file test dengan config berbeda, dan gunakan `it.each`/`describe.each` untuk variasi data (lihat `tests/menu/database/Settings.test.tsx` untuk field MySQL/PostgreSQL, atau `tests/menu/runtimes/Main.test.tsx` untuk keempat engine). Pola ini WAJIB diikuti untuk suite test baru — proyek ini menjaga *new code duplication* SonarQube di bawah 3%, dan test suite yang tidak DRY adalah kontributor terbesar untuk duplication findings.
 
-Per audit test coverage (2026), seluruh `src/**/*.{ts,tsx}` frontend punya coverage statement **>95%** (~648 test case di 54 file test, per `npx vitest run` — angka ini bergerak seiring fitur baru ditambahkan; jalankan `npm run test:coverage` untuk laporan terbaru per file, jangan andalkan angka statis di dokumen ini). Beberapa baris tetap sengaja tidak dicover karena secara nyata *unreachable* lewat UI (mis. validasi `if (!x) return` di dalam handler yang tombol pemicunya sendiri sudah `disabled` oleh kondisi yang sama — pola berulang yang ditemukan di banyak form Modal proyek ini; lihat commit history test untuk contoh).
+Per audit test coverage (2026), seluruh `src/**/*.{ts,tsx}` frontend punya coverage statement **>95%** (~664 test case di 55 file test, per `npx vitest run` — angka ini bergerak seiring fitur baru ditambahkan; jalankan `npm run test:coverage` untuk laporan terbaru per file, jangan andalkan angka statis di dokumen ini). Beberapa baris tetap sengaja tidak dicover karena secara nyata *unreachable* lewat UI (mis. validasi `if (!x) return` di dalam handler yang tombol pemicunya sendiri sudah `disabled` oleh kondisi yang sama — pola berulang yang ditemukan di banyak form Modal proyek ini; lihat commit history test untuk contoh).
 
 > ✅ **Sudah diperbaiki:** Test `tests/components/Sidebar.test.tsx` ("opens the Tools dropdown and shows tool items when clicked...") sempat gagal deterministik — menguji interaksi dropdown "Tools" (klik untuk expand) yang ternyata sudah dihapus dari UI (menu Tools sekarang selalu tampil flat, tidak perlu diklik untuk dibuka). Test ditulis ulang untuk mencerminkan perilaku sebenarnya, plus satu test lain dengan pola `.closest('button')` serupa yang ternyata "lulus diam-diam tanpa menguji apa-apa" (`user.click(null!)` jadi no-op) juga dibersihkan. Diverifikasi 3x run `vitest run` berturut-turut tanpa kegagalan — indikasi *flakiness* yang sempat dilaporkan tidak muncul lagi setelah fix. Detail lengkap: `docs/known_bugs.md` #33.
 

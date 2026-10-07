@@ -4,7 +4,7 @@
 **VyloServe** adalah aplikasi desktop pengelola server lokal (mirip XAMPP/Laragon) yang mengatur modul seperti Apache, PHP, Database, serta berbagai Runtimes (Node.js, Python, Java, Go). Aplikasi ini dibuat menggunakan Python untuk backend (menjalankan command tingkat OS) dan React untuk antarmuka pengguna (UI) modern.
 
 ## 🛠️ Tech Stack
-- **Backend:** Python 3, `pywebview` (untuk Desktop GUI wrapper), `pystray` (untuk System Tray), psutil.
+- **Backend:** Python 3, `pywebview` (untuk Desktop GUI wrapper), `pystray` (untuk System Tray), `win11toast` (notifikasi native Windows), psutil.
 - **Frontend:** React 18, TypeScript, Vite, Tailwind CSS, `i18next` (untuk multi-bahasa).
 
 ## 📁 Struktur Folder Utama
@@ -22,7 +22,8 @@ vyloserve/
 │   │   ├── components/     # Reusable UI (Modal.tsx, PageHeader.tsx, dll)
 │   │   ├── locales/        # File terjemahan JSON (en & id)
 │   │   ├── menu/           # Halaman/Menu utama berdasarkan modul (apache, php, database, dll)
-│   │   ├── utils/          # Helper murni non-komponen (a11y.ts, progress.ts)
+│   │   ├── hooks/          # Custom hooks lintas-komponen (useWindowPresence.ts, dll)
+│   │   ├── utils/          # Helper murni non-komponen (a11y.ts, progress.ts, version.ts)
 │   │   └── App.tsx         # Routing & Layout Utama
 └── main.py                 # Entrypoint aplikasi (Setup window, Pywebview, & System Tray)
 ```
@@ -40,6 +41,7 @@ vyloserve/
    self.api.emit_log("backend.apache.starting", "info")
    self.api.emit_progress(50, "backend.apache.extracting")
    ```
+   Pola yang sama dipakai untuk status jendela OS-level yang tidak bisa dideteksi murni dari DOM (minimize/hide-to-tray) — `self.api.emit_window_state(minimized=True)` menembakkan event `vylo_window_state`, dikonsumsi frontend lewat hook `useWindowPresence.ts` (dikombinasikan dengan `document.hasFocus()` untuk status "tidak fokus", yang MEMANG bisa dideteksi murni dari DOM). Dipakai untuk menggerbangi notifikasi native Windows (`win11toast`, lewat `api.show_native_notification()`) supaya hanya tampil saat window benar-benar backgrounded. Detail lengkap: `docs/known_bugs.md` #45.
 
 ### 🚨 WAJIB: Kontrak Nilai `percent` di `emit_progress()`
 `percent` **selalu angka absolut 0-100**, bukan fraksi `0.0-1.0` — jangan pernah menulis kode yang mengalikan `percent` dengan rentang lain (`start + percent * span`) seolah ia fraksi. Frontend juga memperlakukan **`percent >= 100` atau `percent <= 0` sebagai sinyal "proses selesai total"** (memicu auto-hide widget progress) — **DILARANG** memanggil `emit_progress(100, ...)` untuk checkpoint di tengah alur multi-tahap, hanya untuk tahap paling akhir yang benar-benar tidak ada lanjutannya. Dua bug produksi nyata terjadi karena pelanggaran kontrak ini — lihat `docs/known_bugs.md` #16 dan #18.
@@ -72,7 +74,7 @@ Aturan "dilarang hardcode" di atas **tidak hanya berlaku untuk field `"message"`
 - Saat menyalin salah satu template di `docs/ai_development_guide.md` §5, **jangan** ikut menyalin pola `except Exception as e: return {"message": str(e)}` — gunakan key generik `"backend.error.unexpected"` dengan `"args": {"e": str(e)}`, atau key spesifik service (`"backend.<service>.xxx_error"`) jika sudah ada.
 
 ### 🎨 Sistem Tema (Theming)
-VyloServe punya 9 preset tema (`vyloserve-dark`/`-light`, Darcula, Solarized Dark/Light, High-Contrast Dark/Light, Monokai, Dracula, Nord), disimpan sebagai key `theme` di `data/settings.json` dan diterapkan lewat helper bersama `applyTheme(theme)` di `frontend/src/utils/theme.ts` (set atribut `data-theme` pada `<html>` + toggle class `dark` + override CSS variable per tema di `frontend/src/index.css`). Helper ini dipanggil dari 2 tempat — bootstrap awal di `App.tsx` dan `handleThemeChange()` di `SettingsModals.tsx` — **WAJIB** tetap lewat `applyTheme()`, jangan menduplikasi logika `dataset.theme`/class `dark` secara manual lagi di tempat baru mana pun. Detail lengkap (daftar preset, mekanisme `data-theme`, pola override CSS variable): `docs/frontend_ui.md` §2.1.
+VyloServe punya 10 preset tema (`vyloserve-dark`/`-light`, Darcula, Solarized Dark/Light, High-Contrast Dark/Light, Monokai, Dracula, Nord), disimpan sebagai key `theme` di `data/settings.json` dan diterapkan lewat helper bersama `applyTheme(theme)` di `frontend/src/utils/theme.ts` (set atribut `data-theme` pada `<html>` + toggle class `dark` + override CSS variable per tema di `frontend/src/index.css`). Helper ini dipanggil dari 2 tempat — bootstrap awal di `App.tsx` dan `handleThemeChange()` di `SettingsModals.tsx` — **WAJIB** tetap lewat `applyTheme()`, jangan menduplikasi logika `dataset.theme`/class `dark` secara manual lagi di tempat baru mana pun. Detail lengkap (daftar preset, mekanisme `data-theme`, pola override CSS variable): `docs/frontend_ui.md` §2.1.
 
 ## 📜 Coding Standards & Golden Rules untuk AI
 
@@ -85,7 +87,7 @@ VyloServe punya 9 preset tema (`vyloserve-dark`/`-light`, Darcula, Solarized Dar
 2. **Golden Standard UI:**
    Pola `PageHeader + SkeletonCard + EmptyState + Card + Modal` (fetch on mount → render 3-state loading/data/empty → handler aksi dengan toast+i18n) diterapkan konsisten di **Apache, PHP, Database, Runtimes, dan Git** — bukan eksklusif milik Apache/PHP. Jika membuat modul baru, ikuti struktur ini. Detail lengkap + diagram: `docs/frontend_ui.md` §5. Untuk halaman dengan banyak state bercabang (mis. multi-engine/multi-tab), lihat juga §5.1 di dokumen yang sama soal konvensi ekstraksi sub-komponen supaya *Cognitive Complexity* tetap rendah.
 3. **Graceful Exit:**
-   Penutupan aplikasi dikendalikan oleh variabel global `is_real_exit` di `main.py`. Menekan (X) pada window hanya akan menyembunyikan aplikasi ke System Tray (jika `IS_PRODUCTION=True`). Perintah mematikan total hanya lewat `api.close_app()` atau menu di System Tray.
+   Penutupan aplikasi dikendalikan oleh `AppLifecycle.is_real_exit` di `main.py`. Menekan (X) pada window hanya akan menyembunyikan aplikasi ke System Tray jika `ENABLE_TRAY=True` — flag ini **sengaja independen dari `IS_PRODUCTION`** (tray aktif juga di dev mode, supaya fitur hide-to-tray + notifikasi native bisa dites tanpa build `.exe`; `IS_PRODUCTION` sendiri murni mengontrol entrypoint dist/dev-server dan flag devtools). Kalau `ENABLE_TRAY=False`, menekan (X) langsung menutup aplikasi sepenuhnya apa pun nilai `IS_PRODUCTION`. Perintah mematikan total hanya lewat `api.close_app()` atau menu di System Tray.
 4. **Patching UI Component Props:**
    Ketika melakukan patch/edit terhadap React Hooks (*useEffect*, *useContext*, *useTranslation*), deklarasikan di baris paling atas fungsi komponen untuk mencegah pelanggaran urutan aturan eksekusi Hooks bawaan React.
 5. **🚨 WAJIB: Import CSS Pihak Ketiga Global Harus Pakai `layer()`:**

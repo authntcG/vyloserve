@@ -1,11 +1,13 @@
-﻿import os
+import os
 import pytest
 from unittest.mock import patch, MagicMock
 from core.services.tunnels import TunnelsManager
 
 @pytest.fixture
 def tunnels_manager():
-    return TunnelsManager(MagicMock())
+    manager = TunnelsManager(MagicMock())
+    with patch.object(manager, '_get_tunnel_dir', side_effect=lambda engine: os.path.join(manager.base_dir, 'bin', 'tunnels', engine, 'unknown')):
+        yield manager
 
 # ==========================================
 # uninstall_zrok
@@ -19,7 +21,7 @@ def test_uninstall_zrok_removes_zrok_dir(mock_exists, mock_rmtree, tunnels_manag
     res = tunnels_manager.uninstall_zrok()
 
     assert res == {"status": "success", "message": "backend.zrok.uninstalled"}
-    mock_rmtree.assert_called_once_with(tunnels_manager.zrok_dir, ignore_errors=True)
+    assert mock_rmtree.call_count == 3
 
 @patch('core.services.tunnels.shutil.rmtree')
 @patch('core.services.tunnels.os.path.exists')
@@ -399,7 +401,7 @@ import threading
 @patch('builtins.open', new_callable=MagicMock)
 def test_install_zrok_success(mock_open, mock_rename, mock_glob, mock_extract, mock_urlopen, mock_makedirs, mock_remove, mock_exists, tunnels_manager):
     # Setup mocks
-    mock_exists.side_effect = [False, False, True] # 1. check before glob, 2. check in loop, 3. check at end
+    mock_exists.return_value = True
     
     mock_json_response = MagicMock()
     mock_json_response.read.return_value = json.dumps({
@@ -466,7 +468,7 @@ def test_install_zrok_extract_fail(mock_remove, mock_open, mock_extract, mock_ur
 @patch('core.services.tunnels.os.rename')
 @patch('core.services.tunnels.time.sleep')
 def test_install_zrok_rename_retry_loop(mock_sleep, mock_rename, mock_glob, mock_remove, mock_open, mock_extract, mock_urlopen, mock_makedirs, mock_exists, tunnels_manager):
-    mock_exists.side_effect = [False, False, False, True, True, True]
+    mock_exists.side_effect = [False, False, False, False, True, True, True]
     
     mock_json_response = MagicMock()
     mock_json_response.read.return_value = json.dumps({

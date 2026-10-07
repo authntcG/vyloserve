@@ -33,6 +33,7 @@
 |--------------|----------------|-------------|
 | `get_php_versions()` | `get_php_versions()` | `php.get_versions()` |
 | `install_php(ver, filename, port)` | `install_php()` | `php.install_version()` |
+| `update_php(old_ver, new_ver, filename)` | `update_php()` | `php.update_version()` — frontend (`php/Main.tsx`) mengecek update tersedia otomatis di background (`fetchAvailableVersions()`, dibandingkan via `compareVersions()` dari `utils/version.ts`) dan menampilkan badge "Update" di judul kartu + tombol "Update to {versi}" di menu "...". Ini pola REFERENSI untuk badge+dropdown update — `database/Main.tsx` mengikutinya persis (lihat docs/known_bugs.md #51) |
 | `get_installed_php()` | `get_installed_php()` | `php.get_installed_instances()` |
 | `get_php_config(ver)` | `get_php_config()` | `php.get_config()` |
 | `save_php_config(ver, cfg, ext)` | `save_php_config()` | `php.save_config()` |
@@ -48,6 +49,7 @@
 | `get_installed_databases()` | `get_installed_databases()` | `database.get_installed()` |
 | `get_available_databases(engine)` | `get_available_databases()` | `database.get_available_versions()` |
 | `install_database(engine,ver,url,port,pass)` | `install_database()` | `database.install_database()` |
+| `update_database(db_id,new_version,url,backup_data?)` | `update_database()` | `database.update_database()` — download versi baru, backup data opsional, auto-rollback kalau gagal. Frontend (`database/Main.tsx`) mengikuti pola badge+dropdown `php/Main.tsx` persis (`checkForUpdates()`, sekali per engine unik, dibandingkan via `compareVersions()`), ditambah satu konfirmasi ekstra untuk pilihan backup sebelum update — satu-satunya beda dari PHP karena ini kemampuan nyata yang tidak dimiliki `update_php()` |
 | `uninstall_database(id, del_data)` | `uninstall_database()` | `database.uninstall_database()` |
 | `start_database(id)` | `start_database()` | `database.start_database()` |
 | `stop_database(id)` | `stop_database()` | `database.stop_database()` |
@@ -128,8 +130,8 @@
 | `start_download_update(asset_url, asset_name)` | `start_download_update()` | `updater.start_download_update()` (non-blocking, thread background) |
 | `install_update()` | `install_update()` | `updater.install_update()` |
 
-### Tunnels Endpoints (zrok)
-Fitur *public tunnel* berbasis [zrok](https://zrok.io) (OpenZiti) — expose project lokal/`localhost:port` apa pun ke internet. `TunnelsManager` tidak menyimpan state ke `data/*.json` sendiri (share aktif cuma disimpan in-memory di `self.active_shares`, hilang saat aplikasi restart); satu-satunya jejak persisten adalah field `tunnel_url` yang disisipkan ke record project terkait di `data/projects.json` saat share dimulai/dihentikan (lewat `Api.project`).
+### Tunnels Endpoints (zrok + Cloudflare)
+Fitur *public tunnel* — expose project lokal/`localhost:port` apa pun ke internet — mendukung **DUA provider** lewat satu `TunnelsManager`: [zrok](https://zrok.io) (OpenZiti, butuh `enable_zrok(token)` sekali sebelum bisa share) dan **Cloudflare Tunnel** (`cloudflared`, *quick tunnel* `*.trycloudflare.com` — TIDAK butuh token/akun, makanya tidak ada `enable_cloudflare`/`disable_cloudflare`). `TunnelsManager` tidak menyimpan state share ke `data/*.json` sendiri untuk provider manapun (share aktif disimpan in-memory di `self.active_shares`/`self.active_cloudflare_shares` masing-masing, hilang saat aplikasi restart); satu-satunya jejak persisten adalah field `tunnel_url` yang disisipkan ke record project terkait di `data/projects.json` saat share dimulai/dihentikan (lewat `Api.project`).
 
 | Endpoint (JS) | Handler Python | Delegasi ke |
 |--------------|----------------|-------------|
@@ -141,6 +143,12 @@ Fitur *public tunnel* berbasis [zrok](https://zrok.io) (OpenZiti) — expose pro
 | `disable_zrok()` | `disable_zrok()` | `tunnels.disable_zrok()` |
 | `start_zrok_share(project_id_or_'localhost:port')` | `start_zrok_share()` | `tunnels.start_zrok_share()` |
 | `stop_zrok_share(share_id)` | `stop_zrok_share()` | `tunnels.stop_zrok_share()` |
+| `get_available_cloudflare_versions()` | `get_available_cloudflare_versions()` | `tunnels.get_available_cloudflare_versions()` — fetch rilis dari GitHub API `cloudflare/cloudflared`, filter yang punya asset `cloudflared-windows-amd64.exe` |
+| `get_cloudflare_status()` | `get_cloudflare_status()` | `tunnels.get_cloudflare_status()` |
+| `install_cloudflare(version='latest')` | `install_cloudflare()` | `tunnels.install_cloudflare()` |
+| `uninstall_cloudflare()` | `uninstall_cloudflare()` | `tunnels.uninstall_cloudflare()` — turut menghentikan semua share Cloudflare aktif dulu |
+| `start_cloudflare_share(project_id_or_'localhost:port')` | `start_cloudflare_share()` | `tunnels.start_cloudflare_share()` — pola target sama persis `start_zrok_share()` |
+| `stop_cloudflare_share(share_id)` | `stop_cloudflare_share()` | `tunnels.stop_cloudflare_share()` |
 
 > ✅ **Sudah diperbaiki (sebelumnya dicatat di sini sebagai item belum diselesaikan):** Ke-7 handler delegasi di atas (selain `get_available_zrok_versions`) sempat ditulis dengan pola defensif `getattr(self, "tunnels").xxx() if hasattr(self, "tunnels") else {}` — sudah disederhanakan jadi `self.tunnels.xxx()` langsung, konsisten dengan seluruh delegasi lain di `core/api.py`.
 >
@@ -157,36 +165,38 @@ Fitur *public tunnel* berbasis [zrok](https://zrok.io) (OpenZiti) — expose pro
 ### Backend Files
 | File | Ukuran | Tanggung Jawab |
 |------|--------|----------------|
-| `core/api.py` | ~490 baris | Facade/Router — meneruskan semua panggilan JS ke manager; juga memiliki `start_log_watcher()`/`stop_log_watcher()` (thread background, bukan endpoint JS — lihat §1) |
-| `core/services/apache.py` | ~533 baris | Instalasi, konfigurasi, dan lifecycle httpd.exe; `tail_new_logs()`/`get_log_content()` untuk System Logs (lihat `docs/backend_services.md` §11); `get_http_port()` untuk resolusi port HTTP aktif (dipakai `TunnelsManager`) |
-| `core/services/php.py` | ~404 baris | Multi-version PHP-CGI, extensions, php.ini management |
-| `core/services/database.py` | ~690 baris | MySQL/MariaDB dan PostgreSQL daemon management; `tail_new_logs()`/`get_log_content()` untuk System Logs |
-| `core/services/project.py` | ~496 baris | VirtualHost, Composer, UAC hosts injection |
-| `core/services/runtimes_manager.py` | ~782 baris | Node, Python, Java, Go — Windows Registry PATH injection |
-| `core/services/git_manager.py` | ~362 baris | PortableGit installer dan PATH management |
+| `core/api.py` | ~590 baris | Facade/Router — meneruskan semua panggilan JS ke manager; juga memiliki `start_log_watcher()`/`stop_log_watcher()`, `emit_window_state()`, dan `show_native_notification()` (bukan endpoint JS yang dipanggil manual, kecuali yang terakhir — lihat §1) |
+| `core/services/apache.py` | ~555 baris | Instalasi, konfigurasi, dan lifecycle httpd.exe; `tail_new_logs()`/`get_log_content()` untuk System Logs (lihat `docs/backend_services.md` §11); `get_http_port()` untuk resolusi port HTTP aktif (dipakai `TunnelsManager`) |
+| `core/services/php.py` | ~438 baris | Multi-version PHP-CGI, extensions, php.ini management, `update_version()` |
+| `core/services/database.py` | ~780 baris | MySQL/MariaDB dan PostgreSQL daemon management; `tail_new_logs()`/`get_log_content()` untuk System Logs; `update_database()`; `_assert_installer_present()` (validasi biner hasil ekstraksi ada sebelum dieksekusi — lihat `docs/known_bugs.md` #52) |
+| `core/services/project.py` | ~510 baris | VirtualHost, Composer, UAC hosts injection |
+| `core/services/runtimes_manager.py` | ~841 baris | Node, Python, Java, Go — Windows Registry PATH injection |
+| `core/services/git_manager.py` | ~363 baris | PortableGit installer dan PATH management |
 | `core/services/ssl_manager.py` | ~101 baris | Root CA generation via OpenSSL |
 | `core/services/dashboard.py` | ~64 baris | CRUD konfigurasi dashboard (JSON) |
-| `core/services/settings.py` | ~75 baris | CRUD preferensi aplikasi (`language`, `theme`, `receive_prerelease_updates`, `enable_desktop_notifications`, `default_apache_install_location`, `system_log_levels`/`system_log_sources`) |
-| `core/services/updater.py` | ~237 baris | Auto-Updater: cek/unduh/pasang rilis baru dari GitHub Releases |
-| `core/services/tunnels.py` | ~500 baris | Public tunnel berbasis zrok (install/enable/disable/share) — lihat §1 "Tunnels Endpoints". Termasuk `_extract_zrok_public_url()`/`_parse_zrok_log_line()`/`_log_zrok_line()` (parsing output JSON `zrok.exe` v2 — lihat `docs/known_bugs.md` #35) |
+| `core/services/settings.py` | ~76 baris | CRUD preferensi aplikasi (`language`, `theme`, `receive_prerelease_updates`, `enable_desktop_notifications`, `default_apache_install_location`, `system_log_levels`/`system_log_sources`) |
+| `core/services/updater.py` | ~242 baris | Auto-Updater: cek/unduh/pasang rilis baru dari GitHub Releases |
+| `core/services/tunnels.py` | ~867 baris | Public tunnel — **dua provider**: zrok (install/enable/disable/share) DAN Cloudflare Tunnel (install/share, tanpa enable/disable karena *quick tunnel* tidak butuh token) — lihat §1 "Tunnels Endpoints". Termasuk `_extract_zrok_public_url()`/`_parse_zrok_log_line()` (parsing output JSON `zrok.exe` v2 — lihat `docs/known_bugs.md` #35) dan `_extract_cloudflare_public_url()` setara untuk `cloudflared.exe` |
 | `core/utils/file_utils.py` | ~291 baris | JSON I/O, download multi-part, ekstraksi ZIP/TAR, `read_log_tail()`/`read_new_lines()` untuk System Logs |
 | `core/utils/system_utils.py` | ~102 baris | subprocess silent, port checker, path resolver |
-| `main.py` | ~279 baris | Entrypoint: PyWebView window, single-instance lock via OS Mutex (`check_single_instance()`), System Tray setup, tema-aware `background_color` window (`get_theme_bg_color()` baca `data/settings.json`), `APP_VERSION` |
+| `main.py` | ~311 baris | Entrypoint: PyWebView window, single-instance lock via OS Mutex (`check_single_instance()`), System Tray setup (`ENABLE_TRAY`, independen dari `IS_PRODUCTION` — lihat AGENTS.md §Graceful Exit), tema-aware `background_color` window (`get_theme_bg_color()` baca `data/settings.json`), `APP_VERSION` |
 
 ### Frontend Files (Halaman Utama)
 | File | Ukuran | Konten |
 |------|--------|--------|
-| `menu/dashboard/Main.tsx` | ~860 baris | ⚠️ File terbesar — Dashboard cards, hardware monitor |
-| `menu/runtimes/Main.tsx` | ~620 baris | Runtime cards (Node, Python, Java, Go) |
-| `menu/tools/git/Main.tsx` | ~434 baris | Git manager UI |
-| `menu/apache/Main.tsx` | ~507 baris | Apache server UI (Golden Standard) |
-| `menu/apache/NewProject.tsx` | ~467 baris | Form buat proyek baru |
-| `menu/database/Main.tsx` | ~332 baris | Database instance cards |
-| `menu/tools/base64-encode-decode/Main.tsx` | ~298 baris | UI alat Base64 Encode/Decode (Client-side) |
-| `menu/tools/url-encode-decode/Main.tsx` | ~161 baris | UI alat URL Encode/Decode (Client-side) |
-| `menu/tools/qr-generator/Main.tsx` | ~283 baris | UI alat QR Generator (Client-side) |
-| `menu/tools/settings/SettingsModals.tsx` | ~638 baris | **Satu modal bertab** (General/Logs/Updates/About) — bukan lagi beberapa modal terpisah, lihat `docs/known_bugs.md` untuk histori redesign-nya |
-| `menu/tools/tunnels/Main.tsx` + `InstallZrok.tsx` | - | UI tunnel publik berbasis zrok (lihat §1 "Tunnels Endpoints"); deskripsi detail ada di `docs/frontend_ui.md` §14 |
+| `menu/tools/tunnels/Main.tsx` | ~1023 baris | ⚠️ File terbesar — UI tunnel publik, **dua provider** (zrok + Cloudflare, lihat §1 "Tunnels Endpoints"); deskripsi detail ada di `docs/frontend_ui.md` §14 |
+| `menu/dashboard/Main.tsx` | ~855 baris | Dashboard cards, hardware monitor |
+| `menu/runtimes/Main.tsx` | ~655 baris | Runtime cards (Node, Python, Java, Go) |
+| `menu/tools/settings/SettingsModals.tsx` | ~665 baris | **Satu modal bertab** (General/Logs/Updates/About) — bukan lagi beberapa modal terpisah, lihat `docs/known_bugs.md` untuk histori redesign-nya |
+| `menu/apache/Main.tsx` | ~515 baris | Apache server UI (Golden Standard) |
+| `menu/apache/NewProject.tsx` | ~476 baris | Form buat proyek baru |
+| `menu/database/Main.tsx` | ~470 baris | Database instance cards; badge+dropdown "Update" mengikuti pola PHP (lihat §1 "Database Endpoints") |
+| `menu/tools/git/Main.tsx` | ~470 baris | Git manager UI |
+| `menu/php/Main.tsx` | ~300 baris | PHP instance cards (Golden Standard untuk pola badge+dropdown "Update", lihat §1 "PHP Endpoints") |
+| `menu/tools/qr-generator/Main.tsx` | ~320 baris | UI alat QR Generator (Client-side) |
+| `menu/tools/base64-encode-decode/Main.tsx` | ~310 baris | UI alat Base64 Encode/Decode (Client-side) |
+| `menu/tools/url-encode-decode/Main.tsx` | ~175 baris | UI alat URL Encode/Decode (Client-side) |
+| `menu/tools/tunnels/InstallTunnel.tsx` | ~105 baris | Form instalasi tunnel generik (bukan `InstallZrok.tsx` — nama lama sebelum dukungan Cloudflare ditambahkan, komponennya sudah dibuat provider-agnostic) |
 
 ---
 
@@ -544,6 +554,11 @@ DatabaseManager
 RuntimesManager / GitManager
  └── Menulis ke Windows Registry: HKCU\Environment\Path (+ JAVA_HOME khusus Java)
  └── TIDAK bergantung service lain
+
+TunnelsManager (zrok + Cloudflare)
+ └── Memanggil ApacheManager.get_http_port() untuk resolusi port HTTP aktif saat share target 'localhost:port' tidak eksplisit
+ └── Memanggil ProjectManager._read_projects()/_save_projects() LANGSUNG (method privat, bukan lewat API publik ProjectManager) untuk menulis/menghapus field tunnel_url saat share dimulai/dihentikan, lalu ProjectManager.sync_apache_vhosts() untuk refresh vhost
+ └── Membaca/menulis: data/projects.json (tidak langsung — lewat ProjectManager, lihat di atas); TIDAK punya file JSON sendiri (share aktif in-memory saja, self.active_shares/self.active_cloudflare_shares)
 ```
 
 > Diagram lengkap (graph TD) dependency di atas tersedia di `docs/backend_services.md` §1.

@@ -220,9 +220,18 @@ describe('DatabaseMain', () => {
 
     it('installs a new instance with the selected version and shows the progress widget while installing', async () => {
         const user = userEvent.setup();
-        const install = vi.fn().mockResolvedValue({ status: 'success' });
+        let resolveInstall: any;
+        const install = vi.fn().mockImplementation(() => new Promise(res => { resolveInstall = res; }));
+        // Regresi: list database baru WAJIB ter-refresh begitu install_database() resolve sukses --
+        // sebelumnya refresh-nya cuma dipicu dari sisi lain (event vylo_progress mencapai 100%),
+        // bukan dari respons await install_database() itu sendiri. Kalau event progress akhir tidak
+        // sempat "pas" 100% (race/urutan event), list tidak pernah ter-refresh meski instalasi
+        // backend sebenarnya sukses -- database baru "menghilang" dari UI. Lihat docs/known_bugs.md.
+        const getInstalled = vi.fn()
+            .mockResolvedValueOnce(apiWithDbs([]))
+            .mockResolvedValue(apiWithDbs([mysqlDb]));
         mockPywebviewApi({
-            get_installed_databases: vi.fn().mockResolvedValue(apiWithDbs([])),
+            get_installed_databases: getInstalled,
             get_available_databases: vi.fn().mockResolvedValue({ status: 'success', data: [{ name: 'MySQL 8.0', version: '8.0', url: 'https://example.com/mysql-8.0.zip' }] }),
             check_port_in_use: vi.fn().mockResolvedValue(false),
             install_database: install,
@@ -239,7 +248,19 @@ describe('DatabaseMain', () => {
         act(() => {
             window.dispatchEvent(new CustomEvent('vylo_progress', { detail: { source: 'DatabaseManager', percent: 50, text: 'database.downloading' } }));
         });
-        expect(await screen.findByText('database.downloading')).toBeInTheDocument();
+        expect(await screen.findByText(/database\.downloading/i)).toBeInTheDocument();
+
+        act(() => {
+            resolveInstall({ status: 'success' });
+        });
+
+        // Wait for it to close
+        await waitFor(() => expect(screen.queryByText(/database\.downloading/i)).not.toBeInTheDocument());
+
+        // Inti dari regresi ini: database yang baru selesai diinstal benar-benar
+        // MUNCUL di list (bukan cuma widget progress-nya yang tertutup).
+        expect(getInstalled).toHaveBeenCalledTimes(2);
+        expect(await screen.findByText('MySQL')).toBeInTheDocument();
     });
 
     it('blocks installation with a toast when the chosen port is already in use locally', async () => {
@@ -495,5 +516,153 @@ describe('DatabaseMain', () => {
             window.dispatchEvent(new CustomEvent('vylo_progress', { detail: { source: 'DatabaseManager', percent: -1 } }));
         });
         expect(screen.queryByText('Still finishing...')).not.toBeInTheDocument();
+    });
+
+    // ==========================================
+    // Cek & eksekusi update versi engine per-instance
+    // ==========================================
+
+    it('shows an "Update" badge next to the instance name when a newer engine version exists', async () => {
+        mockPywebviewApi({
+            get_installed_databases: vi.fn().mockResolvedValue(apiWithDbs([mysqlDb])),
+            get_available_databases: vi.fn().mockResolvedValue({ status: 'success', data: [{ version: '8.1', url: 'https://example.com/mysql-8.1.zip', name: 'MariaDB 8.1' }] }),
+        });
+        renderWithToast(<DatabaseMain />);
+
+        // Badge di title kartu (pola sama persis dengan updateVer di php/Main.tsx) -- aksi
+        // update sendiri ada sebagai item menu dropdown "Update to {{version}}", bukan tombol
+        // langsung di badge-nya.
+        expect(await screen.findByText('database.update')).toBeInTheDocument();
+        expect(screen.getByText('database.update_to')).toBeInTheDocument();
+    });
+
+    it('does not show the update badge when the installed version already matches the latest available version', async () => {
+        mockPywebviewApi({
+            get_installed_databases: vi.fn().mockResolvedValue(apiWithDbs([mysqlDb])),
+            get_available_databases: vi.fn().mockResolvedValue({ status: 'success', data: [{ version: mysqlDb.version, url: 'https://example.com/mysql-8.0.zip', name: 'MariaDB 8.0' }] }),
+        });
+        renderWithToast(<DatabaseMain />);
+
+        await screen.findByText('MySQL');
+        expect(screen.queryByText('database.update')).not.toBeInTheDocument();
+        expect(screen.queryByText('database.update_to')).not.toBeInTheDocument();
+    });
+
+    it('does not show the update badge when the installed version is NEWER than the latest reported (compareVersions, not string inequality)', async () => {
+        // Regresi: perbandingan versi WAJIB pakai compareVersions() (numerik per-segmen),
+        // bukan string inequality -- "8.0" vs "8.10" secara leksikografis TIDAK sama, tapi
+        // "8.10" bukan versi lebih baru dari mis. "8.9". Di sini instance sudah di versi
+        // yang LEBIH BARU dari yang dilaporkan "tersedia" -- tidak boleh muncul badge.
+        mockPywebviewApi({
+            get_installed_databases: vi.fn().mockResolvedValue(apiWithDbs([{ ...mysqlDb, version: '8.10' }])),
+            get_available_databases: vi.fn().mockResolvedValue({ status: 'success', data: [{ version: '8.9', url: 'https://example.com/mysql-8.9.zip', name: 'MariaDB 8.9' }] }),
+        });
+        renderWithToast(<DatabaseMain />);
+
+        await screen.findByText('MySQL');
+        expect(screen.queryByText('database.update')).not.toBeInTheDocument();
+    });
+
+    it('checks for updates once per unique engine, not once per instance', async () => {
+        const getAvailable = vi.fn().mockResolvedValue({ status: 'success', data: [{ version: '8.1', url: 'https://example.com/mysql-8.1.zip', name: 'MariaDB 8.1' }] });
+        mockPywebviewApi({
+            // Dua instance MySQL -- harus cukup SATU panggilan get_available_databases('mysql'),
+            // bukan dua (lihat checkForUpdates() di Main.tsx: Array.from(new Set(engines))).
+            get_installed_databases: vi.fn().mockResolvedValue(apiWithDbs([mysqlDb, { ...mysqlDb, id: 'db_3', name: 'MySQL 2', port: 3307 }])),
+            get_available_databases: getAvailable,
+        });
+        renderWithToast(<DatabaseMain />);
+
+        await waitFor(() => expect(screen.getAllByText('database.update')).toHaveLength(2));
+        expect(getAvailable).toHaveBeenCalledTimes(1);
+        expect(getAvailable).toHaveBeenCalledWith('mysql');
+    });
+
+    it('updates an installed instance through the confirm + backup-choice flow, with backup enabled', async () => {
+        const user = userEvent.setup();
+        const updateDb = vi.fn().mockResolvedValue({ status: 'success', message: 'database.update_success', args: {} });
+        const getInstalled = vi.fn()
+            .mockResolvedValueOnce(apiWithDbs([mysqlDb]))
+            .mockResolvedValue(apiWithDbs([{ ...mysqlDb, version: '8.1' }]));
+        mockPywebviewApi({
+            get_installed_databases: getInstalled,
+            get_available_databases: vi.fn().mockResolvedValue({ status: 'success', data: [{ version: '8.1', url: 'https://example.com/mysql-8.1.zip', name: 'MariaDB 8.1' }] }),
+            update_database: updateDb,
+        });
+        renderWithToast(<DatabaseMain />);
+
+        await screen.findByText('database.update');
+        await user.click(screen.getByText('database.update_to'));
+
+        expect(await screen.findByText('database.confirm_update')).toBeInTheDocument();
+        await user.click(screen.getByText('database.yes_update'));
+
+        expect(await screen.findByText('database.backup_data_title')).toBeInTheDocument();
+        await user.click(screen.getByText('database.yes_backup'));
+
+        expect(updateDb).toHaveBeenCalledWith('db_1', '8.1', 'https://example.com/mysql-8.1.zip', true);
+        expect(await screen.findByText('database.update_success')).toBeInTheDocument();
+    });
+
+    it('updates without a backup when the user chooses "No, Skip Backup"', async () => {
+        const user = userEvent.setup();
+        const updateDb = vi.fn().mockResolvedValue({ status: 'success', message: 'database.update_success', args: {} });
+        mockPywebviewApi({
+            get_installed_databases: vi.fn().mockResolvedValue(apiWithDbs([mysqlDb])),
+            get_available_databases: vi.fn().mockResolvedValue({ status: 'success', data: [{ version: '8.1', url: 'https://example.com/mysql-8.1.zip', name: 'MariaDB 8.1' }] }),
+            update_database: updateDb,
+        });
+        renderWithToast(<DatabaseMain />);
+
+        await screen.findByText('database.update');
+        await user.click(screen.getByText('database.update_to'));
+        await screen.findByText('database.confirm_update');
+        await user.click(screen.getByText('database.yes_update'));
+        await screen.findByText('database.backup_data_title');
+        await user.click(screen.getByText('database.no_backup'));
+
+        expect(updateDb).toHaveBeenCalledWith('db_1', '8.1', 'https://example.com/mysql-8.1.zip', false);
+    });
+
+    it('aborts the update entirely (never calls update_database) when the user cancels the initial confirm step', async () => {
+        const user = userEvent.setup();
+        const updateDb = vi.fn();
+        mockPywebviewApi({
+            get_installed_databases: vi.fn().mockResolvedValue(apiWithDbs([mysqlDb])),
+            get_available_databases: vi.fn().mockResolvedValue({ status: 'success', data: [{ version: '8.1', url: 'https://example.com/mysql-8.1.zip', name: 'MariaDB 8.1' }] }),
+            update_database: updateDb,
+        });
+        renderWithToast(<DatabaseMain />);
+
+        await screen.findByText('database.update');
+        await user.click(screen.getByText('database.update_to'));
+        await screen.findByText('database.confirm_update');
+        await user.click(screen.getByText('database.cancel_update'));
+
+        await waitFor(() => expect(screen.queryByText('database.confirm_update')).not.toBeInTheDocument());
+        expect(screen.queryByText('database.backup_data_title')).not.toBeInTheDocument();
+        expect(updateDb).not.toHaveBeenCalled();
+    });
+
+    it('shows an error toast and keeps the update badge when update_database fails', async () => {
+        const user = userEvent.setup();
+        const updateDb = vi.fn().mockResolvedValue({ status: 'error', message: 'database.update_failed_rollback', args: {} });
+        mockPywebviewApi({
+            get_installed_databases: vi.fn().mockResolvedValue(apiWithDbs([mysqlDb])),
+            get_available_databases: vi.fn().mockResolvedValue({ status: 'success', data: [{ version: '8.1', url: 'https://example.com/mysql-8.1.zip', name: 'MariaDB 8.1' }] }),
+            update_database: updateDb,
+        });
+        renderWithToast(<DatabaseMain />);
+
+        await screen.findByText('database.update');
+        await user.click(screen.getByText('database.update_to'));
+        await screen.findByText('database.confirm_update');
+        await user.click(screen.getByText('database.yes_update'));
+        await screen.findByText('database.backup_data_title');
+        await user.click(screen.getByText('database.yes_backup'));
+
+        expect(await screen.findByText('database.update_failed_rollback')).toBeInTheDocument();
+        // Badge tetap ada -- instance belum berhasil di-update, jadi aksi update harus bisa dicoba lagi.
+        expect(screen.getByText('database.update')).toBeInTheDocument();
     });
 });

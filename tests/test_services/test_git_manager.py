@@ -20,7 +20,7 @@ def test_git_get_status(mock_run, git_manager):
             with patch.object(git_manager, '_is_in_user_path', return_value=True):
                 res = git_manager.get_git_status()
                 assert res['installed'] is True
-                assert res['version'] == '2.45.1.windows.1'
+                assert res['version'] == '2.45.1.1'
 
 @patch('core.services.git_manager.subprocess.run')
 @patch('core.services.git_manager.winreg.OpenKey')

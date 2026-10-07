@@ -14,6 +14,10 @@ function runtimesApi(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
         get_python_status: vi.fn().mockResolvedValue(notInstalled),
         get_java_status: vi.fn().mockResolvedValue(notInstalled),
         get_go_status: vi.fn().mockResolvedValue(notInstalled),
+        get_available_node_versions: vi.fn().mockResolvedValue({ status: 'success', data: [] }),
+        get_available_python_versions: vi.fn().mockResolvedValue({ status: 'success', data: [] }),
+        get_available_java_versions: vi.fn().mockResolvedValue({ status: 'success', data: [] }),
+        get_available_go_versions: vi.fn().mockResolvedValue({ status: 'success', data: [] }),
         ...overrides,
     };
 }
@@ -75,7 +79,7 @@ describe('RuntimesMain', () => {
         renderWithToast(<RuntimesMain />);
 
         expect(await screen.findByText('Node.js (VyloServe)')).toBeInTheDocument();
-        expect(screen.getByText('runtimes.installed').closest('button')).toBeDisabled();
+        expect(screen.getByText('common.installed').closest('button')).toBeDisabled();
     });
 
     it('shows the locked external-native card for Node.js when detected but not installed', async () => {
