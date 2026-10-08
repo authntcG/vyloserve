@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useAlert } from '../../../components/AlertContext';
 
 import { useTranslation } from 'react-i18next';
 import { useToast } from '../../../components/ToastContext';
@@ -331,15 +332,26 @@ function useInstallProgress(t: any, onFinished: () => void) {
 // PRESENTATIONAL SUB-COMPONENTS
 // ----------------------------------------------------------------------------
 
-function TunnelOverviewCard({ title, description, icon, installed, notInstalledText, onManage, onUninstall }: { readonly title: string; readonly description: string; readonly icon: string; readonly installed: boolean; readonly notInstalledText: string; readonly onManage: () => void; readonly onUninstall: () => void; }) {
+function TunnelOverviewCard({ title, description, icon, installed, notInstalledText, onManage, onUninstall, updateAvailable, onUpdate }: { readonly title: string; readonly description: string; readonly icon: string; readonly installed: boolean; readonly notInstalledText: string; readonly onManage: () => void; readonly onUninstall: () => void; readonly updateAvailable?: string | null; readonly onUpdate?: () => void; }) {
     const { t } = useTranslation();
     return (
-        <Card title={title} status={installed ? t('runtimes.installed') : notInstalledText} gridCols="grid-cols-1"
+        <Card
+            title={title}
+            status={updateAvailable ? null : installed ? t('runtimes.installed') : notInstalledText}
+            updateVersion={updateAvailable || null}
+            gridCols="grid-cols-1"
             dropdownActions={
                 installed ? (
-                    <button type="button" onClick={onUninstall} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors">
-                        {t('common.uninstall')}
-                    </button>
+                    <>
+                        {updateAvailable && onUpdate && (
+                            <button type="button" onClick={onUpdate} className="w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors">
+                                {t('ui.update.update_to_target', { version: updateAvailable })}
+                            </button>
+                        )}
+                        <button type="button" onClick={onUninstall} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors">
+                            {t('common.uninstall')}
+                        </button>
+                    </>
                 ) : undefined
             }
         >
@@ -358,9 +370,9 @@ function TunnelOverviewCard({ title, description, icon, installed, notInstalledT
     );
 }
 
-function InstallHeaderButton({ installed, hasUpdate, isLoading, label, onClick }: { readonly installed?: boolean; readonly hasUpdate?: boolean; readonly isLoading: boolean; readonly label: string; readonly onClick: () => void }) {
+function InstallHeaderButton({ installed, isLoading, label, onClick }: { readonly installed?: boolean; readonly isLoading: boolean; readonly label: string; readonly onClick: () => void }) {
     const { t } = useTranslation();
-    if (installed && !hasUpdate) {
+    if (installed) {
         return (
             <button type="button" disabled className="text-white text-sm font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2 shadow-sm bg-emerald-500 opacity-80 cursor-default">
                 <span className="material-symbols-outlined text-[18px]">check_circle</span>
@@ -368,18 +380,13 @@ function InstallHeaderButton({ installed, hasUpdate, isLoading, label, onClick }
             </button>
         );
     }
-    const colorClass = installed
-        ? 'bg-amber-500 hover:bg-amber-600 border-transparent'
-        : 'bg-primary hover:bg-primary/90 border border-transparent';
     return (
         <button type="button"
             onClick={onClick}
             disabled={isLoading}
-            className={`text-white text-sm font-medium py-2 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-sm ${colorClass}`}>
-            <span className="material-symbols-outlined text-[18px]">
-                {installed ? 'upgrade' : 'download'}
-            </span> 
-            {installed ? t('tools.update_btn') : label}
+            className={`text-white text-sm font-medium py-2 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-sm bg-primary hover:bg-primary/90 border border-transparent`}>
+            <span className="material-symbols-outlined text-[18px]">download</span> 
+            {label}
         </button>
     );
 }
@@ -391,13 +398,25 @@ function TabButton({ active, label, onClick }: { readonly active: boolean; reado
     );
 }
 
-function EngineCard({ title, uninstallText, version, onUninstall }: { readonly title: string; readonly uninstallText: string; readonly version?: string; readonly onUninstall: () => void }) {
+function EngineCard({ title, uninstallText, version, onUninstall, updateAvailable, onUpdate }: { readonly title: string; readonly uninstallText: string; readonly version?: string; readonly onUninstall: () => void; readonly updateAvailable?: string | null; readonly onUpdate?: () => void; }) {
     const { t } = useTranslation();
     return (
-        <Card title={title} status={t('runtimes.installed')} gridCols="grid-cols-1" dropdownActions={
-            <button type="button" onClick={onUninstall} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors">
-                {uninstallText}
-            </button>
+        <Card
+            title={title}
+            status={updateAvailable ? null : t('runtimes.installed')}
+            updateVersion={updateAvailable || null}
+            gridCols="grid-cols-1"
+            dropdownActions={
+            <>
+                {updateAvailable && onUpdate && (
+                    <button type="button" onClick={onUpdate} className="w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors">
+                        {t('ui.update.update_to_target', { version: updateAvailable })}
+                    </button>
+                )}
+                <button type="button" onClick={onUninstall} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors">
+                    {uninstallText}
+                </button>
+            </>
         }>
             <div className="flex flex-col gap-1 w-full min-w-0">
                 <span className="text-xs font-medium text-slate-500 uppercase">{t('runtimes.installed_version')}</span>
@@ -595,14 +614,16 @@ interface ZrokSectionsProps {
     readonly account: EnableFormProps & { readonly onDisable: () => void };
     readonly share: Omit<ShareCardProps, 'projects'>;
     readonly onUninstall: () => void;
+    readonly updateAvailable?: string | null;
+    readonly onUpdate?: () => void;
     readonly onStopShare: (shareId: string) => void;
 }
 
-function ZrokSections({ status, projects, account, share, onUninstall, onStopShare }: ZrokSectionsProps) {
+function ZrokSections({ status, projects, account, share, onUninstall, onStopShare, updateAvailable, onUpdate }: ZrokSectionsProps) {
     const { t } = useTranslation();
     return (
         <div className="flex flex-col gap-6">
-            {status.installed && <EngineCard title={t('tools.zrok.engine_card_title')} uninstallText={t('tools.zrok.uninstall')} version={status.version} onUninstall={onUninstall} />}
+            {status.installed && <EngineCard title={t('tools.zrok.engine_card_title')} uninstallText={t('tools.zrok.uninstall')} version={status.version} onUninstall={onUninstall} updateAvailable={updateAvailable} onUpdate={onUpdate} />}
             {status.installed && <ZrokAccountCard status={status} {...account} />}
             {status.enabled && (
                 <div className="flex flex-col gap-6">
@@ -618,6 +639,8 @@ interface TunnelsBodyProps extends Omit<ZrokSectionsProps, 'status'> {
     readonly activeTab: ActiveTab;
     readonly zrokStatus: ZrokStatus | null;
     readonly cfStatus: CloudflareStatus | null;
+    readonly zrokUpdateAvailable: string | null;
+    readonly cfUpdateAvailable: string | null;
     readonly isZrokLoading: boolean;
     readonly isCfLoading: boolean;
     readonly onInstallClick: () => void;
@@ -627,7 +650,7 @@ interface TunnelsBodyProps extends Omit<ZrokSectionsProps, 'status'> {
     readonly cfShare: Omit<ShareCardProps, 'projects'>;
 }
 
-function AllTunnelsTab({ zrokStatus, cfStatus, onTabSwitch, onZrokUninstall, onCfUninstall }: any) {
+function AllTunnelsTab({ zrokStatus, cfStatus, zrokUpdateAvailable, cfUpdateAvailable, onUpdateClick, onTabSwitch, onZrokUninstall, onCfUninstall }: any) {
     const { t } = useTranslation();
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-2">
@@ -639,6 +662,8 @@ function AllTunnelsTab({ zrokStatus, cfStatus, onTabSwitch, onZrokUninstall, onC
                 notInstalledText={t('tools.zrok.not_installed_title')}
                 onManage={() => onTabSwitch('zrok')} 
                 onUninstall={onZrokUninstall} 
+                updateAvailable={zrokUpdateAvailable}
+                onUpdate={() => onUpdateClick('zrok', zrokUpdateAvailable)}
             />
             <TunnelOverviewCard 
                 title="Cloudflare" 
@@ -648,12 +673,14 @@ function AllTunnelsTab({ zrokStatus, cfStatus, onTabSwitch, onZrokUninstall, onC
                 notInstalledText={t('tools.cloudflare.not_installed_title')}
                 onManage={() => onTabSwitch('cloudflare')} 
                 onUninstall={onCfUninstall} 
+                updateAvailable={cfUpdateAvailable}
+                onUpdate={() => onUpdateClick('zrok', zrokUpdateAvailable)}
             />
         </div>
     );
 }
 
-function ZrokTunnelTab({ zrokStatus, onInstallClick, zrokProps }: any) {
+function ZrokTunnelTab({ zrokStatus, zrokUpdateAvailable, onInstallClick, onUpdateClick, zrokProps }: any) {
     const { t } = useTranslation();
     if (!zrokStatus?.installed) {
         return (
@@ -662,10 +689,10 @@ function ZrokTunnelTab({ zrokStatus, onInstallClick, zrokProps }: any) {
             </div>
         );
     }
-    return <ZrokSections status={zrokStatus} {...zrokProps} />;
+    return <ZrokSections status={zrokStatus} updateAvailable={zrokUpdateAvailable} onUpdate={() => onUpdateClick('zrok', zrokUpdateAvailable)} {...zrokProps} />;
 }
 
-function CloudflareTunnelTab({ cfStatus, onInstallClick, onCfUninstall, onCfStopShare, projects, cfShare }: any) {
+function CloudflareTunnelTab({ cfStatus, cfUpdateAvailable, onInstallClick, onUpdateClick, onCfUninstall, onCfStopShare, projects, cfShare }: any) {
     const { t } = useTranslation();
     if (!cfStatus?.installed) {
         return (
@@ -676,25 +703,25 @@ function CloudflareTunnelTab({ cfStatus, onInstallClick, onCfUninstall, onCfStop
     }
     return (
         <div className="flex flex-col gap-6">
-            <EngineCard title={t('tools.cloudflare.engine_card_title')} uninstallText={t('tools.cloudflare.uninstall')} version={cfStatus.version} onUninstall={onCfUninstall} />
+            <EngineCard title={t('tools.cloudflare.engine_card_title')} uninstallText={t('tools.cloudflare.uninstall')} version={cfStatus.version} onUninstall={onCfUninstall} updateAvailable={cfUpdateAvailable} onUpdate={() => onUpdateClick('cloudflare', cfUpdateAvailable)} />
             <ShareCard projects={projects} {...cfShare} />
             <ActiveSharesCard shares={cfStatus.active_shares as any} projects={projects} onStop={onCfStopShare} />
         </div>
     );
 }
 
-function TunnelsBody({ activeTab, zrokStatus, cfStatus, isZrokLoading, isCfLoading, onInstallClick, onTabSwitch, onCfUninstall, onCfStopShare, cfShare, ...zrokProps }: TunnelsBodyProps) {
+function TunnelsBody({ activeTab, zrokStatus, cfStatus, zrokUpdateAvailable, cfUpdateAvailable, isZrokLoading, isCfLoading, onInstallClick, onUpdateClick, onTabSwitch, onCfUninstall, onCfStopShare, cfShare, ...zrokProps }: TunnelsBodyProps & { onUpdateClick: (engine: 'zrok'|'cloudflare', version: string|null) => void }) {
     if (activeTab === 'all') {
         if (isZrokLoading || isCfLoading) return <SkeletonCard />;
-        return <AllTunnelsTab zrokStatus={zrokStatus} cfStatus={cfStatus} onTabSwitch={onTabSwitch} onZrokUninstall={zrokProps.onUninstall} onCfUninstall={onCfUninstall} />;
+        return <AllTunnelsTab zrokStatus={zrokStatus} cfStatus={cfStatus} zrokUpdateAvailable={zrokUpdateAvailable} cfUpdateAvailable={cfUpdateAvailable} onUpdateClick={onUpdateClick} onTabSwitch={onTabSwitch} onZrokUninstall={zrokProps.onUninstall} onCfUninstall={onCfUninstall} />;
     }
     if (activeTab === 'zrok') {
         if (isZrokLoading) return <SkeletonCard />;
-        return <ZrokTunnelTab zrokStatus={zrokStatus} onInstallClick={onInstallClick} zrokProps={zrokProps} />;
+        return <ZrokTunnelTab zrokStatus={zrokStatus} zrokUpdateAvailable={zrokUpdateAvailable} onInstallClick={onInstallClick} onUpdateClick={onUpdateClick} zrokProps={zrokProps} />;
     }
     if (activeTab === 'cloudflare') {
         if (isCfLoading) return <SkeletonCard />;
-        return <CloudflareTunnelTab cfStatus={cfStatus} onInstallClick={onInstallClick} onCfUninstall={onCfUninstall} onCfStopShare={onCfStopShare} projects={zrokProps.projects} cfShare={cfShare} />;
+        return <CloudflareTunnelTab cfStatus={cfStatus} cfUpdateAvailable={cfUpdateAvailable} onInstallClick={onInstallClick} onUpdateClick={onUpdateClick} onCfUninstall={onCfUninstall} onCfStopShare={onCfStopShare} projects={zrokProps.projects} cfShare={cfShare} />;
     }
     return null;
 }
@@ -717,7 +744,7 @@ function TunnelsInstallModal({ activeTab, isOpen, isInstalling, onClose, onApply
             isOpen={isOpen} 
             keepMounted={isInstalling} 
             onClose={onClose} 
-            title={installed ? (t('tools.update_btn') + ' ' + (activeTab === 'cloudflare' ? 'Cloudflared' : 'zrok')) : (activeTab === 'cloudflare' ? t('tools.cloudflare.install_cloudflare') : t('tools.zrok.install_zrok'))} 
+            title={installed ? (activeTab === 'cloudflare' ? t('tools.cloudflare.update_cloudflare') : t('tools.zrok.update_zrok')) : (activeTab === 'cloudflare' ? t('tools.cloudflare.install_cloudflare') : t('tools.zrok.install_zrok'))} 
             icon="cloud_download" 
             onApply={onApply} 
             applyText={applyText} 
@@ -800,8 +827,8 @@ export default function TunnelsMain({ initialTab = 'all' }: { readonly initialTa
     
     const fetchData = () => { fetchZrokData(); fetchCfData(); };
     
-    const [zrokUpdateAvailable, setZrokUpdateAvailable] = useState(false);
-    const [cfUpdateAvailable, setCfUpdateAvailable] = useState(false);
+    const [zrokUpdateAvailable, setZrokUpdateAvailable] = useState<string | null>(null);
+    const [cfUpdateAvailable, setCfUpdateAvailable] = useState<string | null>(null);
 
     useEffect(() => {
         const checkUpdates = async () => {
@@ -811,8 +838,8 @@ export default function TunnelsMain({ initialTab = 'all' }: { readonly initialTa
                     if (res?.status === 'success' && res.data?.length > 0) {
                         const localNorm = zrokStatus.version.replace(/^v/i, '');
                         const remoteNorm = res.data[0].value.replace(/^v/i, '');
-                        if (remoteNorm !== localNorm && remoteNorm !== 'latest') setZrokUpdateAvailable(true);
-                        else setZrokUpdateAvailable(false);
+                        if (remoteNorm !== localNorm && remoteNorm !== 'latest') setZrokUpdateAvailable(res.data[0].value);
+                        else setZrokUpdateAvailable(null);
                     }
                 } catch (e) {}
             }
@@ -822,8 +849,8 @@ export default function TunnelsMain({ initialTab = 'all' }: { readonly initialTa
                     if (res?.status === 'success' && res.data?.length > 0) {
                         const localNorm = cfStatus.version.replace(/^v/i, '');
                         const remoteNorm = res.data[0].value.replace(/^v/i, '');
-                        if (remoteNorm !== localNorm && remoteNorm !== 'latest') setCfUpdateAvailable(true);
-                        else setCfUpdateAvailable(false);
+                        if (remoteNorm !== localNorm && remoteNorm !== 'latest') setCfUpdateAvailable(res.data[0].value);
+                        else setCfUpdateAvailable(null);
                     }
                 } catch (e) {}
             }
@@ -851,6 +878,42 @@ export default function TunnelsMain({ initialTab = 'all' }: { readonly initialTa
     const cfInstallRef = useRef<InstallTunnelRef>(null);
 
     const actionContext: ZrokActionContext = { t, showToast, onSuccess: fetchData };
+
+    const { confirm } = useAlert();
+
+    const handleUpdateClick = async (engine: 'zrok' | 'cloudflare', version: string | null) => {
+        if (!version) return;
+        if (await confirm({
+            title: t(`tools.${engine}.confirm_update.title`),
+            message: t(`tools.${engine}.confirm_update.message`, { version }),
+            type: 'warning'
+        })) {
+            setIsInstalling(true);
+            setProgress(0);
+            setProgressText(t('common.preparing'));
+
+            try {
+                let res;
+                if (engine === 'cloudflare') {
+                    res = await window.pywebview?.api?.install_cloudflare(version);
+                } else {
+                    res = await window.pywebview?.api?.install_zrok(version);
+                }
+
+                if (res?.status === 'success') {
+                    showToast(t(`tools.${engine}.update_success`), 'success');
+                } else {
+                    showToast(res?.message ? t(res.message, res.args || {}) as string : t('backend.error.unexpected'), 'error');
+                }
+            } catch (e) {
+                console.error(e);
+                showToast(t('backend.error.unexpected'), 'error');
+            } finally {
+                setIsInstalling(false);
+                fetchData();
+            }
+        }
+    };
 
     const handleZrokUninstall = async () => {
         setIsUninstalling(true);
@@ -953,7 +1016,6 @@ export default function TunnelsMain({ initialTab = 'all' }: { readonly initialTa
                     activeTab !== 'all' ? (
                         <InstallHeaderButton 
                             installed={activeTab === 'cloudflare' ? cfStatus?.installed : zrokStatus?.installed} 
-                            hasUpdate={activeTab === 'cloudflare' ? cfUpdateAvailable : zrokUpdateAvailable}
                             isLoading={activeTab === 'cloudflare' ? isCfLoading : isZrokLoading} 
                             label={activeTab === 'cloudflare' ? t('tools.cloudflare.install_cloudflare') : t('tools.zrok.install_zrok')}
                             onClick={openInstallModal} 
@@ -972,6 +1034,8 @@ export default function TunnelsMain({ initialTab = 'all' }: { readonly initialTa
                 activeTab={activeTab}
                 zrokStatus={zrokStatus}
                 cfStatus={cfStatus}
+                zrokUpdateAvailable={zrokUpdateAvailable}
+                cfUpdateAvailable={cfUpdateAvailable}
                 isZrokLoading={isZrokLoading}
                 isCfLoading={isCfLoading}
                 onTabSwitch={setActiveTab}
@@ -979,6 +1043,7 @@ export default function TunnelsMain({ initialTab = 'all' }: { readonly initialTa
                 onCfStopShare={handleStopShare}
                 projects={projects}
                 onInstallClick={openInstallModal}
+                onUpdateClick={handleUpdateClick}
                 onUninstall={() => { setIsUninstalling(false); setUninstallTarget('zrok'); }}
                 onStopShare={handleStopShare}
                 account={{ token, isEnabling, onTokenChange: setToken, onEnable: handleEnable, onDisable: handleDisable }}
@@ -1021,3 +1086,6 @@ export default function TunnelsMain({ initialTab = 'all' }: { readonly initialTa
         </div>
     );
 }
+
+
+

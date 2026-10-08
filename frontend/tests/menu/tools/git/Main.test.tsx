@@ -147,13 +147,16 @@ describe('GitMain', () => {
         await screen.findByText('Git 2.44.0');
         await user.click(screen.getByText('tools.git.install_engine'));
 
+        act(() => {
+            window.dispatchEvent(new CustomEvent('vylo_progress', { detail: { percent: 10, text: 'downloading' } }));
+        });
+
         await user.click(screen.getAllByLabelText('Close')[0]);
+        expect(await screen.findByText('tools.git.installing')).toBeInTheDocument();
 
-        expect(await screen.findByText('tools.git.running_background')).toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: 'tools.git.installing' }));
 
-        await user.click(screen.getByRole('button', { name: 'open_in_full' }));
-
-        expect(screen.queryByText('tools.git.running_background')).not.toBeInTheDocument();
+        expect(screen.queryByText('tools.git.installing')).not.toBeInTheDocument();
         expect(screen.getByText('tools.git.installing_btn')).toBeInTheDocument();
     });
 

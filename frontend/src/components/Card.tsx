@@ -1,9 +1,11 @@
 // src/components/Card.tsx
 import { type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 
 export interface CardProps {
     readonly title: string | ReactNode;
     readonly status?: string | null; // Diubah menjadi string universal agar bisa menerima teks apapun
+    readonly updateVersion?: string | null;
     readonly gridCols?: string;
     readonly dropdownActions?: ReactNode;
     readonly footerActions?: ReactNode;
@@ -13,11 +15,13 @@ export interface CardProps {
 export default function Card({
     title,
     status = null,
+    updateVersion = null,
     gridCols = 'grid-cols-2 md:grid-cols-4',
     dropdownActions,
     footerActions,
     children
 }: CardProps) {
+    const { t } = useTranslation();
 
     // --- HELPER: PENENTUAN TEMA STATUS DINAMIS ---
     const getStatusTheme = (statusText: string) => {
@@ -25,7 +29,7 @@ export default function Card({
 
         // 1. Tema Sukses/Aktif (Hijau) -- bg/border pakai opacity dari shade emerald-500 yang
         // theme-aware (BUKAN emerald-100/900 stok Tailwind, yang tidak punya --theme-* sama
-        // sekali -- lihat docs/ui_consistency_guide.md §1 & docs/known_bugs.md #42).
+        // sekali -- lihat docs/ui_consistency_guide.md A 1 & docs/known_bugs.md #42).
         if (lowerText.includes('running') || lowerText.includes('active') || lowerText.includes('install')) {
             return {
                 badge: 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 border-emerald-500/20 dark:border-emerald-500/30',
@@ -34,7 +38,7 @@ export default function Card({
         }
 
         // 2. Tema Peringatan/Error (Merah) -- sengaja statis, red tidak punya --theme-red-*
-        // (sinyal bahaya universal lintas tema, lihat docs/ui_consistency_guide.md §1).
+        // (sinyal bahaya universal lintas tema, lihat docs/ui_consistency_guide.md A 1).
         if (lowerText.includes('error') || lowerText.includes('fail') || lowerText.includes('offline')) {
             return {
                 badge: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 border-red-200 dark:border-red-800/50',
@@ -60,6 +64,10 @@ export default function Card({
 
     // Ekstrak tema hanya jika properti status tersedia
     const theme = status ? getStatusTheme(status) : null;
+    const hasStatusOrUpdate = status || updateVersion;
+    
+    // Tema fallback untuk update murni (tanpa status teks)
+    const fallbackUpdateBadge = 'bg-amber-500/10 text-amber-600 dark:bg-amber-500/20 dark:text-amber-500 border-amber-500/20 dark:border-amber-500/30';
 
     return (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 flex flex-col gap-6 shadow-sm hover:shadow-md transition-all duration-200 group">
@@ -67,13 +75,29 @@ export default function Card({
             {/* Header & Status dalam file Card.tsx */}
             <div className="flex justify-between items-start gap-4">
                 <div className="flex flex-wrap items-center gap-2 md:gap-3">
-                    <h3 className="text-lg font-semibold text-slate-900 dark:text-white leading-tight">{title}</h3>
+                    <h3 className="text-lg font-semibold text-slate-900 dark:text-white leading-tight">
+                        <div className="flex items-center gap-2">
+                            <span>{title}</span>
+                        </div>
+                    </h3>
                     {/* Badge Status */}
-                    {status && theme && (
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border shrink-0 ${theme.badge}`}>
-                            <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${theme.dot}`}></span>
-                            {/* Mencetak teks status aslinya, bukan lagi teks hardcode */}
-                            {status}
+                    {hasStatusOrUpdate && (
+                        <span data-testid="status-badge" className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border shrink-0 ${theme ? theme.badge : fallbackUpdateBadge}`}>
+                            {status && theme && (
+                                <>
+                                    <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${theme.dot}`}></span>
+                                    {status}
+                                </>
+                            )}
+                            {status && updateVersion && (
+                                <span className="mx-1.5 opacity-50 font-normal">|</span>
+                            )}
+                            {updateVersion && (
+                                <span className={`flex items-center gap-1 ${!status ? 'uppercase font-bold text-[10px]' : ''}`} title={t('ui.update.update_to_target', { version: updateVersion }) as string}>
+                                    <span className={`material-symbols-outlined ${status ? 'text-[14px]' : 'text-[12px]'}`}>upgrade</span>
+                                    {t('ui.update.update_text', 'Update')}
+                                </span>
+                            )}
                         </span>
                     )}
                 </div>

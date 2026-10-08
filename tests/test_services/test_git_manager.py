@@ -76,8 +76,9 @@ def test_install_git(mock_extract, mock_download, git_manager):
         mock_extract.assert_called_once()
         assert "backend.git.install_success" in res['message']
     
+@patch('shutil.rmtree')
 @patch('core.services.git_manager.download_advanced')
-def test_install_git_failure(mock_download, git_manager):
+def test_install_git_failure(mock_download, mock_rmtree, git_manager):
     """Test Git installation failure."""
     mock_download.side_effect = Exception("Network timeout")
     
@@ -86,6 +87,7 @@ def test_install_git_failure(mock_download, git_manager):
     assert res['status'] == 'error'
     assert res['message'] == 'backend.git.install_error'
     assert 'Network timeout' in res['args']['e']
+    mock_rmtree.assert_not_called()
 
 @patch('core.services.git_manager.urllib.request.urlopen')
 def test_get_available_git_versions(mock_urlopen, git_manager):

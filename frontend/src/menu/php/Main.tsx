@@ -5,6 +5,8 @@ import Modal from '../../components/Modal';
 import Button from '../../components/Button';
 import ServiceToggleButton from '../../components/ServiceToggleButton';
 import BackgroundProgressWidget from '../../components/BackgroundProgressWidget';
+import InfoBox from '../../components/InfoBox';
+import ProgressBar from '../../components/ProgressBar';
 import { useToast } from '../../components/ToastContext';
 import { useAlert } from '../../components/AlertContext';
 
@@ -46,6 +48,7 @@ export default function PhpMain() {
     
     // UPDATE STATES
     const [availableVersions, setAvailableVersions] = useState<any[]>([]);
+    const [updatingInstance, setUpdatingInstance] = useState<{php: PhpInstance, newVersion: string} | null>(null);
     
     // PROGRESS WIDGET
     const [progress, setProgress] = useState(0);
@@ -118,13 +121,23 @@ export default function PhpMain() {
             confirmText: t('php.yes_update')
         })) return;
 
+        setInstallVersion(newVersion);
+        setInstallPort(php.port);
+        setInstallFilename(filename);
         setIsInstalling(true);
+        setUpdatingInstance({ php, newVersion });
+        setProgressText(t('php.updating'));
         try {
             const res = await window.pywebview?.api?.update_php(php.version, newVersion, filename);
             showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
             if (res?.status === 'success') { fetchInstalledInstances(); fetchAvailableVersions(); }
         } catch (e){ console.error(e); showToast(t('php.system_error'), "error"); }
-        finally { setIsInstalling(false); }
+        finally { 
+            setIsInstalling(false); 
+            setProgress(0);
+            setUpdatingInstance(null);
+            setIsNewInstanceOpen(false);
+        }
     };
 
     const handleInstallPhp = async () => {
@@ -233,12 +246,11 @@ export default function PhpMain() {
                                 const updateVer = availableVersions.find(v => v.version.split('.').slice(0, 2).join('.') === majorMinor && compareVersions(v.version, php.version) > 0);
                                 return (
                                     <Card
-                                        key={php.id} title={
-                                            <div className="flex items-center gap-2">
-                                                <span>{php.name}</span>
-                                                {updateVer && <span className="bg-amber-500/10 dark:bg-amber-500/20 text-amber-600 dark:text-amber-500 text-[10px] uppercase font-bold px-1.5 py-0.5 rounded flex items-center gap-1" title={t('php.update_to', { version: updateVer.version })}><span className="material-symbols-outlined text-[12px]">upgrade</span> {t('php.update')}</span>}
-                                            </div>
-                                        } status={php.status} gridCols="grid-cols-2 md:grid-cols-3"
+                                        key={php.id} 
+                                        title={php.name}
+                                        status={php.status} 
+                                        updateVersion={updateVer?.version || null}
+                                        gridCols="grid-cols-2 md:grid-cols-3"
                                         dropdownActions={
                                             <>
                                                 <button type="button" onClick={() => window.pywebview?.api?.open_php_ini(php.version)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">{t('php.open_php_ini')}</button>
@@ -289,7 +301,16 @@ export default function PhpMain() {
             <BackgroundProgressWidget isOpen={isInstalling && !isNewInstanceOpen} progress={progress} progressText={progressText} title={t('php.processing')} onRestore={() => setIsNewInstanceOpen(true)} />
 
             {/* PHP MODALS */}
-            <Modal isOpen={isNewInstanceOpen} keepMounted={isInstalling} onClose={() => setIsNewInstanceOpen(false)} title={t('php.install_php_version')} icon="download" onApply={handleInstallPhp} applyText={isInstalling ? t('php.installing') : t('php.install_and_configure')} isApplyDisabled={isFetchingVersions || isInstalling || !installVersion || usedPorts.includes(installPort)}>
+            <Modal 
+                isOpen={isNewInstanceOpen} 
+                keepMounted={isInstalling} 
+                onClose={() => setIsNewInstanceOpen(false)} 
+                title={updatingInstance ? t('php.updating_php') : t('php.install_php_version')} 
+                icon={updatingInstance ? "upgrade" : "download"} 
+                onApply={updatingInstance ? undefined : handleInstallPhp} 
+                applyText={isInstalling ? t('php.installing') : t('php.install_and_configure')} 
+                isApplyDisabled={isFetchingVersions || isInstalling || !installVersion || usedPorts.includes(installPort)}
+            >
                 <NewPhpInstance version={installVersion} setVersion={setInstallVersion} setFilename={setInstallFilename} port={installPort} setPort={setInstallPort} isInstalling={isInstalling} isFetchingVersions={isFetchingVersions} setIsFetchingVersions={setIsFetchingVersions} usedPorts={usedPorts} />
             </Modal>
             <Modal isOpen={isSettingsOpen} onClose={() => !isSavingSettings && setIsSettingsOpen(false)} title={`${selectedInstance?.name || 'PHP'} ${t('php.configuration')}`} icon="tune" onApply={handleSaveSettings} applyText={isSavingSettings ? t('php.saving') : t('php.save_changes')} isApplyDisabled={isLoadingSettings || isSavingSettings || (selectedInstance ? usedPorts.filter(p => p !== selectedInstance.port).includes(Number(settingsConfig.port)) : false)} isLoading={isSavingSettings}>

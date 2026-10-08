@@ -5,11 +5,12 @@ import FieldLabel from '../../components/FieldLabel';
 import RuntimeVersionSelect from './RuntimeVersionSelect';
 
 export interface InstallJavaRef { submit: () => Promise<boolean>; }
+interface InstallJavaProps { targetVersion?: string | null; }
 
-const InstallJava = forwardRef<InstallJavaRef, any>((_, ref) => {
+const InstallJava = forwardRef<InstallJavaRef, InstallJavaProps>(({ targetVersion }, ref) => {
     const { t } = useTranslation();
     const { showToast } = useToast();
-    const [version, setVersion] = useState('');
+    const [version, setVersion] = useState(targetVersion || '');
     const [versionsList, setVersionsList] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
@@ -20,7 +21,7 @@ const InstallJava = forwardRef<InstallJavaRef, any>((_, ref) => {
                 const res = await window.pywebview?.api?.get_available_java_versions();
                 if (res?.status === 'success' && res.data.length > 0) {
                     setVersionsList(res.data);
-                    setVersion(res.data[0].value); // Set default ke yang pertama (Latest LTS biasanya)
+                    if (!targetVersion) setVersion(res.data[0].value); // Set default ke yang pertama (Latest LTS biasanya)
                 } else {
                     setVersionsList([]);
                 }

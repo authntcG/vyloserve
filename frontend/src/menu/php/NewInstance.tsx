@@ -72,8 +72,10 @@ export default function NewPhpInstance({
                         setAvailableVersions(versions);
 
                         if (versions.length > 0) {
-                            setVersion(versions[0].version);
-                            setFilename(versions[0].filename);
+                            if (!version) {
+                                setVersion(versions[0].version);
+                                setFilename(versions[0].filename);
+                            }
                         } else {
                             setVersion('');
                             setFilename('');

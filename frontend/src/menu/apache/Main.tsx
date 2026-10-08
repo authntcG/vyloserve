@@ -13,6 +13,7 @@ import PageHeader from '../../components/PageHeader';
 import SkeletonCard from '../../components/SkeletonCard';
 import EmptyState from '../../components/EmptyState';
 import InfoBox from '../../components/InfoBox';
+import ProgressBar from '../../components/ProgressBar';
 import { clampPercent } from '../../utils/progress';
 
 import ApacheSettings from './Settings';
@@ -29,6 +30,7 @@ interface ApacheStatusSectionProps {
     readonly isFetching: boolean;
     readonly isInstalled: boolean;
     readonly installedVersion: string | null;
+    readonly updateAvailable: string | null;
     readonly isRunning: boolean;
     readonly isToggling: boolean;
     readonly apachePath: string;
@@ -38,10 +40,11 @@ interface ApacheStatusSectionProps {
     readonly onOpenDirectory: () => void;
     readonly onUninstallClick: () => void;
     readonly onInstallClick: () => void;
+    readonly onUpdateClick: () => void;
     readonly t: any;
 }
 
-function ApacheStatusSection({ isFetching, isInstalled, installedVersion, isRunning, isToggling, apachePath, onToggleServer, onOpenOptions, onOpenConfig, onOpenDirectory, onUninstallClick, onInstallClick, t }: ApacheStatusSectionProps) {
+function ApacheStatusSection({ isFetching, isInstalled, installedVersion, updateAvailable, isRunning, isToggling, apachePath, onToggleServer, onOpenOptions, onOpenConfig, onOpenDirectory, onUninstallClick, onInstallClick, onUpdateClick, t }: ApacheStatusSectionProps) {
     if (isFetching) {
         return <div className="mb-8"><SkeletonCard /></div>;
     }
@@ -53,9 +56,13 @@ function ApacheStatusSection({ isFetching, isInstalled, installedVersion, isRunn
             <Card
                 title={`Apache ${installedVersion || t('common.unknown')} (Win64)`}
                 status={isRunning ? 'running' : 'stopped'}
+                updateVersion={updateAvailable || null}
                 gridCols="grid-cols-2 md:grid-cols-3"
                 dropdownActions={
                     <>
+                        {updateAvailable && (
+                            <button type="button" onClick={onUpdateClick} className="w-full text-left px-4 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors">{t('ui.update.update_to_target', { version: updateAvailable })}</button>
+                        )}
                         <button type="button" onClick={onOpenConfig} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">{t('apache.open_httpd_conf')}</button>
                         <button type="button" onClick={onOpenDirectory} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">{t('apache.open_directory')}</button>
                         <div className="border-t border-slate-200 dark:border-slate-700 my-1"></div>
@@ -353,6 +360,8 @@ export default function ApacheMain() {
         };
     }, [t]);
 
+    const [updateAvailable, setUpdateAvailable] = useState<string | null>(null);
+
     const fetchApacheStatus = async () => {
         setIsFetchingApacheStatus(true);
         try {
@@ -363,7 +372,24 @@ export default function ApacheMain() {
                 setIsApacheRunning(res.running || false);
             }
             const ver = await window.pywebview?.api?.get_apache_installed_versions();
-            if (ver?.status === 'success') setInstalledApacheVersion(ver.active || ver.data[0]);
+            let activeVersion = null;
+            if (ver?.status === 'success') {
+                activeVersion = ver.active || ver.data[0];
+                setInstalledApacheVersion(activeVersion);
+            }
+            if (res?.status === 'success' && res.installed && activeVersion) {
+                const avail = await window.pywebview?.api?.get_available_apache();
+                if (avail?.status === 'success') {
+                    const filtered = avail.data.filter((v: ApacheVersionData) => v.version !== activeVersion);
+                    if (filtered.length > 0) {
+                        setUpdateAvailable(filtered[0].version);
+                    } else {
+                        setUpdateAvailable(null);
+                    }
+                }
+            } else {
+                setUpdateAvailable(null);
+            }
         } catch (e) { console.error(e); }
         finally { setIsFetchingApacheStatus(false); }
     };
@@ -448,9 +474,16 @@ export default function ApacheMain() {
                         </>
                     }
                     actions={
-                        <Button variant="primary" icon="download" onClick={handleOpenInstallModal} className="shadow-sm">
-                            {t('apache.install_update')}
-                        </Button>
+                        isApacheInstalled ? (
+                            <button type="button" disabled className="text-white text-sm font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2 shadow-sm bg-emerald-500 opacity-80 cursor-default whitespace-nowrap shrink-0">
+                                <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                                {t('common.installed')}
+                            </button>
+                        ) : (
+                            <Button variant="primary" icon="download" onClick={handleOpenInstallModal} className="shadow-sm">
+                                {t('apache.install_now')}
+                            </Button>
+                        )
                     }
                 />
 
@@ -458,6 +491,7 @@ export default function ApacheMain() {
                     isFetching={isFetchingApacheStatus}
                     isInstalled={isApacheInstalled}
                     installedVersion={installedApacheVersion}
+                    updateAvailable={updateAvailable}
                     isRunning={isApacheRunning}
                     isToggling={isTogglingServer}
                     apachePath={apachePath}
@@ -467,6 +501,7 @@ export default function ApacheMain() {
                     onOpenDirectory={() => window.pywebview?.api?.open_apache_directory()}
                     onUninstallClick={handleUninstall}
                     onInstallClick={handleOpenInstallModal}
+                    onUpdateClick={handleOpenInstallModal}
                     t={t}
                 />
 
@@ -494,7 +529,16 @@ export default function ApacheMain() {
             {/* ---> WIDGETS & MODALS <--- */}
             <BackgroundProgressWidget isOpen={(isCreatingProject && !isNewProjectModalOpen) || (isInstalling && !isInstallServerOpen)} progress={progress} progressText={progressText} title={isInstalling ? t('apache.installing_apache') : t('apache.installing_project')} onRestore={() => { if (isInstalling) { setIsInstallServerOpen(true); } if (isCreatingProject) { setIsNewProjectModalOpen(true); } }} />
 
-            <Modal isOpen={isInstallServerOpen} keepMounted={isInstalling} onClose={() => setIsInstallServerOpen(false)} title={t('apache.install_apache_server')} icon="download" onApply={handleInstallApache} applyText={isInstalling ? t('apache.installing_start') : t('apache.download_install')} isApplyDisabled={isFetchingVersions || isInstalling || availableVersions.length === 0}>
+            <Modal 
+                isOpen={isInstallServerOpen} 
+                keepMounted={isInstalling} 
+                onClose={() => setIsInstallServerOpen(false)} 
+                title={isInstalling ? (isApacheInstalled ? t('ui.update.update_to_target', { version: installVersion }) : t('apache.install_apache_server')) : t('apache.install_apache_server')} 
+                icon={isInstalling && isApacheInstalled ? "upgrade" : "download"} 
+                onApply={isInstalling ? undefined : handleInstallApache} 
+                applyText={isInstalling ? t('apache.installing_start') : t('apache.download_install')} 
+                isApplyDisabled={isFetchingVersions || isInstalling || availableVersions.length === 0}
+            >
                 <ApacheInstallWizard versions={availableVersions} version={installVersion} setVersion={setInstallVersion} setUrl={setInstallUrl} httpPort={httpPort} setHttpPort={setHttpPort} httpsPort={httpsPort} setHttpsPort={setHttpsPort} isInstalling={isInstalling} isFetchingVersions={isFetchingVersions} progress={progress} progressText={progressText} />
             </Modal>
 

@@ -532,7 +532,7 @@ describe('DatabaseMain', () => {
         // Badge di title kartu (pola sama persis dengan updateVer di php/Main.tsx) -- aksi
         // update sendiri ada sebagai item menu dropdown "Update to {{version}}", bukan tombol
         // langsung di badge-nya.
-        expect(await screen.findByText('database.update')).toBeInTheDocument();
+        expect(await screen.findByText('Update')).toBeInTheDocument();
         expect(screen.getByText('database.update_to')).toBeInTheDocument();
     });
 
@@ -544,7 +544,7 @@ describe('DatabaseMain', () => {
         renderWithToast(<DatabaseMain />);
 
         await screen.findByText('MySQL');
-        expect(screen.queryByText('database.update')).not.toBeInTheDocument();
+        expect(screen.queryByText('Update')).not.toBeInTheDocument();
         expect(screen.queryByText('database.update_to')).not.toBeInTheDocument();
     });
 
@@ -560,7 +560,7 @@ describe('DatabaseMain', () => {
         renderWithToast(<DatabaseMain />);
 
         await screen.findByText('MySQL');
-        expect(screen.queryByText('database.update')).not.toBeInTheDocument();
+        expect(screen.queryByText('Update')).not.toBeInTheDocument();
     });
 
     it('checks for updates once per unique engine, not once per instance', async () => {
@@ -573,7 +573,7 @@ describe('DatabaseMain', () => {
         });
         renderWithToast(<DatabaseMain />);
 
-        await waitFor(() => expect(screen.getAllByText('database.update')).toHaveLength(2));
+        await waitFor(() => expect(screen.getAllByText('Update')).toHaveLength(2));
         expect(getAvailable).toHaveBeenCalledTimes(1);
         expect(getAvailable).toHaveBeenCalledWith('mysql');
     });
@@ -591,7 +591,7 @@ describe('DatabaseMain', () => {
         });
         renderWithToast(<DatabaseMain />);
 
-        await screen.findByText('database.update');
+        await screen.findByText('Update');
         await user.click(screen.getByText('database.update_to'));
 
         expect(await screen.findByText('database.confirm_update')).toBeInTheDocument();
@@ -614,7 +614,7 @@ describe('DatabaseMain', () => {
         });
         renderWithToast(<DatabaseMain />);
 
-        await screen.findByText('database.update');
+        await screen.findByText('Update');
         await user.click(screen.getByText('database.update_to'));
         await screen.findByText('database.confirm_update');
         await user.click(screen.getByText('database.yes_update'));
@@ -634,7 +634,7 @@ describe('DatabaseMain', () => {
         });
         renderWithToast(<DatabaseMain />);
 
-        await screen.findByText('database.update');
+        await screen.findByText('Update');
         await user.click(screen.getByText('database.update_to'));
         await screen.findByText('database.confirm_update');
         await user.click(screen.getByText('database.cancel_update'));
@@ -654,7 +654,7 @@ describe('DatabaseMain', () => {
         });
         renderWithToast(<DatabaseMain />);
 
-        await screen.findByText('database.update');
+        await screen.findByText('Update');
         await user.click(screen.getByText('database.update_to'));
         await screen.findByText('database.confirm_update');
         await user.click(screen.getByText('database.yes_update'));
@@ -663,6 +663,6 @@ describe('DatabaseMain', () => {
 
         expect(await screen.findByText('database.update_failed_rollback')).toBeInTheDocument();
         // Badge tetap ada -- instance belum berhasil di-update, jadi aksi update harus bisa dicoba lagi.
-        expect(screen.getByText('database.update')).toBeInTheDocument();
+        expect(screen.getByText('Update')).toBeInTheDocument();
     });
 });

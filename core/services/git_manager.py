@@ -250,8 +250,6 @@ class GitManager:
                 clamped_pct = max(5, min(pct, 74))
                 self._progress(clamped_pct, msg, args)
 
-            if os.path.exists(git_dir): shutil.rmtree(git_dir, ignore_errors=True)
-
             log_cb("backend.git.starting_download", "info")
             download_advanced(download_url, exe_path, log_cb=log_cb, progress_cb=download_prog_cb)
 
@@ -260,6 +258,7 @@ class GitManager:
                 self._log("backend.git.download_complete_extracting", "info")
                 self._progress(75, "backend.git.extracting_binary")
             
+            if os.path.exists(git_dir): shutil.rmtree(git_dir, ignore_errors=True)
             self._extract_sfx(exe_path, git_dir)
 
             # 4. FINALISASI

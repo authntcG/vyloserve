@@ -357,6 +357,7 @@
         "path_change_sys_error": "System error occurred while changing PATH.",
         "uninstalling_module": "Uninstalling {{engine}} module and PATH configuration...",
         "uninstall_success": "{{engine}} module successfully cleanly removed.",
+        "update_success": "{{engine}} successfully updated!",
         "uninstall_error": "Failed to uninstall {{engine}} module",
         "uninstall_sys_error": "System error occurred while uninstalling the module.",
         "starting_install": "Starting installation...",
@@ -447,7 +448,8 @@
         "update_change_version": "Update / Change",
         "update_title": "Update ",
         "update_engine_btn": "Update Engine",
-        "updating_btn": "Updating..."
+        "updating_btn": "Updating...",
+        "confirm_update_msg": "Are you sure you want to update to version {{version}}?"
     },
     "dashboard": {
         "title": "Dashboard",
@@ -774,7 +776,15 @@
             "uninstall_success": "Zrok has been uninstalled.",
             "mode_project": "VyloServe Project",
             "mode_custom": "Custom Address",
-            "custom_target": "Target Address (e.g., localhost:3000)"
+            "custom_target": "Target Address (e.g., localhost:3000)",
+            "confirm_update": {
+                "title": "Update Zrok",
+                "message": "Are you sure you want to update Zrok to version {{version}}?"
+            },
+            "update_success": "Zrok updated successfully.",
+            "update_zrok": "Update Zrok",
+            "updating": "Updating Zrok...",
+            "updating_desc": "Please wait while Zrok is being updated."
         },
         "cloudflare": {
             "title": "Cloudflare Quick Tunnel",
@@ -792,7 +802,15 @@
             "uninstall_confirm_desc": "Are you sure you want to uninstall Cloudflare? All active shares will be stopped.",
             "manage": "Manage Tunnel",
             "uninstall": "Uninstall Cloudflare",
-            "uninstall_success": "Cloudflare has been uninstalled."
+            "uninstall_success": "Cloudflare has been uninstalled.",
+            "confirm_update": {
+                "title": "Update Cloudflare",
+                "message": "Are you sure you want to update Cloudflare to version {{version}}?"
+            },
+            "update_success": "Cloudflare updated successfully.",
+            "update_cloudflare": "Update Cloudflare",
+            "updating": "Updating Cloudflare...",
+            "updating_desc": "Please wait while Cloudflare is being updated."
         },
         "tunnels": {
             "title": "Tunnels",
@@ -1206,7 +1224,17 @@
             "install_restart": "Install & Restart",
             "no_changelog": "No changelog provided.",
             "alert_title": "Update Available: {{version}}",
-            "alert_update_button": "Update"
-        }
+            "alert_update_button": "Update",
+            "update_to_target": "Update to {{version}}",
+            "update_text": "Update"
+        },
+        "update_available": "Update Available",
+        "update_available_version": "Update {{version}} Available",
+        "update_to": "Update to {{version}}",
+        "uninstall": "Uninstall"
+    },
+    "git": {
+        "confirm_update_title": "Update Git",
+        "confirm_update_msg": "Are you sure you want to update Git to version {{version}}?"
     }
 }

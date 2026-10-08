@@ -53,13 +53,11 @@ class DatabaseManager:
             if not data: return {"status": "success", "data": []}
 
             def enrich_status(db):
-                port = db.get('port')
-                if port is None:
-                    port = 3306 if db.get('engine') == 'mysql' else 5432
-
                 if db['id'] in self.processes and self.processes[db['id']].poll() is None:
                     db['status'] = 'running'
                 else:
+                    port = db.get('port')
+                    if not port: port = 3306 if db.get('engine') == 'mysql' else 5432
                     db['status'] = 'running' if check_port_in_use(port) else 'stopped'
                 return db
 
@@ -276,36 +274,20 @@ class DatabaseManager:
 
     def _init_database(self, engine: str, install_dir: str, db_data_dir: str, root_pass: str):
         os.makedirs(db_data_dir, exist_ok=True)
-
+        
         if engine == 'mysql':
             installer = os.path.join(install_dir, 'bin', 'mysql_install_db.exe' if sys.platform == 'win32' else 'mysql_install_db')
-            self._assert_installer_present(installer, "MariaDB Init Error")
+            if not os.path.exists(installer): raise RuntimeError(f"MariaDB Init Error: installer tidak ditemukan di {installer}")
             res = run_silent_command([installer, f"--datadir={db_data_dir}"])
             if res.returncode != 0: raise RuntimeError(f"MariaDB Init Error: {res.stderr}")
         else:
             installer = os.path.join(install_dir, 'bin', 'initdb.exe' if sys.platform == 'win32' else 'initdb')
-            self._assert_installer_present(installer, "PostgreSQL Init Error")
+            if not os.path.exists(installer): raise RuntimeError(f"PostgreSQL Init Error: installer tidak ditemukan di {installer}")
             pw_file = os.path.join(install_dir, 'pw.txt')
             with open(pw_file, 'w') as f: f.write(root_pass if root_pass else 'root')
             res = run_silent_command([installer, "-D", db_data_dir, "-U", "postgres", f"--pwfile={pw_file}", "--encoding=UTF8"])
             if os.path.exists(pw_file): os.remove(pw_file)
             if res.returncode != 0: raise RuntimeError(f"PostgreSQL Init Error: {res.stderr}")
-
-    def _assert_installer_present(self, installer: str, error_prefix: str):
-        """
-        Validasi biner installer benar-benar ada sebelum dieksekusi via subprocess.
-        Tanpa ini, binary yang hilang (ekstraksi arsip terputus/tidak lengkap, atau
-        dikarantina antivirus setelah ekstraksi) menyebabkan `FileNotFoundError` mentah
-        dari CreateProcess ("[WinError 2] The system cannot find the file specified")
-        yang sama sekali tidak menyebutkan file APA yang hilang — lihat docs/known_bugs.md #52.
-        """
-        if not os.path.exists(installer):
-            raise RuntimeError(
-                f"{error_prefix}: Berkas installer '{installer}' tidak ditemukan setelah ekstraksi arsip. "
-                "Ini biasanya terjadi karena ekstraksi arsip tidak lengkap (unduhan terputus) atau antivirus "
-                "mengarantina/menghapus sebagian berkas hasil ekstraksi. Coba install ulang; jika berulang, "
-                "tambahkan folder instalasi ke pengecualian (exclusion) antivirus."
-            )
 
     def _unwrap_single_subdir(self, install_dir: str):
         extracted_subdirs = os.listdir(install_dir)
@@ -316,7 +298,7 @@ class DatabaseManager:
 
     def _register_database(self, db_id, engine, version, port, db_data_dir, install_dir):
         data = read_json(self.config_path)
-        data = [db for db in data if db.get('id') != db_id]
+        data = [d for d in data if d["id"] != db_id]
         data.append({
             "id": db_id, "name": f"{'MariaDB' if engine == 'mysql' else 'PostgreSQL'} {version}",
             "engine": engine, "version": version, "port": int(port),

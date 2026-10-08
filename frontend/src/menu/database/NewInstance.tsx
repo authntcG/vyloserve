@@ -12,6 +12,11 @@ interface Props {
     isInstalling: boolean;
     progress: number;
     progressText: string;
+    targetUpdate?: {
+        engine: 'mysql' | 'postgres';
+        version: string;
+        port: number;
+    };
 }
 
 export interface NewDbInstanceRef {
@@ -24,16 +29,16 @@ interface OnlineVersion {
     url: string;
 }
 
-const NewDbInstance = forwardRef<NewDbInstanceRef, Props>(({ activeTab, usedPorts, isInstalling, progress, progressText }, ref) => {
+const NewDbInstance = forwardRef<NewDbInstanceRef, Props>(({ activeTab, usedPorts, isInstalling, progress, progressText, targetUpdate }, ref) => {
     const { t } = useTranslation();
     const [engineFamily, setEngineFamily] = useState<'mysql' | 'postgres'>(
-        activeTab === 'postgres' ? 'postgres' : 'mysql'
+        targetUpdate ? targetUpdate.engine : (activeTab === 'postgres' ? 'postgres' : 'mysql')
     );
-    const [port, setPort] = useState(activeTab === 'postgres' ? 5432 : 3306);
+    const [port, setPort] = useState(targetUpdate ? targetUpdate.port : (activeTab === 'postgres' ? 5432 : 3306));
     const [rootPass, setRootPass] = useState('');
 
     const [availableVersions, setAvailableVersions] = useState<OnlineVersion[]>([]);
-    const [selectedVersion, setSelectedVersion] = useState<string>('');
+    const [selectedVersion, setSelectedVersion] = useState<string>(targetUpdate ? targetUpdate.version : '');
     const [isFetchingVersions, setIsFetchingVersions] = useState(false);
 
     // ---> DETEKSI OS DARI FRONTEND <---
@@ -82,7 +87,7 @@ const NewDbInstance = forwardRef<NewDbInstanceRef, Props>(({ activeTab, usedPort
                     if (ignore) return;
                     if (res.status === 'success') {
                         setAvailableVersions(res.data);
-                        if (res.data.length > 0) setSelectedVersion(res.data[0].version);
+                        if (res.data.length > 0 && !targetUpdate) setSelectedVersion(res.data[0].version);
                     } else setAvailableVersions([]);
                 }
             } catch (error) {
@@ -97,11 +102,19 @@ const NewDbInstance = forwardRef<NewDbInstanceRef, Props>(({ activeTab, usedPort
     }, [engineFamily]);
 
     useEffect(() => {
-        if (activeTab !== 'all') {
+        if (targetUpdate) {
+            setEngineFamily(targetUpdate.engine);
+            setPort(targetUpdate.port);
+            setSelectedVersion(targetUpdate.version);
+        }
+    }, [targetUpdate]);
+
+    useEffect(() => {
+        if (activeTab !== 'all' && !targetUpdate) {
             setEngineFamily(activeTab);
             setPort(activeTab === 'postgres' ? 5432 : 3306);
         }
-    }, [activeTab]);
+    }, [activeTab, targetUpdate]);
 
     useImperativeHandle(ref, () => ({
         getFormData: () => {

@@ -357,6 +357,7 @@
         "path_change_sys_error": "Terjadi kesalahan sistem saat mengubah PATH.",
         "uninstalling_module": "Menghapus modul {{engine}} beserta konfigurasi PATH...",
         "uninstall_success": "Modul {{engine}} berhasil dihapus secara bersih.",
+        "update_success": "{{engine}} berhasil diperbarui!",
         "uninstall_error": "Gagal menghapus modul {{engine}}",
         "uninstall_sys_error": "Terjadi kesalahan sistem saat menghapus modul.",
         "starting_install": "Memulai instalasi...",
@@ -447,7 +448,8 @@
         "update_change_version": "Perbarui / Ubah",
         "update_title": "Perbarui ",
         "update_engine_btn": "Perbarui Engine",
-        "updating_btn": "Memperbarui..."
+        "updating_btn": "Memperbarui...",
+        "confirm_update_msg": "Apakah Anda yakin ingin memperbarui ke versi {{version}}?"
     },
     "dashboard": {
         "title": "Dasbor",
@@ -774,7 +776,15 @@
             "uninstall_success": "Zrok telah dihapus.",
             "mode_project": "Project VyloServe",
             "mode_custom": "Alamat Kustom",
-            "custom_target": "Alamat Target (mis. localhost:3000)"
+            "custom_target": "Alamat Target (mis. localhost:3000)",
+            "confirm_update": {
+                "title": "Perbarui Zrok",
+                "message": "Apakah Anda yakin ingin memperbarui Zrok ke versi {{version}}?"
+            },
+            "update_success": "Zrok berhasil diperbarui.",
+            "update_zrok": "Perbarui Zrok",
+            "updating": "Memperbarui Zrok...",
+            "updating_desc": "Harap tunggu, Zrok sedang diperbarui."
         },
         "cloudflare": {
             "title": "Cloudflare Quick Tunnel",
@@ -792,7 +802,15 @@
             "uninstall_confirm_desc": "Apakah Anda yakin ingin menghapus Cloudflare? Semua share aktif akan dihentikan.",
             "manage": "Kelola Tunnel",
             "uninstall": "Hapus Cloudflare",
-            "uninstall_success": "Cloudflare berhasil dihapus."
+            "uninstall_success": "Cloudflare berhasil dihapus.",
+            "confirm_update": {
+                "title": "Perbarui Cloudflare",
+                "message": "Apakah Anda yakin ingin memperbarui Cloudflare ke versi {{version}}?"
+            },
+            "update_success": "Cloudflare berhasil diperbarui.",
+            "update_cloudflare": "Perbarui Cloudflare",
+            "updating": "Memperbarui Cloudflare...",
+            "updating_desc": "Harap tunggu, Cloudflare sedang diperbarui."
         },
         "tunnels": {
             "title": "Tunnels",
@@ -1206,7 +1224,17 @@
             "install_restart": "Instal & Mulai Ulang",
             "no_changelog": "Tidak ada catatan perubahan yang disediakan.",
             "alert_title": "Pembaruan Tersedia: {{version}}",
-            "alert_update_button": "Perbarui"
-        }
+            "alert_update_button": "Perbarui",
+            "update_to_target": "Perbarui ke {{version}}",
+            "update_text": "Perbarui"
+        },
+        "update_available": "Update Tersedia",
+        "update_available_version": "Update {{version}} Tersedia",
+        "update_to": "Perbarui ke {{version}}",
+        "uninstall": "Hapus Instalasi"
+    },
+    "git": {
+        "confirm_update_title": "Perbarui Git",
+        "confirm_update_msg": "Apakah Anda yakin ingin memperbarui Git ke versi {{version}}?"
     }
 }

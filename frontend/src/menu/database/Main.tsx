@@ -9,6 +9,8 @@ import { useToast } from '../../components/ToastContext';
 import { useAlert } from '../../components/AlertContext';
 import BackgroundProgressWidget from '../../components/BackgroundProgressWidget';
 import LogFileViewerModal from '../../components/LogFileViewerModal';
+import InfoBox from '../../components/InfoBox';
+import ProgressBar from '../../components/ProgressBar';
 
 import PageHeader from '../../components/PageHeader';
 import SkeletonCard from '../../components/SkeletonCard';
@@ -56,6 +58,7 @@ export default function DatabaseMain() {
     const [progress, setProgress] = useState(0);
     const [progressText, setProgressText] = useState('');
     const [isInstalling, setIsInstalling] = useState(false);
+    const [updatingInstance, setUpdatingInstance] = useState<{db: DbInstance, update: AvailableUpdate} | null>(null);
     const hideProgressTimeoutRef = useRef<number | null>(null);
 
     // ---> STATE UNTUK CEK & EKSEKUSI UPDATE VERSI ENGINE PER-INSTANCE <---
@@ -252,13 +255,19 @@ export default function DatabaseMain() {
         });
 
         setIsInstalling(true);
+        setUpdatingInstance({ db, update });
         setProgressText(t('database.updating_engine'));
         try {
             const res = await window.pywebview?.api?.update_database(db.id, update.version, update.url, shouldBackup);
             showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
             if (res?.status === 'success') fetchDatabases();
         } catch (e) { console.error(e); showToast(t('database.install_error'), "error"); }
-        finally { setIsInstalling(false); setProgress(0); }
+        finally { 
+            setIsInstalling(false); 
+            setProgress(0); 
+            setUpdatingInstance(null);
+            setIsNewInstanceOpen(false);
+        }
     };
 
     const fetchDbLogContent = useCallback(() => {
@@ -356,23 +365,10 @@ export default function DatabaseMain() {
                             return (
                                 <Card
                                     key={db.id}
-                                    title={
-                                        <div className="flex items-center gap-2">
-                                            <span>{db.name}</span>
-                                            {/* ---> IKON/BADGE "UPDATE" -- mengikuti pola persis php/Main.tsx's updateVer
-                                                 badge, bukan notice box terpisah. Aksi update sendiri ada di menu
-                                                 dropdown (titik tiga) di bawah, bukan tombol langsung di badge ini. <--- */}
-                                            {update && (
-                                                <span
-                                                    className="bg-amber-500/10 dark:bg-amber-500/20 text-amber-600 dark:text-amber-500 text-[10px] uppercase font-bold px-1.5 py-0.5 rounded flex items-center gap-1"
-                                                    title={t('database.update_to', { version: update.version }) as string}
-                                                >
-                                                    <span className="material-symbols-outlined text-[12px]">upgrade</span> {t('database.update')}
-                                                </span>
-                                            )}
-                                        </div>
-                                    }
-                                    status={db.status} gridCols="grid-cols-2 md:grid-cols-3"
+                                    title={db.name}
+                                    status={db.status}
+                                    updateVersion={update?.version || null}
+                                    gridCols="grid-cols-2 md:grid-cols-3"
                                     dropdownActions={
                                         <>
                                             {/* ---> TEKS "Open Config" DIKEMBALIKAN KE OPEN MY.INI/POSTGRESQL.CONF <--- */}
@@ -442,8 +438,25 @@ export default function DatabaseMain() {
 
             <BackgroundProgressWidget isOpen={isInstalling && !isNewInstanceOpen} progress={progress} progressText={progressText} title={t('database.processing')} onRestore={() => setIsNewInstanceOpen(true)} />
 
-            <Modal keepMounted={isInstalling} isOpen={isNewInstanceOpen} onClose={() => setIsNewInstanceOpen(false)} title={t('database.install_db_title')} icon="download" onApply={handleInstallDatabase} applyText={isInstalling ? t('database.processing') : t('database.install_btn')} isApplyDisabled={isInstalling}>
-                <NewDbInstance ref={newDbRef} activeTab={activeTab} usedPorts={usedPorts} isInstalling={isInstalling} progress={progress} progressText={progressText} />
+            <Modal 
+                keepMounted={isInstalling} 
+                isOpen={isNewInstanceOpen} 
+                onClose={() => setIsNewInstanceOpen(false)} 
+                title={updatingInstance ? t('database.updating_engine') : t('database.install_db_title')} 
+                icon={updatingInstance ? "upgrade" : "download"} 
+                onApply={updatingInstance ? undefined : handleInstallDatabase} 
+                applyText={isInstalling ? t('database.processing') : t('database.install_btn')} 
+                isApplyDisabled={isInstalling}
+            >
+                <NewDbInstance 
+                    ref={newDbRef} 
+                    activeTab={activeTab} 
+                    usedPorts={usedPorts} 
+                    isInstalling={isInstalling} 
+                    progress={progress} 
+                    progressText={progressText} 
+                    targetUpdate={updatingInstance ? { engine: updatingInstance.db.engine, version: updatingInstance.update.version, port: updatingInstance.db.port } : undefined}
+                />
             </Modal>
 
             {/* ---> MODAL CHANGE PASSWORD BARU <--- */}

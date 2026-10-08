@@ -5,11 +5,12 @@ import FieldLabel from '../../components/FieldLabel';
 import RuntimeVersionSelect from './RuntimeVersionSelect';
 
 export interface InstallNodeRef { submit: () => Promise<boolean>; }
+interface InstallNodeProps { targetVersion?: string | null; }
 
-const InstallNode = forwardRef<InstallNodeRef, any>((_, ref) => {
+const InstallNode = forwardRef<InstallNodeRef, InstallNodeProps>(({ targetVersion }, ref) => {
     const { t } = useTranslation();
     const { showToast } = useToast();
-    const [version, setVersion] = useState('');
+    const [version, setVersion] = useState(targetVersion || '');
     const [versionsList, setVersionsList] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
@@ -21,7 +22,7 @@ const InstallNode = forwardRef<InstallNodeRef, any>((_, ref) => {
                 const res = await window.pywebview?.api?.get_available_node_versions();
                 if (res?.status === 'success' && res.data.length > 0) {
                     setVersionsList(res.data);
-                    setVersion(res.data[0].value);
+                    if (!targetVersion) setVersion(res.data[0].value);
                 } else {
                     setVersionsList([]);
                 }

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
+import { useAlert } from '../../../components/AlertContext';
 import { useTranslation } from 'react-i18next';
 import PageHeader from '../../../components/PageHeader';
 import Card from '../../../components/Card';
@@ -10,6 +11,7 @@ import FieldLabel from '../../../components/FieldLabel';
 import InfoBox from '../../../components/InfoBox';
 import EmptyState from '../../../components/EmptyState';
 import { useToast } from '../../../components/ToastContext';
+import BackgroundProgressWidget from '../../../components/BackgroundProgressWidget';
 import { clampPercent } from '../../../utils/progress';
 
 // --- SUB-KOMPONEN: FORM INSTALASI GIT ---
@@ -88,32 +90,7 @@ const InstallGitForm = forwardRef<InstallGitRef, any>((_, ref) => {
 
 
 // --- KOMPONEN UTAMA: GIT MAIN ---
-const FloatingWidget = ({ isMinimized, isProcessing, setIsMinimized, progressText, progress, t }: any) => {
-    if (!isMinimized || !isProcessing) return null;
-    return (
-        <div className="fixed bottom-6 right-6 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl p-4 z-[9999] animate-in slide-in-from-bottom-5 fade-in duration-300">
-            <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-full bg-primary/10 dark:bg-primary/20 flex items-center justify-center shrink-0">
-                        <span className="material-symbols-outlined text-primary text-[18px]">system_update_alt</span>
-                    </div>
-                    <div className="flex flex-col min-w-0 flex-1">
-                        <span className="text-sm font-bold text-slate-900 dark:text-white leading-none truncate">{t('tools.git.installing')}</span>
-                        <span className="text-[10px] text-slate-500 mt-1">{t('tools.git.running_background')}</span>
-                    </div>
-                </div>
-                <button type="button" onClick={() => setIsMinimized(false)} className="w-7 h-7 shrink-0 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors outline-none">
-                    <span className="material-symbols-outlined text-[18px]">open_in_full</span>
-                </button>
-            </div>
-            <div className="flex justify-between text-[11px] mb-1.5 px-0.5">
-                <span className="text-slate-500 truncate w-3/4">{progressText || t('tools.git.processing')}</span>
-                <span className="font-bold text-primary">{progress}%</span>
-            </div>
-            <ProgressBarAtom percent={progress} />
-        </div>
-    );
-};
+
 
 const GitProgressCard = ({ isProcessing, isUninstallModalOpen, progressText, progress, t }: any) => {
     if (!isProcessing || isUninstallModalOpen) return null; // Sembunyikan untuk task yang cepat seperti config
@@ -154,39 +131,33 @@ const ExternalCard = ({ gitData, t }: any) => {
     );
 };
 
+
 const INITIAL_DATA = { installed: false, version: '', in_path: false, external: { exists: false, path: '', version: '' } };
 
 /**
  * Tombol status install di header -- SELALU dirender (bukan disembunyikan saat sudah terpasang),
- * warna/ikon/label berganti antara "Install Git" (primary) dan "Installed" (emerald), menyamai
- * pola `InstallHeaderButton` di tools/tunnels/Main.tsx dan `RuntimesHeaderActions` di
- * runtimes/Main.tsx -- lihat docs/known_bugs.md #41/#43 soal kenapa Git sebelumnya berbeda
- * (tombol hilang total begitu terpasang, bukan cuma beda warna).
+ * warna/ikon/label berganti antara "Install Git" (primary) dan "Installed" (emerald).
  */
-function GitInstallButton({ installed, isLoading, isBlockedByExternal: _isBlockedByExternal, hasUpdate, onClick, t }: { readonly installed: boolean; readonly isLoading: boolean; readonly isBlockedByExternal: boolean; readonly hasUpdate?: boolean; readonly onClick: () => void; readonly t: any }) {
-    if (hasUpdate && installed) {
+function GitInstallButton({ installed, isLoading, isBlockedByExternal: _isBlockedByExternal, onClick, t }: { readonly installed: boolean; readonly isLoading: boolean; readonly isBlockedByExternal: boolean; readonly onClick: () => void; readonly t: any }) {
+    if (installed) {
         return (
             <button type="button"
-                onClick={onClick}
-                disabled={isLoading}
-                className="bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-sm shrink-0 whitespace-nowrap"
+                disabled
+                className="bg-emerald-500 hover:bg-emerald-600 disabled:opacity-100 disabled:cursor-default border-transparent text-white text-sm font-medium py-2 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-sm shrink-0 whitespace-nowrap"
             >
-                <span className="material-symbols-outlined text-[18px]">update</span>
-                {t('tools.git.update_git', 'Update Git')}
+                <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                {t('common.installed')}
             </button>
         );
     }
-    const colorClass = installed
-        ? 'bg-emerald-500 hover:bg-emerald-600 disabled:opacity-100 disabled:cursor-default border-transparent'
-        : 'bg-primary hover:bg-primary/90 border border-transparent disabled:opacity-50 disabled:cursor-not-allowed';
     return (
         <button type="button"
             onClick={onClick}
-            disabled={installed || isLoading}
-            className={`text-white text-sm font-medium py-2 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-sm shrink-0 whitespace-nowrap ${colorClass}`}
+            disabled={isLoading}
+            className="bg-primary hover:bg-primary/90 border border-transparent disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium py-2 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-sm shrink-0 whitespace-nowrap"
         >
-            <span className="material-symbols-outlined text-[18px]">{installed ? 'check_circle' : 'download'}</span>
-            {installed ? t('common.installed') : t('tools.git.install_git')}
+            <span className="material-symbols-outlined text-[18px]">download</span>
+            {t('tools.git.install_git')}
         </button>
     );
 }
@@ -198,7 +169,8 @@ export default function GitMain() {
     const [gitData, setGitData] = useState(INITIAL_DATA);
     const [configData, setConfigData] = useState({ userName: '', userEmail: '' });
     const [isLoading, setIsLoading] = useState(true);
-    const [hasUpdate, setHasUpdate] = useState(false);
+    const [updateAvailable, setUpdateAvailable] = useState<any | null>(null);
+    const { confirm } = useAlert();
 
     // States Logika Instalasi & UI Progress
     const [isProcessing, setIsProcessing] = useState(false);
@@ -212,7 +184,7 @@ export default function GitMain() {
 
     useEffect(() => {
         const handleProgress = (event: any) => {
-            // Abaikan progress milik modul lain — lihat docs/known_bugs.md #7.
+            // Abaikan progress milik modul lain â€” lihat docs/known_bugs.md #7.
             if (event.detail?.source && event.detail.source !== 'GitManager') return;
             const { percent, text } = event.detail;
             setProgress(clampPercent(percent));
@@ -242,14 +214,14 @@ export default function GitMain() {
                         if (res?.status === 'success' && res.data.length > 0) {
                             const latest = res.data[0];
                             if (latest.version_text && latest.version_text !== status.version) {
-                                setHasUpdate(true);
+                                setUpdateAvailable(latest);
                             } else {
-                                setHasUpdate(false);
+                                setUpdateAvailable(null);
                             }
                         }
                     }).catch(console.error);
                 } else {
-                    setHasUpdate(false);
+                    setUpdateAvailable(null);
                 }
             }
         } catch (error){ console.error(error);
@@ -260,6 +232,34 @@ export default function GitMain() {
     };
 
     useEffect(() => { fetchStatus(); }, []);
+
+    const handleUpdateClick = async (update: any) => {
+        if (!await confirm({
+            title: t('git.confirm_update_title'),
+            message: t('git.confirm_update_msg', { version: update.version_text }),
+            type: 'warning'
+        })) {
+            return;
+        }
+
+        setIsProcessing(true);
+        setProgress(0);
+        setProgressText(t('common.preparing'));
+
+        try {
+            const res = await window.pywebview?.api?.install_git(update.value, update.filename, update.version_text);
+            if (res?.status === 'success') {
+                showToast(t(res.message || 'tools.git.install_success') as string, 'success');
+            } else {
+                showToast(t(res?.message || 'backend.error.unexpected', res?.args || {}) as string, 'error');
+            }
+        } catch {
+            showToast(t('backend.error.unexpected'), "error");
+        } finally {
+            setIsProcessing(false);
+            fetchStatus();
+        }
+    };
 
     const handleTogglePath = async (enable: boolean) => {
         if (gitData.external?.exists) {
@@ -356,10 +356,22 @@ export default function GitMain() {
             return (
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mt-6 w-full min-w-0">
                     {/* Card 1: Core System */}
-                    <Card title={t('tools.git.core_system_title')} status={gitData.in_path ? t('tools.git.path_active') : t('tools.git.isolated')} gridCols="grid-cols-1 md:grid-cols-2" dropdownActions={
-                        <button type="button" onClick={() => setIsUninstallModalOpen(true)} disabled={isProcessing} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 transition-colors">
-                            {t('tools.git.uninstall_git')}
-                        </button>
+                    <Card
+                        title={t('tools.git.core_system_title')}
+                        status={updateAvailable ? null : gitData.in_path ? t('tools.git.path_active') : t('tools.git.isolated')}
+                        updateVersion={updateAvailable?.version_text || null}
+                        gridCols="grid-cols-1 md:grid-cols-2"
+                        dropdownActions={
+                            <>
+                                {updateAvailable && (
+                                    <button type="button" onClick={() => handleUpdateClick(updateAvailable)} className="w-full text-left px-4 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors">
+                                    {t('ui.update.update_to_target', { version: updateAvailable.version_text })}
+                                </button>
+                            )}
+                            <button type="button" onClick={() => setIsUninstallModalOpen(true)} disabled={isProcessing} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 transition-colors">
+                                {t('tools.git.uninstall_git')}
+                            </button>
+                        </>
                     }>
                         {gitData.external?.exists && (
                             <InfoBox tone="warning" icon="warning" className="col-span-1 md:col-span-2 mb-3 w-full min-w-0">
@@ -420,7 +432,6 @@ export default function GitMain() {
                         installed={gitData.installed}
                         isLoading={isLoading}
                         isBlockedByExternal={!!gitData.external?.exists}
-                        hasUpdate={hasUpdate}
                         onClick={() => setIsInstallModalOpen(true)}
                         t={t}
                     />
@@ -431,17 +442,28 @@ export default function GitMain() {
 
             {renderMainContent()}
 
-            <FloatingWidget isMinimized={isMinimized} isProcessing={isProcessing} setIsMinimized={setIsMinimized} progressText={progressText} progress={progress} t={t} />
+            <BackgroundProgressWidget
+                isOpen={isProcessing && (!isInstallModalOpen || isMinimized) && !isUninstallModalOpen}
+                progress={progress}
+                progressText={progressText}
+                title={t('tools.git.installing')}
+                onRestore={() => {
+                    setIsMinimized(false);
+                    if (!isInstallModalOpen && !isUninstallModalOpen) {
+                        setIsInstallModalOpen(true);
+                    }
+                }}
+            />
 
             {/* MODAL INSTALL */}
             <Modal
                 isOpen={isInstallModalOpen && !isMinimized}
                 keepMounted={isProcessing}
                 onClose={() => isProcessing ? setIsMinimized(true) : setIsInstallModalOpen(false)}
-                title={hasUpdate && gitData.installed ? t('tools.git.update_git', 'Update Git') : t('tools.git.install_git')}
+                title={updateAvailable && gitData.installed ? t('tools.git.update_git', 'Update Git') : t('tools.git.install_git')}
                 icon="merge"
                 onApply={handleInstallSubmit}
-                applyText={isProcessing ? t('tools.git.installing_btn') : (hasUpdate && gitData.installed ? t('tools.git.update_git', 'Update Git') : t('tools.git.install_engine'))}
+                applyText={isProcessing ? t('tools.git.installing_btn') : (updateAvailable && gitData.installed ? t('tools.git.update_git', 'Update Git') : t('tools.git.install_engine'))}
                 isApplyDisabled={isProcessing}
             >
                 <div className={isProcessing ? "opacity-40 pointer-events-none transition-opacity" : ""}>
@@ -469,3 +491,5 @@ export default function GitMain() {
         </div>
     );
 }
+
+

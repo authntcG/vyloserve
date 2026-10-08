@@ -5,11 +5,12 @@ import FieldLabel from '../../components/FieldLabel';
 import RuntimeVersionSelect from './RuntimeVersionSelect';
 
 export interface InstallGoRef { submit: () => Promise<boolean>; }
+interface InstallGoProps { targetVersion?: string | null; }
 
-const InstallGo = forwardRef<InstallGoRef, any>((_, ref) => {
+const InstallGo = forwardRef<InstallGoRef, InstallGoProps>(({ targetVersion }, ref) => {
     const { t } = useTranslation();
     const { showToast } = useToast();
-    const [version, setVersion] = useState('latest');
+    const [version, setVersion] = useState(targetVersion || 'latest');
     const [versionsList, setVersionsList] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
@@ -19,7 +20,7 @@ const InstallGo = forwardRef<InstallGoRef, any>((_, ref) => {
                 const res = await window.pywebview?.api?.get_available_go_versions();
                 if (res?.status === 'success' && res.data.length > 0) {
                     setVersionsList(res.data);
-                    setVersion(res.data[0].value);
+                    if (!targetVersion) setVersion(res.data[0].value);
                 } else {
                     setVersionsList([]);
                 }

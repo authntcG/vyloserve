@@ -29,7 +29,7 @@ interface EngineExternalInfo {
 interface EngineData {
     installed: boolean;
     version: string;
-    hasUpdate?: boolean;
+    updateAvailable?: string;
     in_path: boolean;
     external: EngineExternalInfo;
 }
@@ -121,6 +121,7 @@ interface RuntimeEnginePanelProps {
     readonly emptyDesc: string;
     readonly emptyActionText: string;
     readonly onOpenModal: () => void;
+    readonly onUpdateClick?: () => void;
     readonly cardTitle: string;
     readonly engineTitle: string;
     readonly onUninstallClick: () => void;
@@ -132,7 +133,7 @@ interface RuntimeEnginePanelProps {
     readonly onTogglePath: (checked: boolean) => void;
 }
 
-function RuntimeEnginePanel({ data, isProcessing, emptyIcon, emptyTitle, emptyDesc, emptyActionText, onOpenModal, cardTitle, engineTitle, onUninstallClick, uninstallLabel, field2Label, field2Value, pathDescKey, toggleMarginClass, onTogglePath }: RuntimeEnginePanelProps) {
+function RuntimeEnginePanel({ data, isProcessing, emptyIcon, emptyTitle, emptyDesc, emptyActionText, onOpenModal, onUpdateClick, cardTitle, engineTitle, onUninstallClick, uninstallLabel, field2Label, field2Value, pathDescKey, toggleMarginClass, onTogglePath }: RuntimeEnginePanelProps) {
     const { t } = useTranslation();
     const ext = data.external;
 
@@ -146,12 +147,20 @@ function RuntimeEnginePanel({ data, isProcessing, emptyIcon, emptyTitle, emptyDe
             {data.installed && (
                 <Card
                     title={cardTitle}
-                    status={data.in_path ? t('runtimes.path_active') : t('runtimes.isolated')}
+                    status={data.updateAvailable ? null : data.in_path ? t('runtimes.path_active') : t('runtimes.isolated')}
+                    updateVersion={data.updateAvailable || null}
                     gridCols="grid-cols-1 md:grid-cols-2"
                     dropdownActions={
-                        <button type="button" onClick={onUninstallClick} disabled={isProcessing} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 transition-colors">
-                            {uninstallLabel}
-                        </button>
+                        <>
+                            {data.updateAvailable && (
+                                <button type="button" onClick={onUpdateClick} className="w-full text-left px-4 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors">
+                                    {t('ui.update.update_to_target', { version: data.updateAvailable })}
+                                </button>
+                            )}
+                            <button type="button" onClick={onUninstallClick} disabled={isProcessing} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 transition-colors">
+                                {uninstallLabel}
+                            </button>
+                        </>
                     }
                 >
                     {ext?.exists && <ExternalWarningBanner version={ext.version} />}
@@ -196,15 +205,14 @@ function RuntimesSubtitle({ isLoading, activeEnginesCount, t }: RuntimesSubtitle
 
 interface RuntimesHeaderActionsProps {
     readonly activeEngine: EngineData;
-    readonly hasUpdate?: boolean;
     readonly activeTab: RuntimeEngine;
     readonly isLoading: boolean;
     readonly onOpenInstall: () => void;
     readonly t: any;
 }
 
-function RuntimesHeaderActions({ activeEngine, hasUpdate, activeTab, isLoading, onOpenInstall, t }: RuntimesHeaderActionsProps) {
-    if (activeEngine.installed && !hasUpdate) {
+function RuntimesHeaderActions({ activeEngine, activeTab, isLoading, onOpenInstall, t }: RuntimesHeaderActionsProps) {
+    if (activeEngine.installed) {
         return (
             <button type="button" disabled className="text-white text-sm font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2 shadow-sm bg-emerald-500 opacity-80 cursor-default whitespace-nowrap shrink-0">
                 <span className="material-symbols-outlined text-[18px]">check_circle</span>
@@ -212,17 +220,14 @@ function RuntimesHeaderActions({ activeEngine, hasUpdate, activeTab, isLoading, 
             </button>
         );
     }
-    const colorClass = activeEngine.installed
-        ? 'bg-amber-500 hover:bg-amber-600 border-transparent'
-        : 'bg-primary hover:bg-primary/90 border border-transparent';
     return (
         <button type="button"
             onClick={onOpenInstall}
             disabled={isLoading}
-            className={`text-white text-sm font-medium py-2 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-sm whitespace-nowrap shrink-0 ${colorClass}`}
+            className="text-white text-sm font-medium py-2 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-sm whitespace-nowrap shrink-0 bg-primary hover:bg-primary/90 border border-transparent"
         >
-            <span className="material-symbols-outlined text-[18px]">{activeEngine.installed ? 'upgrade' : 'add'}</span>
-            {activeEngine.installed ? t('runtimes.update_change_version') : `${t('runtimes.add')}${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}`}
+            <span className="material-symbols-outlined text-[18px]">add</span>
+            {`${t('runtimes.add')} ${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}`}
         </button>
     );
 }
@@ -242,6 +247,7 @@ export default function RuntimesMain() {
 
     const [isProcessing, setIsProcessing] = useState(false);
     const [installingEngine, setInstallingEngine] = useState<string | null>(null);
+    const [updatingVersion, setUpdatingVersion] = useState<string | null>(null);
     const [progress, setProgress] = useState(0);
     const [progressText, setProgressText] = useState('');
     const [isMinimized, setIsMinimized] = useState(false);
@@ -260,7 +266,7 @@ export default function RuntimesMain() {
 
     useEffect(() => {
         const handleProgress = (event: any) => {
-            // Abaikan progress milik modul lain — lihat docs/known_bugs.md #7.
+            // Abaikan progress milik modul lain â€” lihat docs/known_bugs.md #7.
             if (event.detail?.source && event.detail.source !== 'RuntimesManager') return;
             const { percent, text } = event.detail;
             setProgress(clampPercent(percent));
@@ -269,6 +275,81 @@ export default function RuntimesMain() {
         window.addEventListener('vylo_progress', handleProgress);
         return () => window.removeEventListener('vylo_progress', handleProgress);
     }, []);
+
+    const checkForUpdates = async (api: any, nodeStatus: any, pythonStatus: any, javaStatus: any, goStatus: any) => {
+        let nodeUpdate: string | undefined, pythonUpdate: string | undefined, javaUpdate: string | undefined, goUpdate: string | undefined;
+        
+        const compareVersions = (v1: string, v2: string) => {
+            const p1 = v1.replace(/^v/i, '').replace(/^go/i, '').split(/[.-]/).map(Number);
+            const p2 = v2.replace(/^v/i, '').replace(/^go/i, '').split(/[.-]/).map(Number);
+            for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
+                if ((p1[i] || 0) > (p2[i] || 0)) return 1;
+                if ((p1[i] || 0) < (p2[i] || 0)) return -1;
+            }
+            return 0;
+        };
+
+        await Promise.all([
+            (async () => {
+                if (nodeStatus?.installed && nodeStatus.version) {
+                    try {
+                        const res = await api.get_available_node_versions();
+                        if (res?.status === 'success' && res.data?.length > 0) {
+                            const localNorm = nodeStatus.version.replace(/^v/i, '');
+                            const remoteNorm = res.data[0].value.replace(/^v/i, '');
+                            if (compareVersions(remoteNorm, localNorm) > 0) nodeUpdate = res.data[0].value;
+                        }
+                    } catch (e) { console.error(e); }
+                }
+            })(),
+            (async () => {
+                if (goStatus?.installed && goStatus.version) {
+                    try {
+                        const res = await api.get_available_go_versions();
+                        if (res?.status === 'success' && res.data?.length > 0) {
+                            const localNorm = goStatus.version.replace(/^go/i, '');
+                            const remoteNorm = res.data[0].value.replace(/^go/i, '');
+                            if (compareVersions(remoteNorm, localNorm) > 0) goUpdate = res.data[0].value;
+                        }
+                    } catch (e) { console.error(e); }
+                }
+            })(),
+            (async () => {
+                if (pythonStatus?.installed && pythonStatus.version) {
+                    try {
+                        const res = await api.get_available_python_versions();
+                        if (res?.status === 'success' && res.data?.length > 0) {
+                            const minM = pythonStatus.version.split('.').slice(0, 2).join('.');
+                            if (res.data.some((v: any) => v.value.startsWith(minM + '.') && v.value !== pythonStatus.version)) {
+                                pythonUpdate = res.data.find((v: any) => v.value.startsWith(minM + '.') && v.value !== pythonStatus.version)?.value;
+                            }
+                        }
+                    } catch (e) { console.error(e); }
+                }
+            })(),
+            (async () => {
+                if (javaStatus?.installed && javaStatus.version) {
+                    try {
+                        const res = await api.get_available_java_versions();
+                        if (res?.status === 'success' && res.data?.length > 0) {
+                            const minM = javaStatus.version.split('.').slice(0, 2).join('.');
+                            if (res.data.some((v: any) => v.value.startsWith(minM + '.') && v.value !== javaStatus.version)) {
+                                javaUpdate = res.data.find((v: any) => v.value.startsWith(minM + '.') && v.value !== javaStatus.version)?.value;
+                            }
+                        }
+                    } catch (e) { console.error(e); }
+                }
+            })()
+        ]);
+
+        setRuntimeData(prev => ({
+            ...prev,
+            node: { ...prev.node, updateAvailable: nodeUpdate },
+            python: { ...prev.python, updateAvailable: pythonUpdate },
+            java: { ...prev.java, updateAvailable: javaUpdate },
+            go: { ...prev.go, updateAvailable: goUpdate }
+        }));
+    };
 
     const fetchStatuses = async () => {
         setIsLoading(true);
@@ -282,64 +363,16 @@ export default function RuntimesMain() {
                     api.get_go_status()
                 ]);
 
-                // Check updates
-                let nodeUpdate = false, pythonUpdate = false, javaUpdate = false, goUpdate = false;
-                
-                const compareVersions = (v1: string, v2: string) => {
-                    const p1 = v1.replace(/^v/i, '').replace(/^go/i, '').split(/[.-]/).map(Number);
-                    const p2 = v2.replace(/^v/i, '').replace(/^go/i, '').split(/[.-]/).map(Number);
-                    for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
-                        if ((p1[i] || 0) > (p2[i] || 0)) return 1;
-                        if ((p1[i] || 0) < (p2[i] || 0)) return -1;
-                    }
-                    return 0;
-                };
-
-                if (nodeStatus?.installed && nodeStatus.version) {
-                    const res = await api.get_available_node_versions();
-                    if (res?.status === 'success' && res.data?.length > 0) {
-                        const localNorm = nodeStatus.version.replace(/^v/i, '');
-                        const remoteNorm = res.data[0].value.replace(/^v/i, '');
-                        if (compareVersions(remoteNorm, localNorm) > 0) nodeUpdate = true;
-                    }
-                }
-                
-                if (goStatus?.installed && goStatus.version) {
-                    const res = await api.get_available_go_versions();
-                    if (res?.status === 'success' && res.data?.length > 0) {
-                        const localNorm = goStatus.version.replace(/^go/i, '');
-                        const remoteNorm = res.data[0].value.replace(/^go/i, '');
-                        if (compareVersions(remoteNorm, localNorm) > 0) goUpdate = true;
-                    }
-                }
-                
-                if (pythonStatus?.installed && pythonStatus.version) {
-                    const res = await api.get_available_python_versions();
-                    if (res?.status === 'success' && res.data?.length > 0) {
-                        const minM = pythonStatus.version.split('.').slice(0, 2).join('.');
-                        if (res.data.some((v: any) => v.value.startsWith(minM + '.') && v.value !== pythonStatus.version)) {
-                            pythonUpdate = true;
-                        }
-                    }
-                }
-                
-                if (javaStatus?.installed && javaStatus.version) {
-                    const res = await api.get_available_java_versions();
-                    if (res?.status === 'success' && res.data?.length > 0) {
-                        const minM = javaStatus.version.split('.').slice(0, 2).join('.');
-                        if (res.data.some((v: any) => v.value.startsWith(minM + '.') && v.value !== javaStatus.version)) {
-                            javaUpdate = true;
-                        }
-                    }
-                }
-
                 setRuntimeData(prev => ({
                     ...prev,
-                    node: { ...prev.node, ...nodeStatus, hasUpdate: nodeUpdate },
-                    python: { ...prev.python, ...pythonStatus, hasUpdate: pythonUpdate },
-                    java: { ...prev.java, ...javaStatus, hasUpdate: javaUpdate },
-                    go: { ...prev.go, ...goStatus, hasUpdate: goUpdate }
+                    node: { ...prev.node, ...nodeStatus },
+                    python: { ...prev.python, ...pythonStatus },
+                    java: { ...prev.java, ...javaStatus },
+                    go: { ...prev.go, ...goStatus }
                 }));
+
+                // Fire and forget
+                checkForUpdates(api, nodeStatus, pythonStatus, javaStatus, goStatus);
             }
         } catch (error){ console.error(error);
             console.error(t('runtimes.load_status_error'), error);
@@ -351,6 +384,56 @@ export default function RuntimesMain() {
     useEffect(() => {
         fetchStatuses();
     }, []);
+
+    const handleUpdateClick = async (engine: RuntimeEngine, version: string) => {
+        if (!await confirm({
+            title: t('runtimes.update_title') + engine.toUpperCase(),
+            message: t('runtimes.confirm_update_msg', { version }),
+            type: 'warning'
+        })) {
+            return;
+        }
+
+        if (engine === 'node') setIsNodeModalOpen(true);
+        else if (engine === 'python') setIsPythonModalOpen(true);
+        else if (engine === 'java') setIsJavaModalOpen(true);
+        else if (engine === 'go') setIsGoModalOpen(true);
+
+        setIsMinimized(true);
+
+        setInstallingEngine(engine);
+        setUpdatingVersion(version);
+        setIsProcessing(true);
+        setProgress(0);
+        setProgressText(t('common.preparing'));
+
+        try {
+            let res;
+            if (engine === 'node') res = await window.pywebview?.api?.install_node(version, true);
+            else if (engine === 'python') res = await window.pywebview?.api?.install_python(version, true);
+            else if (engine === 'java') res = await window.pywebview?.api?.install_java(version);
+            else if (engine === 'go') res = await window.pywebview?.api?.install_go(version);
+
+            if (res?.status === 'success') {
+                showToast(res.message ? t(res.message, res.args || {}) as string : t('runtimes.update_success', { engine: engine.toUpperCase() }), 'success');
+            } else {
+                showToast(res?.message ? t(res.message, res.args || {}) as string : t('backend.error.unexpected'), 'error');
+            }
+        } catch (error) {
+            console.error(error);
+            showToast(t('runtimes.sys_error'), "error");
+        } finally {
+            setIsProcessing(false);
+            setInstallingEngine(null);
+            setUpdatingVersion(null);
+            setIsMinimized(false);
+            if (engine === 'node') setIsNodeModalOpen(false);
+            else if (engine === 'python') setIsPythonModalOpen(false);
+            else if (engine === 'java') setIsJavaModalOpen(false);
+            else if (engine === 'go') setIsGoModalOpen(false);
+            fetchStatuses();
+        }
+    };
 
     const handleTogglePath = async (engine: 'node' | 'python' | 'java' | 'go', enable: boolean) => {
         const isExternalExists = runtimeData[engine].external?.exists;
@@ -475,7 +558,7 @@ export default function RuntimesMain() {
                 actions={
                     <RuntimesHeaderActions
                         activeEngine={runtimeData[activeTab]}
-                        hasUpdate={runtimeData[activeTab].hasUpdate}
+                        
                         activeTab={activeTab}
                         isLoading={isLoading}
                         onOpenInstall={handleOpenInstall}
@@ -507,6 +590,7 @@ export default function RuntimesMain() {
                     emptyDesc={t('runtimes.node_desc')}
                     emptyActionText={t('runtimes.install_node_now')}
                     onOpenModal={() => setIsNodeModalOpen(true)}
+                    onUpdateClick={() => handleUpdateClick('node', runtimeData.node.updateAvailable!)}
                     cardTitle="Node.js (VyloServe)"
                     engineTitle="Node.js"
                     onUninstallClick={() => executeUninstall('node')}
@@ -527,6 +611,7 @@ export default function RuntimesMain() {
                     emptyDesc={t('runtimes.python_desc')}
                     emptyActionText={t('runtimes.install_python_now')}
                     onOpenModal={() => setIsPythonModalOpen(true)}
+                    onUpdateClick={() => handleUpdateClick('python', runtimeData.python.updateAvailable!)}
                     cardTitle="Python (VyloServe)"
                     engineTitle="Python"
                     onUninstallClick={() => executeUninstall('python')}
@@ -547,6 +632,7 @@ export default function RuntimesMain() {
                     emptyDesc={t('runtimes.java_desc')}
                     emptyActionText={t('runtimes.install_java_now')}
                     onOpenModal={() => setIsJavaModalOpen(true)}
+                    onUpdateClick={() => handleUpdateClick('java', runtimeData.java.updateAvailable!)}
                     cardTitle="Java JDK (VyloServe)"
                     engineTitle="Java JDK"
                     onUninstallClick={() => executeUninstall('java')}
@@ -568,6 +654,7 @@ export default function RuntimesMain() {
                     emptyDesc={t('runtimes.go_desc')}
                     emptyActionText={t('runtimes.install_go_now')}
                     onOpenModal={() => setIsGoModalOpen(true)}
+                    onUpdateClick={() => handleUpdateClick('go', runtimeData.go.updateAvailable!)}
                     cardTitle="Go Compiler (VyloServe)"
                     engineTitle="Go Compiler"
                     onUninstallClick={() => executeUninstall('go')}
@@ -584,7 +671,7 @@ export default function RuntimesMain() {
                 isOpen={isMinimized && isProcessing && !!installingEngine}
                 progress={progress}
                 progressText={progressText}
-                title={`${t('runtimes.install_title')}${installingEngine}`}
+                title={updatingVersion ? `${t('runtimes.update_title')}${installingEngine?.toUpperCase()}` : `${t('runtimes.install_title')}${installingEngine?.toUpperCase()}`}
                 onRestore={() => setIsMinimized(false)}
             />
 
@@ -596,12 +683,12 @@ export default function RuntimesMain() {
                 onClose={() => isProcessing ? setIsMinimized(true) : setIsNodeModalOpen(false)}
                 title={`${runtimeData.node.installed ? t('runtimes.update_title') : t('runtimes.install_title')}Node.js`}
                 icon="javascript"
-                onApply={handleInstallNodeSubmit}
+                onApply={updatingVersion ? undefined : handleInstallNodeSubmit}
                 applyText={isProcessing ? (runtimeData.node.installed ? t('runtimes.updating_btn') : t('runtimes.installing_btn')) : (runtimeData.node.installed ? t('runtimes.update_engine_btn') : t('runtimes.install_engine_btn'))}
                 isApplyDisabled={isProcessing}
             >
                 <div className={isProcessing ? "opacity-40 pointer-events-none transition-opacity" : ""}>
-                    <InstallNode ref={nodeRef} />
+                    <InstallNode targetVersion={updatingVersion} ref={nodeRef} />
                 </div>
                 {renderProgressBar()}
             </Modal>
@@ -612,12 +699,12 @@ export default function RuntimesMain() {
                 onClose={() => isProcessing ? setIsMinimized(true) : setIsPythonModalOpen(false)}
                 title={`${runtimeData.python.installed ? t('runtimes.update_title') : t('runtimes.install_title')}Python`}
                 icon="data_object"
-                onApply={handleInstallPythonSubmit}
+                onApply={updatingVersion ? undefined : handleInstallPythonSubmit}
                 applyText={isProcessing ? (runtimeData.python.installed ? t('runtimes.updating_btn') : t('runtimes.installing_btn')) : (runtimeData.python.installed ? t('runtimes.update_engine_btn') : t('runtimes.install_engine_btn'))}
                 isApplyDisabled={isProcessing}
             >
                 <div className={isProcessing ? "opacity-40 pointer-events-none transition-opacity" : ""}>
-                    <InstallPython ref={pythonRef} />
+                    <InstallPython targetVersion={updatingVersion} ref={pythonRef} />
                 </div>
                 {renderProgressBar()}
             </Modal>
@@ -628,12 +715,12 @@ export default function RuntimesMain() {
                 onClose={() => isProcessing ? setIsMinimized(true) : setIsJavaModalOpen(false)}
                 title={`${runtimeData.java.installed ? t('runtimes.update_title') : t('runtimes.install_title')}Java (JDK)`}
                 icon="coffee"
-                onApply={handleInstallJavaSubmit}
+                onApply={updatingVersion ? undefined : handleInstallJavaSubmit}
                 applyText={isProcessing ? (runtimeData.java.installed ? t('runtimes.updating_btn') : t('runtimes.installing_btn')) : (runtimeData.java.installed ? t('runtimes.update_engine_btn') : t('runtimes.install_engine_btn'))}
                 isApplyDisabled={isProcessing}
             >
                 <div className={isProcessing ? "opacity-40 pointer-events-none transition-opacity" : ""}>
-                    <InstallJava ref={javaRef} />
+                    <InstallJava targetVersion={updatingVersion} ref={javaRef} />
                 </div>
                 {renderProgressBar()}
             </Modal>
@@ -644,15 +731,20 @@ export default function RuntimesMain() {
                 onClose={() => isProcessing ? setIsMinimized(true) : setIsGoModalOpen(false)}
                 title={`${runtimeData.go.installed ? t('runtimes.update_title') : t('runtimes.install_title')}Go Compiler`}
                 icon="rocket_launch"
-                onApply={handleInstallGoSubmit}
+                onApply={updatingVersion ? undefined : handleInstallGoSubmit}
                 applyText={isProcessing ? (runtimeData.go.installed ? t('runtimes.updating_btn') : t('runtimes.installing_btn')) : (runtimeData.go.installed ? t('runtimes.update_engine_btn') : t('runtimes.install_engine_btn'))}
                 isApplyDisabled={isProcessing}
             >
                 <div className={isProcessing ? "opacity-40 pointer-events-none transition-opacity" : ""}>
-                    <InstallGo ref={goRef} />
+                    <InstallGo targetVersion={updatingVersion} ref={goRef} />
                 </div>
                 {renderProgressBar()}
             </Modal>
         </div>
     );
 }
+
+
+
+
+
