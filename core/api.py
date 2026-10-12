@@ -182,7 +182,7 @@ class Api:
             try:
                 from win11toast import toast
                 import os
-                from core.utils.system_utils import get_project_root
+                from core.utils.system_utils import get_resource_path
                 
                 # Notifikasi error/warning dibuat tidak auto-dismiss cepat --
                 # lebih penting untuk tidak terlewat dibanding notifikasi biasa.
@@ -196,10 +196,12 @@ class Api:
                     "info": "notify-info.png"
                 }
                 
-                # Fallback ke logo VyloServe jika tipe tidak dikenali
+                # Fallback ke logo VyloServe jika tipe tidak dikenali atau file ikon spesifik tidak ada
                 icon_filename = icon_map.get(type)
                 if icon_filename:
-                    icon_path = os.path.join(get_project_root(), 'frontend', 'src', 'assets', icon_filename)
+                    icon_path = get_resource_path(os.path.join('frontend', 'src', 'assets', icon_filename))
+                    if not os.path.exists(icon_path):
+                        icon_path = self._notification_icon_path
                 else:
                     icon_path = self._notification_icon_path
 

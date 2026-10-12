@@ -18,6 +18,7 @@ import QrMain from './menu/tools/qr-generator/Main';
 import TunnelsMain from './menu/tools/tunnels/Main';
 import DocsReaderMain from './menu/tools/markdown-viewer/Main';
 import { applyTheme } from './utils/theme';
+import i18n from './i18n';
 
 declare global {
   interface Window {
@@ -74,9 +75,7 @@ function AppContent() {
             window.pywebview.api.get_app_settings().then((res: any) => {
                 if (res?.status === 'success') {
                     if (res.data?.language) {
-                        import('./i18n').then(({ default: i18n }) => {
-                            i18n.changeLanguage(res.data.language);
-                        });
+                        i18n.changeLanguage(res.data.language);
                     }
                     const theme = res.data?.theme || 'vyloserve-dark';
                     applyTheme(theme);

@@ -5,7 +5,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('frontend/dist', 'frontend/dist'), ('frontend/src/assets/icons-nobg.ico', 'frontend/src/assets')],
+    datas=[('frontend/dist', 'frontend/dist'), ('frontend/src/assets', 'frontend/src/assets')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

@@ -413,11 +413,11 @@ Kembali ke root proyek. Gunakan `--noconsole` agar terminal CMD latar belakang d
 
 *   **Opsi A (OneDir / Standar - Lebih Cepat Dimuat):**
     ```powershell
-    pyinstaller --noconsole --add-data "frontend/dist;frontend/dist" --add-data "frontend/src/assets/icons-nobg.ico;frontend/src/assets" main.py
+    pyinstaller --noconsole --add-data "frontend/dist;frontend/dist" --add-data "frontend/src/assets;frontend/src/assets" main.py
     ```
 *   **Opsi B (OneFile - Hanya 1 file `.exe` rapi, namun booting agak lambat):**
     ```powershell
-    pyinstaller --noconsole --onefile --icon "frontend\src\assets\icons-nobg.ico" --add-data "frontend/dist;frontend/dist" --add-data "frontend/src/assets/icons-nobg.ico;frontend/src/assets" main.py
+    pyinstaller --noconsole --onefile --icon "frontend\src\assets\icons-nobg.ico" --add-data "frontend/dist;frontend/dist" --add-data "frontend/src/assets;frontend/src/assets" main.py
     ```
 
 *(Catatan: pastikan fungsi `sys.frozen` telah dikelola dengan baik pada kode `system_utils.py` agar direktori Root tetap terlacak saat dalam bentuk compiled `.exe`).*

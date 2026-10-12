@@ -6,6 +6,7 @@ from unittest.mock import patch, MagicMock
 
 from core.utils.system_utils import (
     get_project_root,
+    get_resource_path,
     get_silent_flags,
     run_silent_command,
     start_silent_process,
@@ -26,6 +27,18 @@ def test_get_project_root_frozen_mode():
         with patch('sys.executable', r'C:\FakePath\vyloserve.exe'):
             root = get_project_root()
             assert root == r'C:\FakePath'
+
+def test_get_resource_path_dev_mode():
+    """Test get_resource_path in dev mode (without sys._MEIPASS)."""
+    with patch.object(sys, '_MEIPASS', None, create=True):
+        res = get_resource_path(os.path.join("frontend", "src", "assets", "notify-success.png"))
+        assert res.endswith(os.path.join("frontend", "src", "assets", "notify-success.png"))
+
+def test_get_resource_path_frozen_mode(monkeypatch):
+    """Test get_resource_path in PyInstaller frozen mode (using sys._MEIPASS)."""
+    monkeypatch.setattr(sys, '_MEIPASS', r'C:\fake\meipass\dir', raising=False)
+    res = get_resource_path("frontend/dist")
+    assert res == os.path.join(r'C:\fake\meipass\dir', "frontend/dist")
 
 def test_get_silent_flags():
     """Test get_silent_flags for Windows and non-Windows."""

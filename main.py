@@ -7,7 +7,7 @@ import pystray
 import ssl
 import certifi
 import ctypes
-from core.utils.system_utils import get_project_root
+from core.utils.system_utils import get_project_root, get_resource_path
 from PIL import Image
 from pystray import MenuItem as item
 import webview.window
@@ -102,11 +102,7 @@ ENABLE_TRAY = True
 # --- FUNGSI RESOLUSI PATH PYINSTALLER ---
 def resource_path(relative_path):
     """ Mendapatkan path absolut ke resource, kompatibel untuk Dev dan PyInstaller """
-    try:
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(os.path.dirname(__file__))
-    return os.path.join(base_path, relative_path)
+    return get_resource_path(relative_path)
 
 # --- FUNGSI ENTRYPOINT ---
 def get_entrypoint():

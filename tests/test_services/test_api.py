@@ -1,4 +1,5 @@
-﻿import pytest
+import sys
+import pytest
 from unittest.mock import MagicMock, patch
 from core.api import Api
 
@@ -504,6 +505,25 @@ def test_show_native_notification_calls_win11toast_with_message_and_click_handle
     assert kwargs.get('duration') == 'short'
     assert kwargs.get('on_click') == api_instance._restore_window_from_notification
     assert "notify-success.png" in kwargs.get("icon")
+
+@patch('core.api.threading.Thread')
+@patch('win11toast.toast')
+def test_show_native_notification_frozen_mode_resolves_via_meipass(mock_toast, mock_thread_cls, api_instance, monkeypatch):
+    """Dalam mode frozen (PyInstaller), path icon harus berasal dari sys._MEIPASS."""
+    monkeypatch.setattr(sys, '_MEIPASS', r'C:\fake\frozen\meipass', raising=False)
+    mock_thread_cls.return_value = MagicMock()
+
+    with patch('os.path.exists', return_value=True):
+        api_instance.show_native_notification("Gagal koneksi", "error")
+        run_fn = mock_thread_cls.call_args.kwargs['target']
+        run_fn()
+
+    args, kwargs = mock_toast.call_args
+    assert args[0] == "VyloServe"
+    assert args[1] == "Gagal koneksi"
+    assert kwargs.get('duration') == 'long'
+    assert r'C:\fake\frozen\meipass' in kwargs.get("icon")
+    assert "notify-error.png" in kwargs.get("icon")
 
 @patch('core.api.threading.Thread')
 @patch('win11toast.toast')

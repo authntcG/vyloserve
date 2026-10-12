@@ -19,6 +19,16 @@ def get_project_root():
         # Asumsi: file ini ada di core/utils/system_utils.py (mundur 3 level ke root)
         return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+def get_resource_path(relative_path: str) -> str:
+    """
+    Mendapatkan path absolut ke resource/aset internal aplikasi,
+    kompatibel untuk mode Development maupun PyInstaller bundle (sys._MEIPASS).
+    """
+    base_path = getattr(sys, '_MEIPASS', None)
+    if not base_path:
+        base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(base_path, relative_path)
+
 def get_silent_flags() -> int:
     """
     Mendapatkan creation flags untuk menyembunyikan jendela console (CMD) di OS Windows.
