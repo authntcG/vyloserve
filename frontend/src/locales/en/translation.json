@@ -25,7 +25,11 @@
         "uninstall": "Uninstall",
         "manage": "Manage",
         "search_placeholder": "Search...",
-        "no_results": "No results found."
+        "no_results": "No results found.",
+        "ok": "OK",
+        "search": "Search",
+        "select_all": "Select All",
+        "unselect_all": "Deselect All"
     },
     "sidebar": {
         "search": "Search...",
@@ -44,7 +48,8 @@
         "menu_git": "Git Manager",
         "close_menu": "Close menu",
         "toggle_service": "Toggle {{service}}",
-        "menu_tunnels": "Tunnels"
+        "menu_tunnels": "Tunnels",
+        "menu_docs-reader": "Markdown Viewer"
     },
     "apache": {
         "fetch_projects_error": "Failed to load projects.",
@@ -250,7 +255,9 @@
         "update_suffix": "? Your configuration will be preserved.",
         "yes_update": "Yes, Update",
         "update_to": "Update to {{version}}",
-        "update": "Update"
+        "update": "Update",
+        "updating": "Updating...",
+        "updating_php": "Updating PHP..."
     },
     "database": {
         "fetch_db_error": "Failed to load database installations.",
@@ -820,7 +827,26 @@
             "services_installed_plural": "{{count}} services installed"
         },
         "update_btn": "Update",
-        "updating_btn": "Updating..."
+        "updating_btn": "Updating...",
+        "docs_reader": {
+            "title": "Markdown Viewer",
+            "desc": "Open and read project documentation seamlessly.",
+            "no_folder": "No Documentation Opened",
+            "no_folder_desc": "Select a folder containing Markdown files to start reading.",
+            "btn_select": "Select Documentation Folder",
+            "file_load_error": "Failed to load markdown file.",
+            "select_error": "Error selecting folder.",
+            "tree_title": "Documentation",
+            "loading": "Loading content...",
+            "zoom_in": "Zoom In",
+            "zoom_out": "Zoom Out",
+            "reset_zoom": "Reset Zoom",
+            "empty_folder": "Empty Folder",
+            "render_error": "Failed to render diagram",
+            "broken_image": "Broken Image",
+            "switch_dark": "Switch to Dark Mode",
+            "switch_light": "Switch to Light Mode"
+        }
     },
     "components": {
         "logs": {
@@ -1208,6 +1234,12 @@
             "share_stopped": "Cloudflare share stopped successfully.",
             "process_log": "[Cloudflare] {{msg}}",
             "process_error": "[Cloudflare Error] {{msg}}"
+        },
+        "md": {
+            "no_window": "Application window is not available.",
+            "folder_not_found": "Selected documentation folder does not exist.",
+            "file_not_found": "Markdown file not found.",
+            "media_not_found": "Image or media file not found."
         }
     },
     "ui": {

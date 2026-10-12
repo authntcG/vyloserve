@@ -16,6 +16,7 @@ import UrlEncodeDecodeMain from './menu/tools/url-encode-decode/Main';
 import Base64Main from './menu/tools/base64-encode-decode/Main';
 import QrMain from './menu/tools/qr-generator/Main';
 import TunnelsMain from './menu/tools/tunnels/Main';
+import DocsReaderMain from './menu/tools/markdown-viewer/Main';
 import { applyTheme } from './utils/theme';
 
 declare global {
@@ -159,10 +160,10 @@ function AppContent() {
           onSelectMenu={setActiveMenu}
         />
 
-        <div className={`flex flex-col flex-1 w-full transition-all duration-300 ${mainContentMargin}`}>
+        <div className={`flex flex-col flex-1 min-w-0 h-full min-h-0 transition-[margin] duration-300 ${mainContentMargin}`}>
 
           {/* ---> FIX: Ganti Kondisional Render dengan CSS Hiding <--- */}
-          <div className="flex-1 overflow-y-auto px-4 py-6 md:px-8 md:py-8 relative">
+          <div className="flex-1 min-h-0 overflow-y-auto px-4 py-6 md:px-8 md:py-8 relative">
             <div className={activeMenu === 'dashboard' ? 'block' : 'hidden'}><DashboardMain /></div>
             <div className={activeMenu === 'apache' ? 'block' : 'hidden'}><ApacheMain /></div>
             <div className={activeMenu === 'php' ? 'block' : 'hidden'}><PhpMain /></div>
@@ -170,12 +171,13 @@ function AppContent() {
             <div className={activeMenu === 'tunnels' ? 'block' : 'hidden'}><TunnelsMain /></div>
             <div className={activeMenu === 'runtimes' ? 'block' : 'hidden'}><RuntimesMain /></div>
             <div className={activeMenu === 'git' ? 'block' : 'hidden'}><GitMain /></div>
+            <div className={activeMenu === 'docs-reader' ? 'block' : 'hidden'}><DocsReaderMain /></div>
             <div className={activeMenu === 'qr' ? 'block' : 'hidden'}><QrMain /></div>
             <div className={activeMenu === 'base64' ? 'block' : 'hidden'}><Base64Main /></div>
             <div className={activeMenu === 'url-encode-decode' ? 'block' : 'hidden'}><UrlEncodeDecodeMain /></div>
           </div>
 
-          <div className="flex-none z-10 relative">
+          <div className="flex-none min-h-0 relative">
             <LogsPanel />
           </div>
         </div>

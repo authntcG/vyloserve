@@ -7,13 +7,12 @@ import ServiceToggleButton from '../../components/ServiceToggleButton';
 import { useToast } from '../../components/ToastContext';
 import { useAlert } from '../../components/AlertContext';
 import BackgroundProgressWidget from '../../components/BackgroundProgressWidget';
+import InfoBox from '../../components/InfoBox';
 
 // ---> IMPORT UI KIT COMPONENTS <---
 import PageHeader from '../../components/PageHeader';
 import SkeletonCard from '../../components/SkeletonCard';
 import EmptyState from '../../components/EmptyState';
-import InfoBox from '../../components/InfoBox';
-import ProgressBar from '../../components/ProgressBar';
 import { clampPercent } from '../../utils/progress';
 
 import ApacheSettings from './Settings';

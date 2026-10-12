@@ -17,6 +17,7 @@ from core.services.git_manager import GitManager
 from core.services.settings import SettingsManager
 from core.services.updater import UpdaterManager
 from core.services.tunnels import TunnelsManager
+from core.services.markdown_viewer import MarkdownViewerManager
 
 PROJECT_NOT_LOADED_MSG = "backend.error.project_module_not_loaded"
 UNEXPECTED_ERROR_MSG = "backend.error.unexpected"
@@ -40,6 +41,7 @@ class Api:
         self.settings = SettingsManager(self)
         self.updater = UpdaterManager(self)
         self.tunnels = TunnelsManager(self)
+        self.markdown = MarkdownViewerManager(self)
         self._log_watcher_thread: Optional[threading.Thread] = None
         self._log_watcher_stop = threading.Event()
 
@@ -127,7 +129,10 @@ class Api:
             source = source_override if source_override is not None else self._resolve_event_source()
             detail = json.dumps({"message": message, "level": level, "args": args or {}, "source": source})
             script = f"window.dispatchEvent(new CustomEvent('vylo_log', {{detail: {detail} }}));"
-            self._window.evaluate_js(script)
+            try:
+                self._window.evaluate_js(script)
+            except Exception:
+                pass
 
     def emit_progress(self, percent: int, text: str = "", args: dict = None):
         """ Menembakkan progress bar real-time ke Modal Instalasi React """
@@ -135,7 +140,10 @@ class Api:
             source = self._resolve_event_source()
             detail = json.dumps({"percent": percent, "text": text, "args": args or {}, "source": source})
             script = f"window.dispatchEvent(new CustomEvent('vylo_progress', {{detail: {detail} }}));"
-            self._window.evaluate_js(script)
+            try:
+                self._window.evaluate_js(script)
+            except Exception:
+                pass
 
     def emit_window_state(self, minimized: Optional[bool] = None, hidden: Optional[bool] = None):
         """
@@ -155,7 +163,10 @@ class Api:
             if not detail:
                 return
             script = f"window.dispatchEvent(new CustomEvent('vylo_window_state', {{detail: {json.dumps(detail)} }}));"
-            self._window.evaluate_js(script)
+            try:
+                self._window.evaluate_js(script)
+            except Exception:
+                pass
 
     def show_native_notification(self, message: str, type: str = "info") -> Dict[str, str]:
         """
@@ -590,3 +601,11 @@ class Api:
     def uninstall_cloudflare(self): return self.tunnels.uninstall_cloudflare()
     def start_cloudflare_share(self, project_id: str): return self.tunnels.start_cloudflare_share(project_id)
     def stop_cloudflare_share(self, share_id: str): return self.tunnels.stop_cloudflare_share(share_id)
+
+    # ==========================================
+    # MARKDOWN VIEWER
+    # ==========================================
+    def md_select_directory(self): return self.markdown.select_directory()
+    def md_get_tree(self, root_path: str): return self.markdown.get_markdown_tree(root_path)
+    def md_read_file(self, file_path: str): return self.markdown.read_markdown_file(file_path)
+    def md_get_media(self, file_path: str): return self.markdown.get_local_media_base64(file_path)

@@ -25,7 +25,11 @@
         "uninstall": "Hapus Instalasi",
         "manage": "Kelola",
         "search_placeholder": "Cari...",
-        "no_results": "Tidak ada hasil ditemukan."
+        "no_results": "Tidak ada hasil ditemukan.",
+        "ok": "OK",
+        "search": "Cari",
+        "select_all": "Pilih Semua",
+        "unselect_all": "Batal Pilih Semua"
     },
     "sidebar": {
         "search": "Cari...",
@@ -44,7 +48,8 @@
         "menu_git": "Manajer Git",
         "close_menu": "Tutup menu",
         "toggle_service": "Aktifkan/matikan {{service}}",
-        "menu_tunnels": "Tunnels"
+        "menu_tunnels": "Tunnels",
+        "menu_docs-reader": "Penampil Markdown"
     },
     "apache": {
         "fetch_projects_error": "Gagal memuat daftar proyek.",
@@ -250,7 +255,9 @@
         "update_suffix": "? Konfigurasi Anda akan dipertahankan.",
         "yes_update": "Ya, Perbarui",
         "update_to": "Perbarui ke {{version}}",
-        "update": "Pembaruan"
+        "update": "Pembaruan",
+        "updating": "Memperbarui...",
+        "updating_php": "Memperbarui PHP..."
     },
     "database": {
         "fetch_db_error": "Gagal memuat instalasi database.",
@@ -820,7 +827,26 @@
             "services_installed_plural": "{{count}} layanan terinstal"
         },
         "update_btn": "Perbarui",
-        "updating_btn": "Memperbarui..."
+        "updating_btn": "Memperbarui...",
+        "docs_reader": {
+            "title": "Markdown Viewer",
+            "desc": "Buka dan baca dokumentasi proyek secara langsung.",
+            "no_folder": "Belum Ada Dokumentasi",
+            "no_folder_desc": "Pilih folder yang berisi file Markdown untuk mulai membaca.",
+            "btn_select": "Pilih Folder Dokumentasi",
+            "file_load_error": "Gagal memuat file markdown.",
+            "select_error": "Gagal memilih folder.",
+            "tree_title": "Dokumentasi",
+            "loading": "Memuat konten...",
+            "zoom_in": "Perbesar",
+            "zoom_out": "Perkecil",
+            "reset_zoom": "Reset Ukuran",
+            "empty_folder": "Folder Kosong",
+            "render_error": "Gagal merender diagram",
+            "broken_image": "Gambar Rusak",
+            "switch_dark": "Ganti ke Mode Gelap",
+            "switch_light": "Ganti ke Mode Terang"
+        }
     },
     "components": {
         "logs": {
@@ -1208,6 +1234,12 @@
             "share_stopped": "Share Cloudflare berhasil dihentikan.",
             "process_log": "[Cloudflare] {{msg}}",
             "process_error": "[Cloudflare Error] {{msg}}"
+        },
+        "md": {
+            "no_window": "Jendela aplikasi tidak tersedia.",
+            "folder_not_found": "Folder dokumentasi yang dipilih tidak ditemukan.",
+            "file_not_found": "File Markdown tidak ditemukan.",
+            "media_not_found": "File gambar atau media tidak ditemukan."
         }
     },
     "ui": {

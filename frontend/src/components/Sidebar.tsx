@@ -61,6 +61,7 @@ const UTILITIES: NavItemConfig[] = [
     { id: 'qr', name: 'QR Generator', icon: 'qr_code_2' },
     { id: 'base64', name: 'Base64 Encoder', icon: 'code_blocks' },
     { id: 'url-encode-decode', name: 'URL Encode/Decode', icon: 'link' },
+    { id: 'docs-reader', name: 'Markdown Viewer', icon: 'menu_book' },
 ];
 
 interface SidebarHeaderProps {

@@ -10,6 +10,22 @@ import ctypes
 from core.utils.system_utils import get_project_root
 from PIL import Image
 from pystray import MenuItem as item
+import webview.window
+from webview.errors import JavascriptException
+
+# --- MONKEY PATCH PYWEBVIEW ---
+# Mencegah exception pada thread internal pywebview saat frontend reload (hot-reload Vite)
+# yang menyebabkan promise JS hilang tapi backend tetap mencoba me-resolve-nya.
+_orig_evaluate_js = webview.window.Window.evaluate_js
+def _safe_evaluate_js(*args, **kwargs):
+    try:
+        return _orig_evaluate_js(*args, **kwargs)
+    except JavascriptException as e:
+        if "Cannot read properties of undefined" in str(e):
+            pass # Abaikan error JS promise hilang
+        else:
+            raise
+webview.window.Window.evaluate_js = _safe_evaluate_js
 
 # --- KONSTANTA WINDOWS API ---
 SW_SHOW = 5
@@ -73,8 +89,8 @@ ssl._create_default_https_context = lambda: ssl.create_default_context(cafile=ce
 
 # --- KONFIGURASI ENVIRONMENT ---
 # Ubah menjadi True jika ingin melakukan build (.exe) atau Alpha Testing
-IS_PRODUCTION = False
-APP_VERSION = "0.0.5-beta"
+IS_PRODUCTION = True
+APP_VERSION = "0.0.6-alpha"
 
 # Independen dari IS_PRODUCTION secara sengaja -- IS_PRODUCTION JUGA mengontrol
 # entrypoint (dist vs dev server Vite) dan flag devtools, jadi tidak bisa dipakai

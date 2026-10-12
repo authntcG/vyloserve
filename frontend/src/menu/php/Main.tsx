@@ -5,8 +5,6 @@ import Modal from '../../components/Modal';
 import Button from '../../components/Button';
 import ServiceToggleButton from '../../components/ServiceToggleButton';
 import BackgroundProgressWidget from '../../components/BackgroundProgressWidget';
-import InfoBox from '../../components/InfoBox';
-import ProgressBar from '../../components/ProgressBar';
 import { useToast } from '../../components/ToastContext';
 import { useAlert } from '../../components/AlertContext';
 

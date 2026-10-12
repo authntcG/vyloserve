@@ -9,8 +9,6 @@ import { useToast } from '../../components/ToastContext';
 import { useAlert } from '../../components/AlertContext';
 import BackgroundProgressWidget from '../../components/BackgroundProgressWidget';
 import LogFileViewerModal from '../../components/LogFileViewerModal';
-import InfoBox from '../../components/InfoBox';
-import ProgressBar from '../../components/ProgressBar';
 
 import PageHeader from '../../components/PageHeader';
 import SkeletonCard from '../../components/SkeletonCard';

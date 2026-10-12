@@ -50,7 +50,7 @@ export default function LogsPanel() {
         const handleMouseMove = (e: MouseEvent) => {
             if (!isDragging.current) return;
             const deltaY = startY.current - e.clientY;
-            setPanelHeight(Math.min(Math.max(startHeight.current + deltaY, 100), window.innerHeight * 0.8));
+            setPanelHeight(Math.min(Math.max(startHeight.current + deltaY, 100), window.innerHeight * 0.7));
         };
 
         const handleMouseUp = () => {
@@ -180,20 +180,20 @@ export default function LogsPanel() {
     };
 
     return (
-        <div className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 p-4 flex flex-col gap-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] w-full relative z-10">
+        <div className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 p-4 flex flex-col gap-3 w-full relative">
             {isExpanded && (
                 <button
                     type="button"
                     onMouseDown={handleMouseDown}
                     onKeyDown={(e) => {
-                        if (e.key === 'ArrowUp') setPanelHeight(h => Math.min(Math.max(h + 20, 100), window.innerHeight * 0.8));
-                        if (e.key === 'ArrowDown') setPanelHeight(h => Math.min(Math.max(h - 20, 100), window.innerHeight * 0.8));
+                        if (e.key === 'ArrowUp') setPanelHeight(h => Math.min(Math.max(h + 20, 100), window.innerHeight * 0.7));
+                        if (e.key === 'ArrowDown') setPanelHeight(h => Math.min(Math.max(h - 20, 100), window.innerHeight * 0.7));
                     }}
                     aria-label={t('components.logs.resize_panel', 'Drag or use arrow keys to resize panel')}
-                    className="absolute top-0 left-0 w-full h-4 cursor-ns-resize flex justify-center items-start group z-20 outline-none"
+                    className="absolute top-0 left-0 w-full h-2.5 -translate-y-1/2 cursor-ns-resize flex justify-center items-center group z-20 outline-none hover:bg-primary/20 transition-colors"
                     title={t('components.logs.resize_panel', 'Drag or use arrow keys to resize panel')}
                 >
-                    <div className="w-12 h-1 bg-slate-300 dark:bg-slate-600 rounded-full mt-1 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                    <div className="w-12 h-1 bg-slate-300 dark:bg-slate-600 rounded-full group-hover:bg-primary transition-colors"></div>
                 </button>
             )}
 

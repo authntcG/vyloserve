@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
 /* Diimport lewat CSS @import ber-layer(base), BUKAN import JS biasa di main.tsx --
    Tailwind v4 membungkus utility class-nya dalam @layer utilities. CSS tanpa layer
