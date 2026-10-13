@@ -20,7 +20,8 @@ vyloserve/
 │       ├── dashboard.py        # Menyimpan Status Toggle UI Dashboard
 │       ├── settings.py         # Menyimpan Preferensi Aplikasi (Bahasa, Tema, filter log, opsi update, notifikasi desktop)
 │       ├── updater.py          # Auto-Updater: cek/unduh/pasang rilis baru dari GitHub Releases
-│       └── tunnels.py          # Logika tunnel (zrok) — instal binary & expose port lokal ke URL publik
+│       ├── tunnels.py          # Logika tunnel (zrok & Cloudflare) — instal binary & expose port lokal ke URL publik
+│       └── markdown_viewer.py  # Logika penampil dokumentasi Markdown lokal (scanner tree, reader, media base64)
 ├── frontend/                   # Repositori UI berbasis React (Vite + TS)
 │   ├── src/
 │   │   ├── components/         # Komponen UI Reusable, struktur FLAT (Modal, Card, PageHeader, dll — TIDAK ada subfolder ui/)
@@ -32,10 +33,11 @@ vyloserve/
 │   │   ├── locales/            # Berkas i18n JSON untuk bahasa (en, id)
 │   │   ├── menu/                # Halaman utama aplikasi: apache/ (termasuk CRUD Project & Virtual Host,
 │   │   │                        # TIDAK ada folder project/ terpisah), php/, database/, dashboard/, runtimes/,
-│   │   │                        # tools/ (git/, qr-generator/, base64-encode-decode/, url-encode-decode/, tunnels/, settings/)
+│   │   │                        # tools/ (git/, qr-generator/, base64-encode-decode/, url-encode-decode/, tunnels/, markdown-viewer/, settings/)
 │   │   ├── utils/               # Helper murni lintas-halaman (BUKAN komponen React) — lihat docs/frontend_ui.md §1
 │   │   │   ├── a11y.ts          # onEnterOrSpace() — keyboard support (Enter/Space) utk elemen non-native
 │   │   │   ├── progress.ts      # clampPercent() — clamp nilai progress vylo_progress ke [0, 100]
+│   │   │   ├── theme.ts         # applyTheme() — atur data-theme, toggle class dark, sync DWM titlebar native
 │   │   │   └── version.ts       # compareVersions() — bandingkan versi semantik (bukan string !=), dipakai PHP & Database
 │   │   ├── hooks/               # Custom React hooks lintas-komponen (BUKAN komponen React, nol JSX)
 │   │   │   └── useWindowPresence.ts # Deteksi fokus/minimize/hidden-ke-tray window — lihat docs/frontend_ui.md §5.1

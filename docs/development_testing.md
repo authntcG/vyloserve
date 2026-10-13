@@ -5,12 +5,13 @@ Panduan teknis untuk para kontributor atau Asisten AI yang hendak melanjutkan pe
 ## 1. Lingkungan Pengembangan (*Development Environment*)
 Aplikasi ini berjalan dengan dua server terpisah (Python dan Vite) yang harus dijalankan bersamaan saat fase pengembangan.
 
-**Set Mode Development:**
-Pastikan variabel `IS_PRODUCTION` di dalam `main.py` diatur ke `False`:
+**Mode Lingkungan (Development vs Production):**
+`main.py` mendeteksi mode lingkungan secara otomatis tanpa perlu mengubah source code:
 ```python
 # Di dalam main.py
-IS_PRODUCTION = False 
+IS_PRODUCTION = getattr(sys, "frozen", False)
 ```
+Saat dijalankan dari source code via interpreter Python, `IS_PRODUCTION` otomatis bernilai `False`.
 
 **Menjalankan Script (Run Script):**
 1.  **Frontend (React/Vite):**
@@ -56,7 +57,7 @@ tests/
 │                                          #   serah terima fitur apa pun yang menambah/
 │                                          #   mengubah pesan backend (message/log/progress)
 ├── test_main.py                          # Unit test untuk main.py (class AppLifecycle,
-│                                          #   setup_systray) — lihat docs/backend_services.md §14.3
+│                                          #   setup_systray, IPC single-instance) — lihat docs/backend_services.md §15.3
 ├── test_services/
 │   ├── test_apache.py                    # Unit test untuk core/services/apache.py
 │   ├── test_api.py                       # Unit test untuk core/api.py (Facade/Router)
@@ -71,7 +72,8 @@ tests/
 │   ├── test_dashboard.py                 # Unit test untuk core/services/dashboard.py
 │   ├── test_settings.py                  # Unit test untuk core/services/settings.py
 │   ├── test_updater.py                   # Unit test untuk core/services/updater.py (Auto-Updater)
-│   ├── test_tunnels.py                   # Unit test untuk core/services/tunnels.py (zrok public tunnel)
+│   ├── test_tunnels.py                   # Unit test untuk core/services/tunnels.py (Zrok & Cloudflare tunnel)
+│   ├── test_markdown_viewer.py           # Unit test untuk core/services/markdown_viewer.py
 │   ├── test_runtimes_manager.py          # Unit test untuk core/services/runtimes_manager.py
 │   ├── test_service_lifecycles.py        # Unit test orkestrasi start/stop antar service
 │   └── test_<nama_service>.py            # Pola: test_<nama_file_source>.py
@@ -397,8 +399,8 @@ sonar-scanner.bat -D"sonar.projectKey=vyloserve-be" -D"sonar.sources=core,main.p
 ## 7. Proses Kompilasi Produksi (Build Project)
 Untuk membuat aplikasi mandiri (Standalone Windows Executable `.exe`) yang bisa didistribusikan ke pengguna akhir:
 
-> **PERINGATAN (REMEMBER):**
-> Anda **WAJIB** mengubah kembali variabel `IS_PRODUCTION = True` pada `main.py` sebelum melakukan *build*. Jika tidak, aplikasi *compiled* akan mencoba mencari Vite server (`localhost:5173`) dan gagal dibuka (blank screen).
+> **CATATAN DETEKSI OTOMATIS (AUTO-DETECT):**
+> Variabel `IS_PRODUCTION` pada `main.py` kini dideteksi secara otomatis melalui `IS_PRODUCTION = getattr(sys, 'frozen', False) or False`. Anda **tidak perlu lagi mengubah manual** variabel tersebut saat melakukan *build*. Saat dikompilasi oleh PyInstaller, binary otomatis berjalan dalam mode production dan membaca aset frontend bundle (`frontend/dist`), sedangkan saat dijalankan via `python main.py`, aplikasi otomatis berjalan dalam mode development (`localhost:5173`).
 
 **Langkah 1: Build Frontend**
 Kompilasi kode React TypeScript menjadi JavaScript statis:

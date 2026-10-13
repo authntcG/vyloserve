@@ -4,7 +4,11 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import main as main_module
-from main import AppLifecycle, resource_path, get_entrypoint, setup_systray
+from main import (
+    AppLifecycle, resource_path, get_entrypoint, setup_systray, get_theme_bg_color,
+    get_mutex_name, get_ipc_pipe_name, get_window_title, setup_app_user_model_id,
+    check_single_instance, bring_existing_instance_to_front, start_ipc_server
+)
 
 
 @pytest.fixture
@@ -237,6 +241,7 @@ def test_setup_systray_show_menu_item_restores_window(mock_exists, mock_image_op
 
     mock_window.show.assert_called_once()
     mock_window.restore.assert_called_once()
+    mock_api.apply_titlebar_theme.assert_called_once()
 
 @patch('main.threading.Thread')
 @patch('main.pystray.Icon')
@@ -350,3 +355,249 @@ def test_main_handles_unexpected_startup_exception_without_crashing(mock_api_cla
     main_module.main()  # tidak boleh melempar exception ke pemanggil
     # Pastikan exception itu benar berasal dari upaya nyata memanggil Api(), bukan main() no-op
     mock_api_class.assert_called_once()
+
+
+def test_get_theme_bg_color_reads_from_settings(tmp_path):
+    """get_theme_bg_color harus membaca tema dari data/settings.json jika file ada."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    settings_file = data_dir / "settings.json"
+    settings_file.write_text('{"theme": "dracula-dark"}', encoding='utf-8')
+
+    with patch('main.get_project_root', return_value=str(tmp_path)):
+        assert get_theme_bg_color() == "#282a36"
+
+
+def test_get_theme_bg_color_fallback_when_settings_file_missing(tmp_path):
+    """Jika settings.json tidak ditemukan, fallback ke warna vyloserve-dark (#0f172a)."""
+    with patch('main.get_project_root', return_value=str(tmp_path)):
+        assert get_theme_bg_color() == "#0f172a"
+
+
+@patch('main.check_single_instance', return_value=(True, None))
+@patch('main.webview')
+@patch('core.api.Api')
+def test_main_hooks_shown_event_to_apply_titlebar_theme(mock_api_class, mock_webview, mock_check_single):
+    """window.events.shown harus di-hook untuk menyelaraskan titlebar theme via DWM."""
+    mock_api_instance = MagicMock()
+    mock_api_class.return_value = mock_api_instance
+    mock_window = MagicMock()
+    mock_webview.create_window.return_value = mock_window
+    shown_event = mock_window.events.shown
+
+    with patch('main.IS_PRODUCTION', False):
+        main_module.main()
+
+    shown_event.__iadd__.assert_called_once()
+    shown_handler = shown_event.__iadd__.call_args[0][0]
+    shown_handler()
+    mock_api_instance.apply_titlebar_theme.assert_called_once()
+
+
+# ==========================================
+# Single Instance, IPC & Environment Scoping Tests
+# ==========================================
+
+def test_environment_scoping_helpers():
+    """Memastikan helper nama mutex, pipe, dan judul window terisolasi antara dev dan prod."""
+    # Production mode
+    assert get_mutex_name(is_production=True) == "VyloServe_App_Mutex_v1"
+    assert get_ipc_pipe_name(is_production=True) == r'\\.\pipe\VyloServe_IPC_v1'
+    assert get_window_title(is_production=True) == "VyloServe"
+
+    # Development mode
+    assert get_mutex_name(is_production=False) == "VyloServe_Dev_App_Mutex_v1"
+    assert get_ipc_pipe_name(is_production=False) == r'\\.\pipe\VyloServe_Dev_IPC_v1'
+    assert get_window_title(is_production=False) == "VyloServe (Development)"
+
+
+def test_setup_app_user_model_id_win32():
+    """setup_app_user_model_id harus memanggil SetCurrentProcessExplicitAppUserModelID dengan AppID terpisah."""
+    with patch('sys.platform', 'win32'), patch('ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID') as mock_set_id:
+        setup_app_user_model_id(is_production=False)
+        mock_set_id.assert_called_with("VyloServe.App.Development")
+
+        setup_app_user_model_id(is_production=True)
+        mock_set_id.assert_called_with("VyloServe.App.Production")
+
+
+def test_setup_app_user_model_id_handles_exceptions():
+    """Kegagalan set AppUserModelID (misal OS tidak support) tidak boleh melempar exception."""
+    with patch('sys.platform', 'win32'), patch('ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID', side_effect=OSError("not supported")):
+        setup_app_user_model_id(is_production=False)  # Harusnya tidak crash
+
+
+def test_check_single_instance_first_instance():
+    """Instance pertama harus mengembalikan (True, mutex) dan membuat mutex dengan nama yang sesuai."""
+    with patch('sys.platform', 'win32'), patch('ctypes.windll.kernel32.CreateMutexW') as mock_create_mutex, patch('ctypes.windll.kernel32.GetLastError', return_value=0):
+        mock_mutex = MagicMock()
+        mock_create_mutex.return_value = mock_mutex
+
+        # Dev mode
+        is_first, mutex = check_single_instance(is_production=False)
+        assert is_first is True
+        assert mutex == mock_mutex
+        mock_create_mutex.assert_called_with(None, False, "VyloServe_Dev_App_Mutex_v1")
+
+        # Prod mode
+        is_first, mutex = check_single_instance(is_production=True)
+        assert is_first is True
+        assert mutex == mock_mutex
+        mock_create_mutex.assert_called_with(None, False, "VyloServe_App_Mutex_v1")
+
+
+def test_check_single_instance_already_exists():
+    """Jika mutex sudah ada (ERROR_ALREADY_EXISTS = 183), harus mengembalikan (False, None)."""
+    with patch('sys.platform', 'win32'), patch('ctypes.windll.kernel32.CreateMutexW'), patch('ctypes.windll.kernel32.GetLastError', return_value=183):
+        is_first, mutex = check_single_instance(is_production=False)
+        assert is_first is False
+        assert mutex is None
+
+
+def test_check_single_instance_non_windows():
+    """Pada platform non-Windows, check_single_instance selalu mengizinkan proses jalan."""
+    with patch('sys.platform', 'linux'):
+        is_first, mutex = check_single_instance(is_production=False)
+        assert is_first is True
+        assert mutex is None
+
+
+def test_lifecycle_show_and_bring_to_front(mock_api):
+    """show_and_bring_to_front harus merestore window, emit status, dan set DWM titlebar theme."""
+    lifecycle = AppLifecycle(mock_api, is_production=True)
+    mock_window = MagicMock()
+    lifecycle.set_window(mock_window)
+
+    lifecycle.show_and_bring_to_front()
+
+    mock_window.show.assert_called_once()
+    mock_window.restore.assert_called_once()
+    mock_api.emit_window_state.assert_called_once_with(hidden=False, minimized=False)
+    mock_api.apply_titlebar_theme.assert_called_once()
+
+
+def test_lifecycle_show_and_bring_to_front_swallows_exception(mock_api):
+    """Jika window.show() melempar error, show_and_bring_to_front harus menangani secara graceful."""
+    lifecycle = AppLifecycle(mock_api, is_production=True)
+    mock_window = MagicMock()
+    mock_window.show.side_effect = RuntimeError("form disposed")
+    lifecycle.set_window(mock_window)
+
+    lifecycle.show_and_bring_to_front()  # Tidak boleh melempar exception
+
+
+def test_bring_existing_instance_to_front_via_ipc():
+    """Jika instance lain sudah ada, harus mengirimkan sinyal 'SHOW' via IPC Named Pipe."""
+    mock_client = MagicMock()
+    with patch('sys.platform', 'win32'), \
+         patch('multiprocessing.connection.Client', return_value=mock_client) as mock_client_cls, \
+         patch('ctypes.windll.user32.FindWindowW', return_value=12345), \
+         patch('ctypes.windll.user32.SetForegroundWindow') as mock_set_fg, \
+         patch('ctypes.windll.user32.ShowWindow') as mock_show_window:
+
+        bring_existing_instance_to_front(is_production=False)
+
+        mock_client_cls.assert_called_once_with(r'\\.\pipe\VyloServe_Dev_IPC_v1', 'AF_PIPE')
+        mock_client.send.assert_called_once_with('SHOW')
+        mock_client.close.assert_called_once()
+        mock_set_fg.assert_called_once_with(12345)
+        # ShowWindow tidak perlu dipanggil jika IPC sukses
+        mock_show_window.assert_not_called()
+
+
+def test_bring_existing_instance_to_front_fallback_when_ipc_fails():
+    """Jika IPC gagal (mis. file pipe tidak ditemukan), harus fallback ke ShowWindow Win32."""
+    with patch('sys.platform', 'win32'), \
+         patch('multiprocessing.connection.Client', side_effect=FileNotFoundError("Pipe not found")), \
+         patch('ctypes.windll.user32.FindWindowW', return_value=12345), \
+         patch('ctypes.windll.user32.SetForegroundWindow') as mock_set_fg, \
+         patch('ctypes.windll.user32.ShowWindow') as mock_show_window:
+
+        bring_existing_instance_to_front(is_production=True)
+
+        mock_set_fg.assert_called_once_with(12345)
+        # ShowWindow harus dipanggil sebagai fallback
+        assert mock_show_window.call_count == 2
+
+
+def test_start_ipc_server_dispatch_show_command(mock_api):
+    """start_ipc_server harus menerima koneksi dan memanggil lifecycle.show_and_bring_to_front."""
+    lifecycle = AppLifecycle(mock_api, is_production=False)
+    mock_window = MagicMock()
+    lifecycle.set_window(mock_window)
+
+    mock_conn = MagicMock()
+    mock_conn.recv.return_value = 'SHOW'
+
+    mock_listener = MagicMock()
+    # accept() pertama kali mereturn mock_conn, panggilan berikutnya melempar exception agar loop berhenti
+    mock_listener.accept.side_effect = [mock_conn, RuntimeError("Stop loop")]
+
+    with patch('sys.platform', 'win32'), \
+         patch('multiprocessing.connection.Listener', return_value=mock_listener) as mock_listener_cls:
+
+        listener = start_ipc_server(lifecycle, is_production=False)
+        assert listener == mock_listener
+        assert lifecycle.ipc_listener == mock_listener
+
+        # Simulasikan thread worker selesai memproses
+        import time
+        time.sleep(0.05)
+
+        mock_window.show.assert_called()
+        mock_window.restore.assert_called()
+
+
+def test_start_ipc_server_handles_exception_gracefully(mock_api):
+    """Jika inisialisasi Listener gagal, harus menangani tanpa membuat aplikasi crash."""
+    lifecycle = AppLifecycle(mock_api, is_production=False)
+    with patch('sys.platform', 'win32'), \
+         patch('multiprocessing.connection.Listener', side_effect=OSError("Pipe in use")):
+        listener = start_ipc_server(lifecycle, is_production=False)
+        assert listener is None
+        assert lifecycle.ipc_listener is None
+
+
+def test_perform_exit_closes_ipc_listener(mock_api):
+    """perform_exit harus menutup ipc_listener jika ada."""
+    with patch('os._exit'):
+        lifecycle = AppLifecycle(mock_api, is_production=True)
+        mock_listener = MagicMock()
+        lifecycle.set_ipc_listener(mock_listener)
+
+        lifecycle.perform_exit()
+
+        mock_listener.close.assert_called_once()
+
+
+@patch('main.check_single_instance', return_value=(False, None))
+@patch('main.bring_existing_instance_to_front')
+@patch('main.webview')
+@patch('sys.exit')
+def test_main_duplicate_instance_brings_to_front_and_exits(mock_exit, mock_webview, mock_bring_to_front, mock_check_single):
+    """Ketika instance kedua dijalankan, harus memanggil bring_existing_instance_to_front dan sys.exit(0)."""
+    with patch('main.IS_PRODUCTION', False):
+        main_module.main()
+
+    mock_bring_to_front.assert_called_once_with(False)
+    mock_exit.assert_called_once_with(0)
+    mock_webview.start.assert_not_called()
+
+
+@patch('main.check_single_instance', return_value=(True, MagicMock()))
+@patch('main.start_ipc_server')
+@patch('main.webview')
+@patch('core.api.Api')
+def test_main_starts_ipc_server_on_first_instance(mock_api_class, mock_webview, mock_start_ipc, mock_check_single):
+    """Instance pertama harus menjalankan start_ipc_server dengan lifecycle yang dibangun."""
+    mock_webview.create_window.return_value = MagicMock()
+
+    with patch('main.IS_PRODUCTION', False):
+        main_module.main()
+
+    mock_start_ipc.assert_called_once()
+    args = mock_start_ipc.call_args[0]
+    assert isinstance(args[0], AppLifecycle)
+    assert args[1] is False
+
+

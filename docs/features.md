@@ -7,6 +7,7 @@ VyloServe dirancang sebagai alternatif yang jauh lebih cepat, estetik, dan ringa
 - **Manajemen Port:** Mengonfigurasi `httpd.conf` secara otomatis agar berjalan di port yang ditentukan.
 - **Smart Reverse Proxy:** Secara otomatis mengarahkan ekstensi `.php` ke *FastCGI proxy* yang dikelola oleh modul PHP.
 - **Auto-Config:** Tidak memerlukan instalasi *service* Windows, berjalan secara langsung (*background process*).
+- **Cek & Update Versi (In-Place Update Flow):** Versi Apache aktif dicek otomatis terhadap versi rilis terbaru. Jika versi baru tersedia, kartu Apache menampilkan opsi "Update to {versi}" di menu dropdown burger. Mengklik opsi ini membuka dialog konfirmasi (`useAlert().confirm`) untuk memastikan pengguna bersedia memperbarui ke versi tujuan. Jika disetujui, pembaruan berjalan dengan widget progress terminimalisasi (`BackgroundProgressWidget`). Mengklik tombol maximize pada widget tersebut akan mengembalikan dialog wizard penuh (`InstallWizard`) dengan versi tujuan yang otomatis terpilih pada dropdown versi.
 
 ## 2. Bahasa Pemrograman (PHP)
 - **Multi-Version (Switcher):** Mendukung instalasi banyak versi PHP sekaligus secara portable. Pengguna bisa memilih versi aktif melalui UI.
@@ -40,9 +41,9 @@ Mengelola instalasi engine pemrograman pihak ketiga. Path sistem (Windows Regist
 
 ## 7. Multi-Language, Tema & Aplikasi Satu-Instance
 - **i18n Frontend:** Antarmuka mendukung multi-bahasa (Inggris dan Indonesia) yang diterjemahkan langsung melalui frontend React.
-- **10 Pilihan Tema:** Modal "Settings" (tab General) menyediakan 10 skema warna (VyloServe Dark/Light, Darcula, Solarized Dark/Light, High Contrast Dark/Light, Monokai, Dracula, Nord) yang tersimpan persisten dan ikut menentukan warna latar jendela saat aplikasi pertama kali dibuka (sebelum React sempat me-render apa pun).
+- **10 Pilihan Tema & Sinkronisasi DWM Native Titlebar:** Modal "Settings" (tab General) menyediakan 10 skema warna (VyloServe Dark/Light, Darcula, Solarized Dark/Light, High Contrast Dark/Light, Monokai, Dracula, Nord) yang tersimpan persisten. Selain mengatur warna background awal dan kelas tema CSS, palet tema otomatis disinkronkan ke titlebar native Windows lewat DWM API (`DwmSetWindowAttribute` caption & text color) sehingga warna bar jendela menyatu mulus dengan UI tema.
 - **Dashboard Modular:** Menyimpan preferensi pengguna mengenai layanan mana saja yang perlu ditampilkan di *Home Dashboard*.
-- **Satu Instance Aplikasi (Single Instance):** Membuka VyloServe saat sudah ada instance yang berjalan tidak akan membuka window baru — aplikasi yang sudah berjalan otomatis dibawa ke depan (foreground) dan di-*restore* dari minimized, dideteksi lewat Windows Mutex.
+- **Satu Instance Aplikasi Terisolasi & Named Pipe IPC:** Membuka VyloServe saat sudah ada instance yang berjalan tidak akan membuka window baru. Aplikasi memisahkan lingkungan secara bersih antara Production dan Development (Mutex terpisah `VyloServe_App_Mutex_v1` vs `VyloServe_Dev_App_Mutex_v1`, judul window `"VyloServe"` vs `"VyloServe (Development)"`, dan AppUserModelID terpisah). Restorasi window dilakukan lewat **Windows Named Pipe IPC** (`\\.\pipe\VyloServe_IPC_v1` / `\\.\pipe\VyloServe_Dev_IPC_v1`), di mana instance baru mengirim perintah `"SHOW"` dan instance utama membawanya ke depan secara thread-safe via WinForms UI thread — mencegah crash aplikasi saat window sedang diminimize atau disembunyikan di system tray.
 
 ## 8. System Logs — Panel Log Real-Time & Pembacaan File Log
 - **Panel Log Terpusat:** Panel log di bagian bawah aplikasi menampilkan event real-time dari seluruh modul (instalasi, start/stop servis, error) selama aplikasi berjalan.
@@ -56,16 +57,18 @@ Mengelola instalasi engine pemrograman pihak ketiga. Path sistem (Windows Regist
 - **Opsi Pre-release:** Pengguna dapat memilih menerima versi *alpha*/*beta* lebih awal lewat toggle "Terima Pembaruan Pre-release" — default hanya rilis stabil.
 - **Download & Instal Satu Klik:** Mengunduh installer (`.exe`) di latar belakang dengan progress bar real-time (bisa ditutup modalnya, unduhan tetap berlanjut), lalu menjalankan installer Inno Setup mode silent (`/SILENT /SUPPRESSMSGBOXES`) yang otomatis menggantikan versi lama.
 
-## 10. Tunnels (Zrok) — Berbagi Project ke Publik
-- **Instalasi Portable Zrok:** Mengunduh dan mengekstrak binary [zrok](https://zrok.io) (open-source tunneling by OpenZiti) secara portable di `bin/zrok`, dengan deteksi versi rilis langsung dari GitHub Releases.
-- **Aktivasi Akun:** Menghubungkan instalasi zrok lokal ke akun zrok pengguna lewat token environment (`zrok enable <token>`).
+## 10. Tunnels (Zrok & Cloudflare Tunnel) — Berbagi Project ke Publik
+- **Dukungan Dual-Engine:** Mendukung open-source [zrok](https://zrok.io) (OpenZiti) dan **Cloudflare Tunnel** (`cloudflared`).
+- **Instalasi Portable:** Mengunduh dan mengekstrak binary portable ke folder `bin/tunnels/<engine>/` dengan deteksi rilis otomatis dari GitHub API.
+- **Cloudflare Quick Tunnels:** Membuka tunnel publik instan (`*.trycloudflare.com`) tanpa memerlukan token akun atau login.
+- **Aktivasi Akun Zrok:** Menghubungkan instalasi zrok lokal ke akun zrok pengguna lewat token environment (`zrok enable <token>`).
 - **Share Project atau Target Kustom:** Membuka tunnel publik untuk salah satu project Apache yang sudah terdaftar (otomatis mengarah ke port Apache aktif), atau ke target kustom (`localhost:<port>`) untuk servis non-Apache (mis. dev server Node.js).
 - **Auto-Alias ke Virtual Host:** Saat share sebuah project VyloServe aktif, URL publik zrok otomatis disisipkan sebagai `ServerAlias` di konfigurasi Virtual Host Apache project tersebut, dan dibersihkan kembali otomatis saat share dihentikan.
-- **Manajemen Multi-Share:** Mendukung beberapa tunnel aktif bersamaan, masing-masing bisa dihentikan independen dari daftar "Active Shares".
-- Fitur ini tersedia penuh dan sudah terhubung ke UI (menu "Tunnels" di sidebar). Opsi "General Settings" pada dropdown kartu engine zrok (sebelumnya placeholder yang cuma menampilkan toast "not yet implemented") sudah **dihapus** — bukan diimplementasikan — karena modul ini diperkirakan tidak akan dipakai aktif dalam waktu dekat, jadi tidak ada gunanya mempertahankan tombol yang tidak berfungsi. Satu-satunya aksi di dropdown kartu engine sekarang hanya "Uninstall Zrok".
+- **Manajemen Multi-Share:** Mendukung beberapa tunnel aktif bersamaan, masing-masing bisa dihentikan independen dari daftar "Active Shares". UI menggunakan subkomponen terisolasi `InstallTunnel.tsx` untuk kemudahan instalasi engine.
 
 ## 11. Developer Tools
-Kumpulan utilitas ringan untuk produktivitas developer yang berjalan sepenuhnya di sisi klien (*100% client-side*) tanpa membebani backend:
+Kumpulan utilitas ringan untuk produktivitas developer yang berjalan sepenuhnya di sisi klien (*100% client-side*) dan hybrid backend:
+- **Markdown Documentation Viewer:** Penampil dokumentasi Markdown lokal interaktif. Memiliki pemilih folder OS (OS Folder Picker), navigasi pohon folder rekursif (`FolderTreeView`) yang otomatis memfilter direktori tanpa markdown dan mengabaikan `node_modules`/`.git`, pembaca dan renderer konten markdown (`MarkdownRenderer`) dengan dukungan tabel GFM dan syntax highlighting blok kode, serta konversi file gambar lokal menjadi Base64 URI data otomatis.
 - **Base64 Encode/Decode:** Mendukung konversi teks (UTF-8 safe) maupun file (melalui *drag & drop* atau *file picker*) menjadi format Base64 dan sebaliknya.
 - **URL Encode/Decode:** Mengonversi string menjadi format URL-safe dan melakukan *parsing* URI lengkap (protocol, host, path, dan query).
 - **QR Generator:** Membuat *QR Code* secara instan berdasarkan input teks atau URL, dengan fungsionalitas unduh gambar hasil *render*.

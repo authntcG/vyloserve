@@ -20,9 +20,10 @@
 10. [`SslManager` (`ssl_manager.py`)](#10-sslmanager-ssl_managerpy)
 11. [`DashboardManager` & `SettingsManager`](#11-dashboardmanager--settingsmanager)
 12. [`UpdaterManager` (`updater.py`) — Auto-Updater](#12-updatermanager-updaterpy--auto-updater)
-13. [`TunnelsManager` (`tunnels.py`) — Akses Publik via Zrok](#13-tunnelsmanager-tunnelspy--akses-publik-via-zrok)
-14. [`main.py` — App Bootstrap & `AppLifecycle`](#14-mainpy--app-bootstrap--applifecycle)
-15. [Known Issues — Temuan Audit Backend](#15-known-issues--temuan-audit-backend)
+13. [`TunnelsManager` (`tunnels.py`) — Akses Publik via Zrok & Cloudflare Tunnel](#13-tunnelsmanager-tunnelspy--akses-publik-via-zrok--cloudflare-tunnel)
+14. [`MarkdownViewerManager` (`markdown_viewer.py`) — Penampil Dokumentasi Markdown Lokal](#14-markdownviewermanager-markdown_viewerpy--penampil-dokumentasi-markdown-lokal)
+15. [`main.py` — App Bootstrap & `AppLifecycle`](#15-mainpy--app-bootstrap--applifecycle)
+16. [Known Issues — Temuan Audit Backend](#16-known-issues--temuan-audit-backend)
 
 ---
 
@@ -45,6 +46,7 @@ graph TD
     API -->|owns| Settings[SettingsManager]
     API -->|owns| Updater[UpdaterManager]
     API -->|owns| Tunnels[TunnelsManager]
+    API -->|owns| Markdown[MarkdownViewerManager]
 
     Php -.->|"update_global_php_proxy(port)<br/>saat start_php/save_config/uninstall"| Apache
     Project -.->|"sync_apache_vhosts()<br/>saat create/update/delete project"| Apache
@@ -56,6 +58,7 @@ graph TD
     Database -.->|"TIDAK ada dependency ke service lain"| Database
     Runtimes -.->|"TIDAK ada dependency ke service lain"| Runtimes
     Git -.->|"TIDAK ada dependency ke service lain"| Git
+    Markdown -.->|"TIDAK ada dependency ke service lain"| Markdown
     Tunnels -.->|"update_project(tunnel_url)<br/>_read_projects() -- resolusi project"| Project
     Tunnels -.->|"get_http_port() -- resolusi port HTTP aktif<br/>(dulu salah baca dari Settings, lihat §15 poin 18)"| Apache
     Updater -.->|"get_settings() -- baca receive_prerelease_updates"| Settings
@@ -63,6 +66,7 @@ graph TD
     style Database fill:#1a3,color:#fff
     style Runtimes fill:#1a3,color:#fff
     style Git fill:#1a3,color:#fff
+    style Markdown fill:#1a3,color:#fff
 ```
 
 **Poin penting:**
@@ -77,7 +81,7 @@ graph TD
 `Api` adalah satu-satunya class yang diekspos ke `window.pywebview.api` di frontend. Semua fungsi JS masuk lewat sini, lalu didelegasikan ke manager yang sesuai.
 
 ### 2.1 Constructor
-Menginisialisasi 9 manager (`self.apache`, `self.php`, `self.database`, `self.project`, `self.runtimes`, `self.git`, `self.ssl`, `self.dashboard`, `self.settings`), masing-masing menerima `self` (instance `Api`) sebagai referensi balik. `self._window = None` (di-set belakangan oleh `main.py` via `set_window()`). `self.quit_callback = None` (di-set oleh `main.py` agar `close_app()` bisa memicu pembersihan sebelum keluar — lihat [§15](#15-known-issues--temuan-audit-backend) untuk status nyata pembersihan ini).
+Menginisialisasi seluruh manager (`self.apache`, `self.php`, `self.database`, `self.project`, `self.runtimes`, `self.git`, `self.ssl`, `self.dashboard`, `self.settings`, `self.updater`, `self.tunnels`, `self.markdown_viewer`), masing-masing menerima `self` (instance `Api`) sebagai referensi balik. `self._window = None` (di-set belakangan oleh `main.py` via `set_window()`). `self.quit_callback = None` (di-set oleh `main.py` agar `close_app()` bisa memicu pembersihan sebelum keluar).
 
 ### 2.2 Event Emitter — Mekanisme Inti Komunikasi Real-Time
 
@@ -105,12 +109,16 @@ def emit_progress(self, percent: int, text: str = "", args: dict = None):
 
 | Endpoint | Perilaku |
 |---|---|
-| `close_app()` | Jika `self.quit_callback` di-set → panggil callback tersebut. Jika tidak → `os._exit(0)` langsung. **Lihat §15 untuk bug terkait fungsi ini.** |
+| `close_app()` | Jika `self.quit_callback` di-set → panggil callback tersebut. Jika tidak → `os._exit(0)` langsung. |
 | `browse_directory()` | Membuka native folder picker via `self._window.create_file_dialog(webview.FOLDER_DIALOG)`. |
 | `start_service(id)` / `stop_service(id)` | Dispatcher generik dipakai oleh toggle switch di Sidebar & Dashboard — merutekan ke `apache`/`php`/`database` manager berdasarkan `id`. |
 | `get_all_services_status()` | Menggabungkan `psutil.cpu_percent()` + `psutil.virtual_memory().percent` dengan status running tiap service — dipoll frontend tiap 2 detik. |
-
-> ⚠️ Endpoint ini **tidak tercantum** di peta API lama `docs/ai_development_guide.md` §1 — lihat §15 poin 7 untuk daftar lengkap endpoint yang belum terdokumentasi.
+| `apply_titlebar_theme(theme)` | Menerapkan palet warna caption bar dan teks titlebar native Windows via DWM API (`core.utils.system_utils.apply_window_titlebar_theme`). |
+| `show_native_notification(msg, type)` | Mengirim toast Windows native via `win11toast` di background thread saat window backgrounded. |
+| `md_select_directory()` | Delegasi ke `self.markdown_viewer.select_directory()` untuk folder picker dialog. |
+| `md_get_tree(root_path)` | Delegasi ke `self.markdown_viewer.get_markdown_tree(root_path)` untuk menyusun hierarki file markdown. |
+| `md_read_file(file_path)` | Delegasi ke `self.markdown_viewer.read_markdown_file(file_path)` untuk membaca konten markdown. |
+| `md_get_media(file_path)` | Delegasi ke `self.markdown_viewer.get_local_media_base64(file_path)` untuk mengonversi gambar lokal ke base64 data URI. |
 
 ---
 
@@ -121,22 +129,25 @@ def emit_progress(self, percent: int, text: str = "", args: dict = None):
 | Fungsi | Perilaku |
 |---|---|
 | `download_advanced(url, dest, log_cb, prog_cb)` | Kirim `HEAD` dulu untuk cek `Content-Length` & `Accept-Ranges`. Jika server mendukung *byte range* dan ukuran diketahui → `_download_multi_part()` (8 koneksi paralel, file di-*preallocate*, tiap thread menulis potongan byte-nya sendiri, progress digabung via `threading.Lock`). Jika tidak → `_download_single_stream()` (chunked 32KB). HTTP 404 dilempar ulang sebagai `RuntimeError` yang jelas. |
-| `extract_archive(zip_path, dest, prog_cb)` | `.zip` → member-by-member (progress tiap 50 file). `.tar.gz` → `extractall()` sekali jalan (progress langsung loncat ke 80%, tidak granular). |
-| `read_json(path, default_type=list)` | Baca JSON dengan aman. **Selalu mengembalikan tipe `default_type`** — jika file tidak ada/kosong/JSON tidak valid, ATAU jika isi file valid JSON tapi bertipe berbeda dari `default_type` (mis. file berisi string top-level padahal caller minta `dict`), otomatis fallback ke `default_type()` kosong. Lihat catatan kontrak di bawah. |
-| `write_json(path, data)` | Tulis `data` sebagai JSON (`indent=4`), `os.makedirs` otomatis. Return `bool` sukses/gagal — **tidak validasi tipe `data`**, jadi caller tetap bertanggung jawab hanya mengirim `dict`/`list` yang sesuai konvensi file targetnya. |
-
-> ✅ **Temuan audit (sudah diperbaiki):** dokumentasi versi lama mengklaim fungsi ini "mencegah *zip slip vulnerability*", padahal saat itu belum ada validasi path traversal apapun di `_extract_zip`/`_extract_tar_gz`. Sekarang sudah ditambahkan `_is_safe_extract_path()` — setiap member arsip divalidasi dengan `os.path.realpath()` sebelum diekstrak; member yang keluar dari direktori tujuan (mis. `../../evil.exe`) akan menggagalkan seluruh ekstraksi dengan `RuntimeError`. Detail di §15.
-
-> ⚠️ **Kontrak tipe `read_json()`:** parameter `default_type` dulu **hanya** dipakai sebagai nilai fallback saat file tidak ada — bukan jaminan tipe hasil baca. Kalau file ADA dan isinya JSON valid tapi bukan `default_type` (mis. sisa string dari file lama/rusak/edit manual), fungsi lama meneruskan nilai itu apa adanya, sehingga caller yang langsung memanggil `.get()`/iterasi pada hasilnya (tanpa `isinstance` check sendiri) bisa crash. Sekarang `read_json()` sudah memvalidasi `isinstance(data, default_type)` setelah parsing — **hasilnya dijamin bertipe `default_type`**, jadi caller baru tidak perlu lagi menambahkan `isinstance` check sendiri untuk kasus ini. Detail insiden nyata di `docs/known_bugs.md` #17.
+| `extract_archive(zip_path, dest, prog_cb)` | `.zip` → member-by-member (progress tiap 50 file). `.tar.gz` → `extractall()` sekali jalan (progress langsung loncat ke 80%, tidak granular). Dilengkapi `_is_safe_extract_path()` mencegah Zip Slip traversal. |
+| `read_json(path, default_type=list)` | Baca JSON dengan aman. **Selalu mengembalikan tipe `default_type`** — jika file tidak ada/kosong/JSON tidak valid, ATAU jika isi file valid JSON tapi bertipe berbeda dari `default_type`, otomatis fallback ke `default_type()` kosong. |
+| `write_json(path, data)` | Tulis `data` sebagai JSON (`indent=4`), `os.makedirs` otomatis. Return `bool` sukses/gagal. |
 
 ### 3.2 `system_utils.py`
 
 | Fungsi | Perilaku |
 |---|---|
 | `get_project_root()` | Resolusi path aman baik mode `.py` (dev) maupun `.exe` (`sys.frozen`, PyInstaller). |
+| `get_resource_path(rel)` | Resolusi path aset statis (`sys._MEIPASS` pada executable PyInstaller vs direktori root source). |
 | `run_silent_command(cmd)` | Eksekusi sinkron tersembunyi (`CREATE_NO_WINDOW`). |
-| `start_silent_process(cmd)` | Sama seperti di atas tapi asinkron (untuk daemon Apache/PHP/DB). |
-| `check_port_in_use(port, host)` | Cek `socket.create_connection((host, port))` (IPv4) dulu; jika gagal **dan** host adalah `127.0.0.1`/`localhost`, fallback ke `AF_INET6` (`::1`). ✅ **Fix ini terverifikasi masih aktif dan benar** — lihat `docs/known_bugs.md` #1 (PostgreSQL IPv6 timeout). |
+| `start_silent_process(cmd)` | Eksekusi asinkron tersembunyi (untuk daemon Apache/PHP/DB). |
+| `check_port_in_use(port, host)` | Cek `socket.create_connection((host, port))` (IPv4) dulu; jika gagal **dan** host adalah `127.0.0.1`/`localhost`, fallback ke `AF_INET6` (`::1`). |
+| `hex_to_colorref(hex_str)` | Mengonversi warna hex `#RRGGBB` ke integer Windows `COLORREF` (`0x00BBGGRR`). |
+| `get_theme_titlebar_palette(theme)` | Mengembalikan mapping warna caption & text titlebar untuk 10 tema bawaan. |
+| `apply_window_titlebar_theme(hwnd, theme, dark_mode)` | Mengatur atribut DWM window (`DWMWA_CAPTION_COLOR = 35`, `DWMWA_TEXT_COLOR = 36`, `DWMWA_USE_IMMERSIVE_DARK_MODE = 20`) via `dwmapi.dll`. |
+| `send_show_command_to_pipe(pipe_name)` | Menghubungkan client ke Named Pipe Windows dan mengirim string `"SHOW"` untuk aktivasi instance utama. |
+| `start_ipc_server(pipe_name, on_show_callback)` | Membuka server Windows Named Pipe di thread daemon untuk mendengarkan sinyal aktivasi dari instance sekunder. |
+| `bring_existing_instance_to_front()` | Mencoba aktivasi lewat Named Pipe IPC terlebih dahulu; fallback ke Win32 `FindWindowW` + `ShowWindow` jika IPC tidak merespon. |
 
 ---
 
@@ -645,27 +656,32 @@ Ditemukan saat audit kode sebelum serah terima — lihat `docs/known_bugs.md` un
 
 ---
 
-## 13. `TunnelsManager` (`tunnels.py`) — Akses Publik via Zrok
+## 13. `TunnelsManager` (`tunnels.py`) — Akses Publik via Zrok & Cloudflare Tunnel
 
-Fitur "Tunnels": membuka akses publik sementara ke project lokal (atau target custom `localhost:PORT`) lewat [zrok](https://zrok.io) (tunneling open-source berbasis OpenZiti), tanpa butuh domain/port-forwarding sendiri. Binary `zrok.exe` diunduh on-demand dari GitHub Releases (`openziti/zrok`) ke `bin/zrok/zrok.exe` — pola direktori sama seperti runtime lain (Node/Python/Java/Go, §8).
+Fitur "Tunnels": membuka akses publik sementara ke project lokal (atau target custom `localhost:PORT`) lewat dua engine: [zrok](https://zrok.io) (open-source berbasis OpenZiti, butuh token akun) dan **Cloudflare Tunnel** (`cloudflared`, quick tunnel `*.trycloudflare.com` tanpa butuh akun/token). Binary masing-masing diunduh on-demand dari GitHub Releases ke `bin/tunnels/<engine>/` secara mandiri.
 
 ### 13.1 Dependency & State
-- **Constructor**: tidak butuh manager lain saat inisiasi. Dependency ke `self.api.project` (resolusi project VyloServe by ID, injeksi `tunnel_url`) dan `self.api.apache` (`get_http_port()` — baca port HTTP aktif langsung dari `httpd.conf`, **bukan** dari `SettingsManager` seperti versi kode sebelumnya yang pernah salah pakai key `apache_port` yang tidak pernah ada — lihat `docs/known_bugs.md` #31) dicek lazy via `hasattr()`, pola sama seperti manager lain.
-- `self.active_shares: Dict[str, Dict]` — **in-memory murni** (`{share_id: {process, project_id, url}}`), tidak dipersist ke disk (caveat sama seperti `PhpManager.processes`/`DatabaseManager.processes`, §5.1/§6.1 — tracking share hilang jika VyloServe di-restart, walau proses OS `zrok.exe share`-nya sendiri bisa tetap hidup sebagai orphan).
-- Tidak ada file state JSON sendiri — `get_zrok_status()` selalu membaca live dari `zrok.exe version`/`zrok.exe status` (output ANSI escape code di-strip via regex), bukan dari cache.
+- **Constructor**: tidak butuh manager lain saat inisiasi. Dependency ke `self.api.project` (resolusi project VyloServe by ID, injeksi `tunnel_url`) dan `self.api.apache` (`get_http_port()`) dicek lazy via `hasattr()`.
+- `self.active_shares: Dict[str, Dict]` dan `self.active_cloudflare_shares: Dict[str, Dict]` — **in-memory murni** (`{share_id: {process, project_id, url}}`), tidak dipersist ke disk.
+- Tidak ada file state JSON sendiri — `get_zrok_status()` dan `get_cloudflare_status()` selalu membaca live dari executable engine terkait dan status proses berjalan.
 
 ### 13.2 Ringkasan API Publik
 
 | Method | Fungsi |
 |---|---|
-| `get_available_zrok_versions()` | Fetch daftar release dari GitHub API, filter yang punya asset `windows_amd64`. |
-| `get_zrok_status()` | `zrok.exe version` + `zrok.exe status` (dicek string `"Environment:"` di output untuk menyimpulkan environment sudah di-*enable*) + daftar `active_shares` yang proses-nya masih hidup (`proc.poll() is None`). |
-| `install_zrok(version='latest')` | Download archive GitHub Releases (progress 0→80% dihitung manual, bukan `download_advanced()` — pola sama seperti alasan di §12.3) → `extract_archive()` (80→99%) → cari ulang file `zrok*.exe` hasil ekstrak via `glob` (menangani kemungkinan nama berubah jadi `zrok2.exe` di rilis baru), retry rename 10×/0.5s kalau file masih terkunci OS. |
-| `enable_zrok(token)` / `disable_zrok()` | Wrapper `zrok.exe enable <token>` / `zrok.exe disable` — daftar/lepas environment zrok lokal ke akun pengguna. |
-| `start_zrok_share(target)` | Lihat diagram §13.3. `target` = project ID VyloServe ATAU string custom `"localhost:PORT"` (dideteksi dari prefix `localhost:`). |
-| `stop_zrok_share(share_id)` | `proc.kill()` + `wait(timeout=3)` → hapus dari `active_shares` → kalau share itu milik project VyloServe, hapus field `tunnel_url` dari `projects.json` dan `sync_apache_vhosts()` ulang. |
-
-> ✅ `uninstall_zrok()` — menghentikan semua `active_shares` (lewat `stop_zrok_share()` masing-masing), lalu `shutil.rmtree(self.zrok_dir, ignore_errors=True)`. Sempat tidak terdefinisi sama sekali di `TunnelsManager` (padahal `Api.uninstall_zrok()` dan frontend sudah memanggilnya — selalu `AttributeError`), sudah diperbaiki. Lihat `docs/known_bugs.md` #31.
+| `get_available_zrok_versions()` | Fetch daftar release dari GitHub API, filter asset `windows_amd64`. |
+| `get_zrok_status()` | `zrok.exe version` + status aktivasi environment + daftar `active_shares`. |
+| `install_zrok(version='latest')` | Download binary zip dari GitHub Releases → ekstrak ke `bin/tunnels/zrok/`. |
+| `enable_zrok(token)` / `disable_zrok()` | Wrapper `zrok.exe enable <token>` / `zrok.exe disable` untuk mengelola environment. |
+| `start_zrok_share(target)` | Jalankan `zrok.exe share public`, tangkap URL via regex/JSON, dan sync ke Apache vhost jika target adalah project. |
+| `stop_zrok_share(share_id)` | Hentikan proses share zrok dan bersihkan alias vhost. |
+| `uninstall_zrok()` | Hentikan seluruh share zrok dan hapus folder biner `bin/tunnels/zrok/`. |
+| `get_available_cloudflare_versions()` | Fetch release dari GitHub API `cloudflare/cloudflared` dengan asset `cloudflared-windows-amd64.exe`. |
+| `get_cloudflare_status()` | Cek keberadaan `cloudflared.exe`, baca versi via `cloudflared.exe version`, dan daftar `active_cloudflare_shares`. |
+| `install_cloudflare(version='latest')` | Download biner standalone `.exe` langsung dari GitHub Releases ke `bin/tunnels/cloudflared/cloudflared.exe`. |
+| `start_cloudflare_share(target)` | Jalankan `cloudflared.exe tunnel --url <target>`, tangkap URL `https://*.trycloudflare.com` dari log stderr/stdout, dan update vhost project. |
+| `stop_cloudflare_share(share_id)` | Hentikan proses quick tunnel Cloudflare dan bersihkan alias vhost. |
+| `uninstall_cloudflare()` | Hentikan seluruh share Cloudflare aktif dan hapus folder `bin/tunnels/cloudflared/`. |
 
 ### 13.3 Workflow: `start_zrok_share(target)` — Tunggu URL dari stdout, lalu Injeksi ke Vhost Apache
 
@@ -725,21 +741,52 @@ sequenceDiagram
 
 ---
 
-## 14. `main.py` — App Bootstrap & `AppLifecycle`
+## 14. `MarkdownViewerManager` (`markdown_viewer.py`) — Penampil Dokumentasi Markdown Lokal
 
-> ✅ **Update:** `main.py` sebelumnya punya coverage 0% karena seluruh logic exit (`perform_exit`, `on_closing`) terjebak sebagai closure di dalam `if __name__ == '__main__':`, sehingga tidak bisa di-import untuk ditest. Sudah di-refactor menjadi class `AppLifecycle` — lihat detail di bawah.
+Modul utilitas untuk menjelajahi dan merender berkas dokumentasi Markdown (`.md`) secara lokal dari direktori mana pun di mesin pengguna tanpa ketergantungan koneksi internet.
 
-### 14.1 Alur Bootstrap
-0. `main()` **pertama-tama** memanggil `check_single_instance()` — membuat Windows named mutex (`"VyloServe_App_Mutex_v1"` via `ctypes.windll.kernel32.CreateMutexW`). Kalau mutex itu sudah ada (`GetLastError() == ERROR_ALREADY_EXISTS`), berarti VyloServe sudah berjalan — `bring_existing_instance_to_front()` mencari window existing lewat judul "VyloServe" (`FindWindowW`) lalu `ShowWindow`/`SetForegroundWindow`, kemudian proses baru langsung `sys.exit(0)` **tanpa pernah membuat instance `Api()` kedua**. Ini mencegah dua proses VyloServe berjalan bersamaan (mis. dua `httpd.exe`/`mysqld.exe` rebutan port yang sama).
-1. `main()` membuat instance `Api()`, lalu `AppLifecycle(api, IS_PRODUCTION, enable_tray=ENABLE_TRAY)`. **`enable_tray` SENGAJA parameter TERPISAH dari `is_production`** (lihat §14.2) — `ENABLE_TRAY = True` adalah konstanta independen dari `IS_PRODUCTION` di `main.py`, supaya tray+hide-to-tray bisa aktif di dev mode juga tanpa ikut mematikan dev-server/devtools yang masih dikontrol `IS_PRODUCTION`.
-2. `webview.create_window(...)` membuat window — `background_color` diisi dari `get_theme_bg_color()` (baca `data/settings.json` key `theme` langsung lewat `json.load()`, **bukan** lewat `SettingsManager`/`read_json()`, karena ini dipanggil sebelum `Api()` relevan dan harus tahan terhadap file belum ada — ada `try/except` + fallback `"vyloserve-dark"` → `#0f172a`; map warna per-tema di-*hardcode* di dalam fungsi ini, lihat §11 untuk daftar key `theme` yang valid) → `api.set_window(window)` **dan** `lifecycle.set_window(window)` (keduanya perlu tahu window: `api` untuk `emit_log`/`emit_progress`/`emit_window_state`, `lifecycle` untuk hide/destroy).
-3. `api.start_log_watcher()` dipanggil tepat setelah `set_window()` — lihat §11.2 untuk mekanisme thread log watcher ini.
-4. `api.quit_callback = lifecycle.perform_exit` — inilah yang membuat `Api.close_app()` (dipanggil dari tombol Quit UI) benar-benar memicu cleanup.
-5. `window.events.closing += lifecycle.on_closing` — dipanggil setiap kali user menekan tombol (X). **`window.events.minimized`/`restored` juga di-hook** di sini lewat lambda yang memanggil `api.emit_window_state(minimized=True/False)` — lihat §14.4.
-6. Jika `ENABLE_TRAY` (bukan `IS_PRODUCTION` lagi — lihat §14.2), `setup_systray(lifecycle, icon_path)` dipanggil untuk mengaktifkan ikon System Tray.
-7. `webview.start(...)` — blocking call, baru return saat window benar-benar ditutup.
+### 14.1 Dependency & State
+- **Constructor**: menerima referensi `self.api` (pola seragam manager lain).
+- **Independen**: Tidak memiliki dependensi ke database, web server, atau service backend lainnya.
+- **Stateless**: Tidak menyimpan konfigurasi JSON ke disk.
 
-### 14.2 `AppLifecycle` — Satu Sumber Kebenaran untuk Exit/Hide
+### 14.2 Ringkasan API Publik
+
+| Method | Fungsi |
+|---|---|
+| `select_directory()` | Membuka native folder picker via `webview.windows[0].create_file_dialog(webview.FOLDER_DIALOG)`. |
+| `get_markdown_tree(root_path)` | Membangun pohon direktori rekursif berisi file `.md` dari folder yang dipilih. |
+| `read_markdown_file(file_path)` | Membaca isi file teks markdown dalam encoding UTF-8 (`errors='replace'`). |
+| `get_local_media_base64(file_path)` | Membaca file media (gambar) lokal dan mengembalikannya sebagai Data URI Base64 (`data:<mime>;base64,...`). |
+
+### 14.3 Mekanisme Scanning & Sanitasi Direktori
+- **Filter Folder Sistem/Dependensi:** Melewati folder yang diawali `.` (seperti `.git`, `.vscode`) serta folder dependensi/build (`node_modules`, `dist`, `build`, `__pycache__`, `vendor`).
+- **Pruning Folder Kosong:** Direktori yang tidak memiliki file `.md` di dalam subtree-nya otomatis dihilangkan dari hasil visualisasi tree agar tampilan rapi.
+- **Pengurutan Konsisten:** Subdirektori selalu diletakkan di atas file, diurutkan secara alfabetis *case-insensitive*.
+
+---
+
+## 15. `main.py` — App Bootstrap & `AppLifecycle`
+
+> ✅ **Update:** `main.py` menerapkan class `AppLifecycle` yang dapat diuji secara mandiri, isolasi Single-Instance Dev vs Prod via Windows Named Pipe IPC, deteksi otomatis lingkungan produksi, serta pewarnaan titlebar native via Windows DWM.
+
+### 15.1 Alur Bootstrap
+0. **Deteksi Lingkungan & Isolasi Single-Instance:**
+   - `IS_PRODUCTION = getattr(sys, "frozen", False)` — otomatis bernilai `True` saat dijalankan sebagai executable hasil build PyInstaller, dan `False` saat dijalankan via interpreter Python.
+   - Variabel lingkungan, Mutex (`VyloServe_App_Mutex_v1` di production vs `VyloServe_Dev_App_Mutex_v1` di dev), Named Pipe IPC (`\\.\pipe\VyloServe_IPC_v1` vs `\\.\pipe\VyloServe_Dev_IPC_v1`), Judul Window (`"VyloServe"` vs `"VyloServe (Development)"`), dan Windows AppUserModelID (`VyloServe.App.Production` vs `VyloServe.App.Development`) diisolasi secara ketat per mode.
+   - `main()` memanggil `check_single_instance()`. Jika mutex mode tersebut sudah aktif: proses sekunder mengirim perintah `"SHOW"` via `send_show_command_to_pipe()`, lalu segera keluar via `sys.exit(0)`.
+   - Jika proses adalah instance pertama: thread daemon `start_ipc_server()` dijalankan untuk menerima permintaan restorasi dari instance berikutnya, yang mengeksekusi `lifecycle.show_and_bring_to_front()` secara aman pada WinForms UI thread (`window.gui.Form.Invoke(...)` atau `show()`).
+1. `main()` membuat instance `Api()`, lalu `AppLifecycle(api, IS_PRODUCTION, enable_tray=ENABLE_TRAY)`.
+2. `webview.create_window(...)` membuat window dengan judul dan dimensi yang sesuai — `background_color` diisi dari `get_theme_bg_color()`.
+3. Event `window.events.shown` dan `window.events.restored` di-hook untuk menyinkronkan warna caption dan teks titlebar native Windows via DWM (`api.apply_titlebar_theme()`).
+4. `api.set_window(window)` dan `lifecycle.set_window(window)` dipanggil.
+5. `api.start_log_watcher()` dijalankan untuk memantau file log Apache/Database secara real-time.
+6. `api.quit_callback = lifecycle.perform_exit`.
+7. `window.events.closing += lifecycle.on_closing`, dan event minimize/restore di-hook ke `api.emit_window_state()`.
+8. Jika `ENABLE_TRAY` bernilai `True`, `setup_systray(lifecycle, icon_path)` dipanggil.
+9. `webview.start(...)` dijalankan.
+
+### 15.2 `AppLifecycle` — Satu Sumber Kebenaran untuk Exit/Hide
 
 ```mermaid
 flowchart TD
@@ -768,14 +815,14 @@ flowchart TD
 
 > ⚠️ **`on_closing()` cabang hide-vs-exit digerakkan `enable_tray`, BUKAN `is_production`** (sejak fitur histori toast + notifikasi native, lihat `docs/known_bugs.md` #45) — keduanya SENGAJA dipisah jadi dua parameter independen di `AppLifecycle.__init__`. `is_production` sendiri tetap murni mengontrol `get_entrypoint()` (dist vs dev server) dan flag `debug` di `webview.start()`, TIDAK lagi punya pengaruh apa pun ke `on_closing()`. Default `enable_tray=False` di constructor (backward-compatible) — caller yang ingin hide-to-tray WAJIB mengoper eksplisit `enable_tray=True`.
 
-### 14.3 Kenapa Diekstrak Jadi Class
+### 15.3 Kenapa Diekstrak Jadi Class
 `AppLifecycle` menyimpan `api`, `window`, `tray_icon`, `is_real_exit` sebagai atribut instance (bukan variabel global `is_real_exit`/`global_tray_icon` + closure seperti sebelumnya). Ini membuatnya bisa diinstansiasi langsung di unit test dengan `MagicMock()` sebagai pengganti `api`/`window`/`tray_icon`, tanpa perlu menjalankan `pywebview`/`webview.start()` sungguhan. Lihat `tests/test_main.py` untuk cakupan penuh (bootstrap, exit, hide-to-tray, system tray).
 
-### 14.4 Window-State Bridge & Notifikasi Native Windows (`Api.emit_window_state`/`show_native_notification`)
+### 15.4 Window-State Bridge & Notifikasi Native Windows (`Api.emit_window_state`/`show_native_notification`)
 
 Ditambahkan bersama fitur histori toast (lihat `docs/known_bugs.md` #45) — frontend (`useWindowPresence.ts`) perlu tahu kapan window di-minimize/di-hide ke tray untuk memutuskan kapan toast perlu diteruskan sebagai notifikasi native Windows, alih-alih di-poll dari frontend (DOM tidak tahu state OS-level ini sama sekali).
 
-- **`Api.emit_window_state(minimized=None, hidden=None)`** — pola identik `emit_log`/`emit_progress` (`evaluate_js` + `CustomEvent('vylo_window_state', ...)`, lihat §5.1 di `docs/frontend_ui.md`), tapi hanya field yang DIBERI (bukan `None`) yang dikirim ke payload, supaya listener frontend bisa membedakan "tidak berubah" dari "eksplisit jadi false". Dipanggil dari 3 tempat: `window.events.minimized`/`restored` (hook langsung di `main()`, lihat §14.1), `AppLifecycle.on_closing()` saat hide-to-tray (`hidden=True`), dan tray menu "Show VyloServe" / `Api._restore_window_from_notification` (`hidden=False, minimized=False`).
+- **`Api.emit_window_state(minimized=None, hidden=None)`** — pola identik `emit_log`/`emit_progress` (`evaluate_js` + `CustomEvent('vylo_window_state', ...)`, lihat §5.1 di `docs/frontend_ui.md`), tapi hanya field yang DIBERI (bukan `None`) yang dikirim ke payload, supaya listener frontend bisa membedakan "tidak berubah" dari "eksplisit jadi false". Dipanggil dari 3 tempat: `window.events.minimized`/`restored` (hook langsung di `main()`, lihat §15.1), `AppLifecycle.on_closing()` saat hide-to-tray (`hidden=True`), dan tray menu "Show VyloServe" / `Api._restore_window_from_notification` (`hidden=False, minimized=False`).
 - **Reliabilitas `window.events.minimized`/`restored` untuk backend `edgechromium`**: dikonfirmasi langsung dari source `pywebview` (`webview/platforms/winforms.py`'s `on_resize` — backend `edgechromium` di Windows berjalan di atas WinForms) — event ini di-set dari `FormWindowState` transition WinForms standar (`Minimized`/`Normal`/`Maximized`), BUKAN polling, dan reliable untuk konfigurasi app ini (`gui='edgechromium'`). Tidak perlu fallback polling.
 - **`Api.show_native_notification(message, type)`** — memanggil `win11toast.toast(...)` di **thread daemon terpisah** (pola sama `pystray`'s `run_tray()`, karena `win11toast`/WinRT butuh event loop `asyncio` sendiri yang tidak boleh memblokir UI thread pywebview). `type` menentukan `duration` (`'long'` untuk error/warning, `'short'` untuk lainnya — supaya notifikasi penting tidak auto-dismiss secepat notifikasi biasa). `on_click` di-set ke `Api._restore_window_from_notification` (show+restore window, lalu `emit_window_state(hidden=False, minimized=False)`).
 - **`Api.set_notification_icon(icon_path)`** — di-set dari `main()` tepat setelah `api.set_window(window)`, menyimpan `self._notification_icon_path` yang diteruskan sebagai `icon=` ke `win11toast.toast(...)`. **Path PNG terpisah dari ikon window/tray** (`icons-nobg.png`, BUKAN `.ico` yang dipakai `webview.start(icon=...)`/`setup_systray`) — WinRT toast XML `<image>` butuh format yang reliable didekode WIC image pipeline, `.ico` sebagai container format tidak konsisten didukung di sana (lihat `docs/known_bugs.md` #46, ditemukan dari smoke test manual: notifikasi tampil tanpa ikon aplikasi sebelum fix ini). `icon=None` (default sebelum `set_notification_icon` dipanggil) ditangani win11toast dengan baik — notifikasi tetap tampil, cuma tanpa ikon, tidak crash.
@@ -784,7 +831,7 @@ Ditambahkan bersama fitur histori toast (lihat `docs/known_bugs.md` #45) — fro
 
 ---
 
-## 15. Known Issues — Temuan Audit Backend
+## 16. Known Issues — Temuan Audit Backend
 
 Tabel ini adalah hasil audit langsung terhadap kode per tanggal dokumen ini ditulis. Status diperbarui secara jujur — beberapa klaim "sudah fixed" di dokumentasi sebelumnya **terbukti salah** saat kode benar-benar dibaca ulang.
 
@@ -802,7 +849,7 @@ Tabel ini adalah hasil audit langsung terhadap kode per tanggal dokumen ini ditu
 | 10 | Migrasi legacy `apache_active_version.txt` selalu gagal diam-diam di Windows (`os.remove()` dipanggil saat file masih terbuka → `PermissionError` tertelan) | `apache.py._get_active_version()` | 🟡 Sedang — fitur migrasi tidak pernah benar-benar jalan | ✅ **Sudah diperbaiki** — `os.remove()` dipindah ke luar blok `with` |
 | 11 | `uninstall_go()` tidak punya `return` sama sekali (implisit `None`) — frontend salah menampilkan error walau sukses | `runtimes_manager.py.uninstall_go()` | 🟡 Sedang — bug fungsional UX | ✅ **Sudah diperbaiki** — ditambahkan `return {"status": "success"}` |
 | 12 | `install_java()`/`install_go()` hanya menangkap `except OSError`, melewatkan `RuntimeError` yang dilempar sendiri di dalam try-nya → crash tidak tertangkap | `runtimes_manager.py` | 🔴 Bisa crash saat folder JDK tidak ditemukan setelah ekstrak | ✅ **Sudah diperbaiki** — diubah jadi `except Exception as e:`, konsisten dengan `install_node`/`install_python` |
-| 13 | Menu Tray "Exit Engine" punya jalur exit terpisah yang melewatkan cleanup engine (Apache/PHP/Database) — bug #2 sebenarnya masih bisa terjadi lewat jalur ini | `main.py` (`setup_systray.on_exit_clicked`, sebelum refactor) | 🔴 Kritis — bug fungsional (zombie process via jalur lain) | ✅ **Sudah diperbaiki** — kini memanggil `lifecycle.perform_exit()` yang sama dengan tombol Quit UI, sekaligus bagian dari refactor `main.py` → `AppLifecycle` (§14) |
+| 13 | Menu Tray "Exit Engine" punya jalur exit terpisah yang melewatkan cleanup engine (Apache/PHP/Database) — bug #2 sebenarnya masih bisa terjadi lewat jalur ini | `main.py` (`setup_systray.on_exit_clicked`, sebelum refactor) | 🔴 Kritis — bug fungsional (zombie process via jalur lain) | ✅ **Sudah diperbaiki** — kini memanggil `lifecycle.perform_exit()` yang sama dengan tombol Quit UI, sekaligus bagian dari refactor `main.py` → `AppLifecycle` (§15) |
 | 14 | `_get_cbs()`'s `download_cb` memperlakukan `pct` (absolut 0-100 dari `file_utils.py`) seolah fraksi `0.0-1.0`, mengalikannya dengan `span` → progress meluber ribuan persen saat unduhan/ekstraksi, lalu "melompat mundur" saat tahap berikutnya mengirim nilai tetap | `runtimes_manager.py._get_cbs()`, `git_manager.py.install_git()` (multiplier lebih kecil, gejala tersamar) | 🔴 Kritis — bug UX nyata, dilaporkan pengguna | ✅ **Sudah diperbaiki** — `download_cb` sekarang meng-*clamp* `pct` ke `[start_pct, end_pct]`, bukan mengalikan. Lihat §8.2 & `docs/known_bugs.md` #16 |
 | 15 | `read_json(path, dict).get(...)` dipanggil langsung tanpa `isinstance` check di 2 tempat — crash `AttributeError: 'str' object has no attribute 'get'` jika file JSON valid tapi bukan objek | `php.py._get_preferred_versions()`, `database.py._get_preferred_dbs()` | 🔴 Kritis — crash tidak konsisten (tergantung isi file saat itu) | ✅ **Sudah diperbaiki** — root cause di `read_json()` sendiri (§3.1, sekarang menjamin tipe), plus `isinstance` guard eksplisit di kedua caller. Lihat `docs/known_bugs.md` #17 |
 | 16 | Tahap "configuring" pada `install_version()` PHP melapor progress **100%** padahal Composer (tahap berikutnya) belum dipasang → melanggar kontrak `percent>=100 = selesai` (§2.2) → widget progress frontend menghilang mid-instalasi | `php.py.install_version()` | 🔴 Kritis — bug UX nyata, dilaporkan pengguna | ✅ **Sudah diperbaiki** — diganti jadi 92%; 100% dicadangkan khusus untuk `"backend.php.installation_complete"`. Lihat `docs/known_bugs.md` #18 |
@@ -810,5 +857,7 @@ Tabel ini adalah hasil audit langsung terhadap kode per tanggal dokumen ini ditu
 | 18 | `TunnelsManager.start_zrok_share()` membaca port Apache dari `self.api.settings.get_settings().get("apache_port", 80)` — tapi `SettingsManager.get_settings()` **tidak pernah punya key `apache_port`** (bukan bagian dari `default_config`, lihat §11); hasilnya `.get(..., 80)` SELALU jatuh ke fallback hardcode 80, berapa pun port Apache yang sebenarnya dikonfigurasi user | `core/services/tunnels.py` (`start_zrok_share`) | 🟡 Sedang — share zrok untuk project VyloServe akan menunjuk ke port yang salah kalau user mengubah port Apache dari default 80 | ✅ **Sudah diperbaiki** — ditambahkan `ApacheManager.get_http_port()` (parse `Listen {port}` dari `httpd.conf` aktif, abaikan `Listen 443`), dipakai `start_zrok_share()` alih-alih `SettingsManager`. Lihat `docs/known_bugs.md` #31. |
 | 19 | `start_zrok_share()` membaca stdout `zrok.exe` lewat `proc.stdout.readline()` **blocking di thread utama**, timeout 15 detik, satu pola regex kaku (`"access your zrok share:\s+URL"`) — dilaporkan user: share **berhasil dibuat di sisi cloud zrok** (target benar terlihat di dashboard `api-v1.zrok.io`) tapi VyloServe tetap melaporkan `url_not_found`, proses lokal di-*kill*, dan URL share yang sempat terbentuk menampilkan **Bad Gateway** saat diakses (backend lokalnya sudah mati) | `core/services/tunnels.py` (`start_zrok_share`) | 🔴 Kritis — fitur share project gagal total secara nyata dilaporkan pengguna | ✅ **Sudah diperbaiki (2 tahap, lihat `docs/known_bugs.md` #34 & #35)** — tahap 1: pembacaan stdout dipindah ke thread terpisah + `queue.Queue()`, timeout 30 detik. **Tahap 1 TIDAK menyelesaikan bug** (user melaporkan masih terjadi persis sama) — root cause sesungguhnya (#35): `zrok.exe` v2 mencetak log JSON per baris, frasa DAN format URL yang dicari regex lama **tidak pernah ada** di output tersebut. Tahap 2: `_extract_zrok_public_url()` mem-parsing JSON dulu, domain tanpa skema di-prefix `https://` otomatis. Diverifikasi dengan menjalankan `zrok.exe` asli end-to-end (bukan cuma mock). |
 | 20 | Instalasi PostgreSQL gagal dengan `[WinError 2] The system cannot find the file specified` tanpa menyebutkan file apa yang hilang — root cause SESUNGGUHNYA ternyata di frontend (`NewInstance.tsx`'s fetch versi online tidak punya guard anti-stale-response, race antara fetch MySQL yang lambat vs fetch PostgreSQL yang cepat membuat `engine='postgres'` terkirim bersama `version`/`url` milik MariaDB) | `core/services/database.py` (`_init_database`), root cause di `frontend/src/menu/database/NewInstance.tsx` | 🔴 Kritis — instalasi gagal total, pesan error tidak actionable | ✅ **Sudah diperbaiki** — `_assert_installer_present()` ditambahkan di backend (lihat catatan §6.2 di atas) untuk membuat kegagalan serupa jadi actionable bagaimanapun pemicunya; root cause asli diperbaiki di frontend dengan guard `ignore` standar pola React di `useEffect` pengambil versi online. Lihat `docs/known_bugs.md` #52 untuk kronologi investigasi lengkap (termasuk reproduksi end-to-end terhadap binary EnterpriseDB asli yang sempat menyangkal teori root-cause yang salah). |
+| 21 | Tabrakan (Collision) Instance Development dan Production pada Single-Instance Mutex & crash aplikasi saat restore dari tray via raw Win32 cross-process hijack | `main.py`, `core/utils/system_utils.py` | 🔴 Kritis — dev run menimpa/meng-crash aplikasi prod yang sedang jalan | ✅ **Sudah diperbaiki** — pemisahan Mutex (`VyloServe_App_Mutex_v1` vs `VyloServe_Dev_App_Mutex_v1`), pemisahan Window Title & AppUserModelID, serta penggantian mekanisme aktivasi window menggunakan Windows Named Pipe IPC. Lihat `docs/known_bugs.md` #56. |
+| 22 | Ketidakselarasan alur update Apache dari burger menu: langsung trigger tanpa modal konfirmasi pertanyaan, tidak terminimalisasi, dan tidak merestore form wizard lengkap dengan pre-selected target version | `frontend/src/menu/apache/Main.tsx` | 🟡 Sedang — UX tidak konsisten dengan spesifikasi flow update | ✅ **Sudah diperbaiki** — penambahan `useAlert().confirm` modal pertanyaan, progress minimized di `BackgroundProgressWidget`, dan tombol restore membuka `InstallWizard` dengan target version pre-selected. Lihat `docs/known_bugs.md` #55. |
 
 > Lihat `docs/known_bugs.md` untuk detail lengkap tiap perbaikan (#3, #6–#18 di dokumen tersebut berkorespondensi dengan tabel di atas; #17–18 di tabel ini BARU ditemukan saat audit dokumentasi ini dan **belum** punya entri terpisah di `docs/known_bugs.md` — pertimbangkan menambahkannya di sana juga kalau/ketika benar-benar diperbaiki).

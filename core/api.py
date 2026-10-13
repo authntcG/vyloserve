@@ -225,6 +225,7 @@ class Api:
             self._window.show()
             self._window.restore()
             self.emit_window_state(hidden=False, minimized=False)
+            self.apply_titlebar_theme()
 
     def test_connection(self, data: str) -> Dict[str, str]:
         self.emit_log("backend.api.ping_received", "info", {"data": data})
@@ -434,7 +435,23 @@ class Api:
         return self.settings.get_settings()
 
     def save_app_settings(self, data: dict):
-        return self.settings.save_settings(data)
+        res = self.settings.save_settings(data)
+        if isinstance(res, dict) and res.get("status") == "success" and "theme" in data:
+            self.apply_titlebar_theme(data.get("theme"))
+        return res
+
+    def apply_titlebar_theme(self, theme_name: Optional[str] = None) -> bool:
+        """
+        Menerapkan pewarnaan titlebar native Windows via DWM sesuai preferensi tema.
+        Dipanggil saat startup dan saat pengaturan tema diubah di UI.
+        """
+        if not self._window:
+            return False
+        if not theme_name:
+            settings_res = self.get_app_settings()
+            theme_name = settings_res.get("data", {}).get("theme", "vyloserve-dark")
+        from core.utils.system_utils import apply_window_titlebar_theme
+        return apply_window_titlebar_theme(self._window, theme_name)
     
     # ==========================================
     # DATABASE SECTIONS

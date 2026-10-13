@@ -62,18 +62,18 @@ Get the latest build from the [Releases page](https://github.com/authntcG/vylose
 - Generates a local trusted Root CA, so your `.local` domains get a valid HTTPS lock in the browser.
 
 ### Customization
-- 10 built-in color themes (VyloServe Dark/Light, Darcula, Solarized Dark/Light, High Contrast Dark/Light, Monokai, Dracula, Nord).
+- 10 built-in color themes (VyloServe Dark/Light, Darcula, Solarized Dark/Light, High Contrast Dark/Light, Monokai, Dracula, Nord) with native Windows DWM titlebar color palette synchronization.
 - English and Indonesian language support.
 - Choose which services show up on your dashboard.
-- Launching VyloServe while it's already running brings the existing window to the front instead of opening a duplicate.
+- Safe single-instance application management using Windows Named Pipe IPC — bringing the existing window to the front smoothly without cross-instance collisions between dev and prod modes.
 
 ### System Logs
 - A centralized, real-time log panel covering every module — installs, service start/stop, errors.
 - Live-tails the actual Apache and database log files (`error_log`, `access_log`, `db_startup.log`) into the same panel.
 - Filter by log level or category, and view full log files without leaving the app.
 
-### Tunnels (Zrok)
-- Share a running Apache project, or any `localhost:<port>` address, to a public URL.
+### Tunnels (Zrok & Cloudflare Tunnel)
+- Share a running Apache project, or any `localhost:<port>` address, to a public URL via open-source [zrok](https://zrok.io) or zero-config Cloudflare Quick Tunnels (`*.trycloudflare.com`).
 - Run multiple shares at once, each stoppable independently from an Active Shares list.
 
 ### Auto-Updater
@@ -82,6 +82,7 @@ Get the latest build from the [Releases page](https://github.com/authntcG/vylose
 - One-click background download with a progress bar, then a silent install on restart.
 
 ### Developer Tools
+- Markdown documentation viewer with OS directory picker, recursive folder tree, custom markdown rendering, and local media preview.
 - Base64 encode/decode, for text and drag-and-drop files.
 - URL encode/decode with a full URI structure breakdown.
 - QR code generator with image download.

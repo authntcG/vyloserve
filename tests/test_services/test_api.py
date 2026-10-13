@@ -577,3 +577,61 @@ def test_restore_window_from_notification_shows_restores_and_pushes_state(api_in
 def test_restore_window_from_notification_does_not_crash_without_a_window(api_instance):
     api_instance._restore_window_from_notification()  # tidak boleh raise
 
+
+# ==========================================
+# TITLEBAR THEME DWM SYNC TESTS
+# ==========================================
+
+def test_apply_titlebar_theme_without_window_returns_false(api_instance):
+    """Tanpa window terpasang, apply_titlebar_theme harus mengembalikan False."""
+    assert api_instance.apply_titlebar_theme("nord-dark") is False
+
+
+def test_apply_titlebar_theme_with_explicit_theme(api_instance):
+    """Memanggil apply_titlebar_theme dengan nama tema eksplisit."""
+    mock_window = MagicMock()
+    api_instance.set_window(mock_window)
+
+    with patch('core.utils.system_utils.apply_window_titlebar_theme', return_value=True) as mock_apply:
+        res = api_instance.apply_titlebar_theme("nord-dark")
+        assert res is True
+        mock_apply.assert_called_once_with(mock_window, "nord-dark")
+
+
+def test_apply_titlebar_theme_defaults_to_saved_settings(api_instance):
+    """Jika theme_name tidak dioper, ambil dari pengaturan tersimpan."""
+    mock_window = MagicMock()
+    api_instance.set_window(mock_window)
+    api_instance.settings.get_settings.return_value = {
+        "status": "success",
+        "data": {"theme": "dracula-dark"}
+    }
+
+    with patch('core.utils.system_utils.apply_window_titlebar_theme', return_value=True) as mock_apply:
+        res = api_instance.apply_titlebar_theme()
+        assert res is True
+        mock_apply.assert_called_once_with(mock_window, "dracula-dark")
+
+
+def test_save_app_settings_triggers_apply_titlebar_theme_when_theme_updated(api_instance):
+    """Menyimpan settings yang memuat key 'theme' harus memicu pembaruan titlebar."""
+    mock_window = MagicMock()
+    api_instance.set_window(mock_window)
+    api_instance.settings.save_settings.return_value = {"status": "success"}
+
+    with patch.object(api_instance, 'apply_titlebar_theme') as mock_apply_theme:
+        res = api_instance.save_app_settings({"theme": "monokai-dark", "language": "en"})
+        assert res == {"status": "success"}
+        mock_apply_theme.assert_called_once_with("monokai-dark")
+
+
+def test_save_app_settings_does_not_trigger_titlebar_theme_when_theme_not_in_payload(api_instance):
+    """Menyimpan settings tanpa key 'theme' tidak boleh memicu apply_titlebar_theme."""
+    api_instance.settings.save_settings.return_value = {"status": "success"}
+
+    with patch.object(api_instance, 'apply_titlebar_theme') as mock_apply_theme:
+        res = api_instance.save_app_settings({"language": "id"})
+        assert res == {"status": "success"}
+        mock_apply_theme.assert_not_called()
+
+

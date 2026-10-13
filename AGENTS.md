@@ -16,14 +16,14 @@ vyloserve/
 │   └── services/           # Modul Manager spesifik (Single Responsibility Principle)
 │       ├── apache.py, php.py, database.py, runtimes_manager.py
 │       ├── project.py, git_manager.py, ssl_manager.py, dashboard.py
-│       └── settings.py, updater.py, tunnels.py
+│       └── settings.py, updater.py, tunnels.py, markdown_viewer.py
 ├── frontend/               # Kode React UI
 │   ├── src/
 │   │   ├── components/     # Reusable UI (Modal.tsx, PageHeader.tsx, dll)
 │   │   ├── locales/        # File terjemahan JSON (en & id)
 │   │   ├── menu/           # Halaman/Menu utama berdasarkan modul (apache, php, database, dll)
 │   │   ├── hooks/          # Custom hooks lintas-komponen (useWindowPresence.ts, dll)
-│   │   ├── utils/          # Helper murni non-komponen (a11y.ts, progress.ts, version.ts)
+│   │   ├── utils/          # Helper murni non-komponen (a11y.ts, progress.ts, theme.ts, version.ts)
 │   │   └── App.tsx         # Routing & Layout Utama
 └── main.py                 # Entrypoint aplikasi (Setup window, Pywebview, & System Tray)
 ```
@@ -74,7 +74,7 @@ Aturan "dilarang hardcode" di atas **tidak hanya berlaku untuk field `"message"`
 - Saat menyalin salah satu template di `docs/ai_development_guide.md` §5, **jangan** ikut menyalin pola `except Exception as e: return {"message": str(e)}` — gunakan key generik `"backend.error.unexpected"` dengan `"args": {"e": str(e)}`, atau key spesifik service (`"backend.<service>.xxx_error"`) jika sudah ada.
 
 ### 🎨 Sistem Tema (Theming)
-VyloServe punya 10 preset tema (`vyloserve-dark`/`-light`, Darcula, Solarized Dark/Light, High-Contrast Dark/Light, Monokai, Dracula, Nord), disimpan sebagai key `theme` di `data/settings.json` dan diterapkan lewat helper bersama `applyTheme(theme)` di `frontend/src/utils/theme.ts` (set atribut `data-theme` pada `<html>` + toggle class `dark` + override CSS variable per tema di `frontend/src/index.css`). Helper ini dipanggil dari 2 tempat — bootstrap awal di `App.tsx` dan `handleThemeChange()` di `SettingsModals.tsx` — **WAJIB** tetap lewat `applyTheme()`, jangan menduplikasi logika `dataset.theme`/class `dark` secara manual lagi di tempat baru mana pun. Detail lengkap (daftar preset, mekanisme `data-theme`, pola override CSS variable): `docs/frontend_ui.md` §2.1.
+VyloServe punya 10 preset tema (`vyloserve-dark`/`-light`, Darcula, Solarized Dark/Light, High-Contrast Dark/Light, Monokai, Dracula, Nord), disimpan sebagai key `theme` di `data/settings.json` dan diterapkan lewat helper bersama `applyTheme(theme)` di `frontend/src/utils/theme.ts` (set atribut `data-theme` pada `<html>` + toggle class `dark` + override CSS variable per tema di `frontend/src/index.css` + memanggil `api.apply_titlebar_theme(theme)` untuk mensinkronkan warna caption dan teks titlebar native Windows via DWM). Helper ini dipanggil dari 2 tempat — bootstrap awal di `App.tsx` dan `handleThemeChange()` di `SettingsModals.tsx` — **WAJIB** tetap lewat `applyTheme()`, jangan menduplikasi logika `dataset.theme`/class `dark` secara manual lagi di tempat baru mana pun. Detail lengkap (daftar preset, mekanisme `data-theme`, pola override CSS variable): `docs/frontend_ui.md` §2.1.
 
 ## 📜 Coding Standards & Golden Rules untuk AI
 
@@ -86,8 +86,9 @@ VyloServe punya 10 preset tema (`vyloserve-dark`/`-light`, Darcula, Solarized Da
    - Gunakan `<BackgroundProgressWidget>` untuk menangkap log loading dari OS.
 2. **Golden Standard UI:**
    Pola `PageHeader + SkeletonCard + EmptyState + Card + Modal` (fetch on mount → render 3-state loading/data/empty → handler aksi dengan toast+i18n) diterapkan konsisten di **Apache, PHP, Database, Runtimes, dan Git** — bukan eksklusif milik Apache/PHP. Jika membuat modul baru, ikuti struktur ini. Detail lengkap + diagram: `docs/frontend_ui.md` §5. Untuk halaman dengan banyak state bercabang (mis. multi-engine/multi-tab), lihat juga §5.1 di dokumen yang sama soal konvensi ekstraksi sub-komponen supaya *Cognitive Complexity* tetap rendah.
-3. **Graceful Exit:**
-   Penutupan aplikasi dikendalikan oleh `AppLifecycle.is_real_exit` di `main.py`. Menekan (X) pada window hanya akan menyembunyikan aplikasi ke System Tray jika `ENABLE_TRAY=True` — flag ini **sengaja independen dari `IS_PRODUCTION`** (tray aktif juga di dev mode, supaya fitur hide-to-tray + notifikasi native bisa dites tanpa build `.exe`; `IS_PRODUCTION` sendiri murni mengontrol entrypoint dist/dev-server dan flag devtools). Kalau `ENABLE_TRAY=False`, menekan (X) langsung menutup aplikasi sepenuhnya apa pun nilai `IS_PRODUCTION`. Perintah mematikan total hanya lewat `api.close_app()` atau menu di System Tray.
+3. **Graceful Exit & Single-Instance IPC:**
+   Penutupan aplikasi dikendalikan oleh `AppLifecycle.is_real_exit` di `main.py`. Menekan (X) pada window hanya akan menyembunyikan aplikasi ke System Tray jika `ENABLE_TRAY=True` — flag ini **sengaja independen dari `IS_PRODUCTION`** (tray aktif juga di dev mode, supaya fitur hide-to-tray + notifikasi native bisa dites tanpa build `.exe`; `IS_PRODUCTION` sendiri murni mengontrol entrypoint dist/dev-server dan flag devtools via `getattr(sys, "frozen", False)`). Kalau `ENABLE_TRAY=False`, menekan (X) langsung menutup aplikasi sepenuhnya apa pun nilai `IS_PRODUCTION`. Perintah mematikan total hanya lewat `api.close_app()` atau menu di System Tray.
+   Aplikasi menerapkan single-instance terisolasi per mode: mutex `VyloServe_App_Mutex_v1` (prod) vs `VyloServe_Dev_App_Mutex_v1` (dev), window title terpisah, dan AppUserModelID terpisah. Pemanggilan ulang aplikasi membawa window utama ke depan melalui **Windows Named Pipe IPC** (`\\.\pipe\VyloServe_IPC_v1` / `\\.\pipe\VyloServe_Dev_IPC_v1`), bukan raw Win32 hijack cross-process, sehingga bebas crash saat window sedang disembunyikan di tray. Detail: `docs/known_bugs.md` #56.
 4. **Patching UI Component Props:**
    Ketika melakukan patch/edit terhadap React Hooks (*useEffect*, *useContext*, *useTranslation*), deklarasikan di baris paling atas fungsi komponen untuk mencegah pelanggaran urutan aturan eksekusi Hooks bawaan React.
 5. **🚨 WAJIB: Import CSS Pihak Ketiga Global Harus Pakai `layer()`:**

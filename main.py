@@ -7,7 +7,7 @@ import pystray
 import ssl
 import certifi
 import ctypes
-from core.utils.system_utils import get_project_root, get_resource_path
+from core.utils.system_utils import get_project_root, get_resource_path, get_theme_titlebar_palette
 from PIL import Image
 from pystray import MenuItem as item
 import webview.window
@@ -45,52 +45,74 @@ def get_theme_bg_color():
                 theme = data.get("theme", "vyloserve-dark")
         except Exception:
             pass
-    mapping = {
-        "vyloserve-dark": "#0f172a",
-        "vyloserve-light": "#f8fafc",
-        "darcula-dark": "#2b2b2b",
-        "solarized-dark": "#002b36",
-        "solarized-light": "#fdf6e3",
-        "high-contrast-dark": "#000000",
-        "high-contrast-light": "#ffffff",
-        "monokai-dark": "#272822",
-        "dracula-dark": "#282a36",
-        "nord-dark": "#2e3440"
-    }
-    return mapping.get(theme, "#0f172a")
+    return get_theme_titlebar_palette(theme)["bg"]
 
-def bring_existing_instance_to_front():
+# --- KONFIGURASI ENVIRONMENT ---
+# Auto-detect mode frozen (.exe) atau fallback ke False untuk Development
+IS_PRODUCTION = getattr(sys, 'frozen', False) or False
+APP_VERSION = "0.0.6-alpha"
+
+def get_mutex_name(is_production: bool = IS_PRODUCTION) -> str:
+    return "VyloServe_App_Mutex_v1" if is_production else "VyloServe_Dev_App_Mutex_v1"
+
+def get_ipc_pipe_name(is_production: bool = IS_PRODUCTION) -> str:
+    return r'\\.\pipe\VyloServe_IPC_v1' if is_production else r'\\.\pipe\VyloServe_Dev_IPC_v1'
+
+def get_window_title(is_production: bool = IS_PRODUCTION) -> str:
+    return "VyloServe" if is_production else "VyloServe (Development)"
+
+def setup_app_user_model_id(is_production: bool = IS_PRODUCTION):
+    if sys.platform == 'win32':
+        try:
+            app_id = "VyloServe.App.Production" if is_production else "VyloServe.App.Development"
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+        except Exception:
+            pass
+
+def bring_existing_instance_to_front(is_production: bool = IS_PRODUCTION):
     """ 
     Mencari window VyloServe yang sudah berjalan dan memaksanya ke depan (foreground). 
-    Juga mengembalikan window dari mode minimized jika diperlukan.
+    Mengutamakan sinyal IPC agar UI loop internal (WinForms) merestore window secara bersih.
+    Jika IPC gagal, fallback ke Windows API ShowWindow.
     """
-    hwnd = ctypes.windll.user32.FindWindowW(None, "VyloServe")
-    if hwnd:
-        ctypes.windll.user32.ShowWindow(hwnd, SW_SHOW)
-        ctypes.windll.user32.ShowWindow(hwnd, SW_RESTORE)
-        ctypes.windll.user32.SetForegroundWindow(hwnd)
+    pipe_name = get_ipc_pipe_name(is_production)
+    ipc_success = False
 
-def check_single_instance():
+    if sys.platform == 'win32':
+        try:
+            from multiprocessing.connection import Client
+            client = Client(pipe_name, 'AF_PIPE')
+            client.send('SHOW')
+            client.close()
+            ipc_success = True
+            print("[DEBUG] Sinyal IPC 'SHOW' berhasil dikirim ke instance utama.")
+        except Exception as e:
+            print(f"[DEBUG] IPC Client gagal ({e}), menggunakan fallback FindWindow.")
+
+    window_title = get_window_title(is_production)
+    if sys.platform == 'win32':
+        hwnd = ctypes.windll.user32.FindWindowW(None, window_title)
+        if hwnd:
+            if not ipc_success:
+                ctypes.windll.user32.ShowWindow(hwnd, SW_SHOW)
+                ctypes.windll.user32.ShowWindow(hwnd, SW_RESTORE)
+            ctypes.windll.user32.SetForegroundWindow(hwnd)
+
+def check_single_instance(is_production: bool = IS_PRODUCTION):
     """
     Mengecek apakah VyloServe sudah berjalan menggunakan OS Mutex.
     Mengembalikan (True, mutex) jika ini adalah instance pertama.
     Mengembalikan (False, None) jika instance lain sudah berjalan.
     """
-    mutex_name = "VyloServe_App_Mutex_v1"
+    if sys.platform != 'win32':
+        return True, None
+    mutex_name = get_mutex_name(is_production)
     mutex = ctypes.windll.kernel32.CreateMutexW(None, False, mutex_name)
     last_error = ctypes.windll.kernel32.GetLastError()
     
     if last_error == ERROR_ALREADY_EXISTS:
         return False, None
     return True, mutex
-
-# SSL Global Configuration
-ssl._create_default_https_context = lambda: ssl.create_default_context(cafile=certifi.where())
-
-# --- KONFIGURASI ENVIRONMENT ---
-# Ubah menjadi True jika ingin melakukan build (.exe) atau Alpha Testing
-IS_PRODUCTION = True
-APP_VERSION = "0.0.6-alpha"
 
 # Independen dari IS_PRODUCTION secara sengaja -- IS_PRODUCTION JUGA mengontrol
 # entrypoint (dist vs dev server Vite) dan flag devtools, jadi tidak bisa dipakai
@@ -134,6 +156,7 @@ class AppLifecycle:
         self.enable_tray = enable_tray
         self.window = None
         self.tray_icon = None
+        self.ipc_listener = None
         self.is_real_exit = False
 
     def set_window(self, window):
@@ -142,6 +165,23 @@ class AppLifecycle:
     def set_tray_icon(self, tray_icon):
         self.tray_icon = tray_icon
 
+    def set_ipc_listener(self, ipc_listener):
+        self.ipc_listener = ipc_listener
+
+    def show_and_bring_to_front(self):
+        """
+        Mengembalikan window dari tray/minimized ke foreground secara bersih dari UI thread.
+        Memicu show(), restore(), emit_window_state, dan pembaruan tema titlebar DWM.
+        """
+        if self.window:
+            try:
+                self.window.show()
+                self.window.restore()
+                self.api.emit_window_state(hidden=False, minimized=False)
+                self.api.apply_titlebar_theme()
+            except Exception as e:
+                print(f"[ERROR] Gagal memulihkan jendela: {e}")
+
     def perform_exit(self):
         """
         Mematikan semua engine (Apache/PHP/Database) sebelum benar-benar keluar,
@@ -149,6 +189,12 @@ class AppLifecycle:
         setelah aplikasi ditutup. Lihat docs/known_bugs.md #6.
         """
         self.is_real_exit = True
+
+        if self.ipc_listener:
+            try:
+                self.ipc_listener.close()
+            except Exception:
+                pass
 
         try:
             self.api.stop_log_watcher()
@@ -201,6 +247,40 @@ class AppLifecycle:
         return True  # Jika is_real_exit True, biarkan aplikasi mati
 
 
+# --- FUNGSI IPC SERVER (SINGLE INSTANCE RESTORE) ---
+def start_ipc_server(lifecycle: AppLifecycle, is_production: bool = IS_PRODUCTION):
+    """
+    Menjalankan background IPC listener via Named Pipe di OS Windows.
+    Memungkinkan instance baru untuk meminta instance ini kembali ke foreground
+    melalui UI thread internal (lifecycle.show_and_bring_to_front).
+    """
+    if sys.platform != 'win32':
+        return None
+    try:
+        from multiprocessing.connection import Listener
+        pipe_name = get_ipc_pipe_name(is_production)
+        listener = Listener(pipe_name, 'AF_PIPE')
+        lifecycle.set_ipc_listener(listener)
+
+        def ipc_worker():
+            while not lifecycle.is_real_exit:
+                try:
+                    conn = listener.accept()
+                    msg = conn.recv()
+                    if msg == 'SHOW':
+                        lifecycle.show_and_bring_to_front()
+                    conn.close()
+                except Exception:
+                    break
+
+        threading.Thread(target=ipc_worker, daemon=True).start()
+        print(f"[DEBUG] IPC Server berhasil berjalan di {pipe_name}")
+        return listener
+    except Exception as e:
+        print(f"[WARNING] Gagal membuat IPC listener: {e}")
+        return None
+
+
 # --- FUNGSI SYSTEM TRAY (TASKBAR) ---
 def setup_systray(lifecycle: AppLifecycle, icon_path: str):
     try:
@@ -215,9 +295,7 @@ def setup_systray(lifecycle: AppLifecycle, icon_path: str):
 
         # 2. Aksi: Tampilkan Window
         def on_show_clicked(icon, menu_item):
-            lifecycle.window.show()
-            lifecycle.window.restore()
-            lifecycle.api.emit_window_state(hidden=False, minimized=False)
+            lifecycle.show_and_bring_to_front()
 
         # 3. Aksi: Exit Aplikasi
         # Memakai lifecycle.perform_exit() yang sama dengan tombol Quit di UI,
@@ -233,7 +311,9 @@ def setup_systray(lifecycle: AppLifecycle, icon_path: str):
         )
 
         # 5. Eksekusi Pystray
-        tray_icon = pystray.Icon("VyloServe", image, "VyloServe Background Engine", menu)
+        tray_name = "VyloServe" if lifecycle.is_production else "VyloServe-Dev"
+        tray_title = "VyloServe Background Engine" if lifecycle.is_production else "VyloServe Dev Background Engine"
+        tray_icon = pystray.Icon(tray_name, image, tray_title, menu)
         lifecycle.set_tray_icon(tray_icon)
 
         def run_tray():
@@ -251,12 +331,15 @@ def setup_systray(lifecycle: AppLifecycle, icon_path: str):
 
 
 def main():
+    setup_app_user_model_id(IS_PRODUCTION)
+
     # 1. Cek apakah VyloServe sudah berjalan
-    is_first_instance, _ = check_single_instance()
+    is_first_instance, _ = check_single_instance(IS_PRODUCTION)
     if not is_first_instance:
         print("[INFO] VyloServe sudah berjalan. Menampilkan window yang ada...")
-        bring_existing_instance_to_front()
+        bring_existing_instance_to_front(IS_PRODUCTION)
         sys.exit(0)
+        return
 
     try:
         print("[DEBUG] Membuat instance API...")
@@ -273,7 +356,7 @@ def main():
 
         print("[DEBUG] Membangun jendela UI (Window)...")
         window = webview.create_window(
-            title='VyloServe',
+            title=get_window_title(IS_PRODUCTION),
             url=get_entrypoint(),
             js_api=api,
             width=1200,
@@ -288,6 +371,9 @@ def main():
 
         api.quit_callback = lifecycle.perform_exit
 
+        # Start IPC server untuk menerima sinyal wake-up dari instance berikutnya
+        start_ipc_server(lifecycle, IS_PRODUCTION)
+
         # --- CEGAT EVENT TOMBOL CLOSE (X) ---
         window.events.closing += lifecycle.on_closing
 
@@ -300,6 +386,9 @@ def main():
         # cuma didokumentasikan tapi belum teruji.
         window.events.minimized += lambda: api.emit_window_state(minimized=True)
         window.events.restored += lambda: api.emit_window_state(minimized=False)
+
+        # --- DWM TITLEBAR NATIVE THEME (WINDOWS 10/11) ---
+        window.events.shown += lambda: api.apply_titlebar_theme()
 
         # --- AKTIFKAN SYSTEM TRAY ---
         if ENABLE_TRAY:

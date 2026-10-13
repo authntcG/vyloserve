@@ -380,6 +380,7 @@ export default function ApacheMain() {
                 const avail = await window.pywebview?.api?.get_available_apache();
                 if (avail?.status === 'success') {
                     const filtered = avail.data.filter((v: ApacheVersionData) => v.version !== activeVersion);
+                    setAvailableVersions(filtered);
                     if (filtered.length > 0) {
                         setUpdateAvailable(filtered[0].version);
                     } else {
@@ -444,6 +445,61 @@ export default function ApacheMain() {
         finally { setIsInstalling(false); }
     };
 
+    const handleUpdateApacheClick = async () => {
+        if (!updateAvailable) return;
+
+        let target = availableVersions.find(v => v.version === updateAvailable);
+        if (!target) {
+            setIsFetchingVersions(true);
+            try {
+                const res = await window.pywebview?.api?.get_available_apache();
+                if (res?.status === 'success') {
+                    const filtered = res.data.filter((v: ApacheVersionData) => v.version !== installedApacheVersion);
+                    setAvailableVersions(filtered);
+                    target = filtered.find((v: ApacheVersionData) => v.version === updateAvailable) || filtered[0];
+                }
+            } catch (e) {
+                console.error(e);
+            } finally {
+                setIsFetchingVersions(false);
+            }
+        }
+
+        if (!target) return;
+
+        const isConfirmed = await confirm({
+            title: t('apache.confirm_update'),
+            message: `${t('apache.update_prefix')}${installedApacheVersion || ''}${t('apache.update_middle')}${target.version}${t('apache.update_suffix')}`,
+            type: 'warning',
+            confirmText: t('apache.yes_update')
+        });
+
+        if (!isConfirmed) return;
+
+        setInstallVersion(target.version);
+        setInstallUrl(target.url);
+        setIsInstallServerOpen(false);
+        setIsInstalling(true);
+        setProgress(0);
+        setProgressText(t('apache.updating_start', { version: target.version }));
+
+        try {
+            const res = await window.pywebview?.api?.install_apache(target.version, target.url, httpPort);
+            showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
+            if (res?.status === 'success') {
+                fetchApacheStatus();
+                fetchAvailableVersions();
+            }
+        } catch (e) {
+            console.error(e);
+            showToast(t('apache.system_error'), "error");
+        } finally {
+            setIsInstalling(false);
+            setProgress(0);
+            setIsInstallServerOpen(false);
+        }
+    };
+
     const handleUninstall = async () => {
         if (!await confirm({
             title: t('apache.uninstall_apache'),
@@ -500,7 +556,7 @@ export default function ApacheMain() {
                     onOpenDirectory={() => window.pywebview?.api?.open_apache_directory()}
                     onUninstallClick={handleUninstall}
                     onInstallClick={handleOpenInstallModal}
-                    onUpdateClick={handleOpenInstallModal}
+                    onUpdateClick={handleUpdateApacheClick}
                     t={t}
                 />
 
@@ -526,13 +582,13 @@ export default function ApacheMain() {
             </div>
 
             {/* ---> WIDGETS & MODALS <--- */}
-            <BackgroundProgressWidget isOpen={(isCreatingProject && !isNewProjectModalOpen) || (isInstalling && !isInstallServerOpen)} progress={progress} progressText={progressText} title={isInstalling ? t('apache.installing_apache') : t('apache.installing_project')} onRestore={() => { if (isInstalling) { setIsInstallServerOpen(true); } if (isCreatingProject) { setIsNewProjectModalOpen(true); } }} />
+            <BackgroundProgressWidget isOpen={(isCreatingProject && !isNewProjectModalOpen) || (isInstalling && !isInstallServerOpen)} progress={progress} progressText={progressText} title={isInstalling ? (isApacheInstalled ? t('apache.updating_apache') : t('apache.installing_apache')) : t('apache.installing_project')} onRestore={() => { if (isInstalling) { setIsInstallServerOpen(true); } if (isCreatingProject) { setIsNewProjectModalOpen(true); } }} />
 
             <Modal 
                 isOpen={isInstallServerOpen} 
                 keepMounted={isInstalling} 
                 onClose={() => setIsInstallServerOpen(false)} 
-                title={isInstalling ? (isApacheInstalled ? t('ui.update.update_to_target', { version: installVersion }) : t('apache.install_apache_server')) : t('apache.install_apache_server')} 
+                title={isInstalling ? (isApacheInstalled ? t('apache.updating_apache_title', { version: installVersion }) : t('apache.install_apache_server')) : t('apache.install_apache_server')} 
                 icon={isInstalling && isApacheInstalled ? "upgrade" : "download"} 
                 onApply={isInstalling ? undefined : handleInstallApache} 
                 applyText={isInstalling ? t('apache.installing_start') : t('apache.download_install')} 

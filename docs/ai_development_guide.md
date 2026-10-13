@@ -116,6 +116,15 @@
 | `close_app()` | `close_app()` | `quit_callback()` (jika di-set `main.py`) atau `os._exit(0)` langsung — lihat `docs/known_bugs.md` #6 untuk isu cleanup proses child |
 | `save_base64_file(filename, base64_data, file_types?)` | `save_base64_file()` | `window.create_file_dialog(SAVE_DIALOG)` lalu tulis file hasil decode base64 langsung — satu-satunya endpoint yang tidak melalui Manager manapun |
 | `show_native_notification(message, type)` | `show_native_notification()` | `win11toast.toast()` di thread terpisah — notifikasi native Windows, dipanggil `ToastContext.tsx` saat window backgrounded. Detail: `docs/backend_services.md` §14.4 |
+| `apply_titlebar_theme(theme)` | `apply_titlebar_theme()` | `system_utils.apply_window_titlebar_theme()` — sinkronisasi caption bar dan text titlebar native Windows via DWM API |
+
+### Markdown Documentation Viewer Endpoints
+| Endpoint (JS) | Handler Python | Delegasi ke |
+|--------------|----------------|-------------|
+| `md_select_directory()` | `md_select_directory()` | `markdown_viewer.select_directory()` |
+| `md_get_tree(path)` | `md_get_tree()` | `markdown_viewer.get_markdown_tree()` |
+| `md_read_file(path)` | `md_read_file()` | `markdown_viewer.read_markdown_file()` |
+| `md_get_media(path)` | `md_get_media()` | `markdown_viewer.get_local_media_base64()` |
 
 > **Catatan:** `Api.start_log_watcher()`/`stop_log_watcher()` **bukan** endpoint yang dipanggil dari JS — ini method internal yang dipanggil sekali oleh `main.py` saat window dibuat/ditutup untuk menjalankan thread background yang menyalurkan file log Apache/Database ke System Logs. Detail: `docs/backend_services.md` §11.2.
 >
@@ -177,9 +186,10 @@ Fitur *public tunnel* — expose project lokal/`localhost:port` apa pun ke inter
 | `core/services/settings.py` | ~76 baris | CRUD preferensi aplikasi (`language`, `theme`, `receive_prerelease_updates`, `enable_desktop_notifications`, `default_apache_install_location`, `system_log_levels`/`system_log_sources`) |
 | `core/services/updater.py` | ~242 baris | Auto-Updater: cek/unduh/pasang rilis baru dari GitHub Releases |
 | `core/services/tunnels.py` | ~867 baris | Public tunnel — **dua provider**: zrok (install/enable/disable/share) DAN Cloudflare Tunnel (install/share, tanpa enable/disable karena *quick tunnel* tidak butuh token) — lihat §1 "Tunnels Endpoints". Termasuk `_extract_zrok_public_url()`/`_parse_zrok_log_line()` (parsing output JSON `zrok.exe` v2 — lihat `docs/known_bugs.md` #35) dan `_extract_cloudflare_public_url()` setara untuk `cloudflared.exe` |
+| `core/services/markdown_viewer.py` | ~96 baris | Scanner hierarki folder rekursif, filter direktori berkas markdown, reader isi teks `.md`, dan converter media lokal ke Base64 data URI |
 | `core/utils/file_utils.py` | ~291 baris | JSON I/O, download multi-part, ekstraksi ZIP/TAR, `read_log_tail()`/`read_new_lines()` untuk System Logs |
-| `core/utils/system_utils.py` | ~102 baris | subprocess silent, port checker, path resolver |
-| `main.py` | ~311 baris | Entrypoint: PyWebView window, single-instance lock via OS Mutex (`check_single_instance()`), System Tray setup (`ENABLE_TRAY`, independen dari `IS_PRODUCTION` — lihat AGENTS.md §Graceful Exit), tema-aware `background_color` window (`get_theme_bg_color()` baca `data/settings.json`), `APP_VERSION` |
+| `core/utils/system_utils.py` | ~170 baris | subprocess silent, port checker, path resolver, DWM titlebar palette, Named Pipe IPC single-instance |
+| `main.py` | ~330 baris | Entrypoint: PyWebView window, isolasi mode dev/prod Mutex & IPC, AppLifecycle, System Tray setup, hook DWM titlebar & window state |
 
 ### Frontend Files (Halaman Utama)
 | File | Ukuran | Konten |
@@ -188,11 +198,12 @@ Fitur *public tunnel* — expose project lokal/`localhost:port` apa pun ke inter
 | `menu/dashboard/Main.tsx` | ~855 baris | Dashboard cards, hardware monitor |
 | `menu/runtimes/Main.tsx` | ~655 baris | Runtime cards (Node, Python, Java, Go) |
 | `menu/tools/settings/SettingsModals.tsx` | ~665 baris | **Satu modal bertab** (General/Logs/Updates/About) — bukan lagi beberapa modal terpisah, lihat `docs/known_bugs.md` untuk histori redesign-nya |
-| `menu/apache/Main.tsx` | ~515 baris | Apache server UI (Golden Standard) |
+| `menu/apache/Main.tsx` | ~525 baris | Apache server UI (Golden Standard), alur update in-place dengan modal konfirmasi dan minimized progress widget |
 | `menu/apache/NewProject.tsx` | ~476 baris | Form buat proyek baru |
 | `menu/database/Main.tsx` | ~470 baris | Database instance cards; badge+dropdown "Update" mengikuti pola PHP (lihat §1 "Database Endpoints") |
 | `menu/tools/git/Main.tsx` | ~470 baris | Git manager UI |
 | `menu/php/Main.tsx` | ~300 baris | PHP instance cards (Golden Standard untuk pola badge+dropdown "Update", lihat §1 "PHP Endpoints") |
+| `menu/tools/markdown-viewer/Main.tsx` | ~200 baris | UI Markdown Documentation Viewer dengan sidebar folder tree view rekursif dan viewer markdown split-pane |
 | `menu/tools/qr-generator/Main.tsx` | ~320 baris | UI alat QR Generator (Client-side) |
 | `menu/tools/base64-encode-decode/Main.tsx` | ~310 baris | UI alat Base64 Encode/Decode (Client-side) |
 | `menu/tools/url-encode-decode/Main.tsx` | ~175 baris | UI alat URL Encode/Decode (Client-side) |

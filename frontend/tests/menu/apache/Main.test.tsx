@@ -11,7 +11,9 @@ const { newProjectSubmit, projectSettingsSubmit } = vi.hoisted(() => ({
 }));
 
 vi.mock('../../../src/menu/apache/Settings', () => ({ default: () => <div>apache-settings-stub</div> }));
-vi.mock('../../../src/menu/apache/InstallWizard', () => ({ default: () => <div>install-wizard-stub</div> }));
+vi.mock('../../../src/menu/apache/InstallWizard', () => ({
+    default: (props: any) => <div>install-wizard-stub:{props?.version}</div>,
+}));
 vi.mock('../../../src/menu/apache/NewProject', () => ({
     default: forwardRef((_props, ref) => {
         useImperativeHandle(ref, () => ({ submit: newProjectSubmit }));
@@ -168,7 +170,7 @@ describe('ApacheMain', () => {
         expect(await screen.findByText('apache.project_removed')).toBeInTheDocument();
     });
 
-    it('installs a new Apache version, closes the modal, and refreshes the status on success', async () => {
+    it('confirms Apache update from burger option, starts in minimized mode, and refreshes status on success', async () => {
         const user = userEvent.setup();
         const install = vi.fn().mockResolvedValue({ status: 'success', message: 'apache.installed', args: {} });
         const getAvailable = vi.fn().mockResolvedValue({ status: 'success', data: [{ version: '2.4.63', filename: 'httpd-2.4.63.zip', url: 'https://example.com/2.4.63.zip' }] });
@@ -176,16 +178,61 @@ describe('ApacheMain', () => {
         renderWithToast(<ApacheMain />);
         await screen.findByText('ui.update.update_to_target');
         await user.click(screen.getByText('ui.update.update_to_target'));
-        await waitFor(() => expect(getAvailable).toHaveBeenCalledTimes(2));
-        await waitFor(() => expect(screen.getByText('apache.download_install')).not.toBeDisabled());
 
-        await user.click(screen.getByText('apache.download_install'));
+        expect(await screen.findByText('apache.confirm_update')).toBeInTheDocument();
+        await user.click(screen.getByText('apache.yes_update'));
 
         expect(install).toHaveBeenCalledWith('2.4.63', 'https://example.com/2.4.63.zip', 80);
         expect(await screen.findByText('apache.installed')).toBeInTheDocument();
     });
 
-    it('shows the API-provided error when Apache installation fails', async () => {
+    it('cancels Apache update from burger option without calling install_apache', async () => {
+        const user = userEvent.setup();
+        const install = vi.fn();
+        const getAvailable = vi.fn().mockResolvedValue({ status: 'success', data: [{ version: '2.4.63', filename: 'httpd-2.4.63.zip', url: 'https://example.com/2.4.63.zip' }] });
+        mockPywebviewApi(apacheApi({ get_available_apache: getAvailable, install_apache: install }));
+        renderWithToast(<ApacheMain />);
+        await screen.findByText('ui.update.update_to_target');
+        await user.click(screen.getByText('ui.update.update_to_target'));
+
+        expect(await screen.findByText('apache.confirm_update')).toBeInTheDocument();
+        await user.click(screen.getByText('Cancel'));
+
+        expect(install).not.toHaveBeenCalled();
+        await waitFor(() => expect(screen.queryByText('apache.confirm_update')).not.toBeInTheDocument());
+    });
+
+    it('restores the minimized update widget and opens the modal with the target version pre-selected', async () => {
+        const user = userEvent.setup();
+        const getAvailable = vi.fn().mockResolvedValue({ status: 'success', data: [{ version: '2.4.63', filename: 'httpd-2.4.63.zip', url: 'https://example.com/2.4.63.zip' }] });
+        mockPywebviewApi(apacheApi({
+            get_available_apache: getAvailable,
+            install_apache: vi.fn().mockReturnValue(new Promise(() => {})),
+        }));
+        renderWithToast(<ApacheMain />);
+        await screen.findByText('ui.update.update_to_target');
+        await user.click(screen.getByText('ui.update.update_to_target'));
+
+        expect(await screen.findByText('apache.confirm_update')).toBeInTheDocument();
+        await user.click(screen.getByText('apache.yes_update'));
+
+        act(() => {
+            window.dispatchEvent(new CustomEvent('vylo_progress', { detail: { source: 'ApacheManager', percent: 40, text: 'Updating...' } }));
+        });
+
+        // Minimized widget is visible
+        const progressWidgetBtn = await screen.findByRole('button', { name: /apache\.updating_apache/ });
+        expect(progressWidgetBtn).toBeInTheDocument();
+
+        // Maximize/restore to full modal
+        await user.click(progressWidgetBtn);
+
+        // Modal is restored with target version pre-selected in dropdown
+        expect(await screen.findByText('install-wizard-stub:2.4.63')).toBeInTheDocument();
+        expect(screen.getByText('apache.updating_apache_title')).toBeInTheDocument();
+    });
+
+    it('shows the API-provided error when Apache update fails', async () => {
         const user = userEvent.setup();
         mockPywebviewApi(apacheApi({
             get_available_apache: vi.fn().mockResolvedValue({ status: 'success', data: [{ version: '2.4.63', filename: 'httpd-2.4.63.zip', url: 'https://example.com/2.4.63.zip' }] }),
@@ -194,11 +241,31 @@ describe('ApacheMain', () => {
         renderWithToast(<ApacheMain />);
         await screen.findByText('ui.update.update_to_target');
         await user.click(screen.getByText('ui.update.update_to_target'));
+
+        expect(await screen.findByText('apache.confirm_update')).toBeInTheDocument();
+        await user.click(screen.getByText('apache.yes_update'));
+
+        expect(await screen.findByText('apache.install_conflict')).toBeInTheDocument();
+    });
+
+    it('installs Apache cleanly via Install Now modal when not installed', async () => {
+        const user = userEvent.setup();
+        const install = vi.fn().mockResolvedValue({ status: 'success', message: 'apache.installed', args: {} });
+        const getAvailable = vi.fn().mockResolvedValue({ status: 'success', data: [{ version: '2.4.63', filename: 'httpd-2.4.63.zip', url: 'https://example.com/2.4.63.zip' }] });
+        mockPywebviewApi(apacheApi({
+            get_apache_status: vi.fn().mockResolvedValue({ status: 'success', installed: false, path: '', running: false }),
+            get_available_apache: getAvailable,
+            install_apache: install,
+        }));
+        renderWithToast(<ApacheMain />);
+        await screen.findByText('apache.not_installed_title');
+        await user.click(screen.getAllByText('apache.install_now')[0]);
         await waitFor(() => expect(screen.getByText('apache.download_install')).not.toBeDisabled());
 
         await user.click(screen.getByText('apache.download_install'));
 
-        expect(await screen.findByText('apache.install_conflict')).toBeInTheDocument();
+        expect(install).toHaveBeenCalledWith('2.4.63', 'https://example.com/2.4.63.zip', 80);
+        expect(await screen.findByText('apache.installed')).toBeInTheDocument();
     });
 
     it('confirms Apache uninstall and refreshes status on success', async () => {
@@ -267,10 +334,8 @@ describe('ApacheMain', () => {
         renderWithToast(<ApacheMain />);
         await screen.findByText('ui.update.update_to_target');
         await user.click(screen.getByText('ui.update.update_to_target'));
-        await waitFor(() => expect(screen.getByText('apache.download_install')).not.toBeDisabled());
-        await user.click(screen.getByText('apache.download_install'));
-        // Minimize the (keepMounted) install modal so BackgroundProgressWidget becomes visible.
-        await user.click(screen.getAllByLabelText('Close')[0]);
+        expect(await screen.findByText('apache.confirm_update')).toBeInTheDocument();
+        await user.click(screen.getByText('apache.yes_update'));
 
         act(() => {
             window.dispatchEvent(new CustomEvent('vylo_progress', { detail: { source: 'PhpManager', percent: 77, text: 'wrong module' } }));
@@ -460,12 +525,13 @@ describe('ApacheMain', () => {
     it('shows a generic system-error toast when installing Apache throws', async () => {
         const user = userEvent.setup();
         mockPywebviewApi(apacheApi({
+            get_apache_status: vi.fn().mockResolvedValue({ status: 'success', installed: false, path: '', running: false }),
             get_available_apache: vi.fn().mockResolvedValue({ status: 'success', data: [{ version: '2.4.63', filename: 'httpd-2.4.63.zip', url: 'https://example.com/2.4.63.zip' }] }),
             install_apache: vi.fn().mockRejectedValue(new Error('boom')),
         }));
         renderWithToast(<ApacheMain />);
-        await screen.findByText('ui.update.update_to_target');
-        await user.click(screen.getByText('ui.update.update_to_target'));
+        await screen.findByText('apache.not_installed_title');
+        await user.click(screen.getAllByText('apache.install_now')[0]);
         await waitFor(() => expect(screen.getByText('apache.download_install')).not.toBeDisabled());
 
         await user.click(screen.getByText('apache.download_install'));
@@ -489,12 +555,13 @@ describe('ApacheMain', () => {
     it('restores the minimized install-progress widget back into the modal', async () => {
         const user = userEvent.setup();
         mockPywebviewApi(apacheApi({
+            get_apache_status: vi.fn().mockResolvedValue({ status: 'success', installed: false, path: '', running: false }),
             get_available_apache: vi.fn().mockResolvedValue({ status: 'success', data: [{ version: '2.4.63', filename: 'httpd-2.4.63.zip', url: 'https://example.com/2.4.63.zip' }] }),
             install_apache: vi.fn().mockReturnValue(new Promise(() => {})),
         }));
         renderWithToast(<ApacheMain />);
-        await screen.findByText('ui.update.update_to_target');
-        await user.click(screen.getByText('ui.update.update_to_target'));
+        await screen.findByText('apache.not_installed_title');
+        await user.click(screen.getAllByText('apache.install_now')[0]);
         await waitFor(() => expect(screen.getByText('apache.download_install')).not.toBeDisabled());
         await user.click(screen.getByText('apache.download_install'));
         act(() => {
@@ -505,7 +572,6 @@ describe('ApacheMain', () => {
 
         await user.click(widget);
         
-        const headings = await screen.findAllByText('ui.update.update_to_target');
-        expect(headings.length).toBeGreaterThan(0);
+        expect(await screen.findByText('apache.install_apache_server')).toBeInTheDocument();
     });
 });

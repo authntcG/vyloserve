@@ -68,7 +68,8 @@ frontend/src/
 │   ├── runtimes/   Main.tsx, InstallNode.tsx, InstallPython.tsx, InstallJava.tsx, InstallGo.tsx, RuntimeVersionSelect.tsx
 │   └── tools/
 │       ├── git/Main.tsx
-│       ├── tunnels/Main.tsx, InstallZrok.tsx   # Fitur zrok tunnel — lihat §14
+│       ├── tunnels/Main.tsx, InstallTunnel.tsx   # Fitur Zrok & Cloudflare tunnel — lihat §14
+│       ├── markdown-viewer/Main.tsx, FolderTreeView.tsx, MarkdownRenderer.tsx # Penampil Markdown lokal — lihat §14
 │       ├── base64-encode-decode/Main.tsx
 │       ├── url-encode-decode/Main.tsx
 │       ├── qr-generator/Main.tsx
@@ -78,7 +79,7 @@ frontend/src/
 │   │                             # non-native yang diberi role ARIA (mis. listbox custom)
 │   ├── progress.ts              # clampPercent(value) — clamp hasil event `vylo_progress` ke [0, 100]
 │   │                             # sebagai pengaman sisi frontend, lihat §3.3
-│   ├── theme.ts                 # applyTheme(theme) — set data-theme + toggle class dark, lihat §2.1
+│   ├── theme.ts                 # applyTheme(theme) — set data-theme + toggle class dark + sync DWM titlebar, lihat §2.1
 │   └── version.ts               # compareVersions(v1, v2) — perbandingan semver numerik per-segmen
 │                                 # (bukan string inequality), dipakai badge "Update Available" PHP/Database
 └── locales/{en,id}/translation.json
@@ -96,13 +97,14 @@ VyloServe menerapkan antarmuka modern yang memanfaatkan integrasi warna *slate* 
 
 ### 2.1 Sistem Tema (Theme System)
 
-Tema dipilih di tab "General" pada modal Settings (`SettingsModals.tsx`, lihat §14) lewat `<select>`, disimpan ke `data/settings.json` key `theme` (default `'vyloserve-dark'`) via `save_app_settings({theme})`, dan diterapkan lewat helper bersama `applyTheme(theme: string)` di `src/utils/theme.ts`, yang melakukan 2 hal sekaligus:
+Tema dipilih di tab "General" pada modal Settings (`SettingsModals.tsx`, lihat §14) lewat `<select>`, disimpan ke `data/settings.json` key `theme` (default `'vyloserve-dark'`) via `save_app_settings({theme})`, dan diterapkan lewat helper bersama `applyTheme(theme: string)` di `src/utils/theme.ts`, yang melakukan 3 hal sekaligus:
 1. `document.documentElement.dataset.theme = theme` — set atribut `data-theme="..."` di elemen `<html>`, dipakai selector CSS `[data-theme="..."] { --var: ... }` di `src/index.css` untuk menimpa CSS custom property (warna) tema.
 2. Toggle class `dark` di `<html>` berdasarkan **konvensi penamaan**: tema dengan akhiran `-light` pada key-nya (mis. `vyloserve-light`, `solarized-light`, `high-contrast-light`) menghapus class `dark`; tema lain menambahkannya — ini yang mengendalikan utility Tailwind `dark:*` di seluruh aplikasi.
+3. Sinkronisasi warna native titlebar Windows via DWM API (`window.pywebview?.api?.apply_titlebar_theme(theme)`), memastikan warna caption bar dan teks titlebar native Windows berubah secara real-time mengikuti tema yang dipilih.
 
 10 tema yang tersedia (lihat `LOG_LEVELS`-sejajar array opsi `<select>` di `SettingsModals.tsx`, dan blok `[data-theme="..."]` di `index.css`): `vyloserve-dark` (default), `vyloserve-light`, `darcula-dark`, `solarized-dark`, `solarized-light`, `high-contrast-dark`, `high-contrast-light`, `monokai-dark`, `dracula-dark`, `nord-dark`.
 
-Dipanggil dari 2 titik: bootstrap awal di `App.tsx` (baca `get_app_settings()` sekali saat `isApiReady`) dan `handleThemeChange()` di `SettingsModals.tsx` (saat user mengganti tema lewat dropdown). Sebelumnya kedua titik ini menduplikasi logika "set `dataset.theme` + toggle class `dark`" secara terpisah (risiko diam-diam berbeda perilaku kalau salah satu diubah tanpa yang lain) — sekarang keduanya memanggil `applyTheme()` yang sama, jadi otomatis tetap sinkron.
+Dipanggil dari 2 titik: bootstrap awal di `App.tsx` (baca `get_app_settings()` sekali saat `isApiReady`) dan `handleThemeChange()` di `SettingsModals.tsx` (saat user mengganti tema lewat dropdown). Sebelumnya kedua titik ini menduplikasi logika "set `dataset.theme` + toggle class `dark`" secara terpisah — sekarang keduanya memanggil `applyTheme()` yang sama, jadi otomatis tetap sinkron.
 
 ### Palet Warna Utama (Tailwind CSS)
 
@@ -561,7 +563,7 @@ sequenceDiagram
 
 | File | Peran |
 |---|---|
-| `Main.tsx` | State terbesar — status Apache global (installed/running/version/path) + daftar Virtual Host project (CRUD). 2 `useEffect` independen (fetch project, fetch status apache). Listen: `project_list_updated`, `service_status_changed`, `vylo_progress`, `apache_version_changed`. JSX status-card & grid project diekstrak ke `ApacheStatusSection`/`ApacheProjectsSection`/`ApacheProjectCard` di module scope yang sama — lihat §5.1. |
+| `Main.tsx` | State terbesar — status Apache global (installed/running/version/path) + daftar Virtual Host project (CRUD). 2 `useEffect` independen (fetch project, fetch status apache). Listen: `project_list_updated`, `service_status_changed`, `vylo_progress`, `apache_version_changed`. JSX status-card & grid project diekstrak ke `ApacheStatusSection`/`ApacheProjectsSection`/`ApacheProjectCard` di module scope yang sama — lihat §5.1. **Alur Update In-Place:** Pengecekan versi rilis terbaru di background memunculkan opsi "Update to {versi}" pada burger dropdown kartu Apache. Mengklik opsi tersebut membuka dialog pertanyaan modal (`useAlert().confirm`). Jika dikonfirmasi, proses update berjalan dengan progress terminimalisasi (`BackgroundProgressWidget`). Mengklik tombol maximize pada widget progress memunculkan kembali dialog `InstallWizard` penuh dengan dropdown versi target yang sudah terpilih otomatis. |
 | `NewProject.tsx` (forwardRef) | Form 2-mode: "Fresh Install" (scaffold Composer) vs "Link Existing" (`api.browse_directory()` → `api.detect_framework(path)`, auto-append `/public` untuk Laravel/CodeIgniter). Lokasi install terakhir disimpan via `get_app_settings()`/`save_app_settings({default_apache_install_location})` — **bukan** `localStorage` (lihat `docs/known_bugs.md` #24). Submit → `api.create_project()` → dispatch `project_list_updated`. Field per-mode diekstrak ke `FreshInstallFields`/`ExistingProjectFields`/`AdvancedSettingsSection` — lihat §5.1. |
 | `ProjectSettings.tsx` (forwardRef) | Edit nama project & rebind versi PHP untuk vhost existing (domain read-only). Submit → `api.update_project()` → dispatch `project_list_updated`. |
 | `Settings.tsx` | Modal "Global Apache Config" — pilih versi aktif (`set_apache_active_version` → dispatch `apache_version_changed`), shortcut buka `httpd.conf`/`vhosts.conf` di editor eksternal OS (`api.open_apache_file`), **dan** lihat isi `error_log`/`access_log` langsung di dalam aplikasi lewat `LogFileViewerModal` (`api.get_apache_log_content`) — lihat §6.3.1. |
@@ -622,6 +624,15 @@ Struktur sama seperti Runtimes (deteksi eksternal/native, PATH toggle terkunci j
 
 ### Base64 & URL Encode/Decode
 **100% client-side** — tidak ada pemanggilan `window.pywebview.api` sama sekali kecuali clipboard/toast. Base64: `TextEncoder`/`TextDecoder` + `btoa`/`atob` (UTF-8 safe), mendukung mode file (drag-drop → `FileReader.readAsDataURL`, deteksi otomatis preview image dari data-URI). Logic encode/decode diekstrak jadi pure function `encodeTextToBase64()`/`decodeBase64Input()`, dan panel kiri/kanan jadi `EditorSection`/`PayloadInfoCard` — lihat §5.1. URL tool: parsing native `URL` API untuk visualisasi hierarki protocol/host/path/query.
+
+### Markdown Documentation Viewer (`tools/markdown-viewer/`)
+Penampil berkas dokumentasi Markdown interaktif (`Main.tsx`, `FolderTreeView.tsx`, `MarkdownRenderer.tsx`) yang terintegrasi dengan backend bridge:
+- **`Main.tsx`**: Mengatur layout split-pane dua kolom (sidebar navigasi tree folder di sisi kiri dengan toggle ciut/lebar, dan reader area di sisi kanan). Mengakses `api.md_select_directory()` untuk native folder picker, `api.md_get_tree(folder)` untuk mendapatkan hierarki direktori, dan `api.md_read_file(filePath)` saat user memilih salah satu berkas markdown.
+- **`FolderTreeView.tsx`**: Komponen pohon folder rekursif dengan state expand/collapse per folder, ikon pembeda direktori vs file `.md`, dan active highlight pada file yang sedang dibaca.
+- **`MarkdownRenderer.tsx`**: Parser & renderer markdown berbasis komponen:
+  - Header otomatis ber-anchor (`h1` s/d `h6`), blockquote dengan styling aksen, tabel GFM responsive berbingkai.
+  - Code block dengan badge bahasa, syntax highlighting, dan tombol salin satu-klik (Copy Code).
+  - Resolusi media lokal: tag gambar markdown (`![alt](path)`) dicek apakah URL online atau path file lokal. Jika lokal, memanggil `api.md_get_media(fullPath)` untuk mengambil data gambar dalam format Base64 URI sehingga gambar lokal dapat ditampilkan langsung tanpa server web statis terpisah.
 
 ### Tunnels (`tools/tunnels/Main.tsx`, `InstallTunnel.tsx`)
 Integrasi DUA provider tunneling pihak ketiga untuk expose project lokal (domain `.local` Apache) ke internet publik sementara: **[zrok](https://zrok.io)** (butuh akun+token, lihat `ZrokEnableForm`/`ZrokAccountCard`) dan **Cloudflare Tunnel** (`cloudflared`, mode *quick tunnel*, tanpa akun/token — langsung share). Dipilih lewat tab internal `ActiveTab = 'all' | 'zrok' | 'cloudflare'` di dalam `Main.tsx` (bukan dua entri menu Sidebar terpisah). Mengikuti pola "Golden Standard" (`PageHeader + SkeletonCard + EmptyState + Card + Modal`, lihat §7) seperti modul lain. `ProjectDropdown` (combobox searchable, pola sama seperti `VersionDropdown` di `database/NewInstance.tsx`, lihat §7.1) untuk memilih project Apache yang akan di-tunnel. `InstallTunnel.tsx` adalah wizard instalasi environment yang **provider-agnostic** — menerima `fetchVersionsApi`/`installApi` sebagai props berupa fungsi yang sudah terikat ke provider tertentu (`Main.tsx` me-render dua instance terpisah, satu per provider; lihat `docs/known_bugs.md` #49 soal kenapa isolasi lewat callback ini dipilih, bukan argumen string `engine`). Didaftarkan di `Sidebar.tsx` grup `TOOLS` (`id: 'tunnels'`, ikon `router`) dan di-render `App.tsx` (`activeMenu === 'tunnels'`). `tunnels/Main.tsx` (1023 baris) adalah file frontend TERBESAR di repo ini.
