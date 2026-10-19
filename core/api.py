@@ -3,7 +3,7 @@ import psutil
 import json
 import inspect
 import threading
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 # Import Modul-modul Manager
 from core.services.php import PhpManager
@@ -18,13 +18,14 @@ from core.services.settings import SettingsManager
 from core.services.updater import UpdaterManager
 from core.services.tunnels import TunnelsManager
 from core.services.markdown_viewer import MarkdownViewerManager
+from core.services.ai_assistant import AIAssistantManager
 
 PROJECT_NOT_LOADED_MSG = "backend.error.project_module_not_loaded"
 UNEXPECTED_ERROR_MSG = "backend.error.unexpected"
 
 class Api:
     """
-    API Router (FaÃƒÂ§ade) yang menjembatani Frontend (React) dengan Backend (Python).
+    API Router (Façade) yang menjembatani Frontend (React) dengan Backend (Python).
     Meneruskan secara buta (pass-through) semua request UI ke spesifik Manager Module (SRP).
     """
     def __init__(self):
@@ -42,11 +43,17 @@ class Api:
         self.updater = UpdaterManager(self)
         self.tunnels = TunnelsManager(self)
         self.markdown = MarkdownViewerManager(self)
+        self.ai = AIAssistantManager(self)
         self._log_watcher_thread: Optional[threading.Thread] = None
         self._log_watcher_stop = threading.Event()
+        self._is_shutting_down = False
 
     def set_window(self, window: webview.Window):
         self._window = window
+
+    def set_shutting_down(self):
+        """Menandai bahwa aplikasi sedang shutdown agar emit event UI tidak dieksekusi."""
+        self._is_shutting_down = True
 
     def set_notification_icon(self, icon_path: str):
         """ Path PNG ikon aplikasi untuk notifikasi native Windows -- lihat show_native_notification(). """
@@ -125,6 +132,8 @@ class Api:
         error_log/access_log bisa difilter terpisah dari pesan sistem Apache
         biasa di modal "System Logs" (lihat docs/known_bugs.md).
         """
+        if self._is_shutting_down:
+            return
         if self._window:
             source = source_override if source_override is not None else self._resolve_event_source()
             detail = json.dumps({"message": message, "level": level, "args": args or {}, "source": source})
@@ -136,6 +145,8 @@ class Api:
 
     def emit_progress(self, percent: int, text: str = "", args: dict = None):
         """ Menembakkan progress bar real-time ke Modal Instalasi React """
+        if self._is_shutting_down:
+            return
         if self._window:
             source = self._resolve_event_source()
             detail = json.dumps({"percent": percent, "text": text, "args": args or {}, "source": source})
@@ -154,6 +165,8 @@ class Api:
         restored). Hanya field yang di-set (bukan None) yang dikirim, supaya
         listener frontend bisa membedakan "tidak berubah" dari "eksplisit false".
         """
+        if self._is_shutting_down:
+            return
         if self._window:
             detail: Dict[str, Any] = {}
             if minimized is not None:
@@ -163,6 +176,36 @@ class Api:
             if not detail:
                 return
             script = f"window.dispatchEvent(new CustomEvent('vylo_window_state', {{detail: {json.dumps(detail)} }}));"
+            try:
+                self._window.evaluate_js(script)
+            except Exception:
+                pass
+
+    def emit_ai_chunk(
+        self,
+        chunk: str = "",
+        is_done: bool = False,
+        error: str = "",
+        message_id: str = "",
+        sources: Optional[List[Dict[str, Any]]] = None,
+        usage: Optional[Dict[str, Any]] = None
+    ):
+        """ Menembakkan chunk respon teks streaming dari AI Assistant ke frontend """
+        if self._is_shutting_down:
+            return
+        if self._window:
+            payload: Dict[str, Any] = {
+                "chunk": chunk,
+                "is_done": is_done,
+                "error": error,
+                "message_id": message_id
+            }
+            if sources is not None:
+                payload["sources"] = sources
+            if usage is not None:
+                payload["usage"] = usage
+            detail = json.dumps(payload)
+            script = f"window.dispatchEvent(new CustomEvent('vylo_ai_chunk', {{detail: {detail} }}));"
             try:
                 self._window.evaluate_js(script)
             except Exception:
@@ -344,6 +387,9 @@ class Api:
 
     def stop_apache_server(self):
         return self.apache.stop_server()
+
+    def restart_apache_server(self):
+        return self.apache.restart_server()
     
     # ==========================================
     # FILE / DIRECTORY DIALOG
@@ -503,8 +549,8 @@ class Api:
     # ==========================================
     
     # --- Node.js ---
-    def get_node_status(self):
-        return self.runtimes_manager.get_node_status()
+    def get_node_status(self, silent: bool = False):
+        return self.runtimes_manager.get_node_status(silent=silent)
 
     def install_node(self, version_mode, enable_corepack):
         return self.runtimes_manager.install_node(version_mode, enable_corepack)
@@ -516,8 +562,8 @@ class Api:
         return self.runtimes_manager.get_available_node_versions()
 
     # --- Python ---
-    def get_python_status(self):
-        return self.runtimes_manager.get_python_status()
+    def get_python_status(self, silent: bool = False):
+        return self.runtimes_manager.get_python_status(silent=silent)
         
     def install_python(self, minor_version, install_pip):
         return self.runtimes_manager.install_python(minor_version, install_pip)
@@ -529,8 +575,8 @@ class Api:
         return self.runtimes_manager.get_available_python_versions()
 
     # --- Java (JDK) ---
-    def get_java_status(self):
-        return self.runtimes_manager.get_java_status()
+    def get_java_status(self, silent: bool = False):
+        return self.runtimes_manager.get_java_status(silent=silent)
         
     def install_java(self, version):
         return self.runtimes_manager.install_java(version)
@@ -542,8 +588,8 @@ class Api:
         return self.runtimes_manager.get_available_java_versions()
 
     # --- Go Compiler ---
-    def get_go_status(self):
-        return self.runtimes_manager.get_go_status()
+    def get_go_status(self, silent: bool = False):
+        return self.runtimes_manager.get_go_status(silent=silent)
 
     def get_available_go_versions(self):
         return self.runtimes_manager.get_available_go_versions()
@@ -561,8 +607,8 @@ class Api:
     # ==========================================
     # TOOLS API ENDPOINTS (GIT)
     # ==========================================
-    def get_git_status(self):
-        return self.git_manager.get_git_status()
+    def get_git_status(self, silent: bool = False):
+        return self.git_manager.get_git_status(silent=silent)
 
     def get_available_git_versions(self):
         return self.git_manager.get_available_git_versions()
@@ -628,3 +674,47 @@ class Api:
     def md_get_tree(self, root_path: str): return self.markdown.get_markdown_tree(root_path)
     def md_read_file(self, file_path: str): return self.markdown.read_markdown_file(file_path)
     def md_get_media(self, file_path: str): return self.markdown.get_local_media_base64(file_path)
+
+    # ==========================================
+    # AI ASSISTANT (SERVER COPILOT)
+    # ==========================================
+    def ai_send_message(self, prompt: str, context: str = "", model_override: str = "", provider_override: str = ""):
+        return self.ai.send_message(prompt, context, model_override, provider_override)
+
+    def ai_abort_generation(self):
+        return self.ai.abort_generation()
+
+    def ai_test_connection(self, provider: str, api_key: str, model: str, base_url: str = ""):
+        return self.ai.test_connection(provider, api_key, model, base_url)
+
+    def ai_get_chat_history(self):
+        return self.ai.get_chat_history()
+
+    def ai_save_chat_history(self, messages: list):
+        return self.ai.save_chat_history(messages)
+
+    def ai_clear_chat_history(self):
+        return self.ai.clear_chat_history()
+
+    def ai_get_server_context(self, active_screen: str = "", include_logs: bool = True):
+        return self.ai.get_server_context(active_screen, include_logs)
+
+    def ai_get_available_models(self, provider: str = "gemini", api_key: str = "", base_url: str = "", tier: str = ""):
+        return self.ai.get_available_models(provider, api_key, base_url, tier)
+
+    def ai_detect_account_tier(self, provider: str = "gemini", api_key: str = "", base_url: str = ""):
+        return self.ai.detect_account_tier(provider, api_key, base_url)
+
+    def ai_get_action_states(self):
+        return self.ai.get_action_states()
+
+    def ai_save_action_states(self, states: dict):
+        return self.ai.save_action_states(states)
+
+    def ai_get_usage_stats(self, provider: str = ""):
+        return self.ai.get_usage_stats(provider)
+
+    def ai_reset_usage_stats(self):
+        return self.ai.reset_usage_stats()
+
+

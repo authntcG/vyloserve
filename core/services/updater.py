@@ -12,6 +12,7 @@ from core.utils.system_utils import get_project_root
 MSG_DOWNLOADING = "backend.updater.downloading"
 MSG_READY_TO_INSTALL = "backend.updater.ready_to_install"
 MSG_DOWNLOAD_FAILED = "backend.updater.download_failed"
+VERSION_PREFIX_RE = re.compile(r'^v\.?')
 
 class UpdaterManager:
     def __init__(self, api):
@@ -47,7 +48,7 @@ class UpdaterManager:
                         pass
 
     def _parse_version(self, version_str: str) -> tuple:
-        clean = re.sub(r'^v\.?', '', version_str.lower())
+        clean = VERSION_PREFIX_RE.sub('', version_str.lower())
         parts = clean.split('-')
         main_part = parts[0]
         prerelease = parts[1] if len(parts) > 1 else 'z'

@@ -2,7 +2,8 @@ import os
 import sys
 import socket
 import subprocess
-from typing import List, Optional, Dict, Any
+import time
+from typing import List, Optional, Dict, Any, Tuple
 
 def get_project_root():
     """ 
@@ -110,6 +111,261 @@ def check_port_in_use(port: int, host: str = '127.0.0.1', timeout: float = 0.05)
                     return s.connect_ex(('::1', int(port))) == 0
             except Exception: pass
         return False
+
+# ==========================================
+# WINDOWS USER REGISTRY & PATH MANAGEMENT
+# ==========================================
+HWND_BROADCAST = 0xFFFF
+WM_SETTINGCHANGE = 0x001A
+SMTO_ABORTIFHUNG = 0x0002
+
+def broadcast_environment_change(timeout_ms: int = 5000) -> bool:
+    """
+    Mengirimkan broadcast WM_SETTINGCHANGE ('Environment') ke seluruh jendela OS
+    agar perubahan PATH / Environment Variable Windows langsung aktif di sesi CMD/PowerShell baru.
+    """
+    if sys.platform != 'win32':
+        return False
+    try:
+        import ctypes
+        result = ctypes.c_ulong()
+        ctypes.windll.user32.SendMessageTimeoutW(
+            HWND_BROADCAST,
+            WM_SETTINGCHANGE,
+            0,
+            'Environment',
+            SMTO_ABORTIFHUNG,
+            timeout_ms,
+            ctypes.byref(result)
+        )
+        return True
+    except Exception:
+        return False
+
+def get_user_path_entries() -> List[str]:
+    """
+    Membaca daftar entri PATH pengguna dari Registry Windows (HKCU\\Environment).
+    """
+    if sys.platform != 'win32':
+        return []
+    try:
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Environment', 0, winreg.KEY_READ)
+        try:
+            path_val, _ = winreg.QueryValueEx(key, 'Path')
+            return [p for p in path_val.split(';') if p.strip()]
+        except FileNotFoundError:
+            return []
+        finally:
+            try: winreg.CloseKey(key)
+            except Exception: pass
+    except Exception:
+        return []
+
+def is_in_user_path(target_path: str) -> bool:
+    """
+    Mengecek apakah suatu direktori/file sudah terdaftar di HKCU User PATH.
+    """
+    if not target_path or sys.platform != 'win32':
+        return False
+    normalized_target = os.path.normpath(target_path).lower().rstrip('\\/')
+    entries = [os.path.normpath(p).lower().rstrip('\\/') for p in get_user_path_entries()]
+    return normalized_target in entries
+
+def _filter_prefix(current: List[str], prefix: str) -> Tuple[List[str], bool]:
+    norm_prefix = os.path.normpath(prefix).lower()
+    new_list = [p for p in current if not os.path.normpath(p).lower().startswith(norm_prefix)]
+    return new_list, len(new_list) != len(current)
+
+def _remove_path_entries(current: List[str], remove_paths: List[str]) -> Tuple[List[str], bool]:
+    res = list(current)
+    modified = False
+    for rp in remove_paths:
+        norm_rp = os.path.normpath(rp).lower()
+        idx = next((i for i, p in enumerate(res) if os.path.normpath(p).lower() == norm_rp), None)
+        if idx is not None:
+            res.pop(idx)
+            modified = True
+    return res, modified
+
+def _append_unique_paths(current: List[str], add_paths: List[str]) -> Tuple[List[str], bool]:
+    res = list(current)
+    norm_set = {os.path.normpath(p).lower() for p in res}
+    modified = False
+    for ap in add_paths:
+        norm_ap = os.path.normpath(ap)
+        if norm_ap.lower() not in norm_set:
+            res.append(norm_ap)
+            norm_set.add(norm_ap.lower())
+            modified = True
+    return res, modified
+
+def modify_user_path(
+    add_paths: Optional[List[str]] = None,
+    remove_paths: Optional[List[str]] = None,
+    remove_prefix: Optional[str] = None,
+    auto_broadcast: bool = False
+) -> bool:
+    """
+    Menambah atau menghapus path dari Registry User PATH (HKCU\\Environment).
+    Jika auto_broadcast=True, otomatis memanggil broadcast_environment_change().
+    Mengembalikan True jika terjadi perubahan pada PATH.
+    """
+    if sys.platform != 'win32':
+        return False
+    import winreg
+    key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Environment', 0, winreg.KEY_ALL_ACCESS)
+    try:
+        try:
+            path_val, _ = winreg.QueryValueEx(key, 'Path')
+        except FileNotFoundError:
+            path_val = ""
+        current = [p for p in path_val.split(';') if p.strip()]
+        modified = False
+
+        if remove_prefix:
+            current, mod = _filter_prefix(current, remove_prefix)
+            modified = modified or mod
+
+        if remove_paths:
+            current, mod = _remove_path_entries(current, remove_paths)
+            modified = modified or mod
+
+        if add_paths:
+            current, mod = _append_unique_paths(current, add_paths)
+            modified = modified or mod
+
+        if modified:
+            new_path_str = ';'.join(current)
+            winreg.SetValueEx(key, 'Path', 0, winreg.REG_EXPAND_SZ, new_path_str)
+            if auto_broadcast:
+                broadcast_environment_change()
+        return modified
+    finally:
+        try: winreg.CloseKey(key)
+        except Exception: pass
+
+
+
+# ==========================================
+# EXTERNAL EXECUTABLE DETECTION (WITH TTL CACHE)
+# ==========================================
+_EXTERNAL_EXE_CACHE: Dict[str, Tuple[float, Optional[str]]] = {}
+_CACHE_TTL_SECONDS = 30.0
+
+def clear_external_exe_cache() -> None:
+    """Mengosongkan cache deteksi biner eksternal."""
+    _EXTERNAL_EXE_CACHE.clear()
+
+def find_external_executable(
+    command: str,
+    vyloserve_bin: str = "",
+    extra_paths: Optional[List[str]] = None,
+    ttl: float = _CACHE_TTL_SECONDS
+) -> Optional[str]:
+    """
+    Mendeteksi file biner executable di host OS di luar direktori VyloServe.
+    Menerapkan 3 lapis deteksi (where.exe / registry PATH / extra paths & shutil.which)
+    serta dilengkapi in-memory TTL caching untuk efisiensi performa.
+    """
+    cache_key = f"{command}:{vyloserve_bin}"
+    now = time.time()
+    if cache_key in _EXTERNAL_EXE_CACHE:
+        cached_time, cached_val = _EXTERNAL_EXE_CACHE[cache_key]
+        if now - cached_time < ttl:
+            if cached_val is None or os.path.exists(cached_val):
+                return cached_val
+
+    result = _lookup_external_executable(command, vyloserve_bin, extra_paths)
+    _EXTERNAL_EXE_CACHE[cache_key] = (now, result)
+    return result
+
+def _find_via_where_cmd(command: str, clean_vylo: str) -> Optional[str]:
+    try:
+        res = subprocess.run(
+            ['where', command],
+            capture_output=True,
+            text=True,
+            creationflags=get_silent_flags()
+        )
+        if res.returncode == 0:
+            for p in res.stdout.strip().split('\n'):
+                p_clean = os.path.normpath(p.strip())
+                if p_clean and (not clean_vylo or clean_vylo not in p_clean.lower()):
+                    return p_clean
+    except OSError:
+        pass
+    return None
+
+def _read_registry_path_entries(hkey, subkey: str) -> List[str]:
+    import winreg
+    try:
+        with winreg.OpenKey(hkey, subkey, 0, winreg.KEY_READ) as key:
+            sys_path, _ = winreg.QueryValueEx(key, 'Path')
+            if sys_path:
+                return sys_path.split(';')
+    except (OSError, winreg.error):
+        pass
+    return []
+
+def _find_via_registry_path(command: str, clean_vylo: str) -> Optional[str]:
+    import shutil
+    import winreg
+    raw_paths = _read_registry_path_entries(
+        winreg.HKEY_LOCAL_MACHINE,
+        r'SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
+    )
+    raw_paths.extend(_read_registry_path_entries(
+        winreg.HKEY_CURRENT_USER,
+        r'Environment'
+    ))
+
+    clean_paths = []
+    for p in raw_paths:
+        p_clean = p.strip(' "\'')
+        if p_clean:
+            p_expanded = os.path.expandvars(p_clean)
+            if not clean_vylo or clean_vylo not in os.path.normpath(p_expanded).lower():
+                clean_paths.append(p_expanded)
+
+    return shutil.which(command, path=os.pathsep.join(clean_paths))
+
+def _find_in_extra_paths(extra_paths: Optional[List[str]]) -> Optional[str]:
+    if extra_paths:
+        for ep in extra_paths:
+            if ep and os.path.exists(ep):
+                return ep
+    return None
+
+def _lookup_external_executable(
+    command: str,
+    vyloserve_bin: str = "",
+    extra_paths: Optional[List[str]] = None
+) -> Optional[str]:
+    import shutil
+    clean_vylo = os.path.normpath(vyloserve_bin).lower() if vyloserve_bin else ""
+
+    if sys.platform == 'win32':
+        found = _find_via_where_cmd(command, clean_vylo)
+        if found:
+            return found
+
+        try:
+            found_reg = _find_via_registry_path(command, clean_vylo)
+            if found_reg:
+                return found_reg
+        except Exception:
+            pass
+
+        return _find_in_extra_paths(extra_paths)
+
+    # Non-Windows (Linux / macOS)
+    env_path = os.environ.get('PATH', '')
+    clean_paths = [
+        p for p in env_path.split(os.pathsep)
+        if not clean_vylo or clean_vylo not in p.lower()
+    ]
+    return shutil.which(command, path=os.pathsep.join(clean_paths))
 
 # ==========================================
 # DWM WIN32 TITLEBAR THEME CONSTANTS & PALETTES
@@ -227,6 +483,50 @@ def get_theme_titlebar_palette(theme_name: Optional[str]) -> Dict[str, Any]:
         "dark_mode": True,
     }
 
+def _get_hwnd_native(window: Any) -> Optional[int]:
+    if window and hasattr(window, 'native') and window.native:
+        handle = getattr(window.native, 'Handle', None)
+        if handle is not None:
+            return int(handle.ToInt64() if hasattr(handle, 'ToInt64') else handle)
+    return None
+
+def _extract_handle_int(handle: Any) -> Optional[int]:
+    if handle is None:
+        return None
+    if hasattr(handle, 'ToInt64'):
+        return int(handle.ToInt64())
+    if hasattr(handle, 'ToInt32'):
+        return int(handle.ToInt32())
+    if isinstance(handle, int):
+        return handle
+    return None
+
+def _get_hwnd_winforms(window: Any) -> Optional[int]:
+    if not (window and hasattr(window, 'uid')):
+        return None
+    try:
+        wf = sys.modules.get('webview.platforms.winforms')
+        if not wf:
+            import webview.platforms.winforms as wf
+        form_inst = wf.BrowserView.instances.get(getattr(window, 'uid', None))
+        if form_inst and hasattr(form_inst, 'Handle'):
+            return _extract_handle_int(getattr(form_inst, 'Handle', None))
+    except Exception:
+        pass
+    return None
+
+def _get_hwnd_by_title(window: Any) -> Optional[int]:
+    raw_title = getattr(window, 'title', None) if window else None
+    title = raw_title if isinstance(raw_title, str) and raw_title.strip() else "VyloServe"
+    try:
+        import ctypes
+        hwnd = ctypes.windll.user32.FindWindowW(None, title)
+        if hwnd:
+            return int(hwnd)
+    except Exception:
+        pass
+    return None
+
 def get_window_handle(window: Any = None) -> Optional[int]:
     """
     Mendapatkan HWND (Windows handle) untuk window PyWebview.
@@ -236,46 +536,11 @@ def get_window_handle(window: Any = None) -> Optional[int]:
     if sys.platform != 'win32':
         return None
 
-    # Jika window sudah berupa integer HWND
     if isinstance(window, int) and window > 0:
         return window
 
-    try:
-        # 1. Coba dari window.native jika ada
-        if window and hasattr(window, 'native') and window.native:
-            handle = getattr(window.native, 'Handle', None)
-            if handle is not None:
-                return int(handle.ToInt64() if hasattr(handle, 'ToInt64') else handle)
+    return _get_hwnd_native(window) or _get_hwnd_winforms(window) or _get_hwnd_by_title(window)
 
-        # 2. Coba dari BrowserView.instances pywebview (WinForms)
-        if window and hasattr(window, 'uid'):
-            try:
-                wf = sys.modules.get('webview.platforms.winforms')
-                if not wf:
-                    import webview.platforms.winforms as wf
-                form_inst = wf.BrowserView.instances.get(getattr(window, 'uid', None))
-                if form_inst and hasattr(form_inst, 'Handle'):
-                    handle = getattr(form_inst, 'Handle', None)
-                    if handle is not None:
-                        if hasattr(handle, 'ToInt64'):
-                            return int(handle.ToInt64())
-                        elif hasattr(handle, 'ToInt32'):
-                            return int(handle.ToInt32())
-                        elif isinstance(handle, int):
-                            return handle
-            except Exception:
-                pass
-
-        # 3. Fallback: FindWindowW menggunakan judul window
-        raw_title = getattr(window, 'title', None) if window else None
-        title = raw_title if isinstance(raw_title, str) and raw_title.strip() else "VyloServe"
-        import ctypes
-        hwnd = ctypes.windll.user32.FindWindowW(None, title)
-        if hwnd:
-            return int(hwnd)
-    except Exception:
-        pass
-    return None
 
 def apply_window_titlebar_theme(window_or_hwnd: Any, theme_name: Optional[str] = "vyloserve-dark") -> bool:
     """

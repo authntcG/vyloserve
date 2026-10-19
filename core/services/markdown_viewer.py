@@ -2,6 +2,8 @@ import os
 import base64
 import mimetypes
 
+MSG_ERROR_UNEXPECTED = "backend.error.unexpected"
+
 class MarkdownViewerManager:
     def __init__(self, api_ref):
         self.api = api_ref
@@ -18,7 +20,7 @@ class MarkdownViewerManager:
                 return {"status": "success", "data": result[0]}
             return {"status": "success", "data": None}
         except Exception as e:
-            return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+            return {"status": "error", "message": MSG_ERROR_UNEXPECTED, "args": {"e": str(e)}}
 
     def _build_tree(self, path: str):
         """ Fungsi rekursif untuk membangun tree direktori yang mengandung file .md """
@@ -62,7 +64,7 @@ class MarkdownViewerManager:
             
             return {"status": "success", "data": tree.get('children', [])}
         except Exception as e:
-            return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+            return {"status": "error", "message": MSG_ERROR_UNEXPECTED, "args": {"e": str(e)}}
 
     def read_markdown_file(self, file_path: str) -> dict:
         """ Membaca konten teks dari file .md """
@@ -75,7 +77,7 @@ class MarkdownViewerManager:
             
             return {"status": "success", "data": content}
         except Exception as e:
-            return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+            return {"status": "error", "message": MSG_ERROR_UNEXPECTED, "args": {"e": str(e)}}
 
     def get_local_media_base64(self, file_path: str) -> dict:
         """ Membaca file media (image) dan mengembalikannya sebagai base64 URI """
@@ -92,4 +94,4 @@ class MarkdownViewerManager:
                 
             return {"status": "success", "data": f"data:{mime_type};base64,{encoded}"}
         except Exception as e:
-            return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+            return {"status": "error", "message": MSG_ERROR_UNEXPECTED, "args": {"e": str(e)}}

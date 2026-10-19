@@ -9,11 +9,21 @@ import subprocess
 import time
 from typing import Optional, Dict, Any
 
-from core.utils.system_utils import get_project_root, run_silent_command, start_silent_process
+from core.utils.system_utils import (
+    get_project_root,
+    run_silent_command,
+    start_silent_process,
+    get_silent_flags,
+)
 from core.utils.file_utils import download_advanced, extract_archive
 
 MSG_UNEXPECTED_ERROR = "backend.error.unexpected"
 ANSI_ESCAPE_REGEX = r'\x1b\[[0-9;]*m'
+ANSI_ESCAPE_RE = re.compile(ANSI_ESCAPE_REGEX)
+
+def _strip_ansi(text: str) -> str:
+    return ANSI_ESCAPE_RE.sub('', text).strip() if text else ""
+
 GITHUB_API_HEADERS = {'User-Agent': 'Mozilla/5.0'}
 MSG_ZROK_EXTRACTING = "backend.zrok.extracting"
 MSG_ZROK_INSTALL_SUCCESS = "backend.zrok.install_success"
@@ -25,6 +35,7 @@ ZROK_SHARE_DETECT_TIMEOUT_SECONDS = 30
 # SonarQube python:S1192 -- literal "localhost:" dipakai berulang untuk mendeteksi
 # target custom (localhost:port) vs. project VyloServe terdaftar.
 ZROK_LOCALHOST_PREFIX = "localhost:"
+ZROK_EXE_NAME = "zrok.exe"
 MSG_ZROK_PROCESS_LOG = "backend.zrok.process_log"
 MSG_PROJECT_NOT_FOUND = "backend.project.project_not_found"
 MSG_CF_PROCESS_LOG = "backend.cloudflare.process_log"
@@ -66,7 +77,7 @@ class TunnelsManager:
 
     @property
     def zrok_exe(self):
-        return os.path.join(self.zrok_dir, 'zrok.exe')
+        return os.path.join(self.zrok_dir, ZROK_EXE_NAME)
 
     @property
     def cloudflared_dir(self):
@@ -171,32 +182,50 @@ class TunnelsManager:
             self._log(MSG_ZROK_PROCESS_LOG, "info", {"msg": msg})
 
 
-    def get_available_zrok_versions(self) -> dict:
+    def _fetch_github_api(self, url: str) -> list:
+        req = urllib.request.Request(url, headers=GITHUB_API_HEADERS)
+        with urllib.request.urlopen(req, timeout=10) as response:
+            return json.loads(response.read().decode())
+
+    def _fetch_release_versions(
+        self,
+        repo_slug: str,
+        asset_keyword: str,
+        fetch_log_key: str,
+        success_log_key: str,
+        fallback_log_key: str
+    ) -> dict:
         try:
-            self._log("backend.zrok.fetching_versions", "info")
-            import urllib.request
-            import json
-            req = urllib.request.Request('https://api.github.com/repos/openziti/zrok/releases', headers=GITHUB_API_HEADERS)
+            self._log(fetch_log_key, "info")
             versions = []
             try:
-                with urllib.request.urlopen(req, timeout=10) as response:
-                    data = json.loads(response.read().decode())
-                    for release in data:
-                        has_windows = any('windows_amd64' in asset['name'] for asset in release.get('assets', []))
-                        if has_windows:
-                            versions.append({"id": release['tag_name'], "value": release['tag_name'], "label": release['name']})
+                data = self._fetch_github_api(f'https://api.github.com/repos/{repo_slug}/releases')
+                for release in data:
+                    has_asset = any(asset_keyword in asset.get('name', '') for asset in release.get('assets', []))
+                    if has_asset:
+                        versions.append({"id": release['tag_name'], "value": release['tag_name'], "label": release['name']})
             except Exception as e:
                 import urllib.error
                 if isinstance(e, urllib.error.HTTPError) and e.code == 403:
-                    self._log(MSG_ZROK_PROCESS_LOG, "warn", {"msg": "GitHub API rate limit exceeded, falling back to 'latest'."})
+                    self._log(fallback_log_key, "warn", {"msg": "GitHub API rate limit exceeded, falling back to 'latest'."})
                     versions = [{"id": "latest", "value": "latest", "label": "Latest Release (Fallback)"}]
                 else:
                     raise e
-            self._log("backend.zrok.versions_fetched", "info", {"count": len(versions)})
+            self._log(success_log_key, "info", {"count": len(versions)})
             return {"status": "success", "data": versions}
         except Exception as e:
             self._log(MSG_UNEXPECTED_ERROR, "error", {"e": str(e)})
             return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def get_available_zrok_versions(self) -> dict:
+        return self._fetch_release_versions(
+            "openziti/zrok",
+            "windows_amd64",
+            "backend.zrok.fetching_versions",
+            "backend.zrok.versions_fetched",
+            MSG_ZROK_PROCESS_LOG
+        )
+
 
     def _read_zrok_version(self) -> Optional[str]:
         res_ver = run_silent_command([self.zrok_exe, "version"])
@@ -297,7 +326,7 @@ class TunnelsManager:
 
     def _normalize_zrok_exe_name(self, target_dir: str) -> None:
         """Rilis zrok terbaru kadang menamai binari 'zrok2.exe' dsb; samakan jadi zrok.exe."""
-        target_exe = os.path.join(target_dir, 'zrok.exe')
+        target_exe = os.path.join(target_dir, ZROK_EXE_NAME)
         if os.path.exists(target_exe):
             return
         import glob
@@ -351,7 +380,7 @@ class TunnelsManager:
 
             self._normalize_zrok_exe_name(target_dir)
 
-            if not os.path.exists(os.path.join(target_dir, 'zrok.exe')):
+            if not os.path.exists(os.path.join(target_dir, ZROK_EXE_NAME)):
                 self._log("backend.zrok.extract_failed", "error")
                 return {"status": "error", "message": "backend.zrok.extract_failed"}
 
@@ -436,7 +465,7 @@ class TunnelsManager:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             stdin=subprocess.PIPE,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+            creationflags=get_silent_flags(),
             text=True,
             bufsize=1
         )
@@ -594,31 +623,14 @@ class TunnelsManager:
     # ------------------------------------------------------------------------
 
     def get_available_cloudflare_versions(self) -> dict:
-        try:
-            self._log("backend.cloudflare.fetching_versions", "info")
-            import urllib.request
-            import urllib.error
-            import json
-            req = urllib.request.Request('https://api.github.com/repos/cloudflare/cloudflared/releases', headers=GITHUB_API_HEADERS)
-            versions = []
-            try:
-                with urllib.request.urlopen(req, timeout=10) as response:
-                    data = json.loads(response.read().decode())
-                    for release in data:
-                        has_windows = any('cloudflared-windows-amd64.exe' in asset['name'] for asset in release.get('assets', []))
-                        if has_windows:
-                            versions.append({"id": release['tag_name'], "value": release['tag_name'], "label": release['name']})
-            except urllib.error.HTTPError as e:
-                if e.code == 403:
-                    self._log(MSG_CF_PROCESS_LOG, "warn", {"msg": "GitHub API rate limit exceeded, falling back to 'latest'."})
-                    versions = [{"id": "latest", "value": "latest", "label": "Latest Release (Fallback)"}]
-                else:
-                    raise e
-            self._log("backend.cloudflare.versions_fetched", "info", {"count": len(versions)})
-            return {"status": "success", "data": versions}
-        except Exception as e:
-            self._log(MSG_UNEXPECTED_ERROR, "error", {"e": str(e)})
-            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+        return self._fetch_release_versions(
+            "cloudflare/cloudflared",
+            "cloudflared-windows-amd64.exe",
+            "backend.cloudflare.fetching_versions",
+            "backend.cloudflare.versions_fetched",
+            MSG_CF_PROCESS_LOG
+        )
+
 
     def _read_cloudflare_version(self) -> Optional[str]:
         res_ver = run_silent_command([self.cloudflared_exe, "version"])
@@ -794,7 +806,7 @@ class TunnelsManager:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 stdin=subprocess.PIPE,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+                creationflags=get_silent_flags(),
                 text=True,
                 bufsize=1
             )

@@ -10,7 +10,13 @@ import json
 import re
 import concurrent.futures
 
-from core.utils.system_utils import get_project_root, run_silent_command
+from core.utils.system_utils import (
+    get_project_root,
+    run_silent_command,
+    get_silent_flags,
+    is_in_user_path,
+    modify_user_path,
+)
 from core.utils.file_utils import download_advanced
 GIT_EXE = "git.exe" if sys.platform == "win32" else "git"
 
@@ -33,7 +39,7 @@ class GitManager:
     def _find_via_where(self, vyloserve_bin: str) -> Optional[str]:
         if sys.platform != 'win32': return None
         try:
-            res = subprocess.run(['where', 'git'], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
+            res = subprocess.run(['where', 'git'], capture_output=True, text=True, creationflags=get_silent_flags())
             if res.returncode == 0:
                 for p in res.stdout.strip().split('\n'):
                     p_clean = os.path.normpath(p.strip())
@@ -77,9 +83,9 @@ class GitManager:
             if sp and os.path.exists(sp): return sp
         return None
 
-    def _validate_git_binary(self, found_path: str):
+    def _validate_git_binary(self, found_path: str, silent: bool = False):
         try:
-            creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+            creation_flags = get_silent_flags()
             
             result = subprocess.run([found_path, '--version'], capture_output=True, text=True, creationflags=creation_flags)
             
@@ -89,7 +95,8 @@ class GitManager:
                 import re
                 match = re.search(r'git version (\d+\.\d+\.\d+)', version_out)
                 if match:
-                    self._log("backend.git.external_detected", "success", {"version": match.group(1), "path": found_path})
+                    if not silent:
+                        self._log("backend.git.external_detected", "success", {"version": match.group(1), "path": found_path})
                     return {"exists": True, "version": match.group(1), "path": found_path}
         except Exception: pass
         return None
@@ -97,8 +104,8 @@ class GitManager:
     # ==========================================
     # PENDETEKSI INSTALASI EKSTERNAL (4 LAPIS)
     # ==========================================
-    def _check_external_installation(self):
-        if hasattr(self, 'api'):
+    def _check_external_installation(self, silent: bool = False):
+        if not silent and hasattr(self, 'api'):
             self._log("backend.git.scanning_external", "info")
 
         vyloserve_bin = os.path.normpath(os.path.join(self.root_dir, 'bin')).lower()
@@ -106,24 +113,19 @@ class GitManager:
         found_path = self._find_via_where(vyloserve_bin) or self._find_via_registry(vyloserve_bin) or self._find_via_hardcoded()
 
         if found_path:
-            validated = self._validate_git_binary(found_path)
+            validated = self._validate_git_binary(found_path, silent=silent)
             if validated: return validated
 
         return {"exists": False, "version": "Unknown", "path": ""}
 
     def _is_in_user_path(self, target_path: str) -> bool:
-        try:
-            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Environment', 0, winreg.KEY_READ)
-            path_value, _ = winreg.QueryValueEx(key, 'Path')
-            winreg.CloseKey(key)
-            paths = [p.lower().rstrip('\\/') for p in path_value.split(';') if p]
-            return target_path.lower().rstrip('\\/') in paths
-        except Exception: return False
+        return is_in_user_path(target_path)
+
 
     # ==========================================
     # CORE GIT API & INSTALASI
     # ==========================================
-    def get_git_status(self):
+    def get_git_status(self, silent: bool = False):
         git_dir = os.path.join(self.bin_dir, 'git')
         git_exe = os.path.join(git_dir, 'cmd', GIT_EXE if sys.platform == 'win32' else 'git')
         
@@ -131,12 +133,12 @@ class GitManager:
         internal_version = ""
         if internal_installed:
             try:
-                res = subprocess.run([git_exe, '--version'], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
+                res = subprocess.run([git_exe, '--version'], capture_output=True, text=True, creationflags=get_silent_flags())
                 raw_ver = res.stdout.strip().replace('git version ', '')
                 internal_version = raw_ver.replace('.windows.', '.')
             except Exception: internal_version = "Unknown"
 
-        external_info = self._check_external_installation()
+        external_info = self._check_external_installation(silent=silent)
 
         return {
             'installed': internal_installed, 
@@ -222,7 +224,7 @@ class GitManager:
             return {'status': 'error', 'message': "backend.git.fetch_failed"}
 
     def _extract_sfx(self, exe_path: str, git_dir: str):
-        creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+        creation_flags = get_silent_flags()
         res = subprocess.run([exe_path, "-y", f"-o{git_dir}"], capture_output=True, creationflags=creation_flags)
         if res.returncode != 0:
             raise RuntimeError("Gagal mengekstrak PortableGit. File instalasi mungkin korup.")
@@ -289,30 +291,11 @@ class GitManager:
         """ Mengatur PATH khusus untuk Git (folder cmd/) """
         target_path = os.path.join(self.bin_dir, 'git', 'cmd')
         try:
-            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Environment', 0, winreg.KEY_ALL_ACCESS)
-            try: path_value, _ = winreg.QueryValueEx(key, 'Path')
-            except FileNotFoundError: path_value = ""
-
-            current_paths = [p for p in path_value.split(';') if p]
-            normalized_target = os.path.normpath(target_path)
-            modified = False
-
-            if enable and normalized_target not in current_paths:
-                current_paths.append(normalized_target)
-                modified = True
-            elif not enable and normalized_target in current_paths:
-                current_paths.remove(normalized_target)
-                modified = True
-
-            if modified:
-                new_path = ';'.join(current_paths)
-                winreg.SetValueEx(key, 'Path', 0, winreg.REG_EXPAND_SZ, new_path)
-                HWND_BROADCAST = 0xFFFF
-                WM_SETTINGCHANGE = 0x001A
-                SMTO_ABORTIFHUNG = 0x0002
-                ctypes.windll.user32.SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, 'Environment', SMTO_ABORTIFHUNG, 5000, ctypes.byref(ctypes.c_ulong()))
-                
-            winreg.CloseKey(key)
+            modify_user_path(
+                add_paths=[target_path] if enable else None,
+                remove_paths=[target_path] if not enable else None,
+                auto_broadcast=True
+            )
             self._log("backend.git.path_updated", "success")
             return {"status": "success"}
         except Exception as e:
@@ -331,7 +314,7 @@ class GitManager:
             git_exe = 'git'
             
         try:
-            cflags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+            cflags = get_silent_flags()
             name_res = subprocess.run([git_exe, 'config', '--global', 'user.name'], capture_output=True, text=True, creationflags=cflags)
             email_res = subprocess.run([git_exe, 'config', '--global', 'user.email'], capture_output=True, text=True, creationflags=cflags)
             
@@ -352,7 +335,7 @@ class GitManager:
         if not os.path.exists(git_exe): git_exe = 'git'
 
         try:
-            cflags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+            cflags = get_silent_flags()
             if name: subprocess.run([git_exe, 'config', '--global', 'user.name', name], creationflags=cflags)
             if email: subprocess.run([git_exe, 'config', '--global', 'user.email', email], creationflags=cflags)
             self._log("backend.git.config_updated", "success")
@@ -360,3 +343,4 @@ class GitManager:
         except Exception as e:
             self._log("backend.git.config_error", "error", {"e": str(e)})
             return {"status": "error", "message": "backend.git.config_error", "args": {"e": str(e)}}
+

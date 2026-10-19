@@ -681,3 +681,245 @@ def test_get_available_cloudflare_versions(mock_urlopen, tunnels_manager):
     assert res['status'] == 'success'
     assert len(res['data']) == 1
     assert res['data'][0]['id'] == "2024.1.0"
+
+
+# ==========================================
+# Tunnel directory & versioning edge cases
+# ==========================================
+
+def test_get_tunnel_dir_subdir_found(tunnels_manager):
+    with patch('core.services.tunnels.os.path.exists') as mock_exists, \
+         patch('core.services.tunnels.os.listdir') as mock_listdir, \
+         patch('core.services.tunnels.os.path.isdir') as mock_isdir:
+        mock_exists.return_value = True
+        mock_listdir.return_value = ['v0.4.42']
+        mock_isdir.return_value = True
+        
+        path = TunnelsManager._get_tunnel_dir(tunnels_manager, 'zrok')
+        assert 'v0.4.42' in path
+
+def test_get_tunnel_dir_old_dir_exists(tunnels_manager):
+    with patch('core.services.tunnels.os.path.exists') as mock_exists:
+        mock_exists.side_effect = lambda p: p.endswith(os.path.join('bin', 'zrok'))
+        path = TunnelsManager._get_tunnel_dir(tunnels_manager, 'zrok')
+        assert path.endswith(os.path.join('bin', 'zrok'))
+
+def test_get_tunnel_dir_fallback_unknown(tunnels_manager):
+    with patch('core.services.tunnels.os.path.exists', return_value=False):
+        path = TunnelsManager._get_tunnel_dir(tunnels_manager, 'zrok')
+        assert path.endswith('unknown')
+
+def test_get_available_zrok_versions_rate_limit(tunnels_manager):
+    import urllib.error
+    tunnels_manager.api = MagicMock()
+    err = urllib.error.HTTPError("https://api.github.com", 403, "rate limit", {}, None)
+    with patch.object(tunnels_manager, '_fetch_github_api', side_effect=err):
+        res = tunnels_manager.get_available_zrok_versions()
+        assert res['status'] == 'success'
+        assert res['data'][0]['id'] == 'latest'
+
+def test_get_available_zrok_versions_unexpected_error(tunnels_manager):
+    with patch.object(tunnels_manager, '_fetch_github_api', side_effect=RuntimeError("boom")):
+        res = tunnels_manager.get_available_zrok_versions()
+        assert res['status'] == 'error'
+        assert res['message'] == 'backend.error.unexpected'
+
+def test_read_zrok_version_non_zero_or_no_version(tunnels_manager):
+    with patch('core.services.tunnels.run_silent_command') as mock_cmd:
+        mock_cmd.return_value = MagicMock(returncode=1, stdout="")
+        assert tunnels_manager._read_zrok_version() is None
+        
+        mock_cmd.return_value = MagicMock(returncode=0, stdout="some other output\nno version line")
+        assert tunnels_manager._read_zrok_version() is None
+
+def test_list_active_shares_running_process(tunnels_manager):
+    proc = MagicMock()
+    proc.poll.return_value = None
+    tunnels_manager.active_shares = {
+        "s1": {"process": proc, "project_id": "p1", "url": "https://test.zrok"}
+    }
+    shares = tunnels_manager._list_active_shares()
+    assert len(shares) == 1
+    assert shares[0]['id'] == "s1"
+
+def test_resolve_zrok_download_url_variants(tunnels_manager):
+    with patch('core.services.tunnels.urllib.request.urlopen') as mock_urlopen:
+        mock_urlopen.side_effect = Exception("network down")
+        url, ver = tunnels_manager._resolve_zrok_download_url("latest")
+        assert ver == "v0.4.42"
+
+    with patch('core.services.tunnels.urllib.request.urlopen') as mock_urlopen:
+        mock_resp = MagicMock()
+        mock_urlopen.side_effect = [Exception("API error"), mock_resp]
+        url, ver = tunnels_manager._resolve_zrok_download_url("v0.4.42")
+        assert url is not None
+        assert "v0.4.42" in url
+
+    with patch('core.services.tunnels.urllib.request.urlopen', side_effect=Exception("All fail")):
+        url, ver = tunnels_manager._resolve_zrok_download_url("v0.4.42")
+        assert url is None
+
+# ==========================================
+# Cloudflare Status, Install & Uninstall
+# ==========================================
+
+def test_get_cloudflare_status_not_installed(tunnels_manager):
+    with patch('core.services.tunnels.os.path.exists', return_value=False):
+        res = tunnels_manager.get_cloudflare_status()
+        assert res['installed'] is False
+        assert res['version'] is None
+        assert res['active_shares'] == []
+
+def test_get_cloudflare_status_installed_with_shares(tunnels_manager):
+    proc = MagicMock()
+    proc.poll.return_value = None
+    tunnels_manager.active_cloudflare_shares = {
+        "cf_1": {"process": proc, "project_id": "proj_1", "url": "https://cf.trycloudflare.com"}
+    }
+    with patch('core.services.tunnels.os.path.exists', return_value=True), \
+         patch.object(tunnels_manager, '_read_cloudflare_version', return_value="2024.1.0"):
+        res = tunnels_manager.get_cloudflare_status()
+        assert res['installed'] is True
+        assert res['version'] == "2024.1.0"
+        assert len(res['active_shares']) == 1
+
+def test_read_cloudflare_version_scenarios(tunnels_manager):
+    with patch('core.services.tunnels.run_silent_command') as mock_cmd:
+        mock_cmd.return_value = MagicMock(returncode=1, stdout="")
+        assert tunnels_manager._read_cloudflare_version() is None
+
+        mock_cmd.return_value = MagicMock(returncode=0, stdout="cloudflared build info without ver")
+        assert tunnels_manager._read_cloudflare_version() is None
+
+        mock_cmd.return_value = MagicMock(returncode=0, stdout="cloudflared version 2024.2.0 (built 2024-02-01)")
+        assert tunnels_manager._read_cloudflare_version() == "2024.2.0"
+
+def test_resolve_cloudflare_download_url_variants(tunnels_manager):
+    with patch('core.services.tunnels.urllib.request.urlopen', side_effect=Exception("timeout")):
+        url, ver = tunnels_manager._resolve_cloudflare_download_url("latest")
+        assert url == "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+        assert ver == "latest"
+
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = json.dumps({
+        "assets": [{"name": "cloudflared-windows-amd64.exe", "browser_download_url": "https://example.com/cf.exe"}]
+    }).encode('utf-8')
+    with patch('core.services.tunnels.urllib.request.urlopen') as mock_open:
+        mock_open.return_value.__enter__.return_value = mock_resp
+        url, ver = tunnels_manager._resolve_cloudflare_download_url("2024.2.0")
+        assert url == "https://example.com/cf.exe"
+        assert ver == "2024.2.0"
+
+    mock_resp_empty = MagicMock()
+    mock_resp_empty.read.return_value = json.dumps({"assets": []}).encode('utf-8')
+    with patch('core.services.tunnels.urllib.request.urlopen') as mock_open:
+        mock_open.return_value.__enter__.return_value = mock_resp_empty
+        url, ver = tunnels_manager._resolve_cloudflare_download_url("2024.2.0")
+        assert url is None
+
+    with patch('core.services.tunnels.urllib.request.urlopen', side_effect=Exception("error")):
+        url, ver = tunnels_manager._resolve_cloudflare_download_url("2024.2.0")
+        assert url is None
+
+def test_install_cloudflare_release_not_found(tunnels_manager):
+    with patch.object(tunnels_manager, '_resolve_cloudflare_download_url', return_value=(None, "2024.1.0")):
+        res = tunnels_manager.install_cloudflare("2024.1.0")
+        assert res['status'] == 'error'
+        assert res['message'] == "backend.cloudflare.release_not_found"
+
+def test_install_cloudflare_success(tunnels_manager):
+    mock_resp = MagicMock()
+    mock_resp.info.return_value.get.return_value = "16"
+    mock_resp.read.side_effect = [b"chunk1_8b", b"chunk2_8b", b""]
+    with patch.object(tunnels_manager, '_resolve_cloudflare_download_url', return_value=("https://example.com/cf.exe", "2024.1.0")), \
+         patch('core.services.tunnels.urllib.request.urlopen') as mock_urlopen, \
+         patch('core.services.tunnels.open', MagicMock()):
+        mock_urlopen.return_value.__enter__.return_value = mock_resp
+        res = tunnels_manager.install_cloudflare("2024.1.0")
+        assert res['status'] == 'success'
+        assert res['message'] == "backend.cloudflare.install_success"
+
+def test_install_cloudflare_exception(tunnels_manager):
+    with patch.object(tunnels_manager, '_resolve_cloudflare_download_url', side_effect=RuntimeError("disk full")):
+        res = tunnels_manager.install_cloudflare()
+        assert res['status'] == 'error'
+        assert res['message'] == "backend.error.unexpected"
+
+def test_uninstall_cloudflare_success_and_exception(tunnels_manager):
+    tunnels_manager.active_cloudflare_shares = {"cf_1": {}}
+    with patch.object(tunnels_manager, 'stop_cloudflare_share') as mock_stop, \
+         patch.object(tunnels_manager, '_clear_engine') as mock_clear:
+        res = tunnels_manager.uninstall_cloudflare()
+        assert res['status'] == 'success'
+        mock_stop.assert_called_once_with("cf_1")
+        mock_clear.assert_called_once_with("cloudflared")
+
+    with patch.object(tunnels_manager, '_clear_engine', side_effect=RuntimeError("rm fail")):
+        res = tunnels_manager.uninstall_cloudflare()
+        assert res['status'] == 'error'
+
+def test_start_cloudflare_share_not_installed_or_invalid_target(tunnels_manager):
+    with patch('core.services.tunnels.os.path.exists', return_value=False):
+        res = tunnels_manager.start_cloudflare_share("localhost:3000")
+        assert res['status'] == 'error'
+        assert res['message'] == 'backend.cloudflare.not_installed'
+
+    with patch('core.services.tunnels.os.path.exists', return_value=True), \
+         patch.object(tunnels_manager, '_resolve_share_target', return_value=None):
+        res = tunnels_manager.start_cloudflare_share("invalid_project")
+        assert res['status'] == 'error'
+        assert res['message'] == 'backend.project.project_not_found'
+
+def test_start_cloudflare_share_timeout_and_unexpected_error(tunnels_manager):
+    with patch('core.services.tunnels.os.path.exists', return_value=True), \
+         patch.object(tunnels_manager, '_resolve_share_target', return_value="localhost:3000"), \
+         patch('core.services.tunnels.subprocess.Popen') as mock_popen, \
+         patch.object(tunnels_manager, '_wait_for_cloudflare_url', return_value=(None, False)):
+        mock_proc = MagicMock()
+        mock_popen.return_value = mock_proc
+        res = tunnels_manager.start_cloudflare_share("localhost:3000")
+        assert res['status'] == 'error'
+        assert res['message'] == 'backend.cloudflare.url_not_found'
+        mock_proc.kill.assert_called_once()
+
+    with patch('core.services.tunnels.os.path.exists', side_effect=RuntimeError("popen fail")):
+        res = tunnels_manager.start_cloudflare_share("localhost:3000")
+        assert res['status'] == 'error'
+        assert res['message'] == 'backend.error.unexpected'
+
+def test_stop_cloudflare_share_scenarios(tunnels_manager):
+    res = tunnels_manager.stop_cloudflare_share("non_existent")
+    assert res['status'] == 'error'
+    assert res['message'] == 'backend.cloudflare.share_not_found'
+
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    tunnels_manager.active_cloudflare_shares = {
+        "cf_1": {"process": mock_proc, "project_id": "proj_x", "url": "https://cf.url"}
+    }
+    mock_project_mgr = MagicMock()
+    mock_project_mgr._read_projects.return_value = [{"id": "proj_x", "tunnel_url": "https://cf.url"}]
+    tunnels_manager.api = MagicMock(project=mock_project_mgr)
+
+    with patch.object(tunnels_manager, '_is_localhost_target', return_value=False):
+        res = tunnels_manager.stop_cloudflare_share("cf_1")
+        assert res['status'] == 'success'
+        mock_proc.kill.assert_called_once()
+        mock_project_mgr._save_projects.assert_called_once()
+        mock_project_mgr.sync_apache_vhosts.assert_called_once()
+
+    with patch.object(tunnels_manager, '_is_localhost_target', side_effect=RuntimeError("sync fail")):
+        tunnels_manager.active_cloudflare_shares = {"cf_2": {"process": None, "project_id": "proj_err"}}
+        res = tunnels_manager.stop_cloudflare_share("cf_2")
+        assert res['status'] == 'error'
+
+def test_consume_cloudflare_stdout_logging(tunnels_manager):
+    import queue
+    q = queue.Queue()
+    q.put("INFO: normal cloudflare output")
+    q.put("ERR: connection failed")
+    q.put(None)
+    tunnels_manager.api = MagicMock()
+    tunnels_manager._consume_cloudflare_stdout(q, stdout_closed=False)
+    tunnels_manager.api.emit_log.assert_any_call("backend.cloudflare.process_log", "info", {"msg": "INFO: normal cloudflare output"})
+    tunnels_manager.api.emit_log.assert_any_call("backend.cloudflare.process_error", "error", {"msg": "ERR: connection failed"})

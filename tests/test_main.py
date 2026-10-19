@@ -100,6 +100,17 @@ def test_perform_exit_without_window_or_tray_set(mock_os_exit, mock_api):
     lifecycle.perform_exit()
     mock_os_exit.assert_called_once_with(0)
 
+@patch('os._exit')
+def test_perform_exit_prevents_reentrancy(mock_os_exit, mock_api):
+    """Jika perform_exit dipanggil berulang kali, hanya eksekusi pertama yang diproses."""
+    lifecycle = AppLifecycle(mock_api, is_production=True)
+    lifecycle._exit_in_progress = True
+
+    lifecycle.perform_exit()
+
+    mock_api.set_shutting_down.assert_not_called()
+    mock_os_exit.assert_not_called()
+
 
 # ==========================================
 # AppLifecycle.on_closing
@@ -160,6 +171,19 @@ def test_on_closing_with_tray_allows_destroy_when_real_exit_flag_set(mock_api):
     assert result is True
     mock_window.hide.assert_not_called()
 
+def test_on_closing_with_sigint_received_triggers_exit(mock_api):
+    """Jika pywebview winforms menandai _sigint_received, on_closing harus memicu perform_exit dan return True."""
+    lifecycle = AppLifecycle(mock_api, is_production=True, enable_tray=True)
+    lifecycle.set_window(MagicMock())
+
+    fake_wf = MagicMock(_sigint_received=True)
+    with patch.dict('sys.modules', {'webview.platforms.winforms': fake_wf}):
+        with patch.object(lifecycle, 'perform_exit') as mock_exit:
+            result = lifecycle.on_closing()
+
+    assert result is True
+    mock_exit.assert_called_once()
+
 
 # ==========================================
 # setup_systray
@@ -219,10 +243,11 @@ def test_setup_systray_exit_menu_item_calls_perform_exit_not_shortcut(mock_exist
     menu_items = menu_call_args[3]  # pystray.Icon(name, image, title, menu)
     exit_item = next(i for i in menu_items if i.text == 'Exit Engine')
 
-    with patch.object(lifecycle, 'perform_exit') as mock_perform_exit:
-        exit_item(MagicMock())  # MenuItem callable: __call__(icon) -> action(icon, self)
+    mock_thread.reset_mock()
+    exit_item(MagicMock())  # MenuItem callable: __call__(icon) -> action(icon, self)
 
-    mock_perform_exit.assert_called_once()
+    mock_thread.assert_called_once_with(target=lifecycle.perform_exit, daemon=True)
+    mock_thread.return_value.start.assert_called_once()
 
 @patch('main.threading.Thread')
 @patch('main.pystray.Icon')
@@ -262,13 +287,57 @@ def test_setup_systray_run_tray_swallows_icon_run_exception(mock_exists, mock_im
 
 
 # ==========================================
+# setup_signal_handlers (Ctrl+C & console shutdown)
+# ==========================================
+
+@patch('signal.signal')
+def test_setup_signal_handlers_registers_signals_and_triggers_exit(mock_signal, mock_api):
+    """setup_signal_handlers harus meregistrasi sinyal SIGINT/SIGTERM dan handler memanggil perform_exit."""
+    lifecycle = AppLifecycle(mock_api, is_production=False)
+    with patch.object(lifecycle, 'perform_exit') as mock_exit:
+        main_module.setup_signal_handlers(lifecycle)
+
+    assert mock_signal.call_count >= 2
+    handler_fn = mock_signal.call_args_list[0][0][1]
+    with patch.object(lifecycle, 'perform_exit') as mock_exit:
+        handler_fn(None, None)
+        mock_exit.assert_called_once()
+
+def test_setup_signal_handlers_win32_console_ctrl(mock_api):
+    """Pada Windows, SetConsoleCtrlHandler harus dipanggil dengan callback yang memicu perform_exit."""
+    lifecycle = AppLifecycle(mock_api, is_production=False)
+    with patch('sys.platform', 'win32'), \
+         patch('ctypes.windll.kernel32.SetConsoleCtrlHandler') as mock_set_handler:
+        main_module.setup_signal_handlers(lifecycle)
+
+        mock_set_handler.assert_called_once()
+        assert lifecycle._console_handler_ref is not None
+
+def test_setup_signal_handlers_hooks_winforms_sigint_if_available(mock_api):
+    """Jika webview.platforms.winforms tersedia, _sigint_handler harus di-hook agar memanggil perform_exit."""
+    lifecycle = AppLifecycle(mock_api, is_production=False)
+    fake_orig_handler = MagicMock()
+    fake_wf = MagicMock(_sigint_handler=fake_orig_handler)
+
+    with patch.dict('sys.modules', {'webview.platforms.winforms': fake_wf}):
+        main_module.setup_signal_handlers(lifecycle)
+
+        assert fake_wf._sigint_handler != fake_orig_handler
+        with patch.object(lifecycle, 'perform_exit') as mock_exit:
+            fake_wf._sigint_handler(2, None)
+            mock_exit.assert_called_once()
+            fake_orig_handler.assert_called_once_with(2, None)
+
+
+# ==========================================
 # main() — wiring end-to-end (semua dependensi eksternal di-mock)
 # ==========================================
 
+@patch('os._exit')
 @patch('main.check_single_instance', return_value=(True, None))
 @patch('main.webview')
 @patch('core.api.Api')
-def test_main_wires_api_window_and_quit_callback(mock_api_class, mock_webview, mock_check_single):
+def test_main_wires_api_window_and_quit_callback(mock_api_class, mock_webview, mock_check_single, mock_os_exit):
     mock_api_instance = MagicMock()
     mock_api_class.return_value = mock_api_instance
     mock_window = MagicMock()
@@ -288,11 +357,12 @@ def test_main_wires_api_window_and_quit_callback(mock_api_class, mock_webview, m
     notification_icon_arg = mock_api_instance.set_notification_icon.call_args[0][0]
     assert notification_icon_arg.endswith('icons-nobg.png')
 
+@patch('os._exit')
 @patch('main.check_single_instance', return_value=(True, None))
 @patch('main.setup_systray')
 @patch('main.webview')
 @patch('core.api.Api')
-def test_main_sets_up_systray_based_on_enable_tray_not_is_production(mock_api_class, mock_webview, mock_setup_systray, mock_check_single):
+def test_main_sets_up_systray_based_on_enable_tray_not_is_production(mock_api_class, mock_webview, mock_setup_systray, mock_check_single, mock_os_exit):
     """Regresi: tray sekarang digerakkan ENABLE_TRAY, bukan IS_PRODUCTION -- IS_PRODUCTION tidak lagi relevan di sini."""
     mock_webview.create_window.return_value = MagicMock()
 
@@ -304,11 +374,12 @@ def test_main_sets_up_systray_based_on_enable_tray_not_is_production(mock_api_cl
         main_module.main()
     mock_setup_systray.assert_called_once()
 
+@patch('os._exit')
 @patch('main.check_single_instance', return_value=(True, None))
 @patch('main.setup_systray')
 @patch('main.webview')
 @patch('core.api.Api')
-def test_main_sets_up_systray_in_dev_mode_too(mock_api_class, mock_webview, mock_setup_systray, mock_check_single):
+def test_main_sets_up_systray_in_dev_mode_too(mock_api_class, mock_webview, mock_setup_systray, mock_check_single, mock_os_exit):
     """Permintaan fitur eksplisit: tray harus aktif juga di dev mode (ENABLE_TRAY default True, IS_PRODUCTION=False)."""
     mock_webview.create_window.return_value = MagicMock()
 
@@ -317,10 +388,11 @@ def test_main_sets_up_systray_in_dev_mode_too(mock_api_class, mock_webview, mock
 
     mock_setup_systray.assert_called_once()
 
+@patch('os._exit')
 @patch('main.check_single_instance', return_value=(True, None))
 @patch('main.webview')
 @patch('core.api.Api')
-def test_main_hooks_minimized_and_restored_events_to_push_window_state(mock_api_class, mock_webview, mock_check_single):
+def test_main_hooks_minimized_and_restored_events_to_push_window_state(mock_api_class, mock_webview, mock_check_single, mock_os_exit):
     """window.events.minimized/restored harus di-hook supaya frontend tahu kapan notifikasi native perlu tampil."""
     mock_api_instance = MagicMock()
     mock_api_class.return_value = mock_api_instance
@@ -356,6 +428,20 @@ def test_main_handles_unexpected_startup_exception_without_crashing(mock_api_cla
     # Pastikan exception itu benar berasal dari upaya nyata memanggil Api(), bukan main() no-op
     mock_api_class.assert_called_once()
 
+@patch('os._exit')
+@patch('main.check_single_instance', return_value=(True, None))
+@patch('main.webview')
+@patch('core.api.Api')
+def test_main_catches_keyboard_interrupt_and_exits(mock_api_class, mock_webview, mock_check_single, mock_os_exit):
+    """Ketika user menekan Ctrl+C (KeyboardInterrupt) saat webview running, main menangkap dan perform_exit dipanggil."""
+    mock_webview.start.side_effect = KeyboardInterrupt()
+    mock_webview.create_window.return_value = MagicMock()
+
+    with patch('main.IS_PRODUCTION', False):
+        main_module.main()
+
+    mock_os_exit.assert_called_once_with(0)
+
 
 def test_get_theme_bg_color_reads_from_settings(tmp_path):
     """get_theme_bg_color harus membaca tema dari data/settings.json jika file ada."""
@@ -374,10 +460,11 @@ def test_get_theme_bg_color_fallback_when_settings_file_missing(tmp_path):
         assert get_theme_bg_color() == "#0f172a"
 
 
+@patch('os._exit')
 @patch('main.check_single_instance', return_value=(True, None))
 @patch('main.webview')
 @patch('core.api.Api')
-def test_main_hooks_shown_event_to_apply_titlebar_theme(mock_api_class, mock_webview, mock_check_single):
+def test_main_hooks_shown_event_to_apply_titlebar_theme(mock_api_class, mock_webview, mock_check_single, mock_os_exit):
     """window.events.shown harus di-hook untuk menyelaraskan titlebar theme via DWM."""
     mock_api_instance = MagicMock()
     mock_api_class.return_value = mock_api_instance
@@ -584,11 +671,12 @@ def test_main_duplicate_instance_brings_to_front_and_exits(mock_exit, mock_webvi
     mock_webview.start.assert_not_called()
 
 
+@patch('os._exit')
 @patch('main.check_single_instance', return_value=(True, MagicMock()))
 @patch('main.start_ipc_server')
 @patch('main.webview')
 @patch('core.api.Api')
-def test_main_starts_ipc_server_on_first_instance(mock_api_class, mock_webview, mock_start_ipc, mock_check_single):
+def test_main_starts_ipc_server_on_first_instance(mock_api_class, mock_webview, mock_start_ipc, mock_check_single, mock_os_exit):
     """Instance pertama harus menjalankan start_ipc_server dengan lifecycle yang dibangun."""
     mock_webview.create_window.return_value = MagicMock()
 

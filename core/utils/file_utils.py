@@ -7,7 +7,7 @@ import urllib.request
 import urllib.error
 import concurrent.futures
 import threading
-from typing import Any, Callable, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 USER_AGENT_MOZILLA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
 
 def read_json(file_path: str, default_type: type = list) -> Any:
@@ -59,6 +59,84 @@ def write_json(file_path: str, data: Any) -> bool:
         return True
     except Exception:
         return False
+
+def fetch_github_releases(
+    repo_slug: str,
+    headers: Optional[dict] = None,
+    timeout: int = 10
+) -> Tuple[Optional[List[dict]], Optional[Exception]]:
+    """
+    Mengambil daftar rilis dari GitHub Releases API secara aman dan seragam.
+    
+    Args:
+        repo_slug (str): Slug repositori (contoh: 'openziti/zrok' atau 'authntcG/vyloserve').
+        headers (dict, optional): Custom headers tambahan jika ada.
+        timeout (int): Timeout request dalam detik.
+        
+    Returns:
+        Tuple[Optional[List[dict]], Optional[Exception]]:
+            (list_releases, None) jika berhasil, atau (None, error) jika gagal (misal 403 rate limit).
+    """
+    req_headers = {'User-Agent': 'VyloServe'}
+    if headers:
+        req_headers.update(headers)
+    clean_repo = repo_slug.strip().strip('/')
+    url = f"https://api.github.com/repos/{clean_repo}/releases"
+    req = urllib.request.Request(url, headers=req_headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            data = json.loads(response.read().decode('utf-8'))
+            if isinstance(data, list):
+                return data, None
+            return [], None
+    except Exception as e:
+        return None, e
+
+def _extract_ini_value(raw_val: str, comment_chars: Tuple[str, ...]) -> str:
+    val = raw_val
+    for c in comment_chars:
+        if c in val:
+            val = val.split(c, 1)[0].strip()
+    return val.strip("'\"")
+
+def _parse_ini_line(line_str: str, key_map: Dict[str, str], comment_chars: Tuple[str, ...]) -> Optional[Tuple[str, str]]:
+    if not line_str or any(line_str.startswith(c) for c in comment_chars):
+        return None
+    for k_file, k_dict in key_map.items():
+        if line_str.startswith(k_file) and '=' in line_str:
+            raw_val = line_str.split('=', 1)[1].strip()
+            clean_val = _extract_ini_value(raw_val, comment_chars)
+            return k_dict, clean_val
+    return None
+
+def parse_ini_key_values(
+    file_path: str,
+    key_map: Dict[str, str],
+    comment_chars: Tuple[str, ...] = ('#', ';')
+) -> Dict[str, str]:
+    """
+    Membaca dan mem-parsing nilai key=value dari file konfigurasi teks (MySQL / PostgreSQL / PHP INI).
+    
+    Args:
+        file_path (str): Path ke file konfigurasi.
+        key_map (dict): Mapping {kunci_di_file: kunci_hasil_dict}.
+        comment_chars (tuple): Karakter penanda baris komentar.
+        
+    Returns:
+        Dict[str, str]: Dictionary berisi nilai konfigurasi yang berhasil diekstrak.
+    """
+    if not os.path.exists(file_path):
+        return {}
+    results = {}
+    try:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                item = _parse_ini_line(line.strip(), key_map, comment_chars)
+                if item:
+                    results[item[0]] = item[1]
+    except Exception:
+        pass
+    return results
 
 def read_log_tail(file_path: str, max_lines: int = 300, chunk_size: int = 8192, max_retries: int = 3) -> str:
     """
@@ -270,7 +348,7 @@ def _download_single_stream(url, dest_path, total_size, progress_cb, log_cb):
 def download_advanced(url: str, dest_path: str, 
                       log_cb: Optional[Callable[[str, str], None]] = None, 
                       progress_cb: Optional[Callable[[int, str], None]] = None) -> bool:
-    if log_cb: log_cb("Memeriksa kapabilitas peladen unduhan...", "info")
+    if log_cb: log_cb("backend.runtimes.checking_capabilities", "info")
     req = urllib.request.Request(url, method='HEAD', headers={'User-Agent': USER_AGENT_MOZILLA})
     
     try:

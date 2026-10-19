@@ -11,7 +11,10 @@ from typing import Optional
 
 # ---> IMPORT UTILITIES (DRY PRINCIPLE) <---
 from core.utils.system_utils import get_project_root, check_port_in_use, start_silent_process, run_silent_command
-from core.utils.file_utils import read_json, write_json, download_advanced, extract_archive, read_log_tail, read_new_lines
+from core.utils.file_utils import (
+    read_json, write_json, download_advanced, extract_archive,
+    read_log_tail, read_new_lines, parse_ini_key_values
+)
 
 DB_NOT_FOUND_MSG = "backend.database.not_found"
 MSG_UNEXPECTED_ERROR = "backend.error.unexpected"
@@ -47,22 +50,24 @@ class DatabaseManager:
     def is_port_in_use(self, port):
         return check_port_in_use(port)
 
+    def _enrich_db_status(self, db: dict) -> dict:
+        if db.get('id') in self.processes and self.processes[db['id']].poll() is None:
+            db['status'] = 'running'
+            return db
+
+        port = db.get('port')
+        if not port:
+            port = 3306 if db.get('engine') == 'mysql' else 5432
+        db['status'] = 'running' if check_port_in_use(port) else 'stopped'
+        return db
+
     def get_installed(self):
         try:
             data = read_json(self.config_path)
             if not data: return {"status": "success", "data": []}
 
-            def enrich_status(db):
-                if db['id'] in self.processes and self.processes[db['id']].poll() is None:
-                    db['status'] = 'running'
-                else:
-                    port = db.get('port')
-                    if not port: port = 3306 if db.get('engine') == 'mysql' else 5432
-                    db['status'] = 'running' if check_port_in_use(port) else 'stopped'
-                return db
-
             with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-                data = list(executor.map(enrich_status, data))
+                data = list(executor.map(self._enrich_db_status, data))
 
             return {"status": "success", "data": data}
         except Exception as e:
@@ -71,6 +76,14 @@ class DatabaseManager:
     # ==========================================
     # START / STOP CONTROLLER (SILENT SUBPROCESS)
     # ==========================================
+    @staticmethod
+    def _read_startup_crash_log(log_path: str) -> str:
+        try:
+            with open(log_path, 'r', encoding='utf-8') as rf:
+                return rf.read().strip()[-250:]
+        except Exception:
+            return "Unknown error (log unreadable)"
+
     def _wait_for_startup(self, db_obj: dict, log_f) -> dict:
         db_id = db_obj['id']
         log_path = os.path.join(db_obj['dataDir'], DB_STARTUP_LOG)
@@ -84,12 +97,7 @@ class DatabaseManager:
             
             if self.processes[db_id].poll() is not None:
                 log_f.close()
-                try:
-                    with open(log_path, 'r', encoding='utf-8') as rf:
-                        err_msg = rf.read().strip()[-250:]
-                except Exception: 
-                    err_msg = "Unknown error (log unreadable)"
-                
+                err_msg = self._read_startup_crash_log(log_path)
                 self._log("backend.database.process_crashed_log", "error", {"err": err_msg})
                 return {"status": "error", "message": "backend.database.crashed_on_startup", "args": {"err": err_msg}}
             
@@ -272,22 +280,37 @@ class DatabaseManager:
         results.sort(key=lambda x: [int(i) for i in re.findall(r'\d+', x['version'])], reverse=True)
         return {"status": "success", "data": results}
 
+    def _init_mariadb(self, install_dir: str, db_data_dir: str):
+        exe_name = 'mysql_install_db.exe' if sys.platform == 'win32' else 'mysql_install_db'
+        installer = os.path.join(install_dir, 'bin', exe_name)
+        if not os.path.exists(installer):
+            raise RuntimeError(f"MariaDB Init Error: installer tidak ditemukan di {installer}")
+        res = run_silent_command([installer, f"--datadir={db_data_dir}"])
+        if res.returncode != 0:
+            raise RuntimeError(f"MariaDB Init Error: {res.stderr}")
+
+    def _init_postgres(self, install_dir: str, db_data_dir: str, root_pass: str):
+        exe_name = 'initdb.exe' if sys.platform == 'win32' else 'initdb'
+        installer = os.path.join(install_dir, 'bin', exe_name)
+        if not os.path.exists(installer):
+            raise RuntimeError(f"PostgreSQL Init Error: installer tidak ditemukan di {installer}")
+        pw_file = os.path.join(install_dir, 'pw.txt')
+        with open(pw_file, 'w') as f:
+            f.write(root_pass or 'root')
+        try:
+            res = run_silent_command([installer, "-D", db_data_dir, "-U", "postgres", f"--pwfile={pw_file}", "--encoding=UTF8"])
+            if res.returncode != 0:
+                raise RuntimeError(f"PostgreSQL Init Error: {res.stderr}")
+        finally:
+            if os.path.exists(pw_file):
+                os.remove(pw_file)
+
     def _init_database(self, engine: str, install_dir: str, db_data_dir: str, root_pass: str):
         os.makedirs(db_data_dir, exist_ok=True)
-        
         if engine == 'mysql':
-            installer = os.path.join(install_dir, 'bin', 'mysql_install_db.exe' if sys.platform == 'win32' else 'mysql_install_db')
-            if not os.path.exists(installer): raise RuntimeError(f"MariaDB Init Error: installer tidak ditemukan di {installer}")
-            res = run_silent_command([installer, f"--datadir={db_data_dir}"])
-            if res.returncode != 0: raise RuntimeError(f"MariaDB Init Error: {res.stderr}")
+            self._init_mariadb(install_dir, db_data_dir)
         else:
-            installer = os.path.join(install_dir, 'bin', 'initdb.exe' if sys.platform == 'win32' else 'initdb')
-            if not os.path.exists(installer): raise RuntimeError(f"PostgreSQL Init Error: installer tidak ditemukan di {installer}")
-            pw_file = os.path.join(install_dir, 'pw.txt')
-            with open(pw_file, 'w') as f: f.write(root_pass if root_pass else 'root')
-            res = run_silent_command([installer, "-D", db_data_dir, "-U", "postgres", f"--pwfile={pw_file}", "--encoding=UTF8"])
-            if os.path.exists(pw_file): os.remove(pw_file)
-            if res.returncode != 0: raise RuntimeError(f"PostgreSQL Init Error: {res.stderr}")
+            self._init_postgres(install_dir, db_data_dir, root_pass)
 
     def _unwrap_single_subdir(self, install_dir: str):
         extracted_subdirs = os.listdir(install_dir)
@@ -368,8 +391,27 @@ class DatabaseManager:
             return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
 
+    @staticmethod
+    def _backup_install_and_data_dirs(install_dir: str, install_dir_backup: str, db_data_dir: str, db_data_dir_backup: str, backup_data: bool):
+        if os.path.exists(install_dir_backup):
+            shutil.rmtree(install_dir_backup, ignore_errors=True)
+        if os.path.exists(install_dir):
+            shutil.move(install_dir, install_dir_backup)
+            
+        if backup_data:
+            if os.path.exists(db_data_dir_backup):
+                shutil.rmtree(db_data_dir_backup, ignore_errors=True)
+            if os.path.exists(db_data_dir):
+                shutil.copytree(db_data_dir, db_data_dir_backup)
+
+    @staticmethod
+    def _rollback_directories(install_dir: str, install_dir_backup: str):
+        shutil.rmtree(install_dir, ignore_errors=True)
+        if os.path.exists(install_dir_backup):
+            shutil.move(install_dir_backup, install_dir)
+
     def update_database(self, db_id: str, new_version: str, url: str, backup_data: bool = False):
-        from core.utils.file_utils import download_advanced, extract_archive
+        from core.utils.file_utils import download_advanced, extract_archive, write_json
         data = read_json(self.config_path)
         db_obj = next((db for db in data if db['id'] == db_id), None)
         if not db_obj: return {"status": "error", "message": "backend.database.not_found"}
@@ -383,13 +425,7 @@ class DatabaseManager:
         db_data_dir_backup = db_data_dir + "_backup"
         
         try:
-            if os.path.exists(install_dir_backup): shutil.rmtree(install_dir_backup, ignore_errors=True)
-            if os.path.exists(install_dir):
-                shutil.move(install_dir, install_dir_backup)
-                
-            if backup_data:
-                if os.path.exists(db_data_dir_backup): shutil.rmtree(db_data_dir_backup, ignore_errors=True)
-                if os.path.exists(db_data_dir): shutil.copytree(db_data_dir, db_data_dir_backup)
+            self._backup_install_and_data_dirs(install_dir, install_dir_backup, db_data_dir, db_data_dir_backup, backup_data)
                 
             os.makedirs(install_dir, exist_ok=True)
             zip_path = os.path.join(self.bin_dir, "update.zip")
@@ -414,7 +450,6 @@ class DatabaseManager:
             
             db_obj['version'] = new_version
             db_obj['name'] = f"{'MariaDB' if db_obj['engine'] == 'mysql' else 'PostgreSQL'} {new_version}"
-            from core.utils.file_utils import write_json
             write_json(self.config_path, data)
             
             shutil.rmtree(install_dir_backup, ignore_errors=True)
@@ -424,9 +459,7 @@ class DatabaseManager:
             return {"status": "success", "message": "backend.database.update_success"}
             
         except Exception as e:
-            shutil.rmtree(install_dir, ignore_errors=True)
-            if os.path.exists(install_dir_backup):
-                shutil.move(install_dir_backup, install_dir)
+            self._rollback_directories(install_dir, install_dir_backup)
             self._log("backend.database.update_failed_rollback", "error", {"e": str(e)})
             self._progress(0, "backend.database.update_failed")
             return {"status": "error", "message": "backend.database.update_failed_rollback", "args": {"e": str(e)}}
@@ -547,8 +580,6 @@ class DatabaseManager:
             pass
 
     def _parse_mysql_config(self, conf_file: str, config: dict):
-        if not os.path.exists(conf_file): return
-        
         keys_map = {
             'bind-address': 'bind_address',
             'innodb_buffer_pool_size': 'innodb_buffer_pool_size',
@@ -558,20 +589,9 @@ class DatabaseManager:
             'collation-server': 'collation_server',
             'default-storage-engine': 'default_storage_engine'
         }
-        
-        with open(conf_file, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith('#'): continue
-                
-                for k_file, k_dict in keys_map.items():
-                    if line.startswith(k_file):
-                        config[k_dict] = line.split('=')[1].strip()
-                        break
+        config.update(parse_ini_key_values(conf_file, keys_map, comment_chars=('#',)))
 
     def _parse_postgres_config(self, conf_file: str, config: dict):
-        if not os.path.exists(conf_file): return
-        
         keys_map = {
             'listen_addresses': 'listen_addresses',
             'shared_buffers': 'shared_buffers',
@@ -581,18 +601,7 @@ class DatabaseManager:
             'max_connections': 'max_connections',
             'timezone': 'timezone'
         }
-        
-        with open(conf_file, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith('#'): continue
-                
-                for k_file, k_dict in keys_map.items():
-                    if line.startswith(k_file):
-                        raw_val = line.split('=')[1].strip()
-                        if '#' in raw_val: raw_val = raw_val.split('#')[0].strip()
-                        config[k_dict] = raw_val.strip("'").strip('"')
-                        break
+        config.update(parse_ini_key_values(conf_file, keys_map, comment_chars=('#',)))
 
     def get_db_config(self, db_id: str):
         db_obj = next((db for db in read_json(self.config_path) if db['id'] == db_id), None)

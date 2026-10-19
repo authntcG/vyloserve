@@ -12,8 +12,13 @@ import winreg
 import ctypes
 import concurrent.futures
 
-# ---> IMPORT UTILITIES DARI CORE (DRY PRINCIPLE) <---
-from core.utils.system_utils import get_project_root, run_silent_command
+from core.utils.system_utils import (
+    get_project_root,
+    run_silent_command,
+    get_silent_flags,
+    is_in_user_path,
+    broadcast_environment_change,
+)
 from core.utils.file_utils import download_advanced, extract_archive
 
 USER_AGENT = 'Mozilla/5.0'
@@ -106,7 +111,7 @@ class RuntimesManager:
         self._clear_engine(engine)
         return was_in_path
 
-    def _check_external_installation(self, command: str):
+    def _check_external_installation(self, command: str, silent: bool = False):
         """
         Mendeteksi instalasi eksternal dengan 3 lapis keamanan (where, registry, env).
         Log Terminal telah dibersihkan dan dialihkan ke UI System Logs secara efisien.
@@ -118,7 +123,8 @@ class RuntimesManager:
         import shutil
 
         # Mengirimkan log ke UI VyloServe (Hanya terpicu saat render halaman)
-        self._emit_log("backend.runtimes.scanning_external", "info", {"engine": command})
+        if not silent:
+            self._emit_log("backend.runtimes.scanning_external", "info", {"engine": command})
 
         vyloserve_bin = os.path.normpath(os.path.join(self.root_dir, 'bin')).lower()
         found_path = None
@@ -142,7 +148,7 @@ class RuntimesManager:
             else:
                 flag = '-v' # Bawaan untuk node
 
-            creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+            creation_flags = get_silent_flags()
             
             result = subprocess.run([found_path, flag], capture_output=True, text=True, creationflags=creation_flags)
             
@@ -151,25 +157,20 @@ class RuntimesManager:
             if version_out:
                 final_version = version_out.split('\n')[0].strip()
                 
-                self._emit_log("backend.runtimes.external_detected", "warn", {"engine": command, "version": final_version})
+                if not silent:
+                    self._emit_log("backend.runtimes.external_detected", "warn", {"engine": command, "version": final_version})
                     
                 return {"exists": True, "path": found_path, "version": final_version}
                 
         except OSError as e:
-            self._emit_log("backend.runtimes.version_check_failed", "warn", {"engine": command, "e": str(e)})
+            if not silent:
+                self._emit_log("backend.runtimes.version_check_failed", "warn", {"engine": command, "e": str(e)})
 
         return {"exists": True, "path": found_path, "version": "Unknown Version"}
 
     def _is_in_user_path(self, target_path: str) -> bool:
         """ Mengecek apakah path sudah ada di System PATH Windows """
-        try:
-            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Environment', 0, winreg.KEY_READ)
-            path_value, _ = winreg.QueryValueEx(key, 'Path')
-            winreg.CloseKey(key)
-            paths = [p.lower().rstrip('\\/') for p in path_value.split(';') if p]
-            return target_path.lower().rstrip('\\/') in paths
-        except Exception:
-            return False
+        return is_in_user_path(target_path)
 
     def _get_paths_to_toggle(self, engine: str, for_enable: bool = True) -> list:
         paths = []
@@ -225,11 +226,11 @@ class RuntimesManager:
         paths_to_toggle = self._get_paths_to_toggle(engine, for_enable=enable)
         if not paths_to_toggle: return {"status": "error", "message": "backend.runtimes.engine_unsupported"}
         try:
-            import winreg, ctypes
+            import winreg
             key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Environment', 0, winreg.KEY_ALL_ACCESS)
             modified = self._toggle_user_path_env(key, paths_to_toggle, enable, engine)
             if modified:
-                ctypes.windll.user32.SendMessageTimeoutW(0xFFFF, 0x001A, 0, 'Environment', 0x0002, 5000, ctypes.byref(ctypes.c_ulong()))
+                broadcast_environment_change()
             winreg.CloseKey(key)
             self._emit_log("backend.runtimes.path_updated", "success", {"engine": engine.upper()})
             return {"status": "success"}
@@ -237,10 +238,11 @@ class RuntimesManager:
             self._emit_log("backend.runtimes.path_error_log", "error", {"engine": engine, "e": str(e)})
             return {"status": "error", "message": "backend.runtimes.registry_error", "args": {"e": str(e)}}
 
+
     # ==========================================
     # NODE.JS MANAGER
     # ==========================================
-    def get_node_status(self):
+    def get_node_status(self, silent: bool = False):
         node_dir = self._get_engine_dir('node')
         node_exe = None
         if node_dir:
@@ -250,11 +252,11 @@ class RuntimesManager:
         internal_version = ""
         if internal_installed:
             try:
-                result = subprocess.run([node_exe, '-v'], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
+                result = subprocess.run([node_exe, '-v'], capture_output=True, text=True, creationflags=get_silent_flags())
                 internal_version = result.stdout.strip()
             except Exception: internal_version = "Unknown"
 
-        external_info = self._check_external_installation('node')
+        external_info = self._check_external_installation('node', silent=silent)
 
         return {
             'installed': internal_installed, 
@@ -367,7 +369,7 @@ class RuntimesManager:
     # ==========================================
     # PYTHON MANAGER
     # ==========================================
-    def get_python_status(self):
+    def get_python_status(self, silent: bool = False):
         python_dir = self._get_engine_dir('python')
         python_exe = None
         if python_dir:
@@ -377,11 +379,11 @@ class RuntimesManager:
         internal_version = ""
         if internal_installed:
             try:
-                res = subprocess.run([python_exe, '--version'], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
+                res = subprocess.run([python_exe, '--version'], capture_output=True, text=True, creationflags=get_silent_flags())
                 internal_version = res.stdout.strip()
             except Exception: internal_version = "Unknown"
 
-        external_info = self._check_external_installation('python')
+        external_info = self._check_external_installation('python', silent=silent)
 
         return {
             'installed': internal_installed, 
@@ -486,7 +488,7 @@ class RuntimesManager:
             custom_env = os.environ.copy()
             custom_env['SSL_CERT_FILE'] = certifi.where()
             custom_env['REQUESTS_CA_BUNDLE'] = certifi.where()
-            cflags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+            cflags = get_silent_flags()
             res = subprocess.run([python_exe, get_pip_path, '--no-warn-script-location'], cwd=python_dir, creationflags=cflags, env=custom_env, capture_output=True, text=True)
             if res.returncode != 0:
                 raise RuntimeError("Gagal mengeksekusi get-pip.py: {0}".format(res.stderr.strip() or res.stdout.strip()))
@@ -542,7 +544,7 @@ class RuntimesManager:
     # ==========================================
     # JAVA (JDK) MANAGER
     # ==========================================
-    def get_java_status(self):
+    def get_java_status(self, silent: bool = False):
         java_dir = self._get_engine_dir('java')
         java_exe = None
         if java_dir:
@@ -552,12 +554,12 @@ class RuntimesManager:
         internal_version = ""
         if internal_installed:
             try:
-                res = subprocess.run([java_exe, '-version'], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
+                res = subprocess.run([java_exe, '-version'], capture_output=True, text=True, creationflags=get_silent_flags())
                 # Catatan: Java mencetak versinya di stderr, bukan stdout
                 internal_version = res.stderr.strip().split('\n')[0]
             except Exception: internal_version = "Unknown"
 
-        external_info = self._check_external_installation('java')
+        external_info = self._check_external_installation('java', silent=silent)
 
         return {
             'installed': internal_installed, 
@@ -672,7 +674,7 @@ class RuntimesManager:
     # ==========================================
     # GO (GOLANG) MANAGER
     # ==========================================
-    def get_go_status(self):
+    def get_go_status(self, silent: bool = False):
         go_dir = self._get_engine_dir('go')
         go_exe = None
         if go_dir:
@@ -682,12 +684,12 @@ class RuntimesManager:
         internal_version = ""
         if internal_installed:
             try:
-                res = subprocess.run([go_exe, 'version'], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
+                res = subprocess.run([go_exe, 'version'], capture_output=True, text=True, creationflags=get_silent_flags())
                 # Output asli Go: "go version go1.22.3 windows/amd64", kita potong agar rapi
                 internal_version = res.stdout.strip().replace('go version ', '').split(' ')[0]
             except Exception: internal_version = "Unknown"
 
-        external_info = self._check_external_installation('go')
+        external_info = self._check_external_installation('go', silent=silent)
 
         return {
             'installed': internal_installed, 
@@ -799,7 +801,7 @@ class RuntimesManager:
         import os, sys, subprocess
         if sys.platform != 'win32': return None
         try:
-            res = subprocess.run(['where', command], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
+            res = subprocess.run(['where', command], capture_output=True, text=True, creationflags=get_silent_flags())
             if res.returncode == 0:
                 for p in res.stdout.strip().split('\n'):
                     p_clean = os.path.normpath(p.strip())

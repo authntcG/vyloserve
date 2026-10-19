@@ -11,6 +11,8 @@ from core.utils.system_utils import get_project_root, start_silent_process, run_
 from core.utils.file_utils import read_json, download_advanced, extract_archive
 PHP_INI = "php.ini"
 MSG_UNEXPECTED_ERROR = "backend.error.unexpected"
+PHP_WIN_PATTERN = re.compile(r'(php-(\d+\.\d+\.\d+)-Win32-[a-zA-Z0-9]+-x64\.zip)')
+PHP_NIX_PATTERN = re.compile(r'(php-(\d+\.\d+\.\d+)\.tar\.gz)')
 
 class PhpManager:
     """Manager untuk siklus hidup Engine FastCGI PHP"""
@@ -63,33 +65,17 @@ class PhpManager:
     def toggle_global_path(self, target_path: str, enable: bool):
         """ Mengatur PATH OS dinamis agar command 'php' dan 'composer' terhubung ke versi yang aktif """
         if sys.platform != 'win32': return
-        import winreg, ctypes
         try:
-            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Environment', 0, winreg.KEY_ALL_ACCESS)
-            try: path_value, _ = winreg.QueryValueEx(key, 'Path')
-            except FileNotFoundError: path_value = ""
-
-            current_paths = [p for p in path_value.split(';') if p]
+            from core.utils.system_utils import modify_user_path
             normalized_target = os.path.normpath(target_path)
-            modified = False
-
-            # Hapus semua path PHP VyloServe lain untuk mencegah konflik versi
             vyloserve_php_base = os.path.normpath(self.base_dir)
-            cleaned_paths = [p for p in current_paths if not p.startswith(vyloserve_php_base)]
-
-            if enable:
-                cleaned_paths.append(normalized_target)
-                modified = True
-            elif current_paths != cleaned_paths:
-                modified = True
-
-            if modified:
-                new_path = ';'.join(cleaned_paths)
-                winreg.SetValueEx(key, 'Path', 0, winreg.REG_EXPAND_SZ, new_path)
-                HWND_BROADCAST, WM_SETTINGCHANGE, SMTO_ABORTIFHUNG = 0xFFFF, 0x001A, 0x0002
-                ctypes.windll.user32.SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, 'Environment', SMTO_ABORTIFHUNG, 5000, ctypes.byref(ctypes.c_ulong()))
-            winreg.CloseKey(key)
+            modify_user_path(
+                add_paths=[normalized_target] if enable else None,
+                remove_prefix=vyloserve_php_base,
+                auto_broadcast=True
+            )
         except Exception: pass
+
 
     def get_versions(self):
         try:
@@ -97,15 +83,16 @@ class PhpManager:
 
             if sys.platform == 'win32':
                 urls = ["https://windows.php.net/downloads/releases/", "https://windows.php.net/downloads/releases/archives/"]
-                pattern = r'(php-(\d+\.\d+\.\d+)-Win32-[a-zA-Z0-9]+-x64\.zip)'
+                pattern = PHP_WIN_PATTERN
             else:
-                urls, pattern = ["https://www.php.net/distributions/"], r'(php-(\d+\.\d+\.\d+)\.tar\.gz)'
+                urls = ["https://www.php.net/distributions/"]
+                pattern = PHP_NIX_PATTERN
             
             matches = []
             for url in urls:
                 try:
                     html = urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'}), timeout=10).read().decode('utf-8')
-                    matches.extend(re.findall(pattern, html))
+                    matches.extend(pattern.findall(html))
                 except Exception: pass
             
             version_map = {ver: fname for filename, ver in matches if 'nts' not in filename.lower() and '-pack' not in filename.lower() and 'qa' not in filename.lower() for fname in [filename]}

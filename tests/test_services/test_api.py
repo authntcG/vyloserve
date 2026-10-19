@@ -89,6 +89,23 @@ def test_emit_events_source_is_null_when_called_without_wrapping_class(api_insta
     payload = mock_window.evaluate_js.call_args[0][0]
     assert '"source": null' in payload
 
+def test_emit_events_suppressed_when_shutting_down(api_instance):
+    """
+    Saat aplikasi sedang shutdown (_is_shutting_down=True), emit_log, emit_progress,
+    emit_window_state, dan emit_ai_chunk tidak boleh memanggil evaluate_js (mencegah deadlock).
+    """
+    mock_window = MagicMock()
+    api_instance.set_window(mock_window)
+    api_instance.set_shutting_down()
+    assert api_instance._is_shutting_down is True
+
+    api_instance.emit_log("some message")
+    api_instance.emit_progress(50, "some progress")
+    api_instance.emit_window_state(hidden=True)
+    api_instance.emit_ai_chunk(chunk="test", is_done=True)
+
+    mock_window.evaluate_js.assert_not_called()
+
 def test_project_endpoints_fallback_when_project_module_not_loaded(api_instance):
     """
     Regression test: PROJECT_NOT_LOADED_MSG sebelumnya direferensikan di beberapa
@@ -633,5 +650,74 @@ def test_save_app_settings_does_not_trigger_titlebar_theme_when_theme_not_in_pay
         res = api_instance.save_app_settings({"language": "id"})
         assert res == {"status": "success"}
         mock_apply_theme.assert_not_called()
+
+
+def test_ai_facade_endpoints(api_instance):
+    """Memastikan semua facade method AI mendelegasikan panggilan ke ai manager."""
+    api_instance.ai = MagicMock()
+
+    api_instance.ai_send_message("prompt", "context", "model", "provider")
+    api_instance.ai.send_message.assert_called_once_with("prompt", "context", "model", "provider")
+
+    api_instance.ai_abort_generation()
+    api_instance.ai.abort_generation.assert_called_once()
+
+    api_instance.ai_test_connection("gemini", "key", "model", "url")
+    api_instance.ai.test_connection.assert_called_once_with("gemini", "key", "model", "url")
+
+    api_instance.ai_get_chat_history()
+    api_instance.ai.get_chat_history.assert_called_once()
+
+    api_instance.ai_save_chat_history([{"role": "user", "content": "hi"}])
+    api_instance.ai.save_chat_history.assert_called_once_with([{"role": "user", "content": "hi"}])
+
+    api_instance.ai_clear_chat_history()
+    api_instance.ai.clear_chat_history.assert_called_once()
+
+    api_instance.ai_get_server_context("apache", True)
+    api_instance.ai.get_server_context.assert_called_once_with("apache", True)
+
+    api_instance.ai_get_available_models("gemini", "key", "url", "pro")
+    api_instance.ai.get_available_models.assert_called_once_with("gemini", "key", "url", "pro")
+
+    api_instance.ai_detect_account_tier("gemini", "key", "url")
+    api_instance.ai.detect_account_tier.assert_called_once_with("gemini", "key", "url")
+
+    api_instance.ai_get_action_states()
+    api_instance.ai.get_action_states.assert_called_once()
+
+    api_instance.ai_save_action_states({"msg_1:0": "success"})
+    api_instance.ai.save_action_states.assert_called_once_with({"msg_1:0": "success"})
+
+    api_instance.ai_get_usage_stats("gemini")
+    api_instance.ai.get_usage_stats.assert_called_once_with("gemini")
+
+    api_instance.ai_reset_usage_stats()
+    api_instance.ai.reset_usage_stats.assert_called_once()
+
+
+def test_emit_ai_chunk_evaluates_js(api_instance):
+    """Memastikan emit_ai_chunk mengevaluasi event vylo_ai_chunk ke window."""
+    mock_window = MagicMock()
+    api_instance.set_window(mock_window)
+
+    api_instance.emit_ai_chunk(
+        chunk="Hello",
+        is_done=True,
+        error="",
+        message_id="msg_1",
+        sources=[{"type": "system", "label": "Environment"}],
+        usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+    )
+
+    mock_window.evaluate_js.assert_called_once()
+    evaluated_js = mock_window.evaluate_js.call_args[0][0]
+    assert "vylo_ai_chunk" in evaluated_js
+    assert "Hello" in evaluated_js
+    assert "msg_1" in evaluated_js
+    assert "prompt_tokens" in evaluated_js
+    assert "Environment" in evaluated_js
+
+
 
 

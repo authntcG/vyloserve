@@ -728,3 +728,24 @@ def test_check_via_registry_handles_hklm_read_failure(runtimes_manager):
          patch('shutil.which', return_value="C:\\user\\path\\node.exe"):
         res = runtimes_manager._check_via_registry('node', 'c:\\vyloserve\\bin')
     assert res == "C:\\user\\path\\node.exe"
+
+# ==========================================
+# silent parameter tests
+# ==========================================
+
+def test_runtimes_check_external_installation_silent(runtimes_manager, mock_api):
+    with patch.object(runtimes_manager, '_check_via_where', return_value=None), \
+         patch.object(runtimes_manager, '_check_via_registry', return_value=None), \
+         patch.object(runtimes_manager, '_check_via_env', return_value=None):
+        res = runtimes_manager._check_external_installation("node", silent=True)
+        assert res["exists"] is False
+        mock_api.emit_log.assert_not_called()
+
+def test_runtimes_get_status_silent_suppresses_logs(runtimes_manager, mock_api):
+    with patch.object(runtimes_manager, '_get_engine_dir', return_value=None), \
+         patch.object(runtimes_manager, '_check_external_installation', return_value={"exists": False, "path": "", "version": ""}) as mock_check:
+        res = runtimes_manager.get_node_status(silent=True)
+        assert res["installed"] is False
+        mock_check.assert_called_once_with("node", silent=True)
+        mock_api.emit_log.assert_not_called()
+

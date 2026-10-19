@@ -309,3 +309,120 @@ def test_apply_window_titlebar_theme_handles_exceptions_gracefully():
         success = apply_window_titlebar_theme(12345, "vyloserve-dark")
         assert success is False
 
+
+# ==========================================
+# TESTS FOR USER PATH & EXTERNAL EXECUTABLE HELPERS
+# ==========================================
+
+def test_broadcast_environment_change_windows_success():
+    with patch('sys.platform', 'win32'), \
+         patch('ctypes.windll.user32.SendMessageTimeoutW', return_value=1) as mock_send:
+        from core.utils.system_utils import broadcast_environment_change
+        assert broadcast_environment_change() is True
+        mock_send.assert_called_once()
+
+
+def test_broadcast_environment_change_non_windows():
+    with patch('sys.platform', 'linux'):
+        from core.utils.system_utils import broadcast_environment_change
+        assert broadcast_environment_change() is False
+
+
+def test_broadcast_environment_change_exception():
+    with patch('sys.platform', 'win32'), \
+         patch('ctypes.windll.user32.SendMessageTimeoutW', side_effect=RuntimeError("Broadcast failed")):
+        from core.utils.system_utils import broadcast_environment_change
+        assert broadcast_environment_change() is False
+
+
+def test_get_user_path_entries_windows():
+    from core.utils.system_utils import get_user_path_entries
+    mock_key = MagicMock()
+    with patch('sys.platform', 'win32'), \
+         patch('winreg.OpenKey', return_value=mock_key), \
+         patch('winreg.QueryValueEx', return_value=(r'C:\tools;C:\bin', 1)):
+        entries = get_user_path_entries()
+        assert entries == [r'C:\tools', r'C:\bin']
+
+
+def test_get_user_path_entries_non_windows():
+    from core.utils.system_utils import get_user_path_entries
+    with patch('sys.platform', 'darwin'):
+        assert get_user_path_entries() == []
+
+
+def test_is_in_user_path():
+    from core.utils.system_utils import is_in_user_path
+    with patch('core.utils.system_utils.get_user_path_entries', return_value=[r'C:\tools', r'C:\vyloserve\bin']):
+        with patch('sys.platform', 'win32'):
+            assert is_in_user_path(r'C:\TOOLS') is True
+            assert is_in_user_path(r'C:\other') is False
+
+
+def test_modify_user_path_add_and_remove():
+    from core.utils.system_utils import modify_user_path
+    mock_key = MagicMock()
+    with patch('sys.platform', 'win32'), \
+         patch('winreg.OpenKey', return_value=mock_key), \
+         patch('winreg.QueryValueEx', return_value=(r'C:\tools;C:\old_php', 1)), \
+         patch('winreg.SetValueEx') as mock_set, \
+         patch('core.utils.system_utils.broadcast_environment_change') as mock_broadcast:
+        
+        # Add new and remove prefix
+        modified = modify_user_path(
+            add_paths=[r'C:\new_php'],
+            remove_prefix=r'C:\old',
+            auto_broadcast=True
+        )
+        assert modified is True
+        mock_set.assert_called_once()
+        new_path_val = mock_set.call_args[0][4]
+        assert r'C:\tools' in new_path_val
+        assert r'C:\old_php' not in new_path_val
+        assert r'C:\new_php' in new_path_val
+        mock_broadcast.assert_called_once()
+
+
+def test_modify_user_path_no_change():
+    from core.utils.system_utils import modify_user_path
+    mock_key = MagicMock()
+    with patch('sys.platform', 'win32'), \
+         patch('winreg.OpenKey', return_value=mock_key), \
+         patch('winreg.QueryValueEx', return_value=(r'C:\tools', 1)), \
+         patch('winreg.SetValueEx') as mock_set:
+        
+        # Adding already existing path
+        modified = modify_user_path(add_paths=[r'C:\tools'])
+        assert modified is False
+        mock_set.assert_not_called()
+
+
+def test_find_external_executable_via_where():
+    from core.utils.system_utils import find_external_executable, clear_external_exe_cache
+    clear_external_exe_cache()
+    mock_res = MagicMock()
+    mock_res.returncode = 0
+    mock_res.stdout = "C:\\Program Files\\Git\\bin\\git.exe\n"
+
+    with patch('sys.platform', 'win32'), \
+         patch('subprocess.run', return_value=mock_res):
+        exe = find_external_executable('git', vyloserve_bin='C:\\vyloserve\\bin')
+        assert exe == os.path.normpath("C:\\Program Files\\Git\\bin\\git.exe")
+
+
+def test_find_external_executable_ttl_cache():
+    from core.utils.system_utils import find_external_executable, clear_external_exe_cache
+    clear_external_exe_cache()
+    mock_res = MagicMock()
+    mock_res.returncode = 0
+    mock_res.stdout = "C:\\Tools\\node.exe\n"
+
+    with patch('sys.platform', 'win32'), \
+         patch('subprocess.run', return_value=mock_res) as mock_subp, \
+         patch('os.path.exists', return_value=True):
+        exe1 = find_external_executable('node', vyloserve_bin='C:\\vyloserve\\bin')
+        exe2 = find_external_executable('node', vyloserve_bin='C:\\vyloserve\\bin')
+        assert exe1 == exe2
+        assert mock_subp.call_count == 1  # Reused from cache!
+
+

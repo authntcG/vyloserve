@@ -158,6 +158,8 @@ class AppLifecycle:
         self.tray_icon = None
         self.ipc_listener = None
         self.is_real_exit = False
+        self._exit_in_progress = False
+        self._console_handler_ref = None
 
     def set_window(self, window):
         self.window = window
@@ -182,54 +184,95 @@ class AppLifecycle:
             except Exception as e:
                 print(f"[ERROR] Gagal memulihkan jendela: {e}")
 
+    def _cleanup_tray(self):
+        if not self.tray_icon:
+            return
+        try:
+            self.tray_icon.visible = False
+        except Exception:
+            pass
+        try:
+            self.tray_icon.stop()
+        except Exception:
+            pass
+        self.tray_icon = None
+
+    def _cleanup_ipc(self):
+        if not self.ipc_listener:
+            return
+        try:
+            self.ipc_listener.close()
+        except Exception:
+            pass
+        self.ipc_listener = None
+
+    def _stop_all_services(self):
+        for stop_func in (
+            lambda: self.api.stop_log_watcher(),
+            lambda: self.api.apache.stop_server(),
+            lambda: self.api.php.stop_all(),
+            lambda: self.api.database.stop_all(),
+        ):
+            try:
+                stop_func()
+            except Exception:
+                pass
+
+    def _cleanup_window(self):
+        if not self.window:
+            return
+        try:
+            self.window.destroy()
+        except Exception:
+            pass
+        self.window = None
+
     def perform_exit(self):
         """
         Mematikan semua engine (Apache/PHP/Database) sebelum benar-benar keluar,
         mencegah zombie process (httpd.exe/php-cgi.exe/mysqld.exe) tertinggal
         setelah aplikasi ditutup. Lihat docs/known_bugs.md #6.
         """
+        if getattr(self, '_exit_in_progress', False):
+            return
+        self._exit_in_progress = True
         self.is_real_exit = True
 
-        if self.ipc_listener:
-            try:
-                self.ipc_listener.close()
-            except Exception:
-                pass
+        try:
+            # 1. Nonaktifkan emit event UI agar proses shutdown tidak pernah terblokir oleh IPC webview
+            if hasattr(self.api, 'set_shutting_down'):
+                self.api.set_shutting_down()
 
-        try:
-            self.api.stop_log_watcher()
-        except Exception:
-            pass
-        try:
-            self.api.apache.stop_server()
-        except Exception:
-            pass
-        try:
-            self.api.php.stop_all()
-        except Exception:
-            pass
-        try:
-            self.api.database.stop_all()
-        except Exception:
-            pass
+            # 2. Hentikan System Tray terlebih dahulu agar ikon langsung hilang dari taskbar OS
+            self._cleanup_tray()
 
-        if self.tray_icon:
-            try:
-                self.tray_icon.stop()
-            except Exception:
-                pass
-        if self.window:
-            try:
-                self.window.destroy()
-            except Exception:
-                pass
-        os._exit(0)
+            # 3. Tutup IPC listener agar instance lain tidak mencoba berkomunikasi saat shutdown
+            self._cleanup_ipc()
+
+            # 4 & 5. Hentikan log watcher dan seluruh engine server (Apache/PHP/Database)
+            self._stop_all_services()
+
+            # 6. Hancurkan jendela GUI jika masih ada
+            self._cleanup_window()
+        finally:
+            os._exit(0)
 
     def on_closing(self):
         """
         Handler untuk event window.events.closing.
         Return True mengizinkan window benar-benar destroy, False membatalkannya.
         """
+        # Jika PyWebView mendeteksi sinyal interrupt (Ctrl+C), lakukan exit bersih
+        try:
+            wf = sys.modules.get('webview.platforms.winforms')
+            if wf is None:
+                import webview.platforms.winforms as wf
+            if getattr(wf, '_sigint_received', False):
+                self.perform_exit()
+                return True
+        except Exception:
+            pass
+
         # Tanpa tray aktif, hide-to-tray tidak berguna (tidak ada cara untuk
         # memunculkan window kembali) -- langsung tutup dan hancurkan aplikasi,
         # apa pun IS_PRODUCTION-nya.
@@ -299,10 +342,10 @@ def setup_systray(lifecycle: AppLifecycle, icon_path: str):
 
         # 3. Aksi: Exit Aplikasi
         # Memakai lifecycle.perform_exit() yang sama dengan tombol Quit di UI,
-        # agar engine Apache/PHP/Database tetap dimatikan dengan benar (bukan
-        # jalur pintas terpisah yang melewatkan cleanup, seperti sebelumnya).
+        # agar engine Apache/PHP/Database tetap dimatikan dengan benar.
+        # Dijalankan di thread daemon agar tidak memblokir message pump pystray.
         def on_exit_clicked(icon, menu_item):
-            lifecycle.perform_exit()
+            threading.Thread(target=lifecycle.perform_exit, daemon=True).start()
 
         # 4. Buat Menu
         menu = pystray.Menu(
@@ -328,6 +371,64 @@ def setup_systray(lifecycle: AppLifecycle, icon_path: str):
 
     except Exception as e:
         print(f"[FATAL TRAY ERROR] Gagal menginisialisasi System Tray: {e}")
+
+
+# --- SIGNAL & CONSOLE CONTROL HANDLER (CLEAN EXIT ON CTRL+C) ---
+def setup_signal_handlers(lifecycle: AppLifecycle):
+    """
+    Menangani Ctrl+C (SIGINT), SIGTERM, dan event konsol Windows (CTRL_C_EVENT,
+    CTRL_CLOSE_EVENT, dll.) agar ketika user menekan Ctrl+C di terminal/CMD
+    atau menutup jendela terminal, aplikasi mematikan seluruh engine dan
+    membersihkan ikon tray secara bersih sebelum proses keluar.
+    """
+    def _clean_exit(*_):
+        lifecycle.perform_exit()
+
+    import signal
+    try:
+        signal.signal(signal.SIGINT, _clean_exit)
+    except Exception:
+        pass
+    try:
+        signal.signal(signal.SIGTERM, _clean_exit)
+    except Exception:
+        pass
+    if hasattr(signal, 'SIGBREAK'):
+        try:
+            signal.signal(signal.SIGBREAK, _clean_exit)
+        except Exception:
+            pass
+
+    # Windows Console Control Handler (SetConsoleCtrlHandler)
+    if sys.platform == 'win32':
+        try:
+            handler_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_ulong)
+            def _console_ctrl_handler(ctrl_type: int) -> bool:
+                _clean_exit()
+                return True
+
+            _handler_ref = handler_type(_console_ctrl_handler)
+            ctypes.windll.kernel32.SetConsoleCtrlHandler(_handler_ref, True)
+            lifecycle._console_handler_ref = _handler_ref
+        except Exception:
+            pass
+
+    # Hook PyWebView's internal winforms _sigint_handler jika tersedia
+    try:
+        wf = sys.modules.get('webview.platforms.winforms')
+        if wf is None:
+            import webview.platforms.winforms as wf
+        _orig_wf_sigint = getattr(wf, '_sigint_handler', None)
+        def _hooked_wf_sigint(signum, frame):
+            if _orig_wf_sigint:
+                try:
+                    _orig_wf_sigint(signum, frame)
+                except Exception:
+                    pass
+            _clean_exit()
+        wf._sigint_handler = _hooked_wf_sigint
+    except Exception:
+        pass
 
 
 def main():
@@ -374,6 +475,9 @@ def main():
         # Start IPC server untuk menerima sinyal wake-up dari instance berikutnya
         start_ipc_server(lifecycle, IS_PRODUCTION)
 
+        # Setup sinyal dan Windows console event handler (Ctrl+C / terminal close)
+        setup_signal_handlers(lifecycle)
+
         # --- CEGAT EVENT TOMBOL CLOSE (X) ---
         window.events.closing += lifecycle.on_closing
 
@@ -402,10 +506,17 @@ def main():
         webview.start(debug=not IS_PRODUCTION, gui='edgechromium', icon=icon_path)
 
         print("[DEBUG] Aplikasi ditutup dengan normal.")
+        lifecycle.perform_exit()
 
+    except KeyboardInterrupt:
+        print("\n[INFO] KeyboardInterrupt (Ctrl+C) diterima. Menutup VyloServe...")
+        if 'lifecycle' in locals():
+            lifecycle.perform_exit()
     except Exception:
         print("[FATAL ERROR] Terjadi kesalahan saat menjalankan aplikasi:")
         traceback.print_exc()
+        if 'lifecycle' in locals():
+            lifecycle.perform_exit()
 
 
 if __name__ == '__main__':

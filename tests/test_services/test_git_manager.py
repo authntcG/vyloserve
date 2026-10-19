@@ -360,3 +360,26 @@ def test_set_git_config_handles_exception(git_manager):
     assert res['status'] == 'error'
     assert res['message'] == 'backend.git.config_error'
     assert res['args']['e'] == 'git.exe missing'
+
+# ==========================================
+# silent parameter tests
+# ==========================================
+
+def test_git_get_status_silent_suppresses_logs(git_manager, mock_api):
+    with patch.object(git_manager, '_find_via_where', return_value="C:\\Program Files\\Git\\cmd\\git.exe"), \
+         patch.object(git_manager, '_validate_git_binary', return_value={"exists": True, "version": "2.45.0", "path": "C:\\Program Files\\Git\\cmd\\git.exe"}), \
+         patch('os.path.exists', return_value=False):
+        res = git_manager.get_git_status(silent=True)
+        assert res['installed'] is False
+        assert res['external']['exists'] is True
+        mock_api.emit_log.assert_not_called()
+
+def test_git_get_status_non_silent_emits_logs(git_manager, mock_api):
+    with patch.object(git_manager, '_find_via_where', return_value=None), \
+         patch.object(git_manager, '_find_via_registry', return_value=None), \
+         patch.object(git_manager, '_find_via_hardcoded', return_value=None), \
+         patch('os.path.exists', return_value=False):
+        res = git_manager.get_git_status(silent=False)
+        assert res['installed'] is False
+        mock_api.emit_log.assert_any_call("backend.git.scanning_external", "info", None)
+

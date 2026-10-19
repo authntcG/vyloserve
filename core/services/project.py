@@ -155,21 +155,39 @@ class ProjectManager:
         return process_create.returncode == 0, error_log
 
 
+    @staticmethod
+    def _post_install_laravel(target_dir: str, php_exe: str, php_ini_path: str, custom_env: dict, cflags: int):
+        import shutil
+        env_example = os.path.join(target_dir, '.env.example')
+        env_file = os.path.join(target_dir, '.env')
+        if os.path.exists(env_example) and not os.path.exists(env_file):
+            shutil.copy(env_example, env_file)
+        try:
+            subprocess.run([php_exe, "-c", php_ini_path, "artisan", "key:generate"], cwd=target_dir, env=custom_env, creationflags=cflags)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _post_install_ci4(target_dir: str):
+        import shutil
+        env_source = os.path.join(target_dir, 'env')
+        env_file = os.path.join(target_dir, '.env')
+        if os.path.exists(env_source) and not os.path.exists(env_file):
+            shutil.copy(env_source, env_file)
+            try:
+                with open(env_file, 'r', encoding='utf-8') as f:
+                    env_content = f.read()
+                with open(env_file, 'w', encoding='utf-8') as f:
+                    f.write(env_content.replace('# CI_ENVIRONMENT = production', 'CI_ENVIRONMENT = development'))
+            except Exception:
+                pass
+
     def _run_framework_post_install(self, framework: str, target_dir: str, php_exe: str, php_ini_path: str, custom_env: dict, cflags: int, is_ci3: bool):
         self._log("backend.project.running_post_install", "info")
-        import shutil
         if framework == 'laravel':
-            if os.path.exists(os.path.join(target_dir, '.env.example')) and not os.path.exists(os.path.join(target_dir, '.env')):
-                shutil.copy(os.path.join(target_dir, '.env.example'), os.path.join(target_dir, '.env'))
-            try: subprocess.run([php_exe, "-c", php_ini_path, "artisan", "key:generate"], cwd=target_dir, env=custom_env, creationflags=cflags)
-            except Exception: pass
+            self._post_install_laravel(target_dir, php_exe, php_ini_path, custom_env, cflags)
         elif framework == 'codeigniter' and not is_ci3:
-            if os.path.exists(os.path.join(target_dir, 'env')) and not os.path.exists(os.path.join(target_dir, '.env')):
-                shutil.copy(os.path.join(target_dir, 'env'), os.path.join(target_dir, '.env'))
-                try:
-                    with open(os.path.join(target_dir, '.env'), 'r', encoding='utf-8') as f: env_content = f.read()
-                    with open(os.path.join(target_dir, '.env'), 'w', encoding='utf-8') as f: f.write(env_content.replace('# CI_ENVIRONMENT = production', 'CI_ENVIRONMENT = development'))
-                except Exception: pass
+            self._post_install_ci4(target_dir)
 
     def _install_wordpress(self, target_dir: str) -> dict:
         import zipfile
