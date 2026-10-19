@@ -1,9 +1,9 @@
-import { describe, it, expect } from 'vitest';
+﻿import { describe, it, expect } from 'vitest';
 import { useEffect } from 'react';
 import userEvent from '@testing-library/user-event';
 import { screen, waitFor, within } from '@testing-library/react';
 import { renderWithToast } from '../test-utils';
-import { useToast } from '../../src/components/ToastContext';
+import { useToast } from '../../src/context/ToastContext';
 import NotificationBell from '../../src/components/NotificationBell';
 
 function ToastTrigger({ messages }: { readonly messages: ReadonlyArray<{ message: string; type: 'success' | 'error' | 'warning' | 'info' }> }) {

@@ -1,7 +1,7 @@
 import { vi } from 'vitest';
 import type { ReactElement } from 'react';
 import { render, type RenderOptions } from '@testing-library/react';
-import { ToastProvider } from '../src/components/ToastContext';
+import { ToastProvider } from '../src/context/ToastContext';
 
 /**
  * Helper bersama dipakai di SELURUH file test frontend. Sengaja disentralkan
@@ -52,7 +52,7 @@ export function dispatchAppEvent(name: string, detail: Record<string, unknown> =
 }
 
 /** Render dibungkus ToastProvider, untuk komponen yang memanggil useToast(). */
-import { AlertProvider } from '../src/components/AlertContext';
+import { AlertProvider } from '../src/context/AlertContext';
 
 export function renderWithToast(ui: ReactElement, options?: Omit<RenderOptions, 'wrapper'>) {
     const Wrapper = ({ children }: { children: React.ReactNode }) => (

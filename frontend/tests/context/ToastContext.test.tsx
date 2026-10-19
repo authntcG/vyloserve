@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useEffect } from 'react';
 import userEvent from '@testing-library/user-event';
 import { act, render, screen, waitFor, mockPywebviewApi, resetPywebviewApi } from '../test-utils';
-import { useToast, ToastProvider } from '../../src/components/ToastContext';
+import { useToast, ToastProvider } from '../../src/context/ToastContext';
 
 function ToastTrigger({ message, type }: { readonly message: string; readonly type: 'success' | 'error' | 'warning' | 'info' }) {
     const { showToast } = useToast();

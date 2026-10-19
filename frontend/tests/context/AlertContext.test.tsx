@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { AlertProvider, useAlert } from '../../src/components/AlertContext';
+import { AlertProvider, useAlert } from '../../src/context/AlertContext';
 
 // Mock Modal component to simply render its content since it relies on i18next and complex DOM
 vi.mock('../../src/components/Modal', () => {
