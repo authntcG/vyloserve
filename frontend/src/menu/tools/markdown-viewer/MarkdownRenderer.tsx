@@ -1,4 +1,4 @@
-import { useEffect, useState, useContext, createContext, useMemo, isValidElement, type ReactNode } from 'react';
+import { useEffect, useState, useContext, createContext, useMemo, isValidElement, Children, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import mermaid from 'mermaid';
@@ -37,6 +37,219 @@ const MarkdownContext = createContext<MarkdownContextValue>({
     rootPath: '',
     readerTheme: 'light',
 });
+
+interface AdmonitionStyle {
+    readonly icon: string;
+    readonly defaultTitle: string;
+    readonly lightBox: string;
+    readonly darkBox: string;
+    readonly lightHeader: string;
+    readonly darkHeader: string;
+}
+
+const ADMONITION_STYLES: Record<string, AdmonitionStyle> = {
+    tip: {
+        icon: 'lightbulb',
+        defaultTitle: 'Tip',
+        lightBox: 'border-emerald-500 bg-emerald-50/70 text-slate-800',
+        darkBox: 'border-emerald-500/80 bg-emerald-950/30 text-slate-200',
+        lightHeader: 'text-emerald-700',
+        darkHeader: 'text-emerald-400',
+    },
+    success: {
+        icon: 'check_circle',
+        defaultTitle: 'Success',
+        lightBox: 'border-emerald-500 bg-emerald-50/70 text-slate-800',
+        darkBox: 'border-emerald-500/80 bg-emerald-950/30 text-slate-200',
+        lightHeader: 'text-emerald-700',
+        darkHeader: 'text-emerald-400',
+    },
+    note: {
+        icon: 'info',
+        defaultTitle: 'Note',
+        lightBox: 'border-sky-500 bg-sky-50/70 text-slate-800',
+        darkBox: 'border-sky-500/80 bg-sky-950/30 text-slate-200',
+        lightHeader: 'text-sky-700',
+        darkHeader: 'text-sky-400',
+    },
+    important: {
+        icon: 'priority_high',
+        defaultTitle: 'Important',
+        lightBox: 'border-violet-500 bg-violet-50/70 text-slate-800',
+        darkBox: 'border-violet-500/80 bg-violet-950/30 text-slate-200',
+        lightHeader: 'text-violet-700',
+        darkHeader: 'text-violet-400',
+    },
+    warning: {
+        icon: 'warning',
+        defaultTitle: 'Warning',
+        lightBox: 'border-amber-500 bg-amber-50/70 text-slate-800',
+        darkBox: 'border-amber-500/80 bg-amber-950/30 text-slate-200',
+        lightHeader: 'text-amber-700',
+        darkHeader: 'text-amber-400',
+    },
+    danger: {
+        icon: 'error',
+        defaultTitle: 'Danger',
+        lightBox: 'border-rose-500 bg-rose-50/70 text-slate-800',
+        darkBox: 'border-rose-500/80 bg-rose-950/30 text-slate-200',
+        lightHeader: 'text-rose-700',
+        darkHeader: 'text-rose-400',
+    },
+};
+
+const ADMONITION_TYPE_ALIASES: Record<string, keyof typeof ADMONITION_STYLES> = {
+    tip: 'tip',
+    hint: 'tip',
+    success: 'success',
+    check: 'success',
+    done: 'success',
+    note: 'note',
+    info: 'note',
+    todo: 'note',
+    abstract: 'note',
+    summary: 'note',
+    important: 'important',
+    question: 'important',
+    help: 'important',
+    faq: 'important',
+    example: 'important',
+    warning: 'warning',
+    caution: 'warning',
+    attention: 'warning',
+    danger: 'danger',
+    error: 'danger',
+    failure: 'danger',
+    fail: 'danger',
+    bug: 'danger',
+};
+
+function resolveAdmonitionStyle(rawType: string): AdmonitionStyle {
+    const normalized = rawType.toLowerCase();
+    const key = ADMONITION_TYPE_ALIASES[normalized] || 'note';
+    return ADMONITION_STYLES[key];
+}
+
+function parseMkDocsHeader(line: string): { type: string; title: string } | null {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('!!! ') && !trimmed.startsWith('??? ') && !trimmed.startsWith('???+ ')) {
+        return null;
+    }
+    const rest = trimmed.replace(/^(?:!!!|\?\?\?\+?)\s+/, '');
+    const spaceIdx = rest.indexOf(' ');
+    if (spaceIdx === -1) {
+        return rest ? { type: rest.toLowerCase(), title: '' } : null;
+    }
+    const type = rest.slice(0, spaceIdx).toLowerCase();
+    let title = rest.slice(spaceIdx + 1).trim();
+    if ((title.startsWith('"') && title.endsWith('"')) || (title.startsWith("'") && title.endsWith("'"))) {
+        title = title.slice(1, -1);
+    }
+    return { type, title };
+}
+
+function parseGitHubAlertHeader(line: string): { type: string; title: string } | null {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('>')) return null;
+    const afterQuote = trimmed.slice(1).trimStart();
+    if (!afterQuote.startsWith('[!')) return null;
+    const closeIdx = afterQuote.indexOf(']');
+    if (closeIdx <= 2) return null;
+    const rawType = afterQuote.slice(2, closeIdx);
+    if (!/^[a-zA-Z]+$/.test(rawType)) return null;
+    const title = afterQuote.slice(closeIdx + 1).trim();
+    return {
+        type: rawType.toLowerCase(),
+        title,
+    };
+}
+
+function stripIndentUnit(line: string): string {
+    if (line.startsWith('\t')) return line.slice(1);
+    if (line.startsWith('    ')) return line.slice(4);
+    if (line.startsWith('  ')) return line.slice(2);
+    return line;
+}
+
+function isIndentedOrBlankNext(lines: string[], index: number): boolean {
+    const line = lines[index];
+    if (line.startsWith('    ') || line.startsWith('  ') || line.startsWith('\t')) {
+        return true;
+    }
+    if (line.trim() === '') {
+        // Keep blank line inside admonition if a subsequent line is still indented
+        for (let k = index + 1; k < lines.length; k++) {
+            if (lines[k].trim() === '') continue;
+            return lines[k].startsWith('    ') || lines[k].startsWith('  ') || lines[k].startsWith('\t');
+        }
+    }
+    return false;
+}
+
+function updateFenceState(trimmed: string, currentFence: string): { isFenceLine: boolean; nextFence: string } {
+    if (!trimmed.startsWith('```') && !trimmed.startsWith('~~~')) {
+        return { isFenceLine: false, nextFence: currentFence };
+    }
+    const marker = trimmed.slice(0, 3);
+    if (!currentFence) {
+        return { isFenceLine: true, nextFence: marker };
+    }
+    return {
+        isFenceLine: true,
+        nextFence: marker === currentFence ? '' : currentFence,
+    };
+}
+
+function consumeMkDocsBlock(
+    lines: string[],
+    startIdx: number,
+    header: { type: string; title: string },
+    out: string[]
+): number {
+    out.push(`> [!ADMONITION:${header.type}:${header.title}]`, '>');
+    let idx = startIdx + 1;
+    while (idx < lines.length && isIndentedOrBlankNext(lines, idx)) {
+        const bodyLine = stripIndentUnit(lines[idx]);
+        out.push(bodyLine ? `> ${bodyLine}` : '>');
+        idx += 1;
+    }
+    out.push('');
+    return idx;
+}
+
+export function preprocessAdmonitions(markdown: string): string {
+    if (!markdown) return '';
+    const lines = markdown.replaceAll('\r\n', '\n').split('\n');
+    const out: string[] = [];
+    let fenceMarker = '';
+    let i = 0;
+
+    while (i < lines.length) {
+        const line = lines[i];
+        const fence = updateFenceState(line.trimStart(), fenceMarker);
+        fenceMarker = fence.nextFence;
+
+        if (!fence.isFenceLine && !fenceMarker) {
+            const mkHeader = parseMkDocsHeader(line);
+            if (mkHeader) {
+                i = consumeMkDocsBlock(lines, i, mkHeader, out);
+                continue;
+            }
+
+            const ghHeader = parseGitHubAlertHeader(line);
+            if (ghHeader) {
+                out.push(`> [!ADMONITION:${ghHeader.type}:${ghHeader.title}]`, '>');
+                i += 1;
+                continue;
+            }
+        }
+
+        out.push(line);
+        i += 1;
+    }
+
+    return out.join('\n');
+}
 
 interface MermaidBlockProps {
     readonly code: string;
@@ -112,6 +325,46 @@ function extractNodeText(node: ReactNode): string {
     return '';
 }
 
+function MarkdownBlockquote({ node, children, ...props }: any) {
+    const { readerTheme } = useContext(MarkdownContext);
+    const childArray = Children.toArray(children);
+
+    const firstElementIdx = childArray.findIndex((child) => isValidElement(child));
+    if (firstElementIdx !== -1) {
+        const firstElementText = extractNodeText(childArray[firstElementIdx]).trim();
+        const markerMatch = /^\[!ADMONITION:([a-zA-Z0-9_-]+):(.*)\]$/.exec(firstElementText);
+        if (markerMatch) {
+            const rawType = markerMatch[1];
+            const customTitle = markerMatch[2].trim();
+            const style = resolveAdmonitionStyle(rawType);
+            const displayTitle = customTitle || style.defaultTitle;
+            const bodyChildren = childArray.filter((_, idx) => idx !== firstElementIdx);
+            const isDark = readerTheme === 'dark';
+
+            return (
+                <div
+                    role="note"
+                    className={`my-4 rounded-r-xl border-l-4 p-4 shadow-xs not-prose ${isDark ? style.darkBox : style.lightBox}`}
+                >
+                    <div className={`flex items-center gap-2 font-semibold text-sm mb-1.5 ${isDark ? style.darkHeader : style.lightHeader}`}>
+                        <span className="material-symbols-outlined text-[18px] shrink-0">
+                            {style.icon}
+                        </span>
+                        <span>{displayTitle}</span>
+                    </div>
+                    {bodyChildren.length > 0 && (
+                        <div className={`prose prose-sm max-w-none prose-p:my-1.5 prose-ul:my-1.5 prose-ol:my-1.5 ${isDark ? 'prose-invert text-slate-200' : 'text-slate-700'}`}>
+                            {bodyChildren}
+                        </div>
+                    )}
+                </div>
+            );
+        }
+    }
+
+    return <blockquote {...props}>{children}</blockquote>;
+}
+
 interface CodeBlockProps {
     readonly inline?: boolean;
     readonly className?: string;
@@ -156,7 +409,7 @@ function ImageRenderer({ src, alt, ...props }: ImageRendererProps) {
         const fetchLocalMedia = async () => {
             try {
                 // Resolve path manually (assuming relative to rootPath or absolute)
-                const isAbsolute = Boolean(/^([a-zA-Z]:[\\/]|[/\\\\])/.test(src));
+                const isAbsolute = Boolean(/^([a-zA-Z]:[\\/]|[\\/])/.test(src));
                 const absolutePath = isAbsolute ? src : `${rootPath}/${src}`.replaceAll('//', '/');
                 
                 const res = await (window as any).pywebview.api.md_get_media(absolutePath);
@@ -241,6 +494,7 @@ function MarkdownLink({ node, href, children, ...props }: any) {
 }
 
 const MARKDOWN_COMPONENTS = {
+    blockquote: MarkdownBlockquote,
     code: CodeBlock,
     img: ImageRenderer,
     table: MarkdownTable,
@@ -271,6 +525,8 @@ export default function MarkdownRenderer({ content, rootPath, readerTheme, onLin
         [rootPath, readerTheme, onLinkClick]
     );
 
+    const processedContent = useMemo(() => preprocessAdmonitions(content), [content]);
+
     return (
         <MarkdownContext.Provider value={contextValue}>
             <div className={`prose prose-slate max-w-none break-words prose-headings:font-semibold prose-a:text-primary hover:prose-a:text-primary/80 prose-img:m-0 ${readerTheme === 'dark' ? 'prose-invert' : ''}`}>
@@ -278,9 +534,10 @@ export default function MarkdownRenderer({ content, rootPath, readerTheme, onLin
                     remarkPlugins={REMARK_PLUGINS}
                     components={MARKDOWN_COMPONENTS}
                 >
-                    {content}
+                    {processedContent}
                 </ReactMarkdown>
             </div>
         </MarkdownContext.Provider>
     );
 }
+

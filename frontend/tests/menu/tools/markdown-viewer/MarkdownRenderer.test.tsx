@@ -181,4 +181,74 @@ const x = 10;
 
         expect(fetchMock).not.toHaveBeenCalled();
     });
+
+    it('renders MkDocs admonitions (!!! tip, !!! note, !!! warning) as styled callouts in light and dark themes', () => {
+        const content = `
+!!! tip "Tips Cepat"
+    Gunakan **FastCGI** untuk performa optimal.
+
+    Baris kedua di dalam tip.
+
+!!! note
+    Catatan tanpa judul kustom.
+
+!!! warning 'Peringatan Penting'
+\tJangan hapus folder konfigurasi.
+`;
+        const { unmount } = render(
+            <MarkdownRenderer
+                content={content}
+                rootPath="/test/root"
+                readerTheme="light"
+            />
+        );
+
+        const callouts = screen.getAllByRole('note');
+        expect(callouts).toHaveLength(3);
+        expect(screen.getByText('Tips Cepat')).toBeInTheDocument();
+        expect(screen.getByText('FastCGI')).toBeInTheDocument();
+        expect(screen.getByText('Baris kedua di dalam tip.')).toBeInTheDocument();
+        expect(screen.getByText('Note')).toBeInTheDocument();
+        expect(screen.getByText('Catatan tanpa judul kustom.')).toBeInTheDocument();
+        expect(screen.getByText('Peringatan Penting')).toBeInTheDocument();
+        expect(screen.getByText('Jangan hapus folder konfigurasi.')).toBeInTheDocument();
+        unmount();
+
+        render(
+            <MarkdownRenderer
+                content={content}
+                rootPath="/test/root"
+                readerTheme="dark"
+            />
+        );
+        expect(screen.getAllByRole('note')).toHaveLength(3);
+    });
+
+    it('renders GitHub Alerts (> [!NOTE], > [!WARNING]) and preserves normal blockquotes and fenced code blocks', () => {
+        const content = `
+> [!IMPORTANT]
+> Backup data sebelum upgrade.
+
+> Kutipan blockquote standar biasa.
+
+\`\`\`markdown
+!!! tip "Ini di dalam blok kode"
+    Harus tetap menjadi kode mentah
+\`\`\`
+`;
+        render(
+            <MarkdownRenderer
+                content={content}
+                rootPath="/test/root"
+                readerTheme="light"
+            />
+        );
+
+        const callouts = screen.getAllByRole('note');
+        expect(callouts).toHaveLength(1);
+        expect(screen.getByText('Important')).toBeInTheDocument();
+        expect(screen.getByText('Backup data sebelum upgrade.')).toBeInTheDocument();
+        expect(screen.getByText('Kutipan blockquote standar biasa.')).toBeInTheDocument();
+        expect(screen.getByText(/Ini di dalam blok kode/)).toBeInTheDocument();
+    });
 });

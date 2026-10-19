@@ -162,4 +162,104 @@ describe('MarkdownViewerMain', () => {
             expect(screen.getByText('tools.docs_reader.no_folder_desc')).toBeInTheDocument();
         });
     });
+
+    it('refreshes the directory tree and preserves selected file if it still exists', async () => {
+        const user = userEvent.setup();
+
+        mockApi.md_select_directory.mockResolvedValue({ status: 'success', data: '/path/to/docs' });
+        mockApi.md_get_tree.mockResolvedValueOnce({
+            status: 'success',
+            data: [
+                {
+                    name: 'guides',
+                    path: '/path/to/docs/guides',
+                    type: 'dir',
+                    children: [
+                        { name: 'guide1.md', path: '/path/to/docs/guides/guide1.md', type: 'file' },
+                    ],
+                },
+            ],
+        });
+        mockApi.md_read_file.mockResolvedValue({ status: 'success', data: '# Guide 1 Content' });
+
+        renderWithToast(<MarkdownViewerMain />);
+
+        await user.click(screen.getAllByText('tools.docs_reader.btn_select')[0]);
+
+        await waitFor(() => {
+            expect(screen.getByText('guide1.md')).toBeInTheDocument();
+        });
+
+        await user.click(screen.getByText('guide1.md'));
+
+        await waitFor(() => {
+            expect(screen.getByText('Guide 1 Content')).toBeInTheDocument();
+        });
+
+        // Simulate adding a new file in the directory and clicking Refresh
+        mockApi.md_get_tree.mockResolvedValueOnce({
+            status: 'success',
+            data: [
+                {
+                    name: 'guides',
+                    path: '/path/to/docs/guides',
+                    type: 'dir',
+                    children: [
+                        { name: 'guide1.md', path: '/path/to/docs/guides/guide1.md', type: 'file' },
+                        { name: 'guide2.md', path: '/path/to/docs/guides/guide2.md', type: 'file' },
+                    ],
+                },
+            ],
+        });
+
+        const refreshBtn = screen.getByRole('button', { name: 'tools.docs_reader.refresh_tree' });
+        await user.click(refreshBtn);
+
+        await waitFor(() => {
+            expect(mockApi.md_get_tree).toHaveBeenCalledTimes(2);
+            expect(screen.getByText('guide2.md')).toBeInTheDocument();
+        });
+
+        // Selected file content remains displayed
+        expect(screen.getByText('Guide 1 Content')).toBeInTheDocument();
+    });
+
+    it('falls back to default file or empty preview when selected file is removed after refresh', async () => {
+        const user = userEvent.setup();
+
+        mockApi.md_select_directory.mockResolvedValue({ status: 'success', data: '/path/to/docs' });
+        mockApi.md_get_tree.mockResolvedValueOnce({
+            status: 'success',
+            data: [
+                { name: 'old.md', path: '/path/to/docs/old.md', type: 'file' },
+            ],
+        });
+        mockApi.md_read_file
+            .mockResolvedValueOnce({ status: 'success', data: '# Old File' })
+            .mockResolvedValueOnce({ status: 'success', data: '# New Index' });
+
+        renderWithToast(<MarkdownViewerMain />);
+
+        await user.click(screen.getAllByText('tools.docs_reader.btn_select')[0]);
+        await waitFor(() => expect(screen.getByText('old.md')).toBeInTheDocument());
+
+        await user.click(screen.getByText('old.md'));
+        await waitFor(() => expect(screen.getByText('Old File')).toBeInTheDocument());
+
+        // Simulate old.md removed and index.md added on refresh
+        mockApi.md_get_tree.mockResolvedValueOnce({
+            status: 'success',
+            data: [
+                { name: 'index.md', path: '/path/to/docs/index.md', type: 'file' },
+            ],
+        });
+
+        const refreshBtn = screen.getByRole('button', { name: 'tools.docs_reader.refresh_tree' });
+        await user.click(refreshBtn);
+
+        await waitFor(() => {
+            expect(screen.getByText('index.md')).toBeInTheDocument();
+            expect(screen.getByText('New Index')).toBeInTheDocument();
+        });
+    });
 });

@@ -234,6 +234,7 @@ def test_get_available_node_versions_exception(runtimes_manager):
 # 239-248
 def test_finalize_node_install(runtimes_manager):
     with patch('os.rename') as mock_rename, \
+         patch('os.makedirs'), \
          patch('os.path.exists', return_value=True), \
          patch('shutil.rmtree'), \
          patch('core.services.runtimes_manager.run_silent_command') as mock_run_silent:

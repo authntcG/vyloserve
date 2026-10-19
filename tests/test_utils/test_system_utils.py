@@ -267,10 +267,16 @@ def test_apply_window_titlebar_theme_non_windows():
 
 
 def test_apply_window_titlebar_theme_invalid_hwnd():
-    """Jika HWND tidak valid (0 atau None), harus mengembalikan False."""
-    with patch('sys.platform', 'win32'):
+    """Jika HWND tidak valid (0, negatif, bool, atau None), harus mengembalikan False tanpa memanggil Win32 API."""
+    with patch('sys.platform', 'win32'), \
+         patch('ctypes.windll.user32.FindWindowW') as mock_find, \
+         patch('ctypes.windll.dwmapi.DwmSetWindowAttribute') as mock_dwm:
         assert apply_window_titlebar_theme(None, "vyloserve-dark") is False
         assert apply_window_titlebar_theme(0, "vyloserve-dark") is False
+        assert apply_window_titlebar_theme(-1, "vyloserve-dark") is False
+        assert apply_window_titlebar_theme(False, "vyloserve-dark") is False
+        mock_find.assert_not_called()
+        mock_dwm.assert_not_called()
 
 
 def test_apply_window_titlebar_theme_success():

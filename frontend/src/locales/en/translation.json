@@ -880,7 +880,8 @@
             "render_error": "Failed to render diagram",
             "broken_image": "Broken Image",
             "switch_dark": "Switch to Dark Mode",
-            "switch_light": "Switch to Light Mode"
+            "switch_light": "Switch to Light Mode",
+            "refresh_tree": "Refresh Directory"
         }
     },
     "components": {

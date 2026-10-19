@@ -880,7 +880,8 @@
             "render_error": "Gagal merender diagram",
             "broken_image": "Gambar Rusak",
             "switch_dark": "Ganti ke Mode Gelap",
-            "switch_light": "Ganti ke Mode Terang"
+            "switch_light": "Ganti ke Mode Terang",
+            "refresh_tree": "Muat Ulang Direktori"
         }
     },
     "components": {

@@ -256,6 +256,129 @@ async function testAiProviderConnection(
     }
 }
 
+function resolveCurrentModels(
+    provider: string,
+    localModels: Record<string, Array<{ value: string; label: string }>>,
+    availableModels: Array<{ value: string; label: string }>
+): Array<{ value: string; label: string }> {
+    if (localModels[provider]) return localModels[provider];
+    if (provider === 'gemini' && availableModels.length > 0) return availableModels;
+    return PROVIDER_MODELS[provider] || [];
+}
+
+interface AiTabCredentialsSectionProps {
+    readonly provider: string;
+    readonly apiKey: string;
+    readonly showKey: boolean;
+    readonly baseUrl: string;
+    readonly isTierLoading: boolean;
+    readonly accountTier: string;
+    readonly onApiKeyChange: (val: string) => void;
+    readonly onApiKeyBlur: () => void;
+    readonly onToggleShowKey: () => void;
+    readonly onBaseUrlChange: (val: string) => void;
+    readonly onBaseUrlBlur: () => void;
+}
+
+function AiTabCredentialsSection({
+    provider,
+    apiKey,
+    showKey,
+    baseUrl,
+    isTierLoading,
+    accountTier,
+    onApiKeyChange,
+    onApiKeyBlur,
+    onToggleShowKey,
+    onBaseUrlChange,
+    onBaseUrlBlur,
+}: AiTabCredentialsSectionProps) {
+    const { t } = useTranslation();
+
+    if (provider === 'ollama') {
+        return (
+            <div>
+                <label htmlFor="ai-base-url-input" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                    {t('settings.ai_base_url', 'API Base URL')}
+                </label>
+                <input
+                    id="ai-base-url-input"
+                    type="text"
+                    value={baseUrl}
+                    onChange={(e) => onBaseUrlChange(e.target.value)}
+                    onBlur={onBaseUrlBlur}
+                    placeholder="http://localhost:11434/v1"
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/40 font-mono"
+                />
+                <div className="mt-1.5 flex items-center justify-between flex-wrap gap-2">
+                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                        {t('settings.ai_base_url_desc', 'Custom endpoint (e.g. for Ollama)')}
+                    </span>
+                    <div>
+                        <AiAccountTierBadge
+                            isLoading={isTierLoading}
+                            accountTier={accountTier}
+                        />
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div>
+            <div className="flex items-center justify-between mb-1.5">
+                <label htmlFor="ai-api-key-input" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                    {t('settings.ai_api_key', 'API Key')}
+                </label>
+                {PROVIDER_KEY_URLS[provider] && (
+                    <a
+                        href={PROVIDER_KEY_URLS[provider]}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs text-primary hover:underline flex items-center gap-1"
+                    >
+                        <span>{t('settings.ai_api_key_get_free', 'Get Free Key')}</span>
+                        <span className="material-symbols-outlined text-[13px]">open_in_new</span>
+                    </a>
+                )}
+            </div>
+            <div className="relative">
+                <input
+                    id="ai-api-key-input"
+                    type={showKey ? 'text' : 'password'}
+                    value={apiKey}
+                    onChange={(e) => onApiKeyChange(e.target.value)}
+                    onBlur={onApiKeyBlur}
+                    placeholder="sk-..."
+                    className="w-full pl-3 pr-10 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/40 font-mono"
+                />
+                <button
+                    type="button"
+                    onClick={onToggleShowKey}
+                    aria-label="Toggle password visibility"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                >
+                    <span className="material-symbols-outlined text-[18px]">
+                        {showKey ? 'visibility_off' : 'visibility'}
+                    </span>
+                </button>
+            </div>
+            <div className="mt-1.5 flex items-center justify-between flex-wrap gap-2">
+                <span className="text-xs text-slate-500 dark:text-slate-400">
+                    {t('settings.ai_api_key_desc', 'Stored locally on your machine')}
+                </span>
+                <div>
+                    <AiAccountTierBadge
+                        isLoading={isTierLoading}
+                        accountTier={accountTier}
+                    />
+                </div>
+            </div>
+        </div>
+    );
+}
+
 export default function AiTabContent() {
     const { t } = useTranslation();
     const { confirm } = useAlert();
@@ -278,6 +401,16 @@ export default function AiTabContent() {
     const [isFetchingModels, setIsFetchingModels] = useState(false);
     const [localModels, setLocalModels] = useState<Record<string, Array<{ value: string; label: string }>>>({});
     const [testResult, setTestResult] = useState<{ status: 'success' | 'error'; message: string } | null>(null);
+
+    const syncProviderModels = (prov: string, key: string, url: string, silent: boolean) => {
+        fetchAvailableModels(prov, key, url, silent)
+            .then((m) => {
+                if (m && m.length > 0) {
+                    setLocalModels((prev) => ({ ...prev, [prov]: m }));
+                }
+            })
+            .catch(() => {});
+    };
 
     useEffect(() => {
         const api = (window as any).pywebview?.api;
@@ -302,13 +435,7 @@ export default function AiTabContent() {
             }
 
             if (parsed.shouldFetchModels) {
-                fetchAvailableModels(parsed.provider, parsed.apiKey, parsed.baseUrl, true)
-                    .then((m) => {
-                        if (m && m.length > 0) {
-                            setLocalModels((prev) => ({ ...prev, [parsed.provider]: m }));
-                        }
-                    })
-                    .catch(() => {});
+                syncProviderModels(parsed.provider, parsed.apiKey, parsed.baseUrl, true);
             }
         });
     }, [fetchAvailableModels]);
@@ -341,11 +468,7 @@ export default function AiTabContent() {
         saveSettings({ ai_provider: newProv, ai_model: defaultForProv });
 
         if (newProv === 'openrouter' || newProv === 'ollama' || apiKey?.trim()) {
-            fetchAvailableModels(newProv, apiKey, baseUrl, true).then((m) => {
-                if (m && m.length > 0) {
-                    setLocalModels((prev) => ({ ...prev, [newProv]: m }));
-                }
-            }).catch(() => {});
+            syncProviderModels(newProv, apiKey, baseUrl, true);
         }
     };
 
@@ -453,13 +576,14 @@ export default function AiTabContent() {
         { value: 'ollama', label: t('settings.ai_provider_ollama', 'Ollama (Local Offline)') },
     ];
 
-    const currentModels = localModels[provider] || (provider === 'gemini' && availableModels.length > 0 ? availableModels : (PROVIDER_MODELS[provider] || []));
+    const currentModels = resolveCurrentModels(provider, localModels, availableModels);
     const modelOptions = [
         ...currentModels,
         { value: '__custom__', label: t('ai.custom_model', 'Custom Model...') }
     ];
 
     const isModelDisabled = (provider === 'gemini' || provider === 'groq') && (!apiKey.trim() || accountTier === 'invalid');
+    const isBusyModels = isFetchingModels || isLoadingModels || isCheckingTier;
 
     return (
         <div className="flex flex-col gap-6 w-full max-w-2xl p-6 md:p-8">
@@ -497,85 +621,19 @@ export default function AiTabContent() {
                 </div>
 
                 {/* 2. API KEY OR BASE URL (WITH TIER BADGE) */}
-                {provider !== 'ollama' ? (
-                    <div>
-                        <div className="flex items-center justify-between mb-1.5">
-                            <label htmlFor="ai-api-key-input" className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                                {t('settings.ai_api_key', 'API Key')}
-                            </label>
-                            {PROVIDER_KEY_URLS[provider] && (
-                                <a
-                                    href={PROVIDER_KEY_URLS[provider]}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="text-xs text-primary hover:underline flex items-center gap-1"
-                                >
-                                    <span>{t('settings.ai_api_key_get_free', 'Get Free Key')}</span>
-                                    <span className="material-symbols-outlined text-[13px]">open_in_new</span>
-                                </a>
-                            )}
-                        </div>
-                        <div className="relative">
-                            <input
-                                id="ai-api-key-input"
-                                type={showKey ? 'text' : 'password'}
-                                value={apiKey}
-                                onChange={(e) => setApiKey(e.target.value)}
-                                onBlur={handleApiKeyBlur}
-                                placeholder="sk-..."
-                                className="w-full pl-3 pr-10 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/40 font-mono"
-                            />
-                            <button
-                                type="button"
-                                onClick={() => setShowKey(!showKey)}
-                                aria-label="Toggle password visibility"
-                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                            >
-                                <span className="material-symbols-outlined text-[18px]">
-                                    {showKey ? 'visibility_off' : 'visibility'}
-                                </span>
-                            </button>
-                        </div>
-                        <div className="mt-1.5 flex items-center justify-between flex-wrap gap-2">
-                            <span className="text-xs text-slate-500 dark:text-slate-400">
-                                {t('settings.ai_api_key_desc', 'Stored locally on your machine')}
-                            </span>
-                            {/* TIER STATUS BADGE */}
-                            <div>
-                                <AiAccountTierBadge
-                                    isLoading={isCheckingTier || isFetchingModels || isLoadingModels}
-                                    accountTier={accountTier}
-                                />
-                            </div>
-                        </div>
-                    </div>
-                ) : (
-                    <div>
-                        <label htmlFor="ai-base-url-input" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                            {t('settings.ai_base_url', 'API Base URL')}
-                        </label>
-                        <input
-                            id="ai-base-url-input"
-                            type="text"
-                            value={baseUrl}
-                            onChange={(e) => setBaseUrl(e.target.value)}
-                            onBlur={handleBaseUrlBlur}
-                            placeholder="http://localhost:11434/v1"
-                            className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/40 font-mono"
-                        />
-                        <div className="mt-1.5 flex items-center justify-between flex-wrap gap-2">
-                            <span className="text-xs text-slate-500 dark:text-slate-400">
-                                {t('settings.ai_base_url_desc', 'Custom endpoint (e.g. for Ollama)')}
-                            </span>
-                            <div>
-                                <AiAccountTierBadge
-                                    isLoading={isCheckingTier || isFetchingModels || isLoadingModels}
-                                    accountTier={accountTier}
-                                />
-                            </div>
-                        </div>
-                    </div>
-                )}
+                <AiTabCredentialsSection
+                    provider={provider}
+                    apiKey={apiKey}
+                    showKey={showKey}
+                    baseUrl={baseUrl}
+                    isTierLoading={isBusyModels}
+                    accountTier={accountTier}
+                    onApiKeyChange={setApiKey}
+                    onApiKeyBlur={handleApiKeyBlur}
+                    onToggleShowKey={() => setShowKey(!showKey)}
+                    onBaseUrlChange={setBaseUrl}
+                    onBaseUrlBlur={handleBaseUrlBlur}
+                />
 
                 {/* 3. SELECT AVAILABLE MODEL */}
                 <div>
@@ -586,14 +644,14 @@ export default function AiTabContent() {
                         <button
                             type="button"
                             onClick={() => handleRefreshModels()}
-                            disabled={isFetchingModels || isLoadingModels || isCheckingTier || isModelDisabled}
+                            disabled={isBusyModels || isModelDisabled}
                             title={t('ai.refresh_models', 'Refresh model list')}
                             className="text-xs text-primary hover:underline flex items-center gap-1 disabled:opacity-50 cursor-pointer"
                         >
-                            <span className={`material-symbols-outlined text-[15px] ${(isFetchingModels || isLoadingModels || isCheckingTier) ? 'animate-spin' : ''}`}>
+                            <span className={`material-symbols-outlined text-[15px] ${isBusyModels ? 'animate-spin' : ''}`}>
                                 sync
                             </span>
-                            <span>{(isFetchingModels || isLoadingModels || isCheckingTier) ? t('ai.fetching_models', 'Fetching models...') : t('ai.refresh_models', 'Refresh')}</span>
+                            <span>{isBusyModels ? t('ai.fetching_models', 'Fetching models...') : t('ai.refresh_models', 'Refresh')}</span>
                         </button>
                     </div>
                     <Select

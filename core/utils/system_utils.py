@@ -516,7 +516,9 @@ def _get_hwnd_winforms(window: Any) -> Optional[int]:
     return None
 
 def _get_hwnd_by_title(window: Any) -> Optional[int]:
-    raw_title = getattr(window, 'title', None) if window else None
+    if not window:
+        return None
+    raw_title = getattr(window, 'title', None)
     title = raw_title if isinstance(raw_title, str) and raw_title.strip() else "VyloServe"
     try:
         import ctypes
@@ -533,11 +535,11 @@ def get_window_handle(window: Any = None) -> Optional[int]:
     Mendukung input HWND int langsung, window.native, BrowserView.instances pywebview,
     atau fallback FindWindowW.
     """
-    if sys.platform != 'win32':
+    if sys.platform != 'win32' or window is None or isinstance(window, bool):
         return None
 
-    if isinstance(window, int) and window > 0:
-        return window
+    if isinstance(window, int):
+        return window if window > 0 else None
 
     return _get_hwnd_native(window) or _get_hwnd_winforms(window) or _get_hwnd_by_title(window)
 

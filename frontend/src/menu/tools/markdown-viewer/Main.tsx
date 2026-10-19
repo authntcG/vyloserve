@@ -18,6 +18,7 @@ export default function MarkdownViewer() {
     const [selectedFile, setSelectedFile] = useState<string | null>(null);
     const [mdContent, setMdContent] = useState<string>('');
     const [isFileLoading, setIsFileLoading] = useState<boolean>(false);
+    const [isRefreshingTree, setIsRefreshingTree] = useState<boolean>(false);
     
     // Default theme based on current system theme
     const [readerTheme, setReaderTheme] = useState<'light' | 'dark'>(
@@ -40,6 +41,43 @@ export default function MarkdownViewer() {
             }
         }
         return null;
+    };
+
+    const hasFileInTree = (nodes: TreeNode[], targetPath: string): boolean => {
+        for (const node of nodes) {
+            if (node.type === 'file' && node.path === targetPath) {
+                return true;
+            }
+            if (node.type === 'dir' && node.children && hasFileInTree(node.children, targetPath)) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    const handleRefreshTree = async () => {
+        if (!rootPath || isRefreshingTree) return;
+        setIsRefreshingTree(true);
+        try {
+            const api = (window as any).pywebview.api;
+            const treeRes = await api.md_get_tree(rootPath);
+            if (treeRes.status === 'success' && Array.isArray(treeRes.data)) {
+                setTreeData(treeRes.data);
+                if (!selectedFile || !hasFileInTree(treeRes.data, selectedFile)) {
+                    const defaultFile = findDefaultFile(treeRes.data);
+                    if (defaultFile) {
+                        handleFileClick(defaultFile);
+                    } else {
+                        setSelectedFile(null);
+                        setMdContent('');
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('Failed to refresh folder tree', err);
+        } finally {
+            setIsRefreshingTree(false);
+        }
     };
 
     const handleSelectFolder = async () => {
@@ -183,8 +221,22 @@ export default function MarkdownViewer() {
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                     {/* LEFT PANE - TREEVIEW */}
                     <div className="w-full lg:col-span-3 lg:sticky lg:top-4 max-h-[calc(100vh-240px)] flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 shadow-sm">
-                        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-2 shrink-0">
-                            {t('tools.docs_reader.tree_title')}
+                        <div className="flex items-center justify-between mb-2 px-2 shrink-0">
+                            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                                {t('tools.docs_reader.tree_title')}
+                            </span>
+                            <button
+                                type="button"
+                                onClick={handleRefreshTree}
+                                disabled={isRefreshingTree}
+                                title={t('tools.docs_reader.refresh_tree')}
+                                aria-label={t('tools.docs_reader.refresh_tree')}
+                                className="p-1 rounded-md text-slate-400 hover:text-primary hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center justify-center disabled:opacity-50 cursor-pointer"
+                            >
+                                <span className={`material-symbols-outlined text-[16px] ${isRefreshingTree ? 'animate-spin' : ''}`}>
+                                    refresh
+                                </span>
+                            </button>
                         </div>
                         <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1">
                             <FolderTreeView 
