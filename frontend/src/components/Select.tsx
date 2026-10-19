@@ -17,7 +17,9 @@ export interface SelectProps<T extends string = string> {
     readonly options: ReadonlyArray<SelectOption<T>>;
     readonly value: T | null;
     readonly onChange: (value: T) => void;
-    readonly placeholder: string;
+    readonly placeholder?: string;
+    /** @default 'md' */
+    readonly size?: 'sm' | 'md';
     /** @default true */
     readonly searchable?: boolean;
     readonly searchPlaceholder?: string;
@@ -65,15 +67,17 @@ interface SelectTriggerProps {
     readonly loadingText?: string;
     readonly errorText?: string;
     readonly displayLabel: string;
+    readonly size?: 'sm' | 'md';
     readonly onClick: () => void;
 }
 
-function SelectTrigger({ id, buttonRef, isOpen, disabled, loading, loadingText, errorText, displayLabel, onClick }: SelectTriggerProps) {
+function SelectTrigger({ id, buttonRef, isOpen, disabled, loading, loadingText, errorText, displayLabel, size = 'md', onClick }: SelectTriggerProps) {
+    const isSm = size === 'sm';
     if (loading) {
         return (
-            <div className="h-[42px] border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 rounded-lg flex items-center px-3 gap-2">
+            <div className={`border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 rounded-lg flex items-center gap-2 ${isSm ? 'h-[32px] px-2.5 text-xs' : 'h-[42px] px-3 text-sm'}`}>
                 <span aria-hidden="true" className="material-symbols-outlined animate-spin text-slate-400 text-sm">sync</span>
-                <span className="text-sm text-slate-500">{loadingText}</span>
+                <span className={`${isSm ? 'text-xs' : 'text-sm'} text-slate-500`}>{loadingText}</span>
             </div>
         );
     }
@@ -90,10 +94,10 @@ function SelectTrigger({ id, buttonRef, isOpen, disabled, loading, loadingText, 
             disabled={isDisabled}
             aria-haspopup="listbox"
             aria-expanded={isOpen}
-            className={`w-full h-[42px] px-3 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 text-sm rounded-lg outline-none transition-colors border flex justify-between items-center ${isOpen ? 'border-primary ring-1 ring-primary' : 'border-slate-300 dark:border-slate-700'} ${isDisabled ? 'opacity-50 cursor-not-allowed bg-slate-50 dark:bg-slate-900/50' : 'cursor-pointer'}`}
+            className={`w-full ${isSm ? 'h-[32px] px-2.5 text-xs' : 'h-[42px] px-3 text-sm'} bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 rounded-lg outline-none transition-colors border flex justify-between items-center ${isOpen ? 'border-primary ring-1 ring-primary' : 'border-slate-300 dark:border-slate-700'} ${isDisabled ? 'opacity-50 cursor-not-allowed bg-slate-50 dark:bg-slate-900/50' : 'cursor-pointer'}`}
         >
             <span className="truncate pr-2">{isError ? errorText : displayLabel}</span>
-            <span aria-hidden="true" className={`material-symbols-outlined text-[20px] text-slate-500 transition-transform duration-200 ${isOpen ? 'rotate-180 text-primary' : ''}`}>
+            <span aria-hidden="true" className={`material-symbols-outlined ${isSm ? 'text-[16px]' : 'text-[20px]'} text-slate-500 transition-transform duration-200 ${isOpen ? 'rotate-180 text-primary' : ''}`}>
                 expand_more
             </span>
         </button>
@@ -215,7 +219,8 @@ export default function Select<T extends string = string>({
     options,
     value,
     onChange,
-    placeholder,
+    placeholder = '',
+    size = 'md',
     searchable = true,
     searchPlaceholder,
     filterFn = defaultFilterFn,
@@ -345,6 +350,7 @@ export default function Select<T extends string = string>({
                 loadingText={loadingText}
                 errorText={errorText}
                 displayLabel={displayLabel}
+                size={size}
                 onClick={() => setIsOpen((o) => !o)}
             />
             {isOpen && !disabled && !loading && panelPosition && createPortal(

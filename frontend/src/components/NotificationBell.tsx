@@ -2,7 +2,7 @@
 import { useRef, useState, useLayoutEffect, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { useToast, type ToastHistoryEntry } from './ToastContext';
+import { useToast, type ToastHistoryEntry } from '../context/ToastContext';
 
 const BADGE_CAP = 9;
 const PANEL_WIDTH = 320;

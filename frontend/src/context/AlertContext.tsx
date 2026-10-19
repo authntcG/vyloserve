@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, type ReactNode, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import Modal from './Modal';
-import Button from './Button';
+import Modal from '../components/Modal';
+import Button from '../components/Button';
 
 export type AlertType = 'info' | 'warning' | 'danger';
 

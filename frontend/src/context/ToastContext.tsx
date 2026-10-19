@@ -1,4 +1,4 @@
-// src/components/ToastContext.tsx
+// src/context/ToastContext.tsx
 import { createContext, useContext, useState, useEffect, useRef, type ReactNode, useCallback, useMemo } from 'react';
 import { useWindowPresence } from '../hooks/useWindowPresence';
 

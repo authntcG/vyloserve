@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useToast } from './ToastContext';
+import { useToast } from '../context/ToastContext';
 
 export default function GlobalAppInterceptor() {
     const { showToast } = useToast();

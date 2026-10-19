@@ -16,6 +16,7 @@ interface SidebarProps {
     readonly onToggleDesktop: () => void;
     readonly activeMenu: string;
     readonly onSelectMenu: (id: string) => void;
+    readonly enableAi?: boolean;
 }
 
 interface NavItemConfig {
@@ -50,6 +51,7 @@ const SERVICES: ServiceConfig[] = [
 // Git lebih jarang (cuma "handler" status, tidak bisa menjalankan perintah git
 // dari VyloServe).
 const TOOLS: NavItemConfig[] = [
+    { id: 'ai-assistant', name: 'AI Assistant', icon: 'smart_toy' },
     { id: 'tunnels', name: 'Tunnels', icon: 'router' },
     { id: 'runtimes', name: 'Runtimes', icon: 'terminal' },
     { id: 'git', name: 'Git', icon: 'merge' },
@@ -230,13 +232,14 @@ export default function Sidebar({
     onCloseMobile,
     onToggleDesktop,
     activeMenu,
-    onSelectMenu
+    onSelectMenu,
+    enableAi = true,
 }: SidebarProps) {
     const { t } = useTranslation();
     const [searchQuery, setSearchQuery] = useState('');
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [activeSettingsModal, setActiveSettingsModal] = useState<SettingsModalType>(null);
-    const [activeSettingsTab, setActiveSettingsTab] = useState<'general' | 'logs' | 'updates' | 'about'>('general');
+    const [activeSettingsTab, setActiveSettingsTab] = useState<'general' | 'logs' | 'updates' | 'ai' | 'about'>('general');
     const settingsRef = useRef<HTMLDivElement>(null);
     const [systemLoad, setSystemLoad] = useState<number>(0);
     const [serviceStatus, setServiceStatus] = useState<Record<string, boolean>>({
@@ -275,9 +278,12 @@ export default function Sidebar({
         const customEvent = e as CustomEvent;
         if (customEvent.detail?.modal) {
             const m = customEvent.detail.modal;
-            if (m === 'updates' || m === 'about' || m === 'logs' || m === 'general') {
+            if (m === 'updates' || m === 'about' || m === 'logs' || m === 'general' || m === 'ai') {
                 setActiveSettingsTab(m);
                 setActiveSettingsModal('settings');
+            } else if (customEvent.detail.tab) {
+                setActiveSettingsTab(customEvent.detail.tab);
+                setActiveSettingsModal(m);
             } else {
                 setActiveSettingsModal(m);
             }
@@ -355,7 +361,8 @@ export default function Sidebar({
 
     const filteredMain = MAIN_MENU.filter(filterQuery);
     const filteredServices = SERVICES.filter(filterQuery);
-    const filteredTools = TOOLS.filter(filterQuery);
+    const availableTools = enableAi ? TOOLS : TOOLS.filter(item => item.id !== 'ai-assistant');
+    const filteredTools = availableTools.filter(filterQuery);
     const filteredUtilities = UTILITIES.filter(filterQuery);
 
     return (
