@@ -7,6 +7,7 @@ import Select from '../../../components/Select';
 import ToggleSwitch from '../../../components/ToggleSwitch';
 import appIcon from '../../../assets/icons-nobg.png';
 import { applyTheme } from '../../../utils/theme';
+import AiTabContent from './AiTabContent';
 
 export type SettingsModalType = 'settings' | 'quit' | null;
 
@@ -35,7 +36,7 @@ const ALL_LOG_SOURCE_KEYS = LOG_SOURCE_GROUPS.flatMap(g => g.fileKey ? [g.system
 
 interface SettingsModalsProps {
     readonly activeModal: SettingsModalType;
-    readonly defaultTab?: 'general' | 'logs' | 'updates' | 'about';
+    readonly defaultTab?: 'general' | 'logs' | 'updates' | 'ai' | 'about';
     readonly onClose: () => void;
 }
 
@@ -296,7 +297,7 @@ function UpdatesTabContent() {
 
 export default function SettingsModals({ activeModal, defaultTab = 'general', onClose }: SettingsModalsProps) {
     const { t, i18n } = useTranslation();
-    const [activeTab, setActiveTab] = useState<'general' | 'logs' | 'updates' | 'about'>(defaultTab);
+    const [activeTab, setActiveTab] = useState<'general' | 'logs' | 'updates' | 'ai' | 'about'>(defaultTab);
 
     useEffect(() => {
         if (activeModal === 'settings') {
@@ -425,6 +426,14 @@ export default function SettingsModals({ activeModal, defaultTab = 'general', on
                         >
                             <span className="material-symbols-outlined text-[20px]">system_update</span>
                             {t('settings.updates')}
+                        </button>
+                        <button 
+                            type="button" 
+                            onClick={() => setActiveTab('ai')}
+                            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeTab === 'ai' ? 'bg-primary/10 text-primary dark:bg-primary/20' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-800'}`}
+                        >
+                            <span className="material-symbols-outlined text-[20px]">smart_toy</span>
+                            {t('settings.tab_ai')}
                         </button>
                         <button 
                             type="button" 
@@ -598,6 +607,9 @@ export default function SettingsModals({ activeModal, defaultTab = 'general', on
 
                         {/* UPDATES TAB */}
                         {activeTab === 'updates' && <UpdatesTabContent />}
+
+                        {/* AI ASSISTANT TAB */}
+                        {activeTab === 'ai' && <AiTabContent />}
 
                         {/* ABOUT TAB */}
                         {activeTab === 'about' && (

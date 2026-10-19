@@ -5,8 +5,8 @@ import Sidebar from './components/Sidebar';
 import ApacheMain from './menu/apache/Main';
 import PhpMain from './menu/php/Main';
 import LogsPanel from './components/LogsPanel';
-import { ToastProvider } from './components/ToastContext';
-import { AlertProvider, useAlert, type AlertOptions } from './components/AlertContext';
+import { ToastProvider } from './context/ToastContext';
+import { AlertProvider, useAlert, type AlertOptions } from './context/AlertContext';
 import DatabaseMain from './menu/database/Main';
 import DashboardMain from './menu/dashboard/Main';
 import GlobalAppInterceptor from './components/AppInterceptor';
@@ -17,7 +17,11 @@ import Base64Main from './menu/tools/base64-encode-decode/Main';
 import QrMain from './menu/tools/qr-generator/Main';
 import TunnelsMain from './menu/tools/tunnels/Main';
 import DocsReaderMain from './menu/tools/markdown-viewer/Main';
+import AiAssistantMain from './menu/tools/ai-assistant/Main';
+import AiFloatingWidget from './menu/tools/ai-assistant/components/AiFloatingWidget';
+import { AiProvider, useAiAssistant } from './context/AiContext';
 import { applyTheme } from './utils/theme';
+import AppSkeletonLayout from './components/skeleton/AppSkeletonLayout';
 import i18n from './i18n';
 
 declare global {
@@ -60,9 +64,16 @@ async function handleUpdateAvailable(
 function AppContent() {
   const { t } = useTranslation();
   const { confirm } = useAlert();
+  const { enableAi } = useAiAssistant();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isDesktopCollapsed, setIsDesktopCollapsed] = useState(false);
   const [activeMenu, setActiveMenu] = useState('dashboard');
+
+  useEffect(() => {
+    if (!enableAi && activeMenu === 'ai-assistant') {
+      setActiveMenu('dashboard');
+    }
+  }, [enableAi, activeMenu]);
 
   const [isApiReady, setIsApiReady] = useState(false);
   const [isSettingsLoaded, setIsSettingsLoaded] = useState(false);
@@ -85,6 +96,10 @@ function AppContent() {
                     // jadi mengandalkan event ini untuk nilai awal enable_desktop_notifications.
                     window.dispatchEvent(new CustomEvent('vylo_desktop_notifications_changed', {
                         detail: { enabled: res.data?.enable_desktop_notifications ?? true }
+                    }));
+
+                    window.dispatchEvent(new CustomEvent('vylo_ai_settings_changed', {
+                        detail: res.data || {}
                     }));
 
                     // Cek update otomatis di latar belakang
@@ -133,14 +148,7 @@ function AppContent() {
   }, []);
 
   if (!isApiReady || !isSettingsLoaded) {
-    return (
-      <div className="h-screen w-screen bg-transparent flex flex-col items-center justify-center gap-4">
-        <span className="material-symbols-outlined animate-spin text-4xl text-primary">sync</span>
-        <p className="text-sm font-medium text-slate-500 dark:text-slate-400 animate-pulse">
-          {t('common.connecting_engine')}
-        </p>
-      </div>
-    );
+    return <AppSkeletonLayout />;
   }
 
   const mainContentMargin = isDesktopCollapsed ? 'md:ml-20' : 'md:ml-sidebar-width';
@@ -157,16 +165,18 @@ function AppContent() {
           onToggleDesktop={() => setIsDesktopCollapsed(!isDesktopCollapsed)}
           activeMenu={activeMenu}
           onSelectMenu={setActiveMenu}
+          enableAi={enableAi}
         />
 
         <div className={`flex flex-col flex-1 min-w-0 h-full min-h-0 transition-[margin] duration-300 ${mainContentMargin}`}>
 
           {/* ---> FIX: Ganti Kondisional Render dengan CSS Hiding <--- */}
-          <div className="flex-1 min-h-0 overflow-y-auto px-4 py-6 md:px-8 md:py-8 relative">
+          <div className={`flex-1 min-h-0 px-4 py-6 md:px-8 md:py-8 relative ${activeMenu === 'ai-assistant' ? 'flex flex-col h-full overflow-hidden' : 'overflow-y-auto'}`}>
             <div className={activeMenu === 'dashboard' ? 'block' : 'hidden'}><DashboardMain /></div>
             <div className={activeMenu === 'apache' ? 'block' : 'hidden'}><ApacheMain /></div>
             <div className={activeMenu === 'php' ? 'block' : 'hidden'}><PhpMain /></div>
             <div className={activeMenu === 'database' ? 'block' : 'hidden'}><DatabaseMain /></div>
+            <div className={activeMenu === 'ai-assistant' ? 'flex-1 min-h-0 flex flex-col w-full' : 'hidden'}><AiAssistantMain isActive={activeMenu === 'ai-assistant'} /></div>
             <div className={activeMenu === 'tunnels' ? 'block' : 'hidden'}><TunnelsMain /></div>
             <div className={activeMenu === 'runtimes' ? 'block' : 'hidden'}><RuntimesMain /></div>
             <div className={activeMenu === 'git' ? 'block' : 'hidden'}><GitMain /></div>
@@ -181,6 +191,11 @@ function AppContent() {
           </div>
         </div>
       </div>
+
+      <AiFloatingWidget
+        activeScreen={activeMenu}
+        onOpenFullPage={() => setActiveMenu('ai-assistant')}
+      />
     </div>
   );
 }
@@ -189,8 +204,10 @@ export default function App() {
   return (
     <ToastProvider>
       <AlertProvider>
-        <GlobalAppInterceptor />
-        <AppContent />
+        <AiProvider>
+          <GlobalAppInterceptor />
+          <AppContent />
+        </AiProvider>
       </AlertProvider>
     </ToastProvider>
   );

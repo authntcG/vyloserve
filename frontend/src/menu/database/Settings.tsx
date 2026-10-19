@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next';
 import Select from '../../components/Select';
 import FieldLabel from '../../components/FieldLabel';
 import InfoBox from '../../components/InfoBox';
+import SkeletonForm from '../../components/skeleton/SkeletonForm';
 
 const CHARSET_OPTIONS = [
     { value: 'utf8mb4', label: 'utf8mb4' },
@@ -34,15 +35,7 @@ export default function DbSettings({ instance, config, onChange, isLoading }: Pr
     const isMysql = instance.engine === 'mysql';
 
     if (isLoading) {
-        return (
-            <div className="flex flex-col gap-6 animate-pulse">
-                <div className="h-4 bg-slate-200 dark:bg-slate-700/50 rounded w-1/3 mb-2"></div>
-                <div className="grid grid-cols-2 gap-4">
-                    <div className="h-10 bg-slate-100 dark:bg-slate-800/50 rounded-lg"></div>
-                    <div className="h-10 bg-slate-100 dark:bg-slate-800/50 rounded-lg"></div>
-                </div>
-            </div>
-        );
+        return <SkeletonForm fieldsCount={4} />;
     }
 
     return (

@@ -1,9 +1,10 @@
 import { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ProjectData } from './Main';
-import { useToast } from '../../components/ToastContext';
+import { useToast } from '../../context/ToastContext';
 import Select from '../../components/Select';
 import FieldLabel from '../../components/FieldLabel';
+import Skeleton from '../../components/skeleton/Skeleton';
 
 interface Props {
     project: ProjectData;
@@ -117,10 +118,10 @@ const ProjectSettings = forwardRef<ProjectSettingsRef, Props>(({ project }, ref)
             {/* Opsi Edit Binding PHP */}
             <div className="flex flex-col gap-2">
                 {isLoading ? (
-                    <>
+                    <div role="status" aria-busy="true" aria-live="polite" className="flex flex-col gap-2">
                         <FieldLabel>{t('apache.php_fastcgi_routing')}</FieldLabel>
-                        <div className="h-[42px] bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg animate-pulse"></div>
-                    </>
+                        <Skeleton className="h-[42px] w-full rounded-lg" />
+                    </div>
                 ) : (
                     <Select
                         searchable={false}

@@ -4,7 +4,7 @@ import PageHeader from '../../../components/PageHeader';
 import Card from '../../../components/Card';
 import EmptyState from '../../../components/EmptyState';
 import Button from '../../../components/Button';
-import SkeletonCard from '../../../components/SkeletonCard';
+import SkeletonDocument from '../../../components/skeleton/SkeletonDocument';
 import MarkdownRenderer from './MarkdownRenderer';
 import FolderTreeView from './FolderTreeView';
 import type { TreeNode } from './FolderTreeView';
@@ -104,10 +104,10 @@ export default function MarkdownViewer() {
         if (!cleanHref) return; // Only hash, do nothing
 
         // Base directory of the currently selected file
-        let baseDir = selectedFile.replace(/\\/g, '/');
+        let baseDir = selectedFile.replaceAll('\\', '/');
         baseDir = baseDir.substring(0, baseDir.lastIndexOf('/'));
         
-        const relParts = cleanHref.replace(/\\/g, '/').split('/');
+        const relParts = cleanHref.replaceAll('\\', '/').split('/');
         const baseParts = baseDir.split('/');
         
         for (const part of relParts) {
@@ -128,6 +128,29 @@ export default function MarkdownViewer() {
         setTreeData([]);
         setSelectedFile(null);
         setMdContent('');
+    };
+
+    const renderContent = () => {
+        if (!selectedFile) {
+            return (
+                <div className="flex items-center justify-center h-[400px] text-slate-400">
+                    <p>{t('tools.docs_reader.no_folder_desc')}</p>
+                </div>
+            );
+        }
+
+        if (isFileLoading) {
+            return <SkeletonDocument />;
+        }
+
+        return (
+            <MarkdownRenderer
+                content={mdContent}
+                rootPath={rootPath || ''}
+                readerTheme={readerTheme}
+                onLinkClick={handleLinkClick}
+            />
+        );
     };
 
     return (
@@ -177,6 +200,7 @@ export default function MarkdownViewer() {
                         {/* Theme Toggle Button */}
                         {selectedFile && !isFileLoading && (
                             <button 
+                                type="button"
                                 onClick={() => setReaderTheme(prev => prev === 'light' ? 'dark' : 'light')}
                                 className="absolute top-4 right-4 p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-primary transition-colors flex items-center justify-center z-10 shadow-sm"
                                 title={readerTheme === 'light' ? t('tools.docs_reader.switch_dark') : t('tools.docs_reader.switch_light')}
@@ -187,15 +211,7 @@ export default function MarkdownViewer() {
                             </button>
                         )}
 
-                        {!selectedFile ? (
-                            <div className="flex items-center justify-center h-[400px] text-slate-400">
-                                <p>{t('tools.docs_reader.no_folder_desc')}</p>
-                            </div>
-                        ) : isFileLoading ? (
-                            <SkeletonCard />
-                        ) : (
-                            <MarkdownRenderer content={mdContent} rootPath={rootPath} readerTheme={readerTheme} onLinkClick={handleLinkClick} />
-                        )}
+                        {renderContent()}
                     </div>
                 </div>
             )}

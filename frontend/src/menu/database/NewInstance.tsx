@@ -31,10 +31,19 @@ interface OnlineVersion {
 
 const NewDbInstance = forwardRef<NewDbInstanceRef, Props>(({ activeTab, usedPorts, isInstalling, progress, progressText, targetUpdate }, ref) => {
     const { t } = useTranslation();
-    const [engineFamily, setEngineFamily] = useState<'mysql' | 'postgres'>(
-        targetUpdate ? targetUpdate.engine : (activeTab === 'postgres' ? 'postgres' : 'mysql')
-    );
-    const [port, setPort] = useState(targetUpdate ? targetUpdate.port : (activeTab === 'postgres' ? 5432 : 3306));
+
+    const getInitialEngine = (): 'mysql' | 'postgres' => {
+        if (targetUpdate) return targetUpdate.engine;
+        return activeTab === 'postgres' ? 'postgres' : 'mysql';
+    };
+
+    const getInitialPort = (): number => {
+        if (targetUpdate) return targetUpdate.port;
+        return activeTab === 'postgres' ? 5432 : 3306;
+    };
+
+    const [engineFamily, setEngineFamily] = useState<'mysql' | 'postgres'>(getInitialEngine);
+    const [port, setPort] = useState<number>(getInitialPort);
     const [rootPass, setRootPass] = useState('');
 
     const [availableVersions, setAvailableVersions] = useState<OnlineVersion[]>([]);

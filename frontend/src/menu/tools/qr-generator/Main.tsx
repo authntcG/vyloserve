@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+﻿import { useState, useEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import QRCodeStyling from 'qr-code-styling';
 import type { DotType, CornerSquareType, FileExtension } from 'qr-code-styling';
@@ -7,7 +7,7 @@ import Card from '../../../components/Card';
 import Button from '../../../components/Button';
 import Select from '../../../components/Select';
 import FieldLabel from '../../../components/FieldLabel';
-import { useToast } from '../../../components/ToastContext';
+import { useToast } from '../../../context/ToastContext';
 
 export default function QrMain() {
     const { t } = useTranslation();
