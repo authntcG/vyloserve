@@ -81,6 +81,14 @@ Get the latest build from the [Releases page](https://github.com/authntcG/vylose
 - Optional opt-in for pre-release (alpha/beta) builds.
 - One-click background download with a progress bar, then a silent install on restart.
 
+### AI Server Assistant (Local & Cloud Copilot)
+- Context-aware Windows server assistant supporting **Google Gemini**, **Groq Cloud** (ultra-fast LPU inference), **OpenRouter** (DeepSeek, Claude, GPT-4o, and free models), and **Ollama** for 100% local, offline inference.
+- **Smart System Context & RAG**: Real-time snapshot of Apache, PHP, databases, runtimes, PATH registration, active tunnels, and live errors coupled with semantic documentation retrieval (`DocRetriever`) from the built-in User Guide.
+- **Human-In-The-Loop (HITL) Service Control**: Understands natural language requests (e.g., *"turn on Apache and MariaDB"* or *"stop PHP"*), generating safe action proposal cards for user confirmation before executing background service transitions.
+- **Token Usage & Quota Monitor**: Tracks daily and weekly token consumption and request counts against provider free-tier limits right from the chat header, complete with contextual **Follow-up Suggestion Chips** for one-click troubleshooting.
+- **Dual Interface Modes**: Switch seamlessly between a dedicated full-screen AI workspace and a global floating chat bubble accessible across all screens.
+- **Empirical Tier Probing**: Dynamic model discovery that tests API keys across rate-limited free tiers and automatically selects the highest available tier without hardcoded model constraints.
+
 ### Developer Tools
 - Markdown documentation viewer with OS directory picker, recursive folder tree, custom markdown rendering, and local media preview.
 - Base64 encode/decode, for text and drag-and-drop files.

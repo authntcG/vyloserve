@@ -22,8 +22,9 @@
 12. [`UpdaterManager` (`updater.py`) — Auto-Updater](#12-updatermanager-updaterpy--auto-updater)
 13. [`TunnelsManager` (`tunnels.py`) — Akses Publik via Zrok & Cloudflare Tunnel](#13-tunnelsmanager-tunnelspy--akses-publik-via-zrok--cloudflare-tunnel)
 14. [`MarkdownViewerManager` (`markdown_viewer.py`) — Penampil Dokumentasi Markdown Lokal](#14-markdownviewermanager-markdown_viewerpy--penampil-dokumentasi-markdown-lokal)
-15. [`main.py` — App Bootstrap & `AppLifecycle`](#15-mainpy--app-bootstrap--applifecycle)
-16. [Known Issues — Temuan Audit Backend](#16-known-issues--temuan-audit-backend)
+15. [`AIAssistantManager` (`ai_assistant.py`) & `DocRetriever` — AI Server Copilot](#15-aiassistantmanager-ai_assistantpy--docretriever--ai-server-copilot)
+16. [`main.py` — App Bootstrap & `AppLifecycle`](#16-mainpy--app-bootstrap--applifecycle)
+17. [Known Issues — Temuan Audit Backend](#17-known-issues--temuan-audit-backend)
 
 ---
 
@@ -47,6 +48,7 @@ graph TD
     API -->|owns| Updater[UpdaterManager]
     API -->|owns| Tunnels[TunnelsManager]
     API -->|owns| Markdown[MarkdownViewerManager]
+    API -->|owns| AIAssistant[AIAssistantManager]
 
     Php -.->|"update_global_php_proxy(port)<br/>saat start_php/save_config/uninstall"| Apache
     Project -.->|"sync_apache_vhosts()<br/>saat create/update/delete project"| Apache
@@ -766,7 +768,124 @@ Modul utilitas untuk menjelajahi dan merender berkas dokumentasi Markdown (`.md`
 
 ---
 
-## 15. `main.py` — App Bootstrap & `AppLifecycle`
+## 15. `AIAssistantManager` (`ai_assistant.py`) & `DocRetriever` — AI Server Copilot
+
+### 15.1 Arsitektur & Tanggung Jawab
+
+Modul AI Assistant dirancang sebagai asisten server cerdas dan agen kendali Human-In-The-Loop (HITL) dengan prinsip *zero external dependencies* — seluruh komunikasi HTTP/SSE dibangun di atas pustaka standar `urllib.request` bawaan Python.
+
+Modul ini terdiri dari dua kelas utama:
+1. **`DocRetriever`**: Parser dan mesin temu kembali semantik (semantic search & retrieval) berbasis in-memory untuk dokumen panduan pengguna (`docs/user_guide.md`).
+2. **`AIAssistantManager`**: Manajer state, persistensi riwayat obrolan, agregasi konteks sistem runtime, penemuan model dinamis, pengujian tier akun (empirical probing), dan orkestrasi streaming respons LLM.
+
+```mermaid
+graph TD
+    User([User Prompt]) --> AiPage[Frontend: AiProvider / Chat UI]
+    AiPage -->|send_message| Api[Api.send_ai_message]
+    Api --> Mgr[AIAssistantManager]
+
+    Mgr --> SysCtx[Aggregator: _build_environment_inventory]
+    SysCtx -->|Query live status| Apache[ApacheManager]
+    SysCtx -->|Query live status| Php[PhpManager]
+    SysCtx -->|Query live status| Db[DatabaseManager]
+    SysCtx -->|Query live status| Rt[RuntimesManager]
+    SysCtx -->|Query live status| Git[GitManager]
+    SysCtx -->|Query live status| Tun[TunnelsManager]
+
+    Mgr --> Retriever[DocRetriever._ensure_loaded]
+    Retriever -->|Tokenize & BM25-lite score| UserGuide[docs/user_guide.md]
+    Retriever -->|Top 1 Snippet + Meta| Mgr
+
+    Mgr --> Thread[Worker Thread: _stream_worker]
+    Thread -->|SSE HTTP Stream| LLM[LLM Provider: OpenRouter / Ollama / Gemini / Groq]
+    LLM -.->|Chunks & Tokens| Thread
+    Thread -->|emit_ai_chunk| Emitter[Api.emit_ai_chunk]
+    Emitter -->|vylo_ai_chunk CustomEvent| Frontend[Frontend UI SSE Handler]
+```
+
+### 15.2 `DocRetriever` — Algoritma Semantic Search Zero-Dependency
+
+`DocRetriever` membaca `docs/user_guide.md` secara lazy dan memantau `mtime` file untuk auto-reload tanpa perlu restart aplikasi:
+- **Pola Parsing Anotasi Regex:**
+  ```python
+  r'<!--\s*section:\s*([a-zA-Z0-9_-]+)(?:,\s*module:\s*([a-zA-Z0-9_-]+))?(?:,\s*tags:\s*\[(.*?)\])?\s*-->'
+  ```
+  Setiap seksi dipisah berdasarkan tag komentar tersebut, diekstrak `id`, `module`, `tags`, `title` (dari heading `#` pertama), dan `content`.
+- **Tokenisasi & Stop Words Filtering:** Teks kueri dan judul dibersihkan dari tanda baca dan stop words dua bahasa (Indonesia & Inggris: *dan, yang, di, untuk, the, is, with, etc.*).
+- **Formula Skoring Relevansi (`_calculate_relevance`):**
+  - **Screen Alignment (+15 poin):** Jika `active_screen` cocok dengan atribut `module` atau ada di dalam `tags` seksi.
+  - **Tag Match (+12 poin per token):** Jumlah token kueri yang beririsan dengan daftar `tags`.
+  - **Title Match (+8 poin per token):** Jumlah token kueri yang beririsan dengan token judul (`title`).
+  - **Critical Keywords Match (+20 atau +10 poin):** Kata kunci kritis seperti `10048`, `429`, `502`, `uac`, `hosts`, `vhost`, `fastcgi`, `composer`, `mariadb`, `mysql`, `postgres`, `tunnel`, `cloudflare`, `zrok` bernilai +20 jika cocok di tag/judul, atau +10 jika muncul di konten.
+  - **Content Token Match (+2 poin per token):** Keberadaan token kueri (>3 huruf) di dalam konten seksi.
+- **Pemotongan Cerdas & Metadata Kutipan:**
+  Seksi dengan skor tertinggi dipotong pada batas paragraf terdekat (`max_chars=1200`) dan dikembalikan bersama metadata kutipan: `{"id": ..., "title": ..., "module": ..., "file": "docs/user_guide.md"}` untuk disajikan sebagai kartu referensi (*sources*) di UI.
+
+### 15.3 API Publik `AIAssistantManager`
+
+| Method | Return | Deskripsi |
+|---|---|---|
+| `get_chat_history()` | `Dict[str, Any]` | Membaca riwayat obrolan dari `data/ai_chat_history.json`. |
+| `save_chat_history(messages)` | `Dict[str, Any]` | Menyimpan riwayat obrolan (dibatasi `MAX_HISTORY_ITEMS = 40`). |
+| `clear_chat_history()` | `Dict[str, Any]` | Mengosongkan riwayat obrolan dan mereset status kartu aksi. |
+| `get_action_states()` | `Dict[str, Any]` | Membaca status eksekusi kartu aksi dari `data/ai_action_states.json`. |
+| `save_action_states(states)` | `Dict[str, Any]` | Menyimpan status eksekusi kartu aksi (`idle`, `executing`, `executed`, `failed`). |
+| `get_usage_stats(provider="")` | `Dict[str, Any]` | Mengembalikan metrik penggunaan token & jumlah request harian (`daily`) serta mingguan 7 hari terakhir (`weekly`) dari `data/ai_usage.json`, beserta konstanta kuota `PROVIDER_FREE_LIMITS` (`limits`). |
+| `reset_usage_stats()` | `Dict[str, Any]` | Mengosongkan seluruh histori metrik pemakaian token di `data/ai_usage.json`. |
+| `get_server_context(active_screen, include_logs)` | `Dict[str, Any]` | Menghasilkan snapshot inventaris lingkungan sistem real-time untuk disematkan ke prompt. |
+| `detect_account_tier(provider, api_key, base_url)` | `Dict[str, Any]` | Mendeteksi tier akun (`free`, `pro`, `local`) dan menguji API key via empirical probing. |
+| `get_available_models(provider, api_key, base_url, tier)` | `Dict[str, Any]` | Mengambil daftar model dinamis langsung dari endpoint API provider. |
+| `send_message(prompt, context, model_override, provider_override)` | `Dict[str, Any]` | Memulai pengiriman pesan, meluncurkan background thread streaming, dan mereturn `message_id`. |
+| `abort_generation()` | `Dict[str, Any]` | Mengirim sinyal pembatalan (`threading.Event`) dan menghentikan pembacaan SSE stream. |
+
+### 15.4 Dynamic Model Discovery & Empirical Tier Probing
+
+- **OpenRouter (`_probe_openrouter_free_tiers`):** OpenRouter memiliki model free-tier (`:free`) yang sering terkena kuota atau rate-limit (HTTP 429). Alih-alih membatasi model secara statis, backend melakukan *probing empiris* berurutan (`tier-1` -> `tier-2` -> `tier-3`) dengan payload mikro (`max_tokens: 1`). Model yang lolos uji tanpa error 429 akan otomatis terpilih sebagai default aktif.
+- **Ollama (`_fetch_ollama_models`):** Mengueri endpoint lokal `http://localhost:11434/api/tags` untuk mendeteksi model LLM yang sudah ditarik secara lokal (`qwen2.5-coder`, `deepseek-r1`, `llama3`, dll). Jika daemon Ollama tidak aktif, mengembalikan error `backend.ai.ollama_offline`.
+- **Google Gemini & Groq:** Membaca endpoint v1beta/v1 dengan filtering model text-generation dan menyortir model rekomendasi (`gemini-3.5-flash-lite`, `llama-3.3-70b-versatile`).
+
+### 15.5 Human-In-The-Loop (HITL) Service Control, Follow-Up Suggestions & Usage Tracking
+
+AI Assistant memiliki system prompt khusus yang menginstruksikannya untuk tidak hanya memberikan penjelasan teks, melainkan mengeluarkan blok proposal aksi terstruktur saat pengguna meminta pengendalian service, serta blok rekomendasi pertanyaan lanjutan di akhir setiap jawaban:
+```vylo_action
+[
+  {
+    "service": "apache",
+    "action": "start",
+    "label": "Start Apache"
+  },
+  {
+    "service": "database",
+    "action": "start",
+    "target": "all",
+    "label": "Start Database"
+  }
+]
+```
+```vylo_suggestions
+["Cek status port Apache", "Lihat error log terbaru", "Bagaimana cara membuat Virtual Host?"]
+```
+- **Parsing di Frontend:** Frontend menangkap blok `vylo_action` dan `vylo_suggestions` melalui regex, memisahkannya dari teks markdown narasi, me-render kartu interaktif (*Action Proposal Card*) di dalam balon pesan, dan menampilkan deretan *Follow-up Suggestion Chips* (`<AiSuggestionChips>`) di atas kotak input teks.
+- **Pelacakan Penggunaan Token (`_record_usage` & `data/ai_usage.json`):** Setiap kali streaming selesai (`_stream_worker`), backend mencatat jumlah `prompt_tokens`, `completion_tokens`, `total_tokens`, dan `requests` (baik dari metadata usage SSE provider maupun estimasi jumlah karakter `len(text) // 4`) ke `data/ai_usage.json` yang dikelompokkan berdasarkan tanggal (`YYYY-MM-DD`) dan minggu ISO (`YYYY-Www`). Data lama (>14 hari / >8 minggu) otomatis dipangkas agar ukuran file tetap kecil.
+- **Eksekusi Aman via Facade:** Pengguna menekan tombol "Confirm & Execute", yang memanggil fungsi backend yang bersangkutan secara berurutan:
+  - `start_service` / `stop_service` Apache: `api.start_apache_server()` / `api.stop_apache_server()`
+  - `start_service` / `stop_service` PHP: `api.start_php(version)` / `api.stop_php(version)` atau `stop_service('php')`
+  - `start_service` / `stop_service` Database: `api.start_database(id)` / `api.stop_database(id)` atau `stop_service('database')`
+- **Dual-Layer Persistence:** Status kartu aksi (`idle` -> `executing` -> `executed` / `failed`) langsung disimpan ke state React sekaligus disinkronkan ke disk (`data/ai_action_states.json`). Saat window ditutup atau aplikasi di-restart, status tombol tetap `executed` (centang hijau) dan terkunci dari eksekusi ulang.
+
+### 15.6 Dependency Lintas-Service
+- **Membaca Apache:** `api.apache.get_installed_versions()`, `api.apache.check_is_running()`, `api.apache.get_http_port()`, dan `read_log_tail` pada `bin/apache/<ver>/logs/error.log`.
+- **Membaca PHP:** `api.php.get_installed_instances()`.
+- **Membaca Database:** `api.database.get_installed()`.
+- **Membaca Git:** `api.git_manager.get_git_status(silent=True)`.
+- **Membaca Runtimes:** `api.runtimes_manager.get_node_status()`, `get_python_status()`, `get_java_status()`, `get_go_status()`.
+- **Membaca Projects:** `api.project.get_projects()`.
+- **Membaca Tunnels:** `api.tunnels.get_zrok_status()`, `api.tunnels.get_cloudflare_status()`.
+- **Membaca Konfigurasi:** `api.settings.get_settings()`.
+
+---
+
+## 16. `main.py` — App Bootstrap & `AppLifecycle`
 
 > ✅ **Update:** `main.py` menerapkan class `AppLifecycle` yang dapat diuji secara mandiri, isolasi Single-Instance Dev vs Prod via Windows Named Pipe IPC, deteksi otomatis lingkungan produksi, serta pewarnaan titlebar native via Windows DWM.
 
@@ -831,7 +950,7 @@ Ditambahkan bersama fitur histori toast (lihat `docs/known_bugs.md` #45) — fro
 
 ---
 
-## 16. Known Issues — Temuan Audit Backend
+## 17. Known Issues — Temuan Audit Backend
 
 Tabel ini adalah hasil audit langsung terhadap kode per tanggal dokumen ini ditulis. Status diperbarui secara jujur — beberapa klaim "sudah fixed" di dokumentasi sebelumnya **terbukti salah** saat kode benar-benar dibaca ulang.
 

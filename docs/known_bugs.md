@@ -542,3 +542,211 @@ Direproduksi penuh secara live: unduh biner resmi EnterpriseDB (~373MB, 21.799 e
 - Menambahkan unit test komprehensif di `tests/test_main.py` (42 test coverage) yang menguji Mutex name resolution, IPC server listener, IPC notification client, fallback handling, dan penanganan graceful exit.
 **Pelajaran untuk ke depannya:** (1) Jangan pernah berbagi Mutex atau identifier single-instance antara environment Development dan Production. (2) Hindari memanipulasi GUI thread proses lain menggunakan raw Win32 cross-process pointer/hook; gunakan mekanisme IPC yang bersih (Named Pipe / socket lokal) agar proses utama sendiri yang mengelola transisi state jendelanya secara thread-safe.
 
+## 57. ✅ Tampilan AI Assistant Terlihat Sempit Secara Horizontal (Mobile-Like Layout di Layar Desktop) — SUDAH DIPERBAIKI
+**Deskripsi:** Saat membuka antarmuka penuh AI Assistant (`ai-assistant`) di layar desktop normal/lebar, tampilan halaman terlihat sangat sempit secara horizontal, terpusat di tengah layar dengan margin kosong yang sangat luas di sisi kiri dan kanan. Kartu empty state yang berisi judul "AI Assistant", subtitle "Asisten pengembang server lokal Anda", dan teks "Secara otomatis memberikan informasi modul aktif ke AI" terhimpit rapat seperti tampilan layar smartphone (mobile screen) di tengah monitor desktop.
+**Penyebab (Root Cause):**
+1. **Restriksi Lebar Artifisial pada Root Komponen & Subtitle Empty State:** Kontainer terluar `frontend/src/menu/tools/ai-assistant/Main.tsx` awalnya dibungkus dengan kelas `max-w-5xl mx-auto`. Lebih lanjut, paragraf teks subtitle di dalam kartu empty state chat (`{t('ai.subtitle')} — {t('settings.ai_auto_context_desc')}`) secara eksplisit dibatasi dengan kelas `max-w-md` (hanya 448px = lebar tipikal layar smartphone), memaksa teks deskripsi desktop yang panjang terpotong menjadi 3-4 baris sempit di tengah kartu.
+2. **Terputusnya Rantai Flexbox di `App.tsx` di Bawah `overflow-y-auto`:** Kontainer induk di `App.tsx` (`<div className="flex-1 min-h-0 overflow-y-auto ...">`) berstatus `display: block` tanpa kelas `h-full` atau `flex flex-col`. Menurut spesifikasi CSS, anak elemen dengan `h-full` di dalam elemen block yang tingginya tidak ditentukan secara eksplisit akan dievaluasi menjadi `height: auto`. Akibatnya, seluruh kartu chat kolaps secara vertikal dan horizontal menjadi kotak stubby kecil alih-alih mengisi viewport desktop secara penuh.
+3. **Empty State Menggunakan Single-Column Stack Sempit:** Tombol Quick Questions dibungkus dalam `w-full max-w-lg flex flex-col gap-2` (512px vertikal bertumpuk), alih-alih memanfaatkan ruang horizontal desktop dengan grid multi-kolom yang seimbang.
+**Solusi (Fixed):**
+- Mengubah kontainer root `AiAssistantMain.tsx` dari `max-w-5xl mx-auto` menjadi `flex flex-col flex-1 min-h-0 w-full h-full min-h-[500px]` agar membentang selaras dengan seluruh modul lain di aplikasi dan memiliki batas tinggi minimum yang kokoh.
+- Memperbaiki rantai flexbox di `App.tsx`: kontainer induk dinamis mengaktifkan `${activeMenu === 'ai-assistant' ? 'flex flex-col h-full' : ''}` dan wrapper halaman AI diset ke `flex-1 min-h-0 flex flex-col w-full` sehingga tinggi dan lebar viewport terisi 100% tanpa kolaps.
+- Menghapus kelas sempit `max-w-md` pada paragraf empty state di `Main.tsx` dan menggantinya dengan `max-w-2xl mx-auto`, serta memperluas kontainer kartu saran menjadi `w-full max-w-5xl mx-auto grid grid-cols-1 sm:grid-cols-3 gap-3` dengan `rounded-xl` selaras standar kartu VyloServe.
+- Menyesuaikan lebar kartu popup `AiFloatingWidget.tsx` dari `sm:w-[410px]` menjadi responsif `sm:w-[420px] md:w-[440px]` untuk memberikan kenyamanan membaca pesan dan cuplikan blok kode.
+- Mendokumentasikan aturan pencegahan layout sempit/mobile-like ini secara permanen sebagai **Golden Rule #32** di `AGENTS.md`.
+**Pelajaran untuk ke depannya:** Antarmuka aplikasi desktop memiliki karakteristik spatial yang berbeda dari web artikel. Jangan pernah menambahkan utility pembatas lebar (`max-w-md`, `max-w-lg`, `max-w-5xl mx-auto`) pada root container modul/halaman desktop maupun teks deskripsi kartu utama karena akan memicu ilusi layout mobile sempit di tengah monitor lebar. Gunakan selalu `w-full` untuk root halaman, pertahankan rantai flexbox (`flex flex-col h-full`) agar tidak kolaps di bawah `overflow-y-auto`, dan gunakan grid responsif multi-kolom untuk elemen-elemen aksi di dalamnya.
+
+## 58. ✅ Model Google Gemini Deprecated / HTTP 404 (`gemini-2.0-flash` Tidak Lagi Tersedia) — SUDAH DIPERBAIKI
+**Deskripsi:** Saat user menghubungkan Google AI Studio / Gemini API Key di Pengaturan AI Assistant, tombol *Test Connection* dan fitur chat mengalami kegagalan dengan pesan error: `HTTP 404: This model models/gemini-2.0-flash is no longer available. Please update your code to use models/gemini-3.8-flash for the latest features and improvements`.
+**Penyebab (Root Cause):**
+Google telah menghentikan akses (*deprecated / sunset*) ke model `gemini-2.0-flash` dan `gemini-1.5-*`. Endpoint API Google Gemini (`v1beta`) secara eksplisit menolak request ke identifier model lama dengan respon HTTP 404. Model flagship terbaru Google adalah generasi Gemini 3 (`gemini-3.8-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`), di mana `gemini-3.5-flash-lite` dan `gemini-3.1-flash-lite` terbukti stabil, cepat, dan tidak terdampak lonjakan antrean (503).
+**Solusi (Fixed):**
+- Memperbarui daftar `PROVIDER_MODELS.gemini` di `frontend/src/menu/tools/settings/AiTabContent.tsx` menjadi:
+  - `gemini-3.5-flash-lite` — *Gemini 3.5 Flash Lite (Fast & Recommended)*
+  - `gemini-3.8-flash` — *Gemini 3.8 Flash (Latest Flagship)*
+  - `gemini-3.1-flash-lite` — *Gemini 3.1 Flash Lite*
+  - `gemini-flash-latest` — *Gemini Flash Latest*
+- Menetapkan `gemini-3.5-flash-lite` sebagai default model baru di `core/services/settings.py`, `core/services/ai_assistant.py`, dan `frontend/src/context/AiContext.tsx`.
+- Menambahkan auto-migration safeguard di backend (`settings.py`, `ai_assistant.py`) dan frontend (`AiTabContent.tsx`, `AiContext.tsx`): jika konfigurasi tersimpan masih menggunakan model lama yang sudah 404 (`gemini-2.0-flash`, `gemini-1.5-flash`, `gemini-1.5-pro`, `gemini-2.5-flash`), sistem secara otomatis memigrasikannya ke `gemini-3.5-flash-lite`.
+- Memperbarui file konfigurasi lokal `data/settings.json` user yang sedang aktif.
+- Menambahkan unit test backend di `tests/test_services/test_ai_assistant.py` (`test_send_message_auto_migrates_deprecated_model`).
+**Pelajaran untuk ke depannya:** Penyedia layanan LLM publik (terutama Google dan OpenAI) memiliki siklus *model deprecation* yang dinamis. Selalu sertakan mekanisme auto-migration fallback untuk model default yang sudah kadaluarsa, sediakan opsi alias *latest* (`gemini-flash-latest`), dan uji latensi/stabilitas endpoint langsung secara empiris sebelum menetapkannya sebagai model default.
+
+## 59. ✅ Pengambilan Daftar Model Dinamis Langsung dari API Provider (Live Models Fetch) — SELESAI
+**Kebutuhan:** Mencegah terjadinya *hardcode model obsolescence* (model kadaluwarsa/deprecated) di masa mendatang pada semua AI provider (Google Gemini, Groq, OpenRouter, Ollama) dengan mengambil daftar model langsung dari API masing-masing penyedia layanan.
+**Solusi:**
+- Backend Python: Menambahkan metode `get_available_models(provider, api_key, base_url)` di `AIAssistantManager` (`core/services/ai_assistant.py`) dan diekspos melalui `api.ai_get_available_models()` di `core/api.py`.
+  - Google Gemini: Mengambil dari endpoint `https://generativelanguage.googleapis.com/v1beta/models?key={key}`, memfilter metode `generateContent`, nama yang mengandung `gemini`, serta menyaring model non-chat/audio/embedding.
+  - Groq Cloud: Mengambil dari endpoint OpenAI-compatible `https://api.groq.com/openai/v1/models`, menyaring model aktif dan mengecualikan whisper.
+  - OpenRouter: Mengambil dari `https://openrouter.ai/api/v1/models` (dapat dipanggil gratis tanpa key), memprioritaskan dan melabeli model `:free`.
+  - Ollama: Mengambil dari `{base_url}/api/tags` untuk mendeteksi model lokal yang terinstal; mendeteksi status offline jika service belum berjalan.
+- Frontend React:
+  - `AiContext.tsx` mengelola state `availableModels`, `isLoadingModels`, dan `fetchAvailableModels(provider, apiKey, baseUrl, silent)` dengan in-memory caching per provider.
+  - `AiTabContent.tsx` menyediakan tombol refresh (🔄) interaktif di samping label *AI Model* serta memicu pengambilan otomatis di latar belakang saat provider atau kunci API berubah.
+  - `Main.tsx` dan `AiFloatingWidget.tsx` mengonsumsi `availableModels` dinamis dari context dan menyediakan tombol refresh cepat di header.
+  - Mekanisme fallback tangguh: Jika pengguna sedang offline atau belum memasukkan API key, dropdown tetap menampilkan starter models bawaan (`PROVIDER_MODELS`) sehingga UI tidak pernah kosong.
+  - Translation key parity di kedua locale `en` dan `id` (`backend.ai.fetch_models_failed`, `backend.ai.ollama_offline`, `ai.refresh_models`, `ai.fetching_models`, `ai.models_refreshed`).
+- Unit Test: 100% lulus di backend (`tests/test_services/test_ai_assistant.py`, `tests/test_services/test_api.py`, `tests/test_i18n_keys.py`) dan frontend Vitest suite (60 test files, 697 passed).
+
+## 60. ✅ Deteksi Akun API Key (Free Tier vs Pro / Pay-As-You-Go) & Penyesuaian Alur Setup AI Assistant — SELESAI
+**Deskripsi & Kebutuhan:**
+1. Dropdown model AI sebelumnya berisiko menampilkan model yang berbayar (paid-only/tier Pro) atau model yang sudah discontinue (HTTP 404/429) ketika pengguna memakai akun Free Tier.
+2. Diperlukan alur setup AI yang terstruktur: `Pilih Provider` -> `Masukkan API Key` (auto-detect tier akun) -> `Menampilkan Model yang Sesuai dengan Tier` -> `Tes Koneksi`.
+3. Diperlukan deteksi otomatis apakah API Key pengguna merupakan Free Tier atau Pro/Pay-As-You-Go, sehingga dropdown model disesuaikan secara presisi.
+
+**Solusi & Implementasi Teknis:**
+- **Empirical Tier Probing:**
+  - Google Gemini: Mengirim ping inferensi ultra-ringan (1 token) ke `gemini-pro-latest`. Akun Free Tier ditandai dengan error kuota eksplisit `limit: 0` (`GenerateContentInputTokensPerModelPerDay-FreeTier` atau HTTP 429). Akun Pro/Pay-As-You-Go merespons HTTP 200. Kunci invalid merespons HTTP 400/403.
+  - OpenRouter: Mengonsumsi endpoint resmi `GET https://openrouter.ai/api/v1/auth/key` dengan header Bearer token, membaca atribut `is_free_tier`, `limit`, dan `usage`.
+  - Groq Cloud: Memvalidasi kunci melalui endpoint `/openai/v1/models` (semua akun Groq saat ini adalah Free Tier dengan kuota LPU).
+  - Ollama: Memvalidasi endpoint `/api/tags` untuk mendeteksi service lokal offline/online.
+- **Backend Python (`core/services/ai_assistant.py` & `core/api.py`):**
+  - Menambahkan metode `detect_account_tier(provider, api_key, base_url)` dan mengeksposnya lewat `api.ai_detect_account_tier()`.
+  - Memperbarui `get_available_models(provider, api_key, base_url, tier)`:
+    - Gemini Free: Hanya memuat model gratis teruji (`gemini-3.5-flash-lite`, `gemini-3.8-flash`, `gemini-3.1-flash-lite`, `gemini-flash-latest`), membuang seluruh model 404 dan model Pro/research/argon.
+    - Gemini Pro: Memuat seluruh model Flash ditambah model Pro (`gemini-3.1-pro-preview`, `gemini-pro-latest`).
+    - OpenRouter Free: Hanya memuat model gratis (`:free` pricing 0).
+    - OpenRouter Pro: Memuat model gratis ditambah 30 model premium unggulan (GPT-4o, Claude 3.5 Sonnet, dll).
+  - Ekstraksi pesan error HTTP menggunakan helper modular `_extract_http_error_detail(e)` untuk kejelasan pesan kesalahan.
+- **Frontend React (`AiContext.tsx`, `AiTabContent.tsx`):**
+  - Mengatur ulang urutan alur setup: `Provider Selection` -> `API Key Input (dengan Tier Status Badge)` -> `Model Selection (terkunci jika API key belum valid)` -> `Test Connection`.
+  - Menampilkan badge visual interaktif:
+    - Spinner: `Memeriksa status akun...`
+    - Free Tier: Badge hijau `[Free Tier]`
+    - Pro Tier: Badge amber/emas `[Pro / Pay-As-You-Go]`
+    - Local: Badge sky/biru `[Lokal Offline]`
+    - Invalid Key: Badge merah `[Kunci Tidak Valid]`
+  - Model selection dropdown otomatis dinonaktifkan (`disabled`) dengan pesan petunjuk jika API key kosong atau invalid pada Gemini/Groq.
+- **Translation & Test Parity:**
+  - Kunci terjemahan lengkap di kedua locale (`en` & `id`): `backend.ai.key_invalid`, `ai.tier_checking`, `ai.tier_free`, `ai.tier_pro`, `ai.tier_local`, `ai.tier_invalid`, `ai.tier_offline`, `ai.api_key_required_hint`.
+  - 100% test lulus di unit test backend Python (85 tests) dan Vitest frontend (61 test files, 702 tests passed).
+
+## 61. ✅ Tindakan Server Ganda, Sinkronisasi Event Status Halaman Modul, dan Persistensi State Action Card pada AI Assistant
+
+- **Deskripsi Bug:**
+  1. Ketika user memerintahkan AI untuk menjalankan 2 service sekaligus (misalnya "hidupkan apache dan database" atau "start all services"), hanya satu service yang tereksekusi.
+  2. Saat service dijalankan melalui konfirmasi tombol AI, service hidup namun tombol di halaman modul terkait (`/apache`, `/php`, `/database`) tidak berubah statusnya dan tetap tersangkut di state "Start" (hanya Dashboard dan Sidebar yang sinkron).
+  3. Ketika bubble chat AI ditutup lalu dibuka kembali, atau user berpindah ke tab `/ai-assistant`, tombol aksi sistem yang sebelumnya telah dieksekusi muncul kembali dalam kondisi belum dieksekusi ("Konfirmasi & Jalankan").
+
+- **Penyebab (Root Cause):**
+  1. **Dual Service Execution:** `extractVyloActions` di `AiChatMessage.tsx` awalnya hanya menerima objek JSON tunggal. Jika model mengembalikan array JSON `[ { "service": "apache", ... }, { "service": "database", ... } ]` dalam blok ````vylo_action ````, `parsed.service` bernilai `undefined` sehingga array diabaikan. Selain itu, handler di `AiActionCard` untuk PHP dan Database mengharuskan parameter `target` terisi atau bertuliskan `'all'`. Jika user meminta start service secara umum tanpa target versi tertentu, handler tidak melakukan pemanggilan API (`res` bernilai `null`).
+  2. **Sinkronisasi Event Modul:** Halaman `apache/Main.tsx`, `php/Main.tsx`, dan `database/Main.tsx` secara ketat mendengarkan event `service_status_changed` dengan payload `{ detail: { service, running } }`. `AiActionCard` sebelumnya hanya men-dispatch `vylo_service_change`, sehingga listener halaman modul tidak ter-trigger.
+  3. **Persistensi State Aksi:** State eksekusi aksi sistem sebelumnya hanya disimpan dalam state lokal React `useState` di dalam `AiActionCard`. Begitu bubble chat ditutup atau unmount karena navigasi menu, state lokal tersebut hilang dan kembali ke default `'proposed'`.
+
+- **Solusi & Perbaikan:**
+  - **Backend Prompt (`core/services/ai_assistant.py`):** Memperbarui `DEFAULT_SYSTEM_PROMPT` dengan instruksi eksplisit dan contoh format array JSON `vylo_action` saat user meminta kontrol lebih dari satu service sekaligus.
+  - **Array Parsing (`AiChatMessage.tsx`):** `extractVyloActions` kini mendukung baik objek tunggal maupun array JSON multi-aksi. Jika terdapat lebih dari 1 aksi, ditampilkan header ringkasan "Proposed System Actions (count)".
+  - **Fallback Execution (`AiActionCard.tsx`):** Menambahkan fallback bila aksi `start` atau `stop` pada PHP/Database tidak menyertakan versi target spesifik, fungsi otomatis memanggil `api.start_service(service)` atau `api.stop_service(service)`.
+  - **Event Bus Parity (`AiActionCard.tsx`):** Men-dispatch event `service_status_changed` dengan detail `{ service: action.service, running: isStarting }` dan `{ service: 'all' }` sehingga seluruh modul (`apache`, `php`, `database`, `sidebar`, `dashboard`, `tunnels`) memperbarui state secara instan.
+  - **Persistensi State di AiContext (`AiContext.tsx`):** Menambahkan `actionStates: Record<string, ActionExecutionState>` dan helper `setActionState(key, state)` di `AiContext`. Setiap `AiActionCard` diberi `actionKey` unik berdasarkan ID pesan dan aksi. Sekali dieksekusi, status aksi tetap tersimpan (`success`, `failed`, `cancelled`) saat bubble dibuka-tutup atau saat berpindah menu.
+
+---
+
+## 62. ✅ Koreksi UX Input Chat Bubble, Tombol New Chat, dan Sinkronisasi Posisi Scroll Percakapan
+
+- **Deskripsi Bug:**
+  1. Pada floating chat bubble, posisi placeholder textarea ("Ask anything about server configs, errors or code...") berada terlalu di bawah, tidak vertikal center dengan tombol Send.
+  2. Pada header menu AI Assistant, tombol "New Chat" terlihat lebih kecil dibanding tombol lain di toolbar header, serta menggunakan ikon `restart_alt` (ikon refresh/restart) yang membingungkan alih-alih ikon chat baru.
+  3. Setiap kali membuka menu AI Assistant di sidebar, tampilan percakapan tidak langsung berada di pesan terbawah/terbaru. Sebaliknya, saat membuka chat bubble floating, terjadi scrolling animasi lambat yang membuat seolah chat bubble me-refresh setiap dibuka.
+
+- **Penyebab (Root Cause):**
+  1. Kontainer input chat bubble menggunakan `items-end` bersama padding dan tombol icon dengan height lebih tinggi, sehingga textarea single-line terdorong ke baseline bawah.
+  2. Tombol New Chat di header menggunakan `size="sm"` tanpa penyeragaman tinggi baris (`h-9`), sementara tombol Settings di sebelahnya menggunakan `size="icon"` dengan padding berbeda. Ikonnya keliru memakai `restart_alt`.
+  3. Menu utama AI Assistant di `App.tsx` dirender dengan CSS hiding (`display: none` saat tidak aktif). Saat un-hide, komponen tidak me-remount sehingga `useEffect` auto-scroll tidak berjalan. Pada floating bubble, dependensi `isFloatingOpen` memicu `scrollIntoView({ behavior: 'smooth' })` setiap kali popup dibuka, menyebabkan efek animasi gulir dari atas ke bawah yang mengganggu.
+
+- **Solusi & Perbaikan:**
+  - **Input Textarea Alignment (`AiFloatingWidget.tsx`):** Mengubah pembungkus input menjadi `items-center` dan menyetel `leading-normal m-0` pada textarea sehingga teks placeholder dan tombol berada tepat di tengah vertikal.
+  - **Ikon & Dimensi Tombol (`ai-assistant/Main.tsx`, `AiFloatingWidget.tsx`):** Mengganti ikon New Chat menjadi `add` di kedua tampilan, dan menetapkan ukuran standar `h-9` seragam pada semua kontrol header (Select, Refresh, New Chat, dan Settings).
+  - **Sinkronisasi Scroll Cerdas (`App.tsx`, `ai-assistant/Main.tsx`, `AiFloatingWidget.tsx`):**
+    - `App.tsx` meneruskan prop `isActive={activeMenu === 'ai-assistant'}` ke `AiAssistantMain`. Saat menu menjadi aktif, dilakukan scroll instan (`behavior: 'auto'`) setelah layout paint (50ms timer) sehingga pesan terbaru langsung terlihat tanpa delay.
+    - Pada `AiFloatingWidget.tsx`, saat popup pertama kali dibuka (`isJustOpened`), scroll dilakukan secara instan (`behavior: 'auto'`). Efek `behavior: 'smooth'` hanya diaktifkan saat streaming respons sedang berjalan atau saat ada pesan baru masuk ketika popup telah terbuka.
+
+---
+
+## 63. ✅ Perbaikan Eksekusi Stop Service PHP/Database, Persistensi Disk Action States Antar Sesi Aplikasi, dan Penyelarasan Input Menu AI Assistant
+
+- **Deskripsi Bug:**
+  1. Ketika pengguna memerintahkan AI untuk menghentikan seluruh layanan ("stop semua service" saat Apache dan PHP aktif), Apache berhasil berhenti, namun PHP memunculkan pesan error `"PHP {{version}} is already running!"` (terjadi juga potensi hal yang sama pada Database).
+  2. Ketika aplikasi ditutup dan dibuka kembali, riwayat pesan AI masih tersimpan tetapi semua tombol Action Card di riwayat chat reset kembali ke kondisi belum dieksekusi ("Confirm & Execute").
+  3. Pada menu utama AI Assistant (`/ai-assistant`), teks placeholder di kolom prompt input terlihat terlalu ke bawah (tidak vertikal center).
+
+- **Penyebab (Root Cause):**
+  1. **Logika Percabangan di `AiActionCard.tsx`:** Pada blok eksekusi aksi PHP dan Database, terdapat kondisi `else if (action.action === 'start' || action.action === 'start_all' || action.target === 'all')`. Ketika AI mengirimkan payload stop dengan target `all` (`{ "service": "php", "action": "stop", "target": "all" }`), evaluasi `action.target === 'all'` bernilai `true` sehingga alur eksekusi justru memanggil `api.start_service('php')` alih-alih `api.stop_service('php')`. Karena PHP sudah berjalan, backend mengembalikan pesan error "already running".
+  2. **Persistensi State Hanya di Memori:** State `actionStates` sebelumnya hanya disimpan dalam memori React (`useState` di `AiContext.tsx`). Ketika aplikasi keluar total (`close_app`), memori terhapus sementara file `data/ai_chat_history.json` tetap memuat pesan lama yang memiliki action proposal tanpa status eksekusinya.
+  3. **Alignment Composer Menu AI:** Kontainer form textarea di `menu/tools/ai-assistant/Main.tsx` menggunakan kelas flexbox `items-end`, sehingga textarea satu baris merapat ke dasar bawah tombol Send.
+
+- **Solusi & Perbaikan:**
+  - **Pemisahan Alur Start vs Stop (`AiActionCard.tsx`):**
+    - Mengisolasi blok logika: `isStart` (`action === 'start' || action === 'start_all'`) vs `isStop` (`action === 'stop' || action === 'stop_all'`).
+    - Bila `isStop` terpenuhi dan target berupa `'all'` atau kosong, secara eksplisit memanggil `api.stop_service('php')` atau `api.stop_service('database')`. Bila target adalah versi spesifik, memanggil `api.stop_php(target)` atau `api.stop_database(target)`.
+  - **Dual-Layer Persistence Action States:**
+    - **Backend (`core/services/ai_assistant.py` & `core/api.py`):** Menambahkan `data/ai_action_states.json` serta metode `get_action_states()`, `save_action_states()`, dan integrasi reset pada `clear_chat_history()`.
+    - **Frontend (`AiContext.tsx`):** Menyimpan dan memuat state secara sinkron via `localStorage` (untuk 0ms initial render) dan sinkronisasi dua arah dengan backend file JSON `data/ai_action_states.json`. Status tombol aksi (`success`, `failed`, `cancelled`) kini awet bahkan setelah aplikasi ditutup dan dibuka kembali.
+  - **Penyelarasan Vertikal Input Box (`ai-assistant/Main.tsx`):**
+    - Mengganti kelas pembungkus input dari `items-end` menjadi `items-center` dan menambahkan `leading-normal m-0 py-1.5 px-2` pada textarea agar teks placeholder berada tepat di tengah vertikal sejajar dengan tombol aksi.
+
+---
+
+## 64. ✅ Ikon System Tray Menjadi Ghost/Tidak Hilang dan Deadlock Saat Terminasi Melalui Ctrl+C di Console/CMD
+
+- **Deskripsi Bug:**
+  Ketika pengguna menjalankan VyloServe via command prompt/terminal (CMD/PowerShell) dan menekan `Ctrl+C` untuk menghentikan proses, aplikasi Python berhenti namun ikon VyloServe di area notifikasi taskbar Windows (System Tray) tetap tertinggal (menjadi ghost icon). Ketika ikon tersebut diklik kanan lalu memilih "Exit Engine", aplikasi tidak merespon dan ikon tetap tidak hilang atau proses mengalami deadlock.
+
+- **Penyebab (Root Cause):**
+  1. **Deadlock IPC `evaluate_js` saat Shutdown:**
+     Saat `AppLifecycle.perform_exit()` mematikan engine (`apache.stop_server()`, `php.stop_all()`), manager service memanggil `self.api.emit_log(...)` yang diteruskan ke `window.evaluate_js(...)`. Pada backend EdgeChromium/WinForms pywebview, `evaluate_js` memanggil `self.webview.Invoke(...)` dan menunggu sinkron (`semaphore.acquire()`). Karena jendela GUI sedang dalam proses penutupan atau disembunyikan di tray, UI message loop WinForms tidak lagi memproses invokasi JavaScript, menyebabkan `semaphore.acquire()` terblokir selamanya (deadlock total) sebelum mencapai baris `tray_icon.stop()` dan `os._exit(0)`.
+  2. **Intersepsi Sinyal SIGINT Dibatalkan oleh `on_closing`:**
+     Ketika user menekan `Ctrl+C`, pywebview menangkap SIGINT di thread WinForms dan memanggil `Application.Exit()`, yang memicu event form closing (`window.events.closing`). Namun `lifecycle.on_closing()` memeriksa `self.is_real_exit == False` dan mengembalikan nilai `False` (membatalkan penutupan form), mengira pengguna menekan tombol (X) jendela biasa untuk hide-to-tray. Akibatnya, `app.Exit()` dibatalkan dan proses tetap berjalan di background tanpa GUI.
+  3. **Uncaught `KeyboardInterrupt` & Hilangnya Cleanup Post-Loop:**
+     Pada `main()`, pemanggilan `webview.start(...)` tidak diikuti oleh `lifecycle.perform_exit()` saat loop GUI selesai. Selain itu, blok error handling hanya menangkap `except Exception:`, sehingga `KeyboardInterrupt` (yang mewarisi `BaseException`, bukan `Exception`) lolos dan tidak mengeksekusi shutdown engine.
+  4. **Pystray Win32 Loop Deadlock pada Callback Tray:**
+     Pada menu tray ("Exit Engine"), `on_exit_clicked` memanggil `lifecycle.perform_exit()` secara sinkron di dalam thread message pump pystray itu sendiri. Ketika `perform_exit` mencoba memanggil `tray_icon.stop()`, terjadi recursive deadlock di message loop pystray Win32.
+
+- **Solusi & Perbaikan:**
+  - **Shutdown Guard di `core/api.py`:**
+    Menambahkan `self._is_shutting_down = False` dan metode `set_shutting_down()`. Seluruh method emitter UI (`emit_log`, `emit_progress`, `emit_window_state`, `emit_ai_chunk`) dijaga dengan `if self._is_shutting_down: return` untuk mencegah pemanggilan `evaluate_js` selama alur shutdown.
+  - **Urutan Shutdown yang Aman di `main.py` (`perform_exit`):**
+    1. Memanggil `api.set_shutting_down()` terlebih dahulu agar pemanggilan stop engine tidak pernah memicu event UI yang memblokir proses.
+    2. Menyetel `tray_icon.visible = False` dan `tray_icon.stop()` secara instan (mengirimkan `NIM_DELETE` ke Windows Explorer untuk segera menghapus ikon dari taskbar sebelum proses berat pematian engine berjalan).
+    3. Menutup IPC Named Pipe listener dan menghentikan thread log watcher.
+    4. Mematikan seluruh engine server (Apache, PHP, Database).
+    5. Menghancurkan jendela GUI (`window.destroy()`).
+    6. Eksekusi `os._exit(0)` di dalam blok `finally:` untuk menjamin proses OS berakhir bersih tanpa thread zombie.
+    7. Dilengkapi proteksi re-entrancy flag `self._exit_in_progress` agar pemanggilan ganda tidak saling tumpang tindih.
+  - **Deteksi Interupsi Terminal & Hooking WinForms (`main.py`):**
+    - Pada `on_closing()`, menambahkan pengecekan `getattr(webview.platforms.winforms, '_sigint_received', False)` sehingga saat interrupt terjadi, form tidak lagi dibatalkan melainkan langsung menjalankan `perform_exit()` dan mengembalikan `True`.
+    - Menambahkan `setup_signal_handlers(lifecycle)` yang meregistrasi handler `SIGINT`, `SIGTERM`, `SIGBREAK`, serta handler konsol native Windows via `ctypes.windll.kernel32.SetConsoleCtrlHandler` (`CTRL_C_EVENT`, `CTRL_CLOSE_EVENT`, dll.) untuk menangkap interupsi terminal bahkan ketika Python sedang terblokir di unmanaged code.
+    - Meng-hook handler internal pywebview `_sigint_handler`.
+    - Pada `setup_systray()`, aksi `on_exit_clicked` dijalankan dalam daemon thread (`threading.Thread(target=lifecycle.perform_exit, daemon=True).start()`) agar tidak memblokir message pump pystray.
+    - Pada `main()`, menambahkan penanganan `except KeyboardInterrupt: lifecycle.perform_exit()` dan pemanggilan `lifecycle.perform_exit()` setelah `webview.start(...)` selesai.
+
+---
+
+## 65. ✅ Perbaikan Glitch Layout Kolom Input Saat Streaming AI, Optimasi Performa Ketikan (Zero-Lag Input), Pemantauan Kuota Token, & Rekomendasi Pertanyaan Lanjutan — SELESAI
+- **Lokasi:**
+  - `frontend/src/menu/tools/ai-assistant/Main.tsx`
+  - `frontend/src/menu/tools/ai-assistant/components/AiFloatingBubble.tsx`
+  - `frontend/src/menu/tools/ai-assistant/components/AiChatInput.tsx`
+  - `frontend/src/menu/tools/ai-assistant/components/AiChatMessage.tsx`
+  - `frontend/src/menu/tools/ai-assistant/components/AiUsageBadge.tsx`
+  - `frontend/src/menu/tools/ai-assistant/components/AiSuggestionChips.tsx`
+  - `frontend/src/context/AiContext.tsx`
+  - `core/services/ai_assistant.py` & `core/api.py`
+- **Masalah:**
+  1. **Glitch Layout Kolom Input Naik ke Atas Saat Streaming AI:**
+     Saat pengguna mengirim pesan dan AI mulai melakukan streaming jawaban, kolom input tiba-tiba berpindah ke bagian atas dan menutupi area chat. Setelah streaming selesai, kolom input kembali ke bawah diikuti lompatan scroll. Penyebab utamanya adalah container flex parent tidak memiliki `min-h-0` dan `overflow-hidden`, serta area input bawah tidak dikunci dengan `shrink-0`, sehingga kalkulasi tinggi flexbox (`flex-1`) kolaps saat child melakukan re-layout cepat selama streaming. Selain itu, pemanggilan `scrollIntoView({ behavior: 'smooth' })` pada setiap chunk streaming memicu *layout thrashing* beruntun di mesin WebView2.
+  2. **Input Lag Saat Mengetik di Kolom Chat AI:**
+     State teks input (`input`) sebelumnya disimpan langsung di komponen induk (`Main.tsx` / `AiFloatingBubble.tsx`). Setiap ketikan satu karakter memicu re-render seluruh daftar riwayat pesan (`messages.map(...)`) beserta parsing Markdown (`MarkdownContent`), sehingga ketikan terasa berat saat percakapan mulai panjang.
+  3. **Visibilitas Penggunaan Token & Kuota API Key:**
+     Pengguna yang menggunakan API Key (Gemini, Groq, OpenRouter) maupun Ollama belum memiliki indikator pemakaian token harian/mingguan atau sisa kuota langsung di UI.
+  4. **Rekomendasi Pertanyaan Lanjutan (Follow-up Suggestions):**
+     Belum tersedia rekomendasi pertanyaan kontekstual yang memudahkan pengguna mengeksplorasi langkah lanjutan setelah AI selesai menjawab.
+- **Solusi:**
+  1. **Stabilisasi Flexbox & Auto-Scroll Tanpa Thrashing:**
+     Menambahkan `min-h-0 overflow-hidden` pada container flex utama, `min-h-0` pada viewport scroll pesan, dan `shrink-0` pada header serta footer input di `Main.tsx` dan `AiFloatingBubble.tsx`. Mengganti `scrollIntoView({ behavior: 'smooth' })` saat streaming aktif menjadi penugasan langsung `scrollContainer.scrollTop = scrollContainer.scrollHeight` via `requestAnimationFrame` agar transisi tinggi selalu instan dan bebas lompatan layout.
+  2. **Isolasi State Ketikan (`AiChatInput.tsx`) & Memoisasi Pesan (`AiChatMessage.tsx`):**
+     Mengekstrak state ketikan lokal (`text`) dan kalkulasi auto-resize `<textarea>` ke komponen mandiri `AiChatInput.tsx` dengan ekspos metode imperatif `setInputText(text)` via `forwardRef`, serta membungkus `AiChatMessage` dengan `React.memo`. Hasilnya, mengetik di kolom chat hanya me-render ulang `<textarea>` itu sendiri (0 ms lag).
+  3. **Pelacakan Penggunaan Token Harian/Mingguan (`data/ai_usage.json` & `AiUsageBadge.tsx`):**
+     Menambahkan pencatatan token (*prompt*, *completion*, *total*) dan jumlah request per provider di `core/services/ai_assistant.py` (dengan ekstraksi `usageMetadata` Gemini, `x-ratelimit-*` headers Groq, `/api/v1/auth/key` OpenRouter, dan `eval_count` Ollama, serta estimasi fallback `len(text) // 4`) yang disimpan secara persisten di `data/ai_usage.json`. Menampilkan lencana & popover `AiUsageBadge` di header chat dengan statistik harian, akumulasi 7 hari terakhir, sisa limit real-time provider, dan tombol reset.
+  4. **Chip Rekomendasi Pertanyaan Lanjutan (`AiSuggestionChips.tsx`):**
+     Memperbarui *system prompt* di `core/services/ai_assistant.py` agar menyertakan blok ```` ```vylo_suggestions ```` berisi 2–3 pertanyaan lanjutan kontekstual di akhir respons. `AiContext.tsx` mengekstrak dan menyembunyikan blok tersebut dari teks gelembung chat utama, lalu merendernya melalui `AiSuggestionChips` tepat di atas kolom input dengan aksi klik-kirim langsung atau klik-edit ke kolom input.

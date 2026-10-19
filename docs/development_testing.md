@@ -74,6 +74,7 @@ tests/
 │   ├── test_updater.py                   # Unit test untuk core/services/updater.py (Auto-Updater)
 │   ├── test_tunnels.py                   # Unit test untuk core/services/tunnels.py (Zrok & Cloudflare tunnel)
 │   ├── test_markdown_viewer.py           # Unit test untuk core/services/markdown_viewer.py
+│   ├── test_ai_assistant.py              # Unit test untuk core/services/ai_assistant.py (DocRetriever, SSE, Tier Probing, Usage Stats)
 │   ├── test_runtimes_manager.py          # Unit test untuk core/services/runtimes_manager.py
 │   ├── test_service_lifecycles.py        # Unit test orkestrasi start/stop antar service
 │   └── test_<nama_service>.py            # Pola: test_<nama_file_source>.py
@@ -192,7 +193,8 @@ frontend/
 │   ├── setup.ts                      # Global setup: mock react-i18next, jest-dom matchers, jsdom polyfills
 │   ├── test-utils.tsx                # Helper bersama: mockPywebviewApi(), renderWithToast(), re-export RTL
 │   ├── i18n.test.ts                  # Smoke test src/i18n.ts asli (vi.unmock react-i18next) + parity penuh key en/id
-│   ├── components/                   # Mirror src/components/*.tsx
+│   ├── components/                   # Mirror src/components/*.tsx (termasuk skeleton/)
+│   ├── context/                      # Mirror src/context/*.tsx (ApacheContext, DatabaseContext, PhpContext, dll)
 │   ├── hooks/                        # Mirror src/hooks/*.ts (mis. useWindowPresence.test.ts)
 │   ├── utils/                        # Mirror src/utils/*.ts (mis. progress.test.ts, version.test.ts)
 │   └── menu/                         # Mirror src/menu/**/*.tsx (apache/, php/, database/, runtimes/, dashboard/, tools/)
@@ -203,7 +205,7 @@ Pola: `tests/<mirror-struktur-src>/<NamaKomponen>.test.tsx`.
 
 Helper bersama ada di `tests/test-utils.tsx` (re-export semua dari `@testing-library/react` ditambah `mockPywebviewApi()` dan `renderWithToast()`) — **selalu pakai helper ini, jangan tulis ulang boilerplate mock `window.pywebview.api` atau `<ToastProvider>` wrapper di tiap file test**. Untuk sekelompok komponen yang bentuknya identik (mis. empat form `InstallGo/Java/Node/Python.tsx` yang sama-sama forwardRef + `submit()` + fetch-versions-on-mount), buat SATU factory function bersama (lihat `tests/menu/runtimes/installRuntimeTestKit.tsx`) lalu panggil dari tiap file test dengan config berbeda, dan gunakan `it.each`/`describe.each` untuk variasi data (lihat `tests/menu/database/Settings.test.tsx` untuk field MySQL/PostgreSQL, atau `tests/menu/runtimes/Main.test.tsx` untuk keempat engine). Pola ini WAJIB diikuti untuk suite test baru — proyek ini menjaga *new code duplication* SonarQube di bawah 3%, dan test suite yang tidak DRY adalah kontributor terbesar untuk duplication findings.
 
-Per audit test coverage (2026), seluruh `src/**/*.{ts,tsx}` frontend punya coverage statement **>95%** (~664 test case di 55 file test, per `npx vitest run` — angka ini bergerak seiring fitur baru ditambahkan; jalankan `npm run test:coverage` untuk laporan terbaru per file, jangan andalkan angka statis di dokumen ini). Beberapa baris tetap sengaja tidak dicover karena secara nyata *unreachable* lewat UI (mis. validasi `if (!x) return` di dalam handler yang tombol pemicunya sendiri sudah `disabled` oleh kondisi yang sama — pola berulang yang ditemukan di banyak form Modal proyek ini; lihat commit history test untuk contoh).
+Per audit test coverage (Oktober 2026), seluruh `src/**/*.{ts,tsx}` frontend punya coverage statement **>95%** (**818 test case di 78 file test** frontend serta **712 test case di 20 file test** backend Python, dengan 0 Bugs, 0 Vulnerabilities, dan 0 Code Smells di SonarQube — angka ini bergerak seiring fitur baru ditambahkan; jalankan `npm run test:coverage` untuk laporan terbaru per file, jangan andalkan angka statis di dokumen ini). Beberapa baris tetap sengaja tidak dicover karena secara nyata *unreachable* lewat UI (mis. validasi `if (!x) return` di dalam handler yang tombol pemicunya sendiri sudah `disabled` oleh kondisi yang sama — pola berulang yang ditemukan di banyak form Modal proyek ini; lihat commit history test untuk contoh).
 
 > ✅ **Sudah diperbaiki:** Test `tests/components/Sidebar.test.tsx` ("opens the Tools dropdown and shows tool items when clicked...") sempat gagal deterministik — menguji interaksi dropdown "Tools" (klik untuk expand) yang ternyata sudah dihapus dari UI (menu Tools sekarang selalu tampil flat, tidak perlu diklik untuk dibuka). Test ditulis ulang untuk mencerminkan perilaku sebenarnya, plus satu test lain dengan pola `.closest('button')` serupa yang ternyata "lulus diam-diam tanpa menguji apa-apa" (`user.click(null!)` jadi no-op) juga dibersihkan. Diverifikasi 3x run `vitest run` berturut-turut tanpa kegagalan — indikasi *flakiness* yang sempat dilaporkan tidak muncul lagi setelah fix. Detail lengkap: `docs/known_bugs.md` #33.
 
@@ -250,6 +252,18 @@ Jika Vitest mengalami *hang*, perintah selanjutnya (seperti `npm run test` baru)
 - **DILARANG** menggunakan `vi.useFakeTimers` dalam file test mana pun di proyek ini.
 - Selalu gunakan *real timers* biasa (`await new Promise(r => setTimeout(r, ms))`) dikombinasikan dengan utilitas bawaan testing-library seperti `waitFor({ timeout })`.
 - Jika mendapati Vitest *hang* dan tidak selesai setelah beberapa detik, **segera buka terminal dan jalankan `taskkill /F /IM node.exe`** sebelum mencoba menjalankan test kembali. Jangan biarkan proses zombie menumpuk.
+
+### 3.8 Pola Pengujian Komponen `<Select>` Custom & Animasi `<Modal>`
+1. **Interaksi `<Select>` (`components/Select.tsx`):**
+   Seluruh dropdown di VyloServe telah menggunakan komponen `<Select>` custom yang me-render `<button aria-haspopup="listbox">` sebagai trigger dan menampilkan daftar opsi di dalam React Portal (`document.body`). Jangan gunakan `userEvent.selectOptions()` atau mencari `getByRole('combobox')` (yang hanya berlaku untuk `<select>` HTML native). Sebagai gantinya:
+   ```tsx
+   // Klik tombol trigger dulu untuk membuka portal listbox
+   fireEvent.click(screen.getByLabelText('settings.theme'));
+   // Lalu klik opsi yang dirender di dalam portal
+   fireEvent.click(screen.getByText('Dracula'));
+   ```
+2. **Transisi Visibilitas `<Modal>` (`components/Modal.tsx`):**
+   Ketika prop `isOpen` pada `<Modal>` berubah dari `false` ke `true` (termasuk saat `keepMounted` aktif), kontainer modal menggunakan `requestAnimationFrame` ganda untuk mengubah class `invisible` menjadi `visible`. Jika test langsung berinteraksi dengan tombol di dalam modal yang baru dibuka, gunakan `fireEvent.click(...)` atau tunggu siklus frame selesai agar tidak gagal karena pengecekan visibilitas CSS ancestor.
 
 ## 4. Standar Clean Code & DRY
 
@@ -395,6 +409,35 @@ sonar-scanner.bat -D"sonar.projectKey=vyloserve-be" -D"sonar.sources=core,main.p
 ```
 
 **Menandai *false positive* dengan `# NOSONAR` (Python):** marker `# NOSONAR` **WAJIB** berada di baris kode yang sama persis dengan baris yang dilaporkan temuan, BUKAN di baris komentar terpisah sebelumnya — SonarQube tidak mengenalinya kalau ditaruh di atas kode (lihat `docs/known_bugs.md` #37/#38 untuk kejadian nyata: komentar penjelasan di baris terpisah di atas kode tetap membuat temuan S7504 dilaporkan ulang di scan berikutnya). Pola yang benar: tulis penjelasan lengkap di komentar baris-baris sebelumnya seperti biasa, lalu tempelkan `# NOSONAR (python:RULEID): <ringkasan singkat>` di akhir baris kode yang sama dengan temuan.
+
+### 6.1 Pipa Otomatis Terpadu (VyloServe AutoScan)
+Alih-alih menjalankan pytest, Vitest, SonarQube BE, SonarQube FE, dan Gitleaks secara manual satu per satu, repositori pendamping `vyloserve-scan` menyediakan skrip orkestrasi multithreading `scanner.py`:
+
+```powershell
+cd D:\Projects\Python\vyloserve-scan
+python scanner.py
+```
+
+**Fitur & Kemampuan Utama `scanner.py`:**
+1. **Eksekusi Paralel (Multithreading):**
+   - Phase 1: Unit Test Backend (`pytest` + `coverage.xml`) & Frontend (`vitest` + `lcov.info`) berjalan simultan.
+   - Phase 2: SonarQube Scanner Backend & Frontend berjalan simultan setelah data coverage siap.
+   - Phase 3: Gitleaks memindai kebocoran kredensial/token rahasia di repositori.
+2. **Laporan Markdown Tunggal Komprehensif (`.md`):**
+   Menghasilkan `vyloserve_scan_report_<timestamp>.md` berisi:
+   - Tabel Ringkasan Eksekutif & Status Pipeline
+   - Tabel Metrik Kualitas SonarQube (Bugs, Vulnerabilities, Hotspots, Code Smells, Coverage, Duplikasi)
+   - Tabel Isu Terperinci SonarQube beserta rekomendasi remediasi cepat per rule
+   - Tabel Rincian Kegagalan Unit Test & Breakdown Coverage per komponen
+   - Tabel Audit Keamanan Gitleaks (kredensial ter-masking)
+   - Log mentah eksekusi lengkap dalam blok *collapsible* (`<details>`).
+3. **AI Remediation Advisor (via `agy` CLI):**
+   Menggunakan Antigravity CLI (`agy -p`) di latar belakang tanpa membutuhkan API key mandiri. Saat terdeteksi temuan galat/isu, AI menyusun analisis akar masalah, panduan langkah perbaikan konkret, dan matriks prioritas langsung ke dokumen laporan.
+4. **Sesi Diskusi Interaktif Terminal (`--discuss`):**
+   Menambahkan opsi `--discuss` akan otomatis meluncurkan jendela **Windows Terminal (`wt.exe`)** baru untuk sesi interaktif `agy -i`, memungkinkan diskusi langsung dengan agen AI dalam memperbaiki kode.
+5. **Mode Tambahan:**
+   - `--no-ai`: Menggunakan mesin heuristik berbasis aturan SonarQube tanpa memanggil AI.
+   - `--noreport`: Mode dry-run konsol tanpa men-generate file laporan `.md`.
 
 ## 7. Proses Kompilasi Produksi (Build Project)
 Untuk membuat aplikasi mandiri (Standalone Windows Executable `.exe`) yang bisa didistribusikan ke pengguna akhir:

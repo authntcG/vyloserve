@@ -245,6 +245,22 @@ Dipakai identik di `php/Main.tsx` (sumber pola asli) dan `database/Main.tsx` (me
 - Database punya langkah konfirmasi tambahan (pilihan backup sebelum update) yang PHP tidak punya — perbedaan ini genuinely fungsional (backend `update_database()` punya parameter `backup_data`, `update_php()` tidak), bukan sekadar variasi gaya.
 - Kalau modul ketiga butuh pola yang sama, pertimbangkan ekstraksi ke komponen bersama (mis. `<UpdateBadge>`) alih-alih menyalin lagi untuk ketiga kalinya — ambang yang sama seperti disebutkan untuk pola "tombol status install" di atas.
 
+### Sistem Skeleton Loading (`components/skeleton/`)
+Seluruh tampilan loading placeholder di aplikasi distandarisasi melalui keluarga komponen di `frontend/src/components/skeleton/` (dengan `components/SkeletonCard.tsx` dipertahankan sebagai *re-export* kompatibilitas mundur):
+```tsx
+import { Skeleton, SkeletonCard, SkeletonForm, SkeletonDocument, SkeletonChatMessage, AppSkeletonLayout } from '../../components/skeleton';
+```
+| Komponen | Kegunaan Utama |
+|---|---|
+| `<Skeleton variant="text\|circular\|rectangular\|rounded" />` | Primitif dasar blok shimmer theme-aware (`role="status"`, `aria-busy="true"`). |
+| `<SkeletonCard variant="service\|project\|metric\|list-item" />` | Placeholder kartu modul (`service` untuk Apache/PHP/DB/Runtimes/Git/Tunnels, `project` untuk Virtual Host, `metric` untuk Dashboard resource card, `list-item` untuk daftar share). |
+| `<SkeletonForm fields={...} />` | Placeholder untuk formulir di dalam Modal saat sedang mengambil konfigurasi/versi dari backend. |
+| `<SkeletonDocument />` | Placeholder untuk area baca dokumen (seperti Markdown Documentation Viewer). |
+| `<SkeletonChatMessage />` | Placeholder balon percakapan saat AI sedang memproses atau memuat riwayat. |
+| `<AppSkeletonLayout />` | Kerangka layar penuh (Sidebar + Header + Content Grid) saat aplikasi pertama kali melakukan bootstrap koneksi ke PyWebView. |
+
+**Aturan:** Jangan membuat `<div className="animate-pulse bg-slate-200 ...">` manual di halaman modul — gunakan salah satu komponen di atas agar warna shimmer selalu mengikuti tema aktif secara seragam.
+
 ## 3. Status Migrasi & Fase 2/3/4
 
 **Fase 1** migrasi ke komponen bersama di atas untuk: `Modal`/`AlertContext`/`LogFileViewerModal`, tombol primary per-halaman (Apache/PHP/Database/Git/QR Generator), 2 tombol Tunnels yang full-hardcoded, 6 lokasi `ToggleSwitch`, dan 3 combobox custom (Database/Tunnels×2).

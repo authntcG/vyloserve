@@ -16,10 +16,12 @@ vyloserve/
 │   └── services/           # Modul Manager spesifik (Single Responsibility Principle)
 │       ├── apache.py, php.py, database.py, runtimes_manager.py
 │       ├── project.py, git_manager.py, ssl_manager.py, dashboard.py
-│       └── settings.py, updater.py, tunnels.py, markdown_viewer.py
+│       └── settings.py, updater.py, tunnels.py, markdown_viewer.py, ai_assistant.py
 ├── frontend/               # Kode React UI
 │   ├── src/
-│   │   ├── components/     # Reusable UI (Modal.tsx, PageHeader.tsx, dll)
+│   │   ├── components/     # Reusable UI generik (Modal.tsx, PageHeader.tsx, StatusBadge.tsx, ProgressStatusBlock.tsx, dll)
+│   │   │   └── skeleton/   # Primitif Skeleton Loading modular (Skeleton, SkeletonCard, SkeletonForm, SkeletonDocument, dll)
+│   │   ├── context/        # React Context lintas-aplikasi & modul (Alert, Toast, Ai, Apache, Php, Database, Dashboard, Runtimes, Tunnels, Git)
 │   │   ├── locales/        # File terjemahan JSON (en & id)
 │   │   ├── menu/           # Halaman/Menu utama berdasarkan modul (apache, php, database, dll)
 │   │   ├── hooks/          # Custom hooks lintas-komponen (useWindowPresence.ts, dll)
@@ -84,6 +86,7 @@ VyloServe punya 10 preset tema (`vyloserve-dark`/`-light`, Darcula, Solarized Da
    - Gunakan `<Modal>` untuk popup, jangan membuat layer absolute baru.
    - Gunakan `<PageHeader>` untuk judul halaman module.
    - Gunakan `<BackgroundProgressWidget>` untuk menangkap log loading dari OS.
+   - Gunakan primitif di `frontend/src/components/skeleton/` (`<Skeleton>`, `<SkeletonCard>`, `<SkeletonForm>`, `<SkeletonDocument>`, `<SkeletonChatMessage>`, `<AppSkeletonLayout>`) untuk *loading state*, jangan membuat blok `animate-pulse` manual.
 2. **Golden Standard UI:**
    Pola `PageHeader + SkeletonCard + EmptyState + Card + Modal` (fetch on mount → render 3-state loading/data/empty → handler aksi dengan toast+i18n) diterapkan konsisten di **Apache, PHP, Database, Runtimes, dan Git** — bukan eksklusif milik Apache/PHP. Jika membuat modul baru, ikuti struktur ini. Detail lengkap + diagram: `docs/frontend_ui.md` §5. Untuk halaman dengan banyak state bercabang (mis. multi-engine/multi-tab), lihat juga §5.1 di dokumen yang sama soal konvensi ekstraksi sub-komponen supaya *Cognitive Complexity* tetap rendah.
 3. **Graceful Exit & Single-Instance IPC:**
@@ -91,16 +94,17 @@ VyloServe punya 10 preset tema (`vyloserve-dark`/`-light`, Darcula, Solarized Da
    Aplikasi menerapkan single-instance terisolasi per mode: mutex `VyloServe_App_Mutex_v1` (prod) vs `VyloServe_Dev_App_Mutex_v1` (dev), window title terpisah, dan AppUserModelID terpisah. Pemanggilan ulang aplikasi membawa window utama ke depan melalui **Windows Named Pipe IPC** (`\\.\pipe\VyloServe_IPC_v1` / `\\.\pipe\VyloServe_Dev_IPC_v1`), bukan raw Win32 hijack cross-process, sehingga bebas crash saat window sedang disembunyikan di tray. Detail: `docs/known_bugs.md` #56.
 4. **Patching UI Component Props:**
    Ketika melakukan patch/edit terhadap React Hooks (*useEffect*, *useContext*, *useTranslation*), deklarasikan di baris paling atas fungsi komponen untuk mencegah pelanggaran urutan aturan eksekusi Hooks bawaan React.
-5. **🚨 WAJIB: Import CSS Pihak Ketiga Global Harus Pakai `layer()`:**
-   Tailwind v4 membungkus semua utility class-nya (`text-[Npx]`, dll) di dalam CSS Cascade Layer (`@layer utilities`). Rule CSS yang **tidak** berada di dalam layer apa pun **selalu menang** atas rule di dalam layer, tidak peduli urutan importnya. **DILARANG** `import 'package/file.css'` polos di file `.tsx` untuk CSS global pihak ketiga (font, icon set, dll) — **WAJIB** lewat CSS `@import "package/file.css" layer(base);` di `src/index.css` agar ikut sistem layer Tailwind dan bisa ditimpa utility. Bug nyata akibat pelanggaran ini: `docs/known_bugs.md` #20 (semua `text-[Npx]` pada ikon Material Symbols diam-diam tidak berfungsi). Detail & cara verifikasi lewat `getComputedStyle()`: `docs/frontend_ui.md` §15.
+5. **🚨 WAJIB: Import CSS Pihak Ketiga Global Harus Pakai `layer()` & Berada Sebelum `@plugin`:**
+   Tailwind v4 membungkus semua utility class-nya (`text-[Npx]`, dll) di dalam CSS Cascade Layer (`@layer utilities`). Rule CSS yang **tidak** berada di dalam layer apa pun **selalu menang** atas rule di dalam layer, tidak peduli urutan importnya. **DILARANG** `import 'package/file.css'` polos di file `.tsx` untuk CSS global pihak ketiga (font, icon set, dll) — **WAJIB** lewat CSS `@import "package/file.css" layer(base);` di `src/index.css` agar ikut sistem layer Tailwind dan bisa ditimpa utility. Selain itu, seluruh pernyataan `@import` di `src/index.css` **WAJIB** diletakkan di bagian paling atas sebelum direktif `@plugin` atau rule CSS lainnya (mematuhi spesifikasi CSS dan aturan SonarQube `css:S8778`). Bug nyata akibat pelanggaran ini: `docs/known_bugs.md` #20 (semua `text-[Npx]` pada ikon Material Symbols diam-diam tidak berfungsi). Detail & cara verifikasi lewat `getComputedStyle()`: `docs/frontend_ui.md` §15.
 6. **🚨 WAJIB: Setiap `<label>` Harus Terhubung ke Input Pasangannya lewat `htmlFor`/`id`:**
    Pola berulang yang ditemukan di banyak form (`InstallWizard.tsx`, `ChangePassword.tsx`, `ProjectSettings.tsx`, kedua `NewInstance.tsx` PHP & Database, `Settings.tsx` PHP, `NewProject.tsx`, `qr-generator/Main.tsx` — 8 kemunculan terpisah): `<label>` ditulis bersebelahan dengan `<input>`/`<select>` secara visual, tapi TANPA `htmlFor` pada label dan `id` pada input/select pasangannya. Secara visual terlihat benar, tapi screen reader tidak bisa mengasosiasikan label dengan kontrolnya (pelanggaran a11y nyata), dan query `getByLabelText()` di test (lihat `docs/development_testing.md` §3) gagal menemukan elemennya. **WAJIB** setiap pasangan `<label>`+`<input>`/`<select>`/`<textarea>` baru diberi `htmlFor="id_unik"` pada label dan `id="id_unik"` pada kontrolnya — jangan andalkan kedekatan visual di JSX saja. Detail: `docs/known_bugs.md` #21.
 
 ### 🧹 Clean Code & DRY (Backend & Frontend)
-7. **Fungsi Tunggal, Tanggung Jawab Tunggal (SRP):**
+7. **Fungsi Tunggal, Tanggung Jawab Tunggal (SRP) & Isolasi State Input:**
    - Setiap fungsi Python harus memiliki **satu tujuan yang jelas**. Jika sebuah fungsi panjangnya melebihi 40 baris atau memiliki lebih dari 2 tingkat indentasi *nested*, pertimbangkan untuk memecahnya.
    - Ekstrak logika yang berulang ke fungsi *helper* atau *private method* (prefix `_`).
-   - Di frontend React, pisahkan logika bisnis dari logika presentasi (gunakan custom hooks jika diperlukan).
+   - Di frontend React, pisahkan logika bisnis dari logika presentasi (gunakan custom hooks dan Domain Context di `src/context/`).
+   - **Isolasi State Input Frekuensi Tinggi:** Jangan menaruh state `useState` untuk teks input yang diketik cepat (seperti kolom input chat AI) langsung di komponen induk yang me-render daftar komponen berat (seperti balon pesan Markdown). Isolasikan *state* pengetikan di komponen anak terdedikasi (misal `AiChatInput.tsx`) dan bungkus item daftar berat dengan `React.memo` agar ketukan keyboard tidak memicu *re-render* seluruh daftar (lihat `docs/known_bugs.md` #65).
 8. **Naming Convention:**
    - **Python (Backend):** Gunakan `snake_case` untuk variabel dan fungsi, `PascalCase` untuk kelas.
    - **TypeScript (Frontend):** Gunakan `camelCase` untuk variabel/fungsi, `PascalCase` untuk komponen React dan tipe/interface.
@@ -187,6 +191,15 @@ VyloServe punya 10 preset tema (`vyloserve-dark`/`-light`, Darcula, Solarized Da
     - **DILARANG** menggunakan `vi.useFakeTimers` (khususnya dengan `{ shouldAdvanceTime: true }`) di dalam file test React mana pun, terutama yang dikombinasikan dengan `act` di React 18. Pada sistem operasi Windows, ini akan memicu *infinite hang* pada test runner Vitest.
     - **DILARANG** menjalankan perintah `npm run test` baru di latar belakang jika perintah sebelumnya masih dalam status berjalan/hang. Setiap kegagalan terminasi Vitest akan meninggalkan *worker* `node.exe` yatim di memori (*zombie process*). Jika dibiarkan menumpuk, proses ini dengan cepat memakan seluruh kapasitas RAM sistem (insiden tercatat: 24GB RAM habis terpakai dan membuat sistem lumpuh).
     - **Solusi Wajib:** Selalu gunakan *real timers* (`await new Promise(r => setTimeout(r, ms))`). Jika kamu mencurigai Vitest sedang hang, **wajib** jalankan `taskkill /F /IM node.exe` untuk membunuh zombie process sebelum mencoba melanjutkan.
+32. **🚨 WAJIB: Standar Lebar & Responsivitas Kontainer Halaman Desktop (Anti Layar Sempit / Mobile-Like Layout):**
+    - VyloServe adalah aplikasi desktop dengan jendela tetap/resizable yang sudah memiliki padding global (`md:px-8 md:py-8`) dan sidebar tetap (`md:ml-sidebar-width`).
+    - **DILARANG** membatasi lebar kontainer halaman utama secara sepihak dengan utility arbitrary/sempit seperti `max-w-md`, `max-w-lg`, `max-w-3xl`, atau `max-w-5xl mx-auto` seolah-olah halaman web artikel biasa — ini membuat antarmuka desktop terlihat sempit dan terisolasi seperti layar HP/tablet di tengah monitor yang luas.
+    - **DILARANG** menambahkan pembatas sempit (`max-w-md`, `max-w-lg`) pada teks paragraf/subtitle di dalam kartu empty state atau header kartu desktop — gunakan `max-w-2xl mx-auto` atau biarkan teks membentang proporsional agar tidak memotong kalimat menjadi kolom sempit vertikal seperti tampilan smartphone.
+    - Halaman modul/menu utama **WAJIB** mengisi ruang yang tersedia secara penuh (`w-full`). Untuk halaman yang mengelola layout tinggi penuh (seperti chat/editor), kontainer induk di `App.tsx` **WAJIB** mengaktifkan `flex flex-col h-full` dan wrapper modul **WAJIB** `flex-1 min-h-0 flex flex-col w-full` agar rantai flexbox tidak terputus dan tidak kolaps ke tinggi `auto` di bawah `overflow-y-auto`.
+    - Di dalam halaman (*internal components* seperti empty state cards, suggestion buttons, form action rows), gunakan layout grid responsif desktop-first (`grid grid-cols-1 sm:grid-cols-3` dsb.) dengan kontainer luas (`max-w-5xl mx-auto`) alih-alih menumpuk elemen secara vertikal di dalam kontainer sempit (`max-w-lg flex flex-col`). Detail insiden: `docs/known_bugs.md` #57.
+33. **Pola Pengujian Komponen `<Select>` Custom & Animasi `<Modal>` di Vitest:**
+    - Seluruh dropdown di VyloServe telah dimigrasikan ke komponen `<Select>` kustom (`components/Select.tsx`) yang me-render `<button aria-haspopup="listbox">` dan menampilkan daftar opsi di dalam React Portal (`document.body`), **BUKAN** elemen `<select>` HTML native. Saat menulis unit test Vitest, **DILARANG** menggunakan `userEvent.selectOptions()` atau mencari `getByRole('combobox')` — klik tombol trigger terlebih dahulu (`fireEvent.click(trigger)`), lalu klik elemen opsi yang muncul di portal.
+    - Komponen `<Modal>` menggunakan `requestAnimationFrame` ganda untuk menganimasikan transisi `invisible` → `visible` saat `isOpen` berubah menjadi `true`. Saat menguji interaksi di dalam modal yang baru saja dibuka pada test, gunakan `fireEvent.click` atau tunggu siklus animasi selesai jika menggunakan `userEvent` (karena `userEvent` memeriksa visibilitas CSS ancestor).
 
 ---
 *File ini adalah sumber rujukan utama lintas-vendor untuk AI Assistant (Claude Code, OpenAI Codex CLI, Cursor, Amp, Jules, Gemini, dan tool lain yang mendukung standar terbuka [agents.md](https://agents.md)) agar bisa langsung memahami ekosistem VyloServe tanpa perlu menganalisa ulang seluruh repositori secara manual dari awal setiap memulai percakapan atau sesi baru.*

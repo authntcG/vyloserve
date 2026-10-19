@@ -24,7 +24,7 @@ Target spesifikasi untuk menjalankan aplikasi VyloServe secara optimal:
 5. [Frontend & Antarmuka (Frontend UI)](frontend_ui.md)
    Panduan mengenai komponen React, integrasi i18n (multi-bahasa), dan struktur presentasi visual.
 6. [Pengujian & Pengembangan (Development & Testing)](development_testing.md)
-   Panduan mengenai cara melakukan setup proyek, unit testing menggunakan Pytest (beserta **standar wajib test per fitur baru**), panduan Clean Code & DRY, standar Security (validasi input, path traversal, XSS prevention), dan proses build executable.
+   Panduan mengenai cara melakukan setup proyek, unit testing menggunakan Pytest & Vitest, analisis SonarQube, pipa otomatisasi AutoScan (`scanner.py`), panduan Clean Code & DRY, standar Security (validasi input, path traversal, XSS prevention), dan proses build executable.
 7. [Bugs & Limitasi Diketahui (Known Bugs)](known_bugs.md)
    Daftar *bug* yang pernah ditemukan (beserta resolusinya) dan batasan-batasan teknis dari aplikasi (misal: IPv6 localhost, masalah UAC).
 8. [🤖 Panduan Pengembangan untuk AI (AI Development Guide)](ai_development_guide.md)
@@ -33,6 +33,8 @@ Target spesifikasi untuk menjalankan aplikasi VyloServe secara optimal:
    **Bacaan wajib sebelum menulis/mengubah UI apa pun.** Aturan warna theme-aware vs statis, spesifikasi komponen bersama (`Button`, `ToggleSwitch`, `Select`, `ServiceToggleButton`), kapan harus pakai komponen yang mana, dan daftar area yang masih menunggu konsolidasi (Fase 2).
 10. [🔁 Playbook Kerja (Dev Workflow Playbook)](dev_workflow_playbook.md)
     **Bacaan wajib sebelum menyerahkan perubahan apa pun.** Urutan command verifikasi presisi (tsc/vitest/eslint/pytest), peta "dokumen mana untuk perubahan apa", cara membuktikan regresi-sendiri vs pra-eksisting, dan teknik debugging sistematis untuk test yang gagal membingungkan. Di-*force-load* otomatis untuk Gemini CLI lewat `@import` di `GEMINI.md`; untuk asisten lain dibaca lewat pointer di `.claude/skills/vyloserve-dev-workflow/SKILL.md` atau langsung dari sini.
+11. [📘 Panduan Pengguna & Basis Pengetahuan (User Guide & Knowledge Base)](user_guide.md)
+    **Panduan lengkap penggunaan aplikasi untuk end-user dan basis data pengetahuan AI.** Mencakup petunjuk mendalam semua fitur, opsi tombol, FAQ per modul, kamus error & log umum, panduan troubleshooting teruji, serta glosarium istilah teknis.
 
 ---
 > **Catatan AI:** 

@@ -18,22 +18,23 @@ vyloserve/
 │       ├── git_manager.py      # Instalasi PortableGit
 │       ├── ssl_manager.py      # Pembuatan Certificate Authority (CA) lokal
 │       ├── dashboard.py        # Menyimpan Status Toggle UI Dashboard
-│       ├── settings.py         # Menyimpan Preferensi Aplikasi (Bahasa, Tema, filter log, opsi update, notifikasi desktop)
+│       ├── settings.py         # Menyimpan Preferensi Aplikasi (Bahasa, Tema, AI, filter log, opsi update, notifikasi desktop)
 │       ├── updater.py          # Auto-Updater: cek/unduh/pasang rilis baru dari GitHub Releases
 │       ├── tunnels.py          # Logika tunnel (zrok & Cloudflare) — instal binary & expose port lokal ke URL publik
-│       └── markdown_viewer.py  # Logika penampil dokumentasi Markdown lokal (scanner tree, reader, media base64)
+│       ├── markdown_viewer.py  # Logika penampil dokumentasi Markdown lokal (scanner tree, reader, media base64)
+│       └── ai_assistant.py     # AI Copilot: in-memory RAG DocRetriever, streaming SSE, tier probing, token usage tracker, & HITL service control
 ├── frontend/                   # Repositori UI berbasis React (Vite + TS)
 │   ├── src/
-│   │   ├── components/         # Komponen UI Reusable, struktur FLAT (Modal, Card, PageHeader, dll — TIDAK ada subfolder ui/)
-│   │   │                       # Termasuk DUA context provider terpisah: ToastContext (notifikasi sekilas/auto-dismiss,
-│   │   │                       # juga menyimpan histori toast session-only utk NotificationBell) dan AlertContext
-│   │   │                       # (dialog alert()/confirm() modal, menggantikan window.alert/confirm native).
-│   │   │                       # NotificationBell.tsx: ikon lonceng+badge unread di Sidebar, panel histori toast,
-│   │   │                       # terintegrasi notifikasi native Windows — lihat docs/known_bugs.md #45/#46
+│   │   ├── components/         # Komponen UI Reusable generik (Modal, Card, PageHeader, Select, StatusBadge, ProgressStatusBlock, dll)
+│   │   │   │                   # NotificationBell.tsx (panel histori toast + notifikasi native Windows)
+│   │   │   └── skeleton/       # Primitif Skeleton Loading (Skeleton, SkeletonCard, SkeletonForm, SkeletonDocument, SkeletonChatMessage, AppSkeletonLayout)
+│   │   ├── context/            # React Context Providers untuk UI global dan logika domain per-modul
+│   │   │   ├── AlertContext.tsx, ToastContext.tsx (dialog confirm & toast notification)
+│   │   │   ├── AiContext.tsx   # AiProvider: state streaming SSE, riwayat chat, usage stats, & dual-layer action states persistence
+│   │   │   └── ApacheContext.tsx, PhpContext.tsx, DatabaseContext.tsx, DashboardContext.tsx, RuntimesContext.tsx, TunnelsContext.tsx, GitContext.tsx
 │   │   ├── locales/            # Berkas i18n JSON untuk bahasa (en, id)
-│   │   ├── menu/                # Halaman utama aplikasi: apache/ (termasuk CRUD Project & Virtual Host,
-│   │   │                        # TIDAK ada folder project/ terpisah), php/, database/, dashboard/, runtimes/,
-│   │   │                        # tools/ (git/, qr-generator/, base64-encode-decode/, url-encode-decode/, tunnels/, markdown-viewer/, settings/)
+│   │   ├── menu/                # Halaman utama aplikasi: apache/, php/, database/, dashboard/, runtimes/,
+│   │   │                        # tools/ (ai-assistant/, git/, qr-generator/, base64-encode-decode/, url-encode-decode/, tunnels/, markdown-viewer/, settings/)
 │   │   ├── utils/               # Helper murni lintas-halaman (BUKAN komponen React) — lihat docs/frontend_ui.md §1
 │   │   │   ├── a11y.ts          # onEnterOrSpace() — keyboard support (Enter/Space) utk elemen non-native
 │   │   │   ├── progress.ts      # clampPercent() — clamp nilai progress vylo_progress ke [0, 100]
@@ -41,7 +42,7 @@ vyloserve/
 │   │   │   └── version.ts       # compareVersions() — bandingkan versi semantik (bukan string !=), dipakai PHP & Database
 │   │   ├── hooks/               # Custom React hooks lintas-komponen (BUKAN komponen React, nol JSX)
 │   │   │   └── useWindowPresence.ts # Deteksi fokus/minimize/hidden-ke-tray window — lihat docs/frontend_ui.md §5.1
-│   │   ├── i18n.ts             # Konfigurasi react-i18next (TIDAK ada folder contexts/)
+│   │   ├── i18n.ts             # Konfigurasi react-i18next
 │   │   └── App.tsx             # Routing MANUAL via useState (BUKAN React Router) — lihat docs/frontend_ui.md §2
 │   ├── package.json            # Daftar dependensi Frontend (React, Tailwind, i18next)
 │   └── vite.config.ts          # Konfigurasi bundler Vite
@@ -61,5 +62,5 @@ vyloserve/
 ## Penjelasan Direktori *Generate*
 Direktori-direktori berikut tidak disimpan di Git (di-ignore), namun akan terbuat secara otomatis saat aplikasi dijalankan dan digunakan oleh pengguna:
 *   `bin/`: Seluruh binary executable dari layanan (Apache, PHP, dsb) akan diletakkan di sini. Aplikasi VyloServe bersifat mandiri dan *portable*, tidak bergantung pada instalasi C:/Program Files. Arsip unduhan (`.zip`/`.tar.gz`) juga diunduh LANGSUNG ke subfolder service-nya sendiri di sini (mis. `bin/database/<db_id>.zip`) sebelum diekstrak ke tempat yang sama — tidak ada direktori temp terpisah.
-*   `data/`: Menyimpan konfigurasi state dalam bentuk JSON (seperti `apache.json`, `settings.json`, `dashboard.json`), serta kunci SSL (`VyloServeRootCA.key`).
+*   `data/`: Menyimpan konfigurasi state dalam bentuk JSON (seperti `apache.json`, `settings.json`, `dashboard.json`, `ai_chat_history.json`, `ai_action_states.json`, `ai_usage.json`), serta kunci SSL (`VyloServeRootCA.key`).
 *   `www/`: Direktori *Document Root* global. Di sinilah proyek-proyek seperti Laravel atau CodeIgniter akan diletakkan.

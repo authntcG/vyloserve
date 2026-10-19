@@ -80,3 +80,71 @@ Berbeda dari §5 (event yang hanya mengalir **selama** satu aksi user tertentu b
 - `Api.stop_log_watcher()` menghentikannya dengan bersih saat `AppLifecycle.perform_exit()` (§4).
 
 Detail lengkap mekanisme tail-file (offset tracking, retry saat file terkunci Windows, dsb.): `docs/backend_services.md` §11.2. Detail sisi frontend (filter level/kategori, UI toggle): `docs/frontend_ui.md` §12.
+
+## 7. Pola Async Keempat: AI Streaming (SSE) & Eksekusi Proposal Aksi Terstruktur (HITL)
+
+Fitur AI Assistant (Server Copilot) mengombinasikan streaming respons real-time dengan kendali layanan Human-In-The-Loop (HITL) yang aman:
+
+```mermaid
+sequenceDiagram
+    participant User as Pengguna (UI)
+    participant AiCtx as Frontend (AiProvider)
+    participant Api as Api Facade (core/api.py)
+    participant Mgr as AIAssistantManager
+    participant LLM as Provider LLM (OpenRouter/Ollama/Gemini)
+
+    User->>AiCtx: Ketik: "hidupkan apache dan database"
+    AiCtx->>Api: send_ai_message(prompt, context)
+    Api->>Mgr: send_message()
+    Mgr->>Mgr: Aggregasi status server + RAG DocRetriever
+    Mgr->>Mgr: Launch _stream_worker (Background Thread)
+    Mgr-->>Api: {status: success, message_id}
+    Api-->>AiCtx: return message_id (Non-blocking)
+
+    loop SSE Stream Token per Token
+        LLM-->>Mgr: data: {"choices": [{"delta": {"content": "..."}}]}
+        Mgr->>Api: emit_ai_chunk(chunk, is_done=False)
+        Api->>AiCtx: CustomEvent('vylo_ai_chunk', {chunk})
+        AiCtx->>User: Render pengetikan token live di chat
+    end
+
+    LLM-->>Mgr: [DONE] / is_done: true
+    Mgr->>Api: emit_ai_chunk(chunk="", is_done=True, sources=[...])
+    Api->>AiCtx: CustomEvent('vylo_ai_chunk', {is_done: true})
+    AiCtx->>AiCtx: Parse vylo_action block & render <AiActionCard>
+
+    Note over User, AiCtx: Human-In-The-Loop Confirmation
+    User->>AiCtx: Klik "Confirm & Execute" pada kartu aksi
+    AiCtx->>Api: start_apache_server() & start_database()
+    Api-->>AiCtx: {status: success}
+    AiCtx->>AiCtx: dispatchEvent('service_status_changed')
+    AiCtx->>Api: save_ai_action_states({status: 'executed'})
+    AiCtx->>User: Kartu berubah hijau (Executed) & toggle UI sinkron
+```
+
+### 7.1 Keunggulan Alur Ini
+1. **Responsif Tanpa Blokir UI:** Permintaan awal langsung selesai dalam milidetik, sementara pembacaan token SSE berjalan independen di background thread Python.
+2. **Keamanan Eksekusi (Zero Unintended Action):** Model AI **tidak** memiliki izin eksekusi langsung ke sistem operasi. AI hanya merespons dalam bentuk kartu proposal aksi. Eksekusi OS hanya terjadi jika dan hanya jika pengguna secara sadar menekan tombol konfirmasi.
+3. **Sinkronisasi Multi-Screen:** Begitu aksi dikonfirmasi di jendela AI, event browser `service_status_changed` ditembakkan sehingga kartu modul Apache/PHP/Database dan toggle di Sidebar langsung berubah menjadi "Running" secara serentak.
+4. **Dual-Layer Persistence:** Status kartu aksi disimpan ganda ke state React dan disk (`data/ai_action_states.json` & `data/ai_chat_history.json`). Sesi chat yang dibuka ulang tetap mengingat bahwa aksi telah selesai dijalankan.
+
+## 8. Arsitektur Frontend Modular (Domain Contexts & Component Hygiene)
+
+Untuk mematuhi prinsip Clean Code, Single Responsibility Principle (SRP), dan batas *Cognitive Complexity* SonarQube ($\le 15$), frontend VyloServe menerapkan standardisasi modular:
+
+### 8.1 Pemisahan Domain Context (`frontend/src/context/`)
+Komunikasi dan state dalam lingkup modul didelegasikan ke React Context terdedikasi, memisahkan logika bisnis (fetch status, validasi input, handler submit) dari hierarki rendering:
+- **`ApacheContext.tsx`**: State lifecycle Apache, daftar virtual host, create/edit project, switch versi.
+- **`PhpContext.tsx`**: State multi-versi PHP, port configuration, php.ini parser, modul ekstensi.
+- **`DatabaseContext.tsx`**: Instance MySQL/PostgreSQL, validasi port ganda, reset password root.
+- **`DashboardContext.tsx`**: Agregasi global service toggles, resource load (CPU/RAM), suggestions.
+- **`RuntimesContext.tsx`**: Status 4 runtime engine (Node, Python, Java, Go), registrasi PATH Windows.
+- **`TunnelsContext.tsx`**: Tunneling zrok & Cloudflare, session token, port proxying.
+- **`GitContext.tsx`**: PortableGit install & user path synchronization.
+- **`AiContext.tsx`**: Chat stream, model discovery, attachment context, action card states.
+
+### 8.2 Component Hygiene & Extraction
+- **Pembersihan Folder `components/`**: Komponen yang ada di `frontend/src/components/` dijamin bersifat 100% generik (`Modal`, `Card`, `Button`, `PageHeader`, `Select`, `StatusBadge`, `ProgressStatusBlock`). Komponen yang terikat spesifik ke modul tertentu (misalnya `AiActionCard`, `AiChatMessage`, `AiFloatingWidget`) dipindahkan ke direktori modul masing-masing (`menu/tools/ai-assistant/components/`).
+- **Orchestration Views**: File `Main.tsx` di tiap modul tidak lagi menjadi "God Component" monolitik ribuan baris, melainkan file orkestrator ramping (berisi `<PageHeader>`, status kartu, dan delegasi sub-komponen modal).
+- **Sub-komponen Dialog**: Dialog modal diekstrak ke file terpisah (`ApacheInstallModal.tsx`, `PhpSettingsModal.tsx`, `DatabaseSettingsModal.tsx`, `InstallGitModal.tsx`, `TunnelsInstallModal.tsx`) sehingga mempermudah pengujian terisolasi dan pemeliharaan jangka panjang.
+
