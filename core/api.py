@@ -156,6 +156,26 @@ class Api:
             except Exception:
                 pass
 
+    def emit_cli_output(self, data: str):
+        if self._is_shutting_down or not self._window:
+            return
+        detail = json.dumps({"data": data})
+        script = f"window.dispatchEvent(new CustomEvent('vylo_cli_output', {{detail: {detail} }}));"
+        try:
+            self._window.evaluate_js(script)
+        except Exception:
+            pass
+
+    def emit_cli_state(self, waiting_input: bool, prompt_text: str = "", cancelled: bool = False):
+        if self._is_shutting_down or not self._window:
+            return
+        detail = json.dumps({"waiting_input": waiting_input, "prompt_text": prompt_text, "cancelled": cancelled})
+        script = f"window.dispatchEvent(new CustomEvent('vylo_cli_state', {{detail: {detail} }}));"
+        try:
+            self._window.evaluate_js(script)
+        except Exception:
+            pass
+
     def emit_window_state(self, minimized: Optional[bool] = None, hidden: Optional[bool] = None):
         """
         Menembakkan perubahan state window (minimized / hidden-ke-tray) ke
@@ -439,6 +459,16 @@ class Api:
     def detect_framework(self, directory: str):
         return self.project.detect_framework(directory)
 
+    def get_project_runtimes_info(self):
+        if hasattr(self, 'project') and self.project:
+            return self.project.get_project_runtimes_info()
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+
+    def get_framework_versions(self, engine: str, framework: str, runtime_version: str = ""):
+        if hasattr(self, 'project') and self.project:
+            return self.project.get_framework_versions(engine, framework, runtime_version)
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+
     def create_project(self, payload: dict):
         self.emit_log("backend.project.starting_setup", "info", {"domain": payload.get('domain')})
         return self.project.create_project(payload)
@@ -466,6 +496,21 @@ class Api:
     def update_project(self, payload: dict):
         if hasattr(self, 'project') and self.project:
             return self.project.update_project(payload)
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+
+    def send_project_cli_input(self, data: str):
+        if hasattr(self, 'project') and self.project:
+            return self.project.send_project_cli_input(data)
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+
+    def resize_project_cli(self, cols: int, rows: int):
+        if hasattr(self, 'project') and self.project:
+            return self.project.resize_project_cli(cols, rows)
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+
+    def cancel_project_install(self):
+        if hasattr(self, 'project') and self.project:
+            return self.project.cancel_project_install()
         return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
     
     # ==========================================

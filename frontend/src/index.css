@@ -13,6 +13,7 @@
    berada paling atas file, sebelum rule lain (kecuali @charset/@import lain). Taruh
    setelah @plugin = @import tersebut invalid dan diabaikan browser (SonarQube css:S8778). */
 @import "material-symbols/outlined.css" layer(base);
+@import "@xterm/xterm/css/xterm.css" layer(base);
 @plugin "@tailwindcss/typography";
 @custom-variant dark (&:is(.dark *));
 
@@ -27,7 +28,7 @@
      (bg-on-surface, dst.) di manapun, dan --color-primary di sini sudah lama
      ter-override oleh definisi theme-aware di blok @theme kedua (baris di bawah).
      --color-surface dipertahankan karena memang masih dipakai (HeaderMobile, Sidebar). */
-  --color-surface: #ffffff;
+  --color-surface: var(--theme-surface, #ffffff);
 
   /* Spacing */
   --spacing-sidebar-width: 260px;
@@ -252,5 +253,145 @@
     --theme-emerald-600: #88c0d0;
     --theme-emerald-500: #81a1c1;
     --theme-primary: #5e81ac;
+  }
+
+  /* Windows XP Luna (Light) -- Palet autentik Luna Royale/Blue (2001):
+     kanvas dialog beige/parchment hangat (#f4f2e8 / #ece9d8), aksen utama
+     Luna Royal Blue (#0054e3), serta indikator aktif/Start Turn-On Green (#3c9911). */
+  [data-theme="xp-luna-light"] {
+    --theme-surface: #faf8f0;
+    --theme-slate-50: #f4f2e8;
+    --theme-slate-100: #ece9d8;
+    --theme-slate-200: #d6d2c2;
+    --theme-slate-300: #aca899;
+    --theme-slate-400: #7f7b6d;
+    --theme-slate-500: #59554b;
+    --theme-slate-600: #3b3932;
+    --theme-slate-700: #253549;
+    --theme-slate-800: #132438;
+    --theme-slate-900: #0a1626;
+    --theme-slate-950: #050b14;
+    --theme-emerald-400: #55b824;
+    --theme-emerald-500: #3c9911;
+    --theme-emerald-600: #2e7d0b;
+    --theme-amber-500: #d97706;
+    --theme-amber-600: #b45309;
+    --theme-primary: #0054e3;
+  }
+
+  [data-theme="xp-luna-light"] .bg-white {
+    background-color: #faf8f0;
+    box-shadow: inset 0 1px 0 #ffffff;
+  }
+
+  [data-theme="xp-luna-light"] .bg-primary {
+    background-image: linear-gradient(180deg, #2a7bf6 0%, #0054e3 82%, #0042b5 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  }
+
+  [data-theme="xp-luna-light"] button.bg-primary:hover {
+    background-image: linear-gradient(180deg, #428eff 0%, #0d62f0 82%, #0049c7 100%);
+  }
+
+  /* Windows XP Zune (Dark) -- Palet resmi Microsoft Zune Desktop Theme (2006):
+     permukaan charcoal/anthracite metalik (#141416 / #1e1e21 / #2a2a2e) berpadu
+     aksen ikonik Zune Burnt Orange (#e85d00) dan indikator status hijau kontras. */
+  [data-theme="xp-zune-dark"] {
+    --theme-surface: #1e1e21;
+    --theme-slate-950: #141416;
+    --theme-slate-900: #1e1e21;
+    --theme-slate-800: #2a2a2e;
+    --theme-slate-700: #3a3a40;
+    --theme-slate-600: #52525b;
+    --theme-slate-500: #8e8e99;
+    --theme-slate-400: #b4b4be;
+    --theme-slate-300: #d4d4dc;
+    --theme-slate-200: #e6e6ec;
+    --theme-slate-100: #f4f4f6;
+    --theme-slate-50: #ffffff;
+    --theme-emerald-400: #4ade80;
+    --theme-emerald-500: #22c55e;
+    --theme-emerald-600: #16a34a;
+    --theme-amber-500: #f59e0b;
+    --theme-amber-600: #d97706;
+    --theme-primary: #e85d00;
+  }
+
+  [data-theme="xp-zune-dark"] .bg-primary {
+    background-image: linear-gradient(180deg, #ff771a 0%, #e85d00 55%, #c84b00 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  }
+
+  /* Catppuccin Mocha (Dark) -- Palet pastel hangat (Crust/Mantle/Base #11111b/#181825/#1e1e2e)
+     yang mengurangi efek silau/halation pada mata dengan kontras teks #cdd6f4 (WCAG AAA). */
+  [data-theme="catppuccin-dark"] {
+    --theme-surface: #1e1e2e;
+    --theme-slate-950: #11111b;
+    --theme-slate-900: #181825;
+    --theme-slate-800: #1e1e2e;
+    --theme-slate-700: #313244;
+    --theme-slate-600: #45475a;
+    --theme-slate-500: #7f849c;
+    --theme-slate-400: #a6adc8;
+    --theme-slate-300: #bac2de;
+    --theme-slate-200: #cdd6f4;
+    --theme-slate-100: #e6e9ef;
+    --theme-slate-50: #f5e0dc;
+    --theme-emerald-400: #a6e3a1;
+    --theme-emerald-500: #22c55e;
+    --theme-emerald-600: #16a34a;
+    --theme-amber-500: #f59e0b;
+    --theme-amber-600: #d97706;
+    --theme-primary: #3b82f6;
+  }
+
+  /* Tokyo Night (Dark) -- Palet indigo malam kota Tokyo (#16161e / #1a1b26 / #24283b)
+     dengan aksen biru elektrik (#2e59b8 / #7aa2f7) dan indikator emerald-teal (#10b981). */
+  [data-theme="tokyo-night-dark"] {
+    --theme-surface: #1a1b26;
+    --theme-slate-950: #16161e;
+    --theme-slate-900: #1a1b26;
+    --theme-slate-800: #24283b;
+    --theme-slate-700: #414868;
+    --theme-slate-600: #565f89;
+    --theme-slate-500: #787c99;
+    --theme-slate-400: #9aa5ce;
+    --theme-slate-300: #a9b1d6;
+    --theme-slate-200: #c0caf5;
+    --theme-slate-100: #d5daf0;
+    --theme-slate-50: #eef0f9;
+    --theme-emerald-400: #73daca;
+    --theme-emerald-500: #10b981;
+    --theme-emerald-600: #059669;
+    --theme-amber-500: #e0af68;
+    --theme-amber-600: #d97706;
+    --theme-primary: #2e59b8;
+  }
+
+  /* Gruvbox (Dark) -- Palet retro groove hangat (#1d2021 / #282828 / #3c3836) dengan emisi
+     cahaya biru rendah (low blue-light), teks krem (#ebdbb2), dan aksen Warm Teal (#458588). */
+  [data-theme="gruvbox-dark"] {
+    --theme-surface: #282828;
+    --theme-slate-950: #1d2021;
+    --theme-slate-900: #282828;
+    --theme-slate-800: #3c3836;
+    --theme-slate-700: #504945;
+    --theme-slate-600: #665c54;
+    --theme-slate-500: #928374;
+    --theme-slate-400: #bdae93;
+    --theme-slate-300: #d5c4a1;
+    --theme-slate-200: #ebdbb2;
+    --theme-slate-100: #f2e5bc;
+    --theme-slate-50: #fbf1c7;
+    --theme-emerald-400: #b8bb26;
+    --theme-emerald-500: #689d6a;
+    --theme-emerald-600: #427b58;
+    --theme-amber-500: #d79921;
+    --theme-amber-600: #b57614;
+    --theme-primary: #458588;
+  }
+
+  [data-theme="xp-zune-dark"] button.bg-primary:hover {
+    background-image: linear-gradient(180deg, #ff8833 0%, #f56600 55%, #d95300 100%);
   }
 }

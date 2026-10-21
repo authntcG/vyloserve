@@ -14,6 +14,7 @@ import ApacheOptionsModal from './ApacheOptionsModal';
 import ApacheNewProjectModal from './ApacheNewProjectModal';
 import ApacheProjectSettingsModal from './ApacheProjectSettingsModal';
 import ApacheDeleteProjectModal from './ApacheDeleteProjectModal';
+import ApacheCliInstallModal from './ApacheCliInstallModal';
 
 export { type ProjectData };
 
@@ -207,8 +208,16 @@ function ApacheProjectCard({
                         <span className="text-sm font-medium text-slate-900 dark:text-slate-200 capitalize">{project.framework || t('common.unknown')}</span>
                     </div>
                     <div className="flex flex-col gap-1">
-                        <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('apache.php_engine')}</span>
-                        <span className="text-sm font-medium text-primary font-mono">{project.php_version || t('common.unknown')} <span className="text-slate-400 text-xs">(Port {project.php_port || t('common.not_available')})</span></span>
+                        <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                            {project.project_type && project.project_type !== 'php' ? t('apache.runtime_proxy_target') : t('apache.php_engine')}
+                        </span>
+                        {project.project_type && project.project_type !== 'php' ? (
+                            <span className="text-sm font-medium text-primary font-mono uppercase">
+                                {project.project_type} <span className="text-slate-400 text-xs lowercase">(127.0.0.1:{project.proxy_port || 3000})</span>
+                            </span>
+                        ) : (
+                            <span className="text-sm font-medium text-primary font-mono">{project.php_version || t('common.unknown')} <span className="text-slate-400 text-xs">(Port {project.php_port || t('common.not_available')})</span></span>
+                        )}
                     </div>
                     <div className="flex flex-col gap-1 col-span-2">
                         <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('apache.local_domain')}</span>
@@ -413,6 +422,7 @@ function ApacheMainView() {
             <ApacheNewProjectModal />
             <ApacheProjectSettingsModal />
             <ApacheDeleteProjectModal />
+            <ApacheCliInstallModal />
         </>
     );
 }

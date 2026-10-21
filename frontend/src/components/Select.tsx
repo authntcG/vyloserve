@@ -11,6 +11,8 @@ export interface SelectOption<T extends string = string> {
     readonly sublabel?: string;
     /** Opsi terlihat tapi tidak bisa dipilih (mis. "Node.js -- segera hadir"). */
     readonly disabled?: boolean;
+    /** Pratinjau titik warna opsional di samping label (mis. palet [bg, primary, accent] pada pemilih tema). */
+    readonly swatches?: readonly string[];
 }
 
 export interface SelectProps<T extends string = string> {
@@ -26,6 +28,8 @@ export interface SelectProps<T extends string = string> {
     /** @default pencocokan substring pada `label` saja (case-insensitive). */
     readonly filterFn?: (option: SelectOption<T>, query: string) => boolean;
     readonly disabled?: boolean;
+    /** Pratinjau titik warna opsional di samping label (mis. palet [bg, primary, accent] pada pemilih tema). */
+    readonly swatches?: readonly string[];
     readonly loading?: boolean;
     readonly loadingText?: string;
     readonly emptyText?: string;
@@ -58,7 +62,28 @@ function useFilteredOptions<T extends string>(
     }, [options, query, filterFn, displayLimit]);
 }
 
+interface OptionSwatchesProps {
+    readonly swatches?: readonly string[];
+}
+
+function OptionSwatches({ swatches }: OptionSwatchesProps) {
+    if (!swatches || swatches.length === 0) return null;
+    return (
+        <span aria-hidden="true" className="inline-flex items-center gap-1 shrink-0">
+            {swatches.map((color, idx) => (
+                <span
+                    key={`${color}-${idx}`}
+                    data-testid="select-option-swatch"
+                    className="w-2.5 h-2.5 rounded-full border border-slate-400/50 dark:border-slate-500/60"
+                    style={{ backgroundColor: color }}
+                />
+            ))}
+        </span>
+    );
+}
+
 interface SelectTriggerProps {
+    readonly swatches?: readonly string[];
     readonly id?: string;
     readonly buttonRef: RefObject<HTMLButtonElement | null>;
     readonly isOpen: boolean;
@@ -71,7 +96,7 @@ interface SelectTriggerProps {
     readonly onClick: () => void;
 }
 
-function SelectTrigger({ id, buttonRef, isOpen, disabled, loading, loadingText, errorText, displayLabel, size = 'md', onClick }: SelectTriggerProps) {
+function SelectTrigger({ id, buttonRef, isOpen, disabled, loading, loadingText, errorText, displayLabel, swatches, size = 'md', onClick }: SelectTriggerProps) {
     const isSm = size === 'sm';
     if (loading) {
         return (
@@ -96,7 +121,10 @@ function SelectTrigger({ id, buttonRef, isOpen, disabled, loading, loadingText, 
             aria-expanded={isOpen}
             className={`w-full ${isSm ? 'h-[32px] px-2.5 text-xs' : 'h-[42px] px-3 text-sm'} bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 rounded-lg outline-none transition-colors border flex justify-between items-center ${isOpen ? 'border-primary ring-1 ring-primary' : 'border-slate-300 dark:border-slate-700'} ${isDisabled ? 'opacity-50 cursor-not-allowed bg-slate-50 dark:bg-slate-900/50' : 'cursor-pointer'}`}
         >
-            <span className="truncate pr-2">{isError ? errorText : displayLabel}</span>
+            <span className="flex items-center gap-2 truncate pr-2">
+                {!isError && <OptionSwatches swatches={swatches} />}
+                <span className="truncate">{isError ? errorText : displayLabel}</span>
+            </span>
             <span aria-hidden="true" className={`material-symbols-outlined ${isSm ? 'text-[16px]' : 'text-[20px]'} text-slate-500 transition-transform duration-200 ${isOpen ? 'rotate-180 text-primary' : ''}`}>
                 expand_more
             </span>
@@ -141,7 +169,8 @@ function SelectOptionRow<T extends string>({ option, isSelected, isHighlighted, 
                     : `cursor-pointer ${interactiveClass}`
             } ${isHighlighted ? 'ring-1 ring-primary/50' : ''}`}
         >
-            <span className="truncate">
+            <span className="flex items-center gap-2 truncate">
+                <OptionSwatches swatches={option.swatches} />
                 {option.label}
                 {option.sublabel && <span className="text-slate-400 dark:text-slate-500"> ({option.sublabel})</span>}
             </span>
@@ -297,7 +326,11 @@ export default function Select<T extends string = string>({
 
     useEffect(() => {
         if (isOpen && searchable) {
-            const timer = setTimeout(() => searchInputRef.current?.focus(), 50);
+            const timer = setTimeout(() => {
+                if (!panelRef.current?.contains(document.activeElement)) {
+                    searchInputRef.current?.focus();
+                }
+            }, 50);
             return () => clearTimeout(timer);
         }
     }, [isOpen, searchable]);
@@ -350,6 +383,7 @@ export default function Select<T extends string = string>({
                 loadingText={loadingText}
                 errorText={errorText}
                 displayLabel={displayLabel}
+                swatches={selectedOption?.swatches}
                 size={size}
                 onClick={() => setIsOpen((o) => !o)}
             />

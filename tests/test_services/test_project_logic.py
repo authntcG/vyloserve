@@ -1,7 +1,7 @@
 import pytest
 import os
 import re
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import patch, MagicMock, mock_open, ANY
 
 from core.services.project import ProjectManager
 
@@ -688,3 +688,443 @@ def test_retry_sync_host_handles_unexpected_exception(project_manager):
     with patch.object(project_manager, 'sync_windows_hosts', side_effect=RuntimeError("unexpected")):
         res = project_manager.retry_sync_host("p1")
     assert res == {"status": "error", "message": "backend.error.unexpected", "args": {"e": "unexpected"}}
+
+
+# ==========================================
+# Multi-Runtime Pretty URL & Reverse Proxy Tests
+# ==========================================
+
+def test_get_project_runtimes_info_aggregates_php_and_runtimes(project_manager):
+    project_manager.api.get_installed_php = MagicMock(return_value=[{"version": "8.3"}, {"version": "8.2"}])
+    project_manager.api.runtimes_manager = MagicMock()
+    project_manager.api.runtimes_manager.get_node_status.return_value = {"installed": True, "in_path": True, "version": "v20.11.0", "external": {"exists": False}}
+    project_manager.api.runtimes_manager.get_python_status.return_value = {"installed": False, "version": "", "external": {"exists": True, "version": "Python 3.12.2"}}
+    project_manager.api.runtimes_manager.get_go_status.return_value = {"installed": False, "version": "", "external": {"exists": False}}
+    project_manager.api.runtimes_manager.get_java_status.return_value = {"installed": True, "in_path": False, "version": 'openjdk version "21.0.2"', "external": {"exists": False}}
+
+    res = project_manager.get_project_runtimes_info()
+    assert res["status"] == "success"
+    assert res["data"]["php"]["installed"] is True
+    assert res["data"]["php"]["versions"] == ["8.3", "8.2"]
+    assert res["data"]["node"] == {"installed": True, "in_path": True, "version": "20.11.0", "raw_version": "v20.11.0"}
+    assert res["data"]["python"] == {"installed": True, "in_path": True, "version": "3.12.2", "raw_version": "Python 3.12.2"}
+    assert res["data"]["go"]["installed"] is False
+    assert res["data"]["go"]["in_path"] is False
+    assert res["data"]["java"] == {"installed": True, "in_path": False, "version": "21.0.2", "raw_version": 'openjdk version "21.0.2"'}
+
+
+def test_get_framework_versions_filters_npm_by_node_version(project_manager):
+    fake_npm_data = {
+        "versions": {
+            "6.0.1": {"engines": {"node": "^20.19.0 || >=22.12.0"}},
+            "5.4.8": {"engines": {"node": "^18.0.0 || >=20.0.0"}},
+            "4.5.0": {"engines": {"node": "^14.18.0 || >=16.0.0"}},
+        }
+    }
+    with patch.object(project_manager, "_fetch_json_url", return_value=fake_npm_data):
+        res_node18 = project_manager.get_framework_versions("node", "react-vite", "18.20.0")
+        res_node22 = project_manager.get_framework_versions("node", "react-vite", "22.12.0")
+
+    assert res_node18["status"] == "success"
+    assert [v["value"] for v in res_node18["data"]] == ["5.4.8", "4.5.0"]
+    assert [v["value"] for v in res_node22["data"]] == ["6.0.1", "5.4.8", "4.5.0"]
+
+
+def test_get_framework_versions_filters_packagist_and_pypi_and_spring(project_manager):
+    fake_packagist = {
+        "packages": {
+            "laravel/laravel": [
+                {"version": "v11.3.0", "require": {"php": "^8.2"}},
+                {"version": "v10.4.0", "require": {"php": "^8.1"}},
+            ]
+        }
+    }
+    with patch.object(project_manager, "_fetch_json_url", return_value=fake_packagist):
+        res_php81 = project_manager.get_framework_versions("php", "laravel", "8.1.10")
+    assert [v["value"] for v in res_php81["data"]] == ["^10.4"]
+
+    fake_pypi = {
+        "releases": {
+            "5.1.2": [{"requires_python": ">=3.10"}],
+            "4.2.16": [{"requires_python": ">=3.8"}],
+        }
+    }
+    with patch.object(project_manager, "_fetch_json_url", return_value=fake_pypi):
+        res_py39 = project_manager.get_framework_versions("python", "django", "3.9.0")
+    assert [v["value"] for v in res_py39["data"]] == ["4.2.16"]
+
+    fake_spring = {
+        "bootVersion": {
+            "values": [
+                {"id": "3.4.0", "name": "3.4.0"},
+                {"id": "3.5.0-M1", "name": "3.5.0-M1"},
+                {"id": "2.7.18.RELEASE", "name": "2.7.18"},
+            ]
+        }
+    }
+    with patch.object(project_manager, "_fetch_json_url", return_value=fake_spring):
+        res_java11 = project_manager.get_framework_versions("java", "spring-boot", "11.0.2")
+    assert [v["value"] for v in res_java11["data"]] == ["2.7.18"]
+
+
+def test_get_framework_versions_raw_and_error_handling(project_manager):
+    assert project_manager.get_framework_versions("node", "node-raw", "20.0.0") == {"status": "success", "data": []}
+    with patch.object(project_manager, "_fetch_json_url", side_effect=OSError("offline")):
+        err_res = project_manager.get_framework_versions("node", "nextjs", "20.0.0")
+    assert err_res["status"] == "error"
+    assert err_res["message"] == "backend.project.fetch_versions_failed"
+
+
+def test_detect_framework_multi_runtime(project_manager):
+    with patch("os.path.isdir", return_value=True):
+        with patch("os.listdir", return_value=["package.json"]), patch("core.services.project.read_json", return_value={"dependencies": {"next": "14.2.0"}}):
+            assert project_manager.detect_framework("C:/app") == "nextjs"
+        with patch("os.listdir", return_value=["package.json"]), patch("core.services.project.read_json", return_value={"dependencies": {"react-native": "0.74.0"}}):
+            assert project_manager.detect_framework("C:/app") == "react-native"
+        with patch("os.listdir", return_value=["package.json"]), patch("core.services.project.read_json", return_value={"devDependencies": {"vite": "^5.0.0"}}):
+            assert project_manager.detect_framework("C:/app") == "react-vite"
+        with patch("os.listdir", return_value=["manage.py"]):
+            assert project_manager.detect_framework("C:/app") == "django"
+        with patch("os.listdir", return_value=["go.mod"]), patch("builtins.open", mock_open(read_data="module x\nrequire github.com/gin-gonic/gin v1.10.0")):
+            assert project_manager.detect_framework("C:/app") == "gin"
+        with patch("os.listdir", return_value=["pom.xml"]):
+            assert project_manager.detect_framework("C:/app") == "spring-boot"
+
+
+def test_generate_vhost_block_reverse_proxy_and_websocket_for_non_php(project_manager):
+    project_manager.api.ssl.generate_domain_cert = MagicMock(return_value=("C:\\certs\\node.crt", "C:\\certs\\node.key"))
+    project = {
+        "domain": "react-app.test",
+        "path": "C:/www/react-app",
+        "project_type": "node",
+        "proxy_port": 5173,
+        "framework": "react-vite",
+    }
+    block = project_manager._generate_vhost_block(project, [project])
+    assert "<VirtualHost *:80>" in block
+    assert "ProxyPreserveHost On" in block
+    assert 'RewriteRule ^/?(.*) "ws://127.0.0.1:5173/$1" [P,L]' in block
+    assert "ProxyPass / http://127.0.0.1:5173/ retry=0 timeout=30" in block
+    assert "<VirtualHost *:443>" in block
+    assert 'RequestHeader set X-Forwarded-Proto "https"' in block
+    assert "SetHandler \"proxy:fcgi://" not in block
+
+
+@patch("core.services.project.read_json", return_value=[])
+@patch("core.services.project.write_json")
+def test_create_project_validates_proxy_port_for_non_php(mock_write_json, mock_read_json, project_manager):
+    res_invalid = project_manager.create_project({
+        "domain": "badport", "domain_extension": ".test",
+        "project_type": "node", "proxy_port": 80, "is_existing": True, "document_root": "C:/app",
+    })
+    assert res_invalid == {"status": "error", "message": "backend.project.invalid_proxy_port"}
+
+    with patch.object(project_manager, "sync_apache_vhosts"), patch.object(project_manager, "_sync_hosts_for_project", return_value=None):
+        res_ok = project_manager.create_project({
+            "name": "Node App", "domain": "nodeapp", "domain_extension": ".test",
+            "project_type": "node", "proxy_port": 5173, "framework": "react-vite",
+            "is_existing": True, "document_root": "C:/app",
+        })
+    assert res_ok["status"] == "success"
+    saved = mock_write_json.call_args[0][1][0]
+    assert saved["project_type"] == "node"
+    assert saved["proxy_port"] == 5173
+
+
+@patch("core.services.project.write_json")
+@patch("os.makedirs")
+def test_install_node_and_python_projects_scaffold_and_write_start_bat(mock_makedirs, mock_write_json, project_manager):
+    with patch.object(project_manager, "_resolve_runtime_bin", side_effect=lambda eng, exe: f"C:/bin/{exe}"):
+        with patch("core.services.project.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            with patch("builtins.open", mock_open()):
+                res_node = project_manager._install_new_framework({
+                    "project_type": "node", "framework": "react-vite",
+                    "install_location": "C:/www", "domain": "viteapp.test",
+                    "specific_version": "5.4.8", "proxy_port": 5173,
+                })
+                res_py = project_manager._install_new_framework({
+                    "project_type": "python", "framework": "fastapi",
+                    "install_location": "C:/www", "domain": "pyapp.test",
+                    "specific_version": "0.115.0", "proxy_port": 8000,
+                })
+    assert res_node["status"] == "success"
+    assert res_py["status"] == "success"
+
+
+def test_is_cli_prompt_waiting_detection():
+    # Prompt with arrow keys or choices
+    is_w, prompt = ProjectManager._is_cli_prompt_waiting("? Would you like to use TypeScript? » No / Yes")
+    assert is_w is True
+    assert "TypeScript" in prompt
+
+    # Prompt with (y/N)
+    is_w2, prompt2 = ProjectManager._is_cli_prompt_waiting("Do you wish to continue? (y/N)")
+    assert is_w2 is True
+    assert "(y/N)" in prompt2
+
+    # Next.js multi-line prompt
+    next_buf = (
+        "? Would you like to use the recommended Next.js defaults? » - Use arrow-keys. Return to submit.\n"
+        ">   Yes, use recommended defaults\n"
+        "    TypeScript, ESLint, Tailwind CSS\n"
+        "    No, reuse previous settings\n"
+        "    No, customize settings"
+    )
+    is_w_next, p_next = ProjectManager._is_cli_prompt_waiting(next_buf)
+    assert is_w_next is True
+    assert "Next.js defaults" in p_next
+
+    # Vite Clack prompt with bottom border └
+    vite_buf = (
+        "create-vite v9.3.1\n\n"
+        "│\n"
+        "◆  Which linter to use?\n"
+        "│  ● Oxlint\n"
+        "│  ○ ESLint\n"
+        "│  ↑/↓ to navigate • Enter: confirm\n"
+        "└"
+    )
+    is_w_vite, p_vite = ProjectManager._is_cli_prompt_waiting(vite_buf)
+    assert is_w_vite is True
+    assert "confirm" in p_vite or "linter" in p_vite
+
+    # Vite Clack Q3 radio prompt (● Yes / ○ No)
+    vite_q3 = (
+        "◇  Which linter to use?\n"
+        "│  Oxlint\n\n"
+        "│\n"
+        "◆  Install with npm and start now?\n"
+        "│  ● Yes / ○ No\n"
+        "└"
+    )
+    is_w_q3, p_q3 = ProjectManager._is_cli_prompt_waiting(vite_q3)
+    assert is_w_q3 is True
+    assert "Yes" in p_q3
+
+    # Vite scaffolding done -> not waiting
+    vite_done = (
+        "◇  Scaffolding project in D:\\Projects\\my-app...\n"
+        "│\n"
+        "└  Done. Now run:\n"
+        "  npm install\n"
+    )
+    is_w_done, _ = ProjectManager._is_cli_prompt_waiting(vite_done)
+    assert is_w_done is False
+
+    # Normal non-waiting log
+    is_w3, _ = ProjectManager._is_cli_prompt_waiting("Installing packages with npm...")
+    assert is_w3 is False
+
+    # Empty
+    is_w4, _ = ProjectManager._is_cli_prompt_waiting("")
+    assert is_w4 is False
+
+
+def test_send_project_cli_input_and_resize(project_manager):
+    # When no pty is active
+    res = project_manager.send_project_cli_input("hello")
+    assert res == {"status": "error", "message": "backend.project.no_active_cli"}
+
+    # When pty is active
+    mock_pty = MagicMock()
+    project_manager._active_pty = mock_pty
+    res_ok = project_manager.send_project_cli_input("yes\r")
+    assert res_ok == {"status": "success"}
+    mock_pty.write.assert_called_once_with("yes\r")
+
+    # Resize
+    res_resize = project_manager.resize_project_cli(80, 24)
+    assert res_resize == {"status": "success"}
+    mock_pty.setwinsize.assert_called_once_with(24, 80)
+
+
+def test_cancel_project_install_kills_and_reverts(project_manager):
+    mock_pty = MagicMock()
+    project_manager._active_pty = mock_pty
+    project_manager._active_pid = 12345
+    project_manager._active_install_location = "C:\\www"
+    project_manager._active_target_dir = "C:\\www\\myapp"
+
+    with patch("psutil.Process") as mock_proc, patch.object(project_manager, "_rollback_dir") as mock_rollback:
+        mock_parent = MagicMock()
+        mock_child = MagicMock()
+        mock_parent.children.return_value = [mock_child]
+        mock_proc.return_value = mock_parent
+
+        res = project_manager.cancel_project_install()
+
+        assert res["status"] == "success"
+        assert res["message"] == "backend.project.install_cancelled_reverted"
+        assert project_manager._install_cancelled is True
+        mock_child.kill.assert_called_once()
+        mock_parent.kill.assert_called_once()
+        mock_pty.close.assert_called_once_with(force=True)
+        mock_rollback.assert_called_once_with(os.path.realpath("C:\\www\\myapp"))
+
+
+def test_run_nextjs_interactive_cli(project_manager):
+    with patch.object(project_manager, "_run_cli_or_pty", return_value=(True, "")) as mock_run:
+        with patch("core.services.project.read_json", return_value={"name": "my-app", "scripts": {}}), \
+             patch("core.services.project.write_json") as mock_write_json, \
+             patch.object(project_manager, "_write_start_dev_bat") as mock_bat, \
+             patch("os.makedirs"):
+            ok, err = project_manager._run_nextjs_interactive_cli(
+                "C:/bin/npx.cmd", "C:/www/my-app", "14.2.0", 3000, {"PATH": "C:/bin"}
+            )
+            assert ok is True
+            assert err == ""
+            mock_run.assert_called_once_with(
+                ["C:/bin/npx.cmd", "create-next-app@14.2.0", "C:/www/my-app"],
+                cwd="C:/www",
+                env={"PATH": "C:/bin"}
+            )
+            saved_pkg = mock_write_json.call_args[0][1]
+            assert saved_pkg["scripts"]["dev"] == "next dev -H 127.0.0.1 -p 3000"
+            mock_bat.assert_called_once_with("C:/www/my-app", "npm run dev")
+
+    # Failure path
+    with patch.object(project_manager, "_run_cli_or_pty", return_value=(False, "CLI error")) as mock_run_fail:
+        with patch("os.makedirs"):
+            ok, err = project_manager._run_nextjs_interactive_cli(
+                "C:/bin/npx.cmd", "C:/www/my-app", "", 3000, {}
+            )
+            assert ok is False
+            assert err == "CLI error"
+            mock_run_fail.assert_called_once_with(
+                ["C:/bin/npx.cmd", "create-next-app@latest", "C:/www/my-app"],
+                cwd="C:/www",
+                env={}
+            )
+
+
+def test_run_react_interactive_cli_and_patch_vite(project_manager):
+    with patch.object(project_manager, "_run_cli_or_pty", return_value=(True, "")) as mock_run, \
+         patch.object(project_manager, "_resolve_runtime_bin", return_value="C:/bin/npm.cmd"), \
+         patch.object(project_manager, "_write_start_dev_bat") as mock_bat, \
+         patch("os.path.exists", side_effect=lambda p: "node_modules" in p), \
+         patch("os.makedirs"):
+        ok, err = project_manager._run_react_interactive_cli("C:/bin/npx.cmd", "C:/www/my-react", "5.4.0", 5173, {})
+        assert ok is True
+        assert err == ""
+        mock_run.assert_called_once_with(
+            ["C:/bin/npx.cmd", "create-vite@5.4.0", "C:/www/my-react", "--template", "react", "--interactive", "--no-immediate"],
+            cwd="C:/www",
+            env={}
+        )
+        mock_bat.assert_called_once_with("C:/www/my-react", "npm run dev")
+
+    # Patch vite config port
+    with patch("os.path.exists", return_value=True), \
+         patch("builtins.open", mock_open(read_data="import { defineConfig } from 'vite'\nexport default defineConfig({\n  plugins: []\n})\n")) as m_file:
+        project_manager._patch_vite_config_port("C:/www/my-react", 5173)
+        handle = m_file()
+        written = "".join(call.args[0] for call in handle.write.call_args_list)
+        assert 'server: { host: "127.0.0.1", port: 5173, allowedHosts: true }' in written
+
+
+def test_install_python_with_venv_and_django(project_manager):
+    # Test venv creation and django startproject
+    with patch.object(project_manager, "_resolve_runtime_bin", return_value="C:/Python310/python.exe"), \
+         patch.object(project_manager, "_run_cli_or_pty", return_value=(True, "")) as mock_run, \
+         patch.object(project_manager, "_patch_django_settings") as mock_patch_settings, \
+         patch.object(project_manager, "_write_start_dev_bat") as mock_bat, \
+         patch("os.path.exists", return_value=True), \
+         patch("builtins.open", mock_open()), \
+         patch("os.makedirs"):
+        res = project_manager._install_python_project("django", "C:/www/my-django", "5.1.0", 8000, use_venv=True)
+        assert res["status"] == "success"
+        # Verify venv command was called
+        calls = [c[0][0] for c in mock_run.call_args_list]
+        assert ["C:/Python310/python.exe", "-m", "venv", os.path.join("C:/www/my-django", ".venv")] in calls
+        # Verify django startproject was called
+        django_call = [c for c in calls if "django" in c and "startproject" in c]
+        assert len(django_call) == 1
+        assert django_call[0][-2:] == ["config", "."]
+        mock_patch_settings.assert_called_once_with("C:/www/my-django")
+        # Verify start-dev.bat activates venv
+        bat_cmd = mock_bat.call_args[0][1]
+        assert "call .venv\\Scripts\\activate.bat" in bat_cmd
+        assert "manage.py runserver 127.0.0.1:8000" in bat_cmd
+
+
+def test_install_go_project_starter_code_and_env(project_manager):
+    with patch.object(project_manager, "_resolve_runtime_bin", return_value="C:/Go/bin/go.exe"), \
+         patch.object(project_manager, "_run_cli_or_pty", return_value=(True, "")) as mock_run, \
+         patch.object(project_manager, "_write_start_dev_bat") as mock_bat, \
+         patch("builtins.open", mock_open()) as m_file, \
+         patch("os.makedirs"):
+        res = project_manager._install_go_project("gin", "C:/www/my-go", "1.10.0", 8080)
+        assert res["status"] == "success"
+        # Verify env has GOROOT
+        env_passed = mock_run.call_args_list[0][1]["env"]
+        assert env_passed["GOROOT"] == "C:/Go"
+        # Verify main.go wrote gin code
+        written = "".join(call.args[0] for call in m_file().write.call_args_list)
+        assert "github.com/gin-gonic/gin" in written
+        assert "r.Run" in written
+        # Verify start-dev.bat
+        bat_cmd = mock_bat.call_args[0][1]
+        assert "go run main.go" in bat_cmd
+        assert "pause" in bat_cmd
+
+
+def test_install_java_project_spring_boot_dynamic_version_and_native(project_manager):
+    # Spring boot without specific version -> no bootVersion in URL
+    with patch.object(project_manager, "_resolve_runtime_bin", return_value="C:/Java/bin/java.exe"), \
+         patch("urllib.request.urlopen") as mock_urlopen, \
+         patch("zipfile.ZipFile"), \
+         patch.object(project_manager, "_write_start_dev_bat") as mock_bat, \
+         patch("builtins.open", mock_open()), \
+         patch("os.path.exists", return_value=True), \
+         patch("os.remove"), \
+         patch("os.makedirs"):
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b"PKfakezip"
+        mock_urlopen.return_value.__enter__.return_value = mock_resp
+        res = project_manager._install_java_project("spring-boot", "C:/www/my-boot", "", 8080)
+        assert res["status"] == "success"
+        req_sent = mock_urlopen.call_args[0][0]
+        assert "bootVersion=" not in req_sent.full_url
+        assert "dependencies=web" in req_sent.full_url
+
+    # Java native -> writes Main.java with stdout print
+    with patch.object(project_manager, "_resolve_runtime_bin", return_value="C:/Java/bin/java.exe"), \
+         patch.object(project_manager, "_write_start_dev_bat") as mock_bat2, \
+         patch("builtins.open", mock_open()) as m_file2, \
+         patch("os.makedirs"):
+        res_native = project_manager._install_java_project("java-raw", "C:/www/my-java", "", 8080)
+        assert res_native["status"] == "success"
+        written_java = "".join(call.args[0] for call in m_file2().write.call_args_list)
+        assert "Java HTTP server listening on" in written_java
+        assert "Press Ctrl+C to stop" in written_java
+        bat_cmd2 = mock_bat2.call_args[0][1]
+        assert "java Main.java" in bat_cmd2
+        assert "pause" in bat_cmd2
+
+
+def test_spawn_pty_process_windows_cmd_wrapper(project_manager):
+    with patch("sys.platform", "win32"), \
+         patch("winpty.PtyProcess.spawn") as mock_spawn:
+        project_manager._spawn_pty_process(["C:/bin/npx.cmd", "create-next-app"], cwd="C:/www")
+        mock_spawn.assert_called_once_with(
+            ["cmd.exe", "/c", "C:/bin/npx.cmd", "create-next-app"],
+            cwd="C:/www",
+            env=ANY,
+            dimensions=(24, 100)
+        )
+
+    # When executable is not a batch file (e.g. php.exe), no cmd.exe /c
+    with patch("sys.platform", "win32"), \
+         patch("winpty.PtyProcess.spawn") as mock_spawn2:
+        project_manager._spawn_pty_process(["C:/bin/php.exe", "artisan"], cwd="C:/www")
+        mock_spawn2.assert_called_once_with(
+            ["C:/bin/php.exe", "artisan"],
+            cwd="C:/www",
+            env=ANY,
+            dimensions=(24, 100)
+        )
+
+
+
+

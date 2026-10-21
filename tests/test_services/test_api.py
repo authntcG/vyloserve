@@ -121,6 +121,9 @@ def test_project_endpoints_fallback_when_project_module_not_loaded(api_instance)
     assert api_instance.retry_sync_host("id") == expected
     assert api_instance.open_in_explorer("path") == expected
     assert api_instance.update_project({"id": "1"}) == expected
+    assert api_instance.send_project_cli_input("data") == expected
+    assert api_instance.resize_project_cli(80, 24) == expected
+    assert api_instance.cancel_project_install() == expected
 
 def test_test_connection(api_instance):
     res = api_instance.test_connection("ping")
@@ -320,6 +323,25 @@ def test_project_endpoints(api_instance):
     
     api_instance.update_project({"id": "1"})
     api_instance.project.update_project.assert_called_once_with({"id": "1"})
+
+    api_instance.send_project_cli_input("hello")
+    api_instance.project.send_project_cli_input.assert_called_once_with("hello")
+
+    api_instance.resize_project_cli(80, 24)
+    api_instance.project.resize_project_cli.assert_called_once_with(80, 24)
+
+    api_instance.cancel_project_install()
+    api_instance.project.cancel_project_install.assert_called_once()
+
+def test_emit_cli_events(api_instance):
+    mock_window = MagicMock()
+    api_instance.set_window(mock_window)
+
+    api_instance.emit_cli_output("some output")
+    assert mock_window.evaluate_js.called
+
+    api_instance.emit_cli_state(True, "prompt line")
+    assert mock_window.evaluate_js.call_count == 2
 
 @patch('os._exit')
 def test_close_app(mock_exit, api_instance):

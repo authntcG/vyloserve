@@ -271,6 +271,19 @@ describe('Select', () => {
         expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
     });
 
+    it('renders color swatches in trigger and options when swatches are provided', async () => {
+        const user = userEvent.setup();
+        const themeOptions = [
+            { value: 'catppuccin-dark', label: 'Catppuccin Mocha', swatches: ['#1e1e2e', '#3b82f6', '#a6e3a1'] },
+            { value: 'xp-luna-light', label: 'Windows XP Luna', swatches: ['#ece9d8', '#0054e3', '#3c9911'] },
+        ];
+        render(<Select options={themeOptions} value="catppuccin-dark" onChange={vi.fn()} placeholder="Select theme" />);
+        expect(screen.getAllByTestId('select-option-swatch')).toHaveLength(3);
+
+        await user.click(screen.getByRole('button', { name: /Catppuccin Mocha/ }));
+        expect(screen.getAllByTestId('select-option-swatch')).toHaveLength(9);
+    });
+
     it('renders an optional visible label', () => {
         render(<Select options={OPTIONS} value={null} onChange={vi.fn()} placeholder="Select version" label="Database Version" />);
         expect(screen.getByText('Database Version')).toBeInTheDocument();

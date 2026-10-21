@@ -50,7 +50,7 @@ def get_theme_bg_color():
 # --- KONFIGURASI ENVIRONMENT ---
 # Auto-detect mode frozen (.exe) atau fallback ke False untuk Development
 IS_PRODUCTION = getattr(sys, 'frozen', False) or False
-APP_VERSION = "0.0.6-alpha"
+APP_VERSION = "0.0.7-beta"
 
 def get_mutex_name(is_production: bool = IS_PRODUCTION) -> str:
     return "VyloServe_App_Mutex_v1" if is_production else "VyloServe_Dev_App_Mutex_v1"

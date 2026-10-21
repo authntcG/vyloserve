@@ -299,8 +299,10 @@ describe('SettingsModals', () => {
             expect(screen.getByLabelText('settings.theme')).toBeInTheDocument();
         });
 
-        // Select a different theme via dropdown
+        // Select a different theme via dropdown (also verify search input filters themes)
         await user.click(screen.getByLabelText('settings.theme'));
+        const searchBox = await screen.findByPlaceholderText(/settings\.theme_search_placeholder|Search theme/i);
+        await user.type(searchBox, 'vyloserve-light');
         const lightOption = await screen.findByText('settings.theme_vyloserve_light');
         await user.click(lightOption);
 

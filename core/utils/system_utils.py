@@ -431,6 +431,36 @@ THEME_TITLEBAR_CONFIGS = {
         "border": "#44475a",
         "dark_mode": True,
     },
+    "xp-luna-light": {
+        "bg": "#0054e3",
+        "text": "#ffffff",
+        "border": "#003c74",
+        "dark_mode": False,
+    },
+    "xp-zune-dark": {
+        "bg": "#1b1b1d",
+        "text": "#f4f4f5",
+        "border": "#e35c00",
+        "dark_mode": True,
+    },
+    "catppuccin-dark": {
+        "bg": "#181825",
+        "text": "#cdd6f4",
+        "border": "#313244",
+        "dark_mode": True,
+    },
+    "tokyo-night-dark": {
+        "bg": "#16161e",
+        "text": "#c0caf5",
+        "border": "#24283b",
+        "dark_mode": True,
+    },
+    "gruvbox-dark": {
+        "bg": "#1d2021",
+        "text": "#ebdbb2",
+        "border": "#3c3836",
+        "dark_mode": True,
+    },
     "nord-dark": {
         "bg": "#2e3440",
         "text": "#eceff4",

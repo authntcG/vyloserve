@@ -13,6 +13,8 @@ export interface ProjectData {
     path: string;
     php_version: string;
     php_port: number;
+    project_type?: 'php' | 'node' | 'python' | 'go' | 'java';
+    proxy_port?: number | null;
     framework?: string;
     host_synced?: boolean;
 }
@@ -59,6 +61,8 @@ interface ApacheContextValue {
     isNewProjectModalOpen: boolean;
     isProjectSettingsOpen: boolean;
     isDeleteConfirmOpen: boolean;
+    isCliModalOpen: boolean;
+    cliPromptText: string;
 
     // Modal Control
     openInstallModal: () => void;
@@ -93,6 +97,7 @@ interface ApacheContextValue {
     handleOpenDocumentRoot: (path: string) => Promise<void>;
     openConfigFile: () => void;
     openDirectory: () => void;
+    confirmCancelProjectInstall: () => Promise<void>;
 }
 
 const ApacheContext = createContext<ApacheContextValue | undefined>(undefined);
@@ -139,6 +144,8 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
     const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
     const [isUpdatingProject, setIsUpdatingProject] = useState(false);
     const [isCreatingProject, setIsCreatingProject] = useState(false);
+    const [isCliModalOpen, setIsCliModalOpen] = useState(false);
+    const [cliPromptText, setCliPromptText] = useState('');
 
     const selectedProject = useMemo(() => projects.find(p => p.id === selectedProjectId), [projects, selectedProjectId]);
     const projectFormRef = useRef<NewProjectRef>(null);
@@ -177,11 +184,33 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
     const handleCreateSubmit = useCallback(async () => {
         if (!projectFormRef.current) return;
         setIsCreatingProject(true);
+        setIsCliModalOpen(false);
+        setCliPromptText('');
         if (await projectFormRef.current.submit()) {
             setIsNewProjectModalOpen(false);
         }
+        setIsCliModalOpen(false);
+        setCliPromptText('');
         setIsCreatingProject(false);
     }, []);
+
+    const confirmCancelProjectInstall = useCallback(async () => {
+        const isConfirmed = await confirm({
+            title: tRef.current('apache.cli_cancel_confirm_title'),
+            message: tRef.current('apache.cli_cancel_confirm_desc'),
+            type: 'danger',
+            confirmText: tRef.current('apache.cli_cancel_confirm_yes'),
+        });
+        if (!isConfirmed) return;
+        setIsCliModalOpen(false);
+        setCliPromptText('');
+        try {
+            const api = window.pywebview?.api as any;
+            await api?.cancel_project_install?.();
+        } catch (e) {
+            console.error(e);
+        }
+    }, [confirm]);
 
     const handleUpdateProjectSubmit = useCallback(async () => {
         if (!projectSettingsRef.current) return;
@@ -321,20 +350,36 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
                     window.clearTimeout(hideProgressTimeoutRef.current);
                     hideProgressTimeoutRef.current = null;
                 }
+                if (e.detail?.source === 'ProjectManager' && pct > 0 && pct < 100) {
+                    setIsCreatingProject(true);
+                }
                 if (pct >= 100 || pct === 0) {
                     hideProgressTimeoutRef.current = window.setTimeout(() => {
                         setProgress(0);
                         setIsCreatingProject(false);
+                        setIsCliModalOpen(false);
                     }, 3000);
                 }
             }
         };
 
+        const handleCliState = (e: any) => {
+            if (!e.detail) return;
+            const isWaiting = Boolean(e.detail.waiting_input);
+            if (isWaiting) {
+                setIsCreatingProject(true);
+            }
+            setIsCliModalOpen(isWaiting);
+            setCliPromptText(e.detail.prompt || '');
+        };
+
         window.addEventListener('service_status_changed', handleStatus);
         window.addEventListener('vylo_progress', handleProg);
+        window.addEventListener('vylo_cli_state', handleCliState);
         return () => {
             window.removeEventListener('service_status_changed', handleStatus);
             window.removeEventListener('vylo_progress', handleProg);
+            window.removeEventListener('vylo_cli_state', handleCliState);
             if (hideProgressTimeoutRef.current) window.clearTimeout(hideProgressTimeoutRef.current);
         };
     }, []);
@@ -560,6 +605,8 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
         isNewProjectModalOpen,
         isProjectSettingsOpen,
         isDeleteConfirmOpen,
+        isCliModalOpen,
+        cliPromptText,
         openInstallModal,
         closeInstallModal,
         openOptionsModal,
@@ -588,6 +635,7 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
         handleOpenDocumentRoot,
         openConfigFile,
         openDirectory,
+        confirmCancelProjectInstall,
     }), [
         isFetchingApacheStatus,
         isApacheInstalled,
@@ -618,6 +666,8 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
         isNewProjectModalOpen,
         isProjectSettingsOpen,
         isDeleteConfirmOpen,
+        isCliModalOpen,
+        cliPromptText,
         openInstallModal,
         closeInstallModal,
         openOptionsModal,
@@ -644,6 +694,7 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
         handleOpenDocumentRoot,
         openConfigFile,
         openDirectory,
+        confirmCancelProjectInstall,
     ]);
 
     return <ApacheContext.Provider value={value}>{children}</ApacheContext.Provider>;

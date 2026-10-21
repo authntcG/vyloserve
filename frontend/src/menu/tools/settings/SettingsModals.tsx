@@ -479,18 +479,28 @@ export default function SettingsModals({ activeModal, defaultTab = 'general', on
                                     </div>
                                     <Select
                                         id="theme-select"
-                                        searchable={false}
+                                        searchable={true}
+                                        searchPlaceholder={t('settings.theme_search_placeholder', 'Search theme...')}
+                                        filterFn={(opt, query) =>
+                                            opt.label.toLowerCase().includes(query.toLowerCase()) ||
+                                            opt.value.toLowerCase().includes(query.toLowerCase())
+                                        }
                                         options={[
-                                            { value: 'vyloserve-dark', label: t('settings.theme_vyloserve_dark') },
-                                            { value: 'vyloserve-light', label: t('settings.theme_vyloserve_light') },
-                                            { value: 'darcula-dark', label: t('settings.theme_darcula_dark') },
-                                            { value: 'solarized-dark', label: t('settings.theme_solarized_dark') },
-                                            { value: 'solarized-light', label: t('settings.theme_solarized_light') },
-                                            { value: 'high-contrast-dark', label: t('settings.theme_high_contrast_dark') },
-                                            { value: 'high-contrast-light', label: t('settings.theme_high_contrast_light') },
-                                            { value: 'monokai-dark', label: t('settings.theme_monokai_dark') },
-                                            { value: 'dracula-dark', label: t('settings.theme_dracula_dark') },
-                                            { value: 'nord-dark', label: t('settings.theme_nord_dark') },
+                                            { value: 'vyloserve-dark', label: t('settings.theme_vyloserve_dark'), swatches: ['#0f172a', '#3b82f6', '#10b981'] },
+                                            { value: 'vyloserve-light', label: t('settings.theme_vyloserve_light'), swatches: ['#f8fafc', '#3b82f6', '#10b981'] },
+                                            { value: 'darcula-dark', label: t('settings.theme_darcula_dark'), swatches: ['#2b2b2b', '#2f65ca', '#629755'] },
+                                            { value: 'solarized-dark', label: t('settings.theme_solarized_dark'), swatches: ['#002b36', '#268bd2', '#2aa198'] },
+                                            { value: 'solarized-light', label: t('settings.theme_solarized_light'), swatches: ['#fdf6e3', '#268bd2', '#2aa198'] },
+                                            { value: 'high-contrast-dark', label: t('settings.theme_high_contrast_dark'), swatches: ['#000000', '#00ffff', '#00ff00'] },
+                                            { value: 'high-contrast-light', label: t('settings.theme_high_contrast_light'), swatches: ['#ffffff', '#ff0000', '#0000ff'] },
+                                            { value: 'monokai-dark', label: t('settings.theme_monokai_dark'), swatches: ['#272822', '#66d9ef', '#a6e22e'] },
+                                            { value: 'dracula-dark', label: t('settings.theme_dracula_dark'), swatches: ['#282a36', '#8be9fd', '#bd93f9'] },
+                                            { value: 'nord-dark', label: t('settings.theme_nord_dark'), swatches: ['#2e3440', '#5e81ac', '#88c0d0'] },
+                                            { value: 'xp-luna-light', label: t('settings.theme_xp_luna_light'), swatches: ['#ece9d8', '#0054e3', '#3c9911'] },
+                                            { value: 'xp-zune-dark', label: t('settings.theme_xp_zune_dark'), swatches: ['#1e1e21', '#e85d00', '#22c55e'] },
+                                            { value: 'catppuccin-dark', label: t('settings.theme_catppuccin_dark'), swatches: ['#1e1e2e', '#3b82f6', '#a6e3a1'] },
+                                            { value: 'tokyo-night-dark', label: t('settings.theme_tokyo_night_dark'), swatches: ['#1a1b26', '#2e59b8', '#73daca'] },
+                                            { value: 'gruvbox-dark', label: t('settings.theme_gruvbox_dark'), swatches: ['#282828', '#458588', '#b8bb26'] },
                                         ]}
                                         value={selectedTheme}
                                         onChange={handleThemeChange}

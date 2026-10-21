@@ -142,7 +142,7 @@ class ApacheManager:
 
     def _patch_httpd_content(self, content: str) -> tuple[str, bool]:
         modified = False
-        for mod in ["proxy_module", "proxy_fcgi_module", "rewrite_module", "vhost_alias_module", "dir_module", "setenvif_module", "ssl_module", "socache_shmcb_module"]:
+        for mod in ["proxy_module", "proxy_fcgi_module", "proxy_http_module", "proxy_wstunnel_module", "headers_module", "rewrite_module", "vhost_alias_module", "dir_module", "setenvif_module", "ssl_module", "socache_shmcb_module"]:
             pattern = re.compile(r"^[ \t]*#[ \t]*(LoadModule\s+" + mod + r"\b[^\r\n]*)$", re.MULTILINE)
             if pattern.search(content):
                 content = pattern.sub(r"\1", content); modified = True
@@ -218,6 +218,9 @@ class ApacheManager:
             (r'Options\s+Indexes\s+FollowSymLinks', 'Options Indexes FollowSymLinks ExecCGI'),
             (r'#\s*LoadModule\s+proxy_module\s+modules/mod_proxy\.so', 'LoadModule proxy_module modules/mod_proxy.so'),
             (r'#\s*LoadModule\s+proxy_fcgi_module\s+modules/mod_proxy_fcgi\.so', 'LoadModule proxy_fcgi_module modules/mod_proxy_fcgi.so'),
+            (r'#\s*LoadModule\s+proxy_http_module\s+modules/mod_proxy_http\.so', 'LoadModule proxy_http_module modules/mod_proxy_http.so'),
+            (r'#\s*LoadModule\s+proxy_wstunnel_module\s+modules/mod_proxy_wstunnel\.so', 'LoadModule proxy_wstunnel_module modules/mod_proxy_wstunnel.so'),
+            (r'#\s*LoadModule\s+headers_module\s+modules/mod_headers\.so', 'LoadModule headers_module modules/mod_headers.so'),
         )
         for pattern, repl in static_replacements:
             content = re.sub(pattern, repl, content, flags=re.IGNORECASE)

@@ -1,4 +1,5 @@
 import os
+import sys
 import re
 import json
 import time
@@ -8,7 +9,7 @@ import urllib.request
 import urllib.error
 from typing import Dict, Any, List, Optional, Tuple
 
-from core.utils.system_utils import get_project_root
+from core.utils.system_utils import get_project_root, get_resource_path
 from core.utils.file_utils import read_json, write_json, read_log_tail
 
 MSG_UNEXPECTED_ERROR = "backend.error.unexpected"
@@ -106,10 +107,22 @@ class DocRetriever:
         self._sections: List[Dict[str, Any]] = []
         self._last_mtime: float = 0.0
 
-    def _ensure_loaded(self) -> None:
+    def _resolve_doc_target(self) -> Optional[str]:
         safe_root = os.path.realpath(self.root_dir)
         target = os.path.realpath(self.doc_path)
-        if not target.startswith(safe_root) or not os.path.exists(target):
+        if target.startswith(safe_root) and os.path.exists(target):
+            return target
+
+        if getattr(sys, "frozen", False):
+            bundled_root = os.path.realpath(get_resource_path(""))
+            bundled_target = os.path.realpath(get_resource_path(os.path.join("docs", "user_guide.md")))
+            if bundled_target.startswith(bundled_root) and os.path.exists(bundled_target):
+                return bundled_target
+        return None
+
+    def _ensure_loaded(self) -> None:
+        target = self._resolve_doc_target()
+        if not target:
             self._sections = []
             return
 

@@ -702,6 +702,14 @@ def test_doc_retriever_handles_missing_file_gracefully(tmp_path):
     assert empty_retriever.search_knowledge("apache") == ""
 
 
+def test_doc_retriever_falls_back_to_bundled_resource_when_frozen(tmp_path, monkeypatch):
+    from core.services.ai_assistant import DocRetriever
+    monkeypatch.setattr("sys.frozen", True, raising=False)
+    retriever = DocRetriever(str(tmp_path))
+    snippet = retriever.search_knowledge("apache")
+    assert "[VyloServe Knowledge Base:" in snippet
+
+
 def test_send_message_enriches_context_with_knowledge(ai_manager, monkeypatch):
     monkeypatch.setattr(ai_manager, '_get_settings', lambda: {
         "ai_provider": "gemini",

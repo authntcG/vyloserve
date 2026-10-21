@@ -104,7 +104,7 @@ frontend/src/
 
 ## 2. Sistem Desain & Palet Warna (Design System)
 
-> ⚠️ **Koreksi:** Versi dokumen ini sebelumnya mengklaim VyloServe "Dark Mode murni (tanpa light mode)". Ini **sudah tidak akurat** sejak fitur *Unified Settings System with Theme Support* — aplikasi sekarang punya **10 tema** yang bisa dipilih user (termasuk beberapa varian *light*), lihat §2.1.
+> ⚠️ **Koreksi:** Versi dokumen ini sebelumnya mengklaim VyloServe "Dark Mode murni (tanpa light mode)". Ini **sudah tidak akurat** sejak fitur *Unified Settings System with Theme Support* — aplikasi sekarang punya **15 tema** yang bisa dipilih user (termasuk beberapa varian *light*, tema klasik Windows XP Luna/Zune, serta Catppuccin/Tokyo Night/Gruvbox), lihat §2.1.
 
 VyloServe menerapkan antarmuka modern yang memanfaatkan integrasi warna *slate* (abu-abu kebiruan) sebagai basis tema default untuk memberikan kesan profesional seperti alat-alat *developer/server management* pada umumnya.
 
@@ -115,7 +115,7 @@ Tema dipilih di tab "General" pada modal Settings (`SettingsModals.tsx`, lihat �
 2. Toggle class `dark` di `<html>` berdasarkan **konvensi penamaan**: tema dengan akhiran `-light` pada key-nya (mis. `vyloserve-light`, `solarized-light`, `high-contrast-light`) menghapus class `dark`; tema lain menambahkannya — ini yang mengendalikan utility Tailwind `dark:*` di seluruh aplikasi.
 3. Sinkronisasi warna native titlebar Windows via DWM API (`window.pywebview?.api?.apply_titlebar_theme(theme)`), memastikan warna caption bar dan teks titlebar native Windows berubah secara real-time mengikuti tema yang dipilih.
 
-10 tema yang tersedia (lihat `LOG_LEVELS`-sejajar array opsi `<select>` di `SettingsModals.tsx`, dan blok `[data-theme="..."]` di `index.css`): `vyloserve-dark` (default), `vyloserve-light`, `darcula-dark`, `solarized-dark`, `solarized-light`, `high-contrast-dark`, `high-contrast-light`, `monokai-dark`, `dracula-dark`, `nord-dark`.
+15 tema yang tersedia (lihat array opsi `<Select>` searchable ber-swatch di `SettingsModals.tsx`, dan blok `[data-theme="..."]` di `index.css`): `vyloserve-dark` (default), `vyloserve-light`, `darcula-dark`, `solarized-dark`, `solarized-light`, `high-contrast-dark`, `high-contrast-light`, `monokai-dark`, `dracula-dark`, `nord-dark`, `xp-luna-light`, `xp-zune-dark`, `catppuccin-dark`, `tokyo-night-dark`, `gruvbox-dark`.
 
 Dipanggil dari 2 titik: bootstrap awal di `App.tsx` (baca `get_app_settings()` sekali saat `isApiReady`) dan `handleThemeChange()` di `SettingsModals.tsx` (saat user mengganti tema lewat dropdown). Sebelumnya kedua titik ini menduplikasi logika "set `dataset.theme` + toggle class `dark`" secara terpisah — sekarang keduanya memanggil `applyTheme()` yang sama, jadi otomatis tetap sinkron.
 

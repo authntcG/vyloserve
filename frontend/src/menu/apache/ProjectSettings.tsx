@@ -25,6 +25,8 @@ const ProjectSettings = forwardRef<ProjectSettingsRef, Props>(({ project }, ref)
     // States Data Form
     const [projectName, setProjectName] = useState(project.name || '');
     const [phpVersion, setPhpVersion] = useState(project.php_version || '');
+    const [proxyPort, setProxyPort] = useState<number>(project.proxy_port || 3000);
+    const isProxyProject = Boolean(project.project_type && project.project_type !== 'php');
 
     useEffect(() => {
         const fetchVersions = async () => {
@@ -35,7 +37,7 @@ const ProjectSettings = forwardRef<ProjectSettingsRef, Props>(({ project }, ref)
                     const res = await api.get_installed_php();
                     setPhpVersions(res || []);
                 }
-            } catch (error){ console.error(error);
+            } catch (error) {
                 console.error("Gagal memuat versi PHP:", error);
             } finally {
                 setIsLoading(false);
@@ -51,12 +53,17 @@ const ProjectSettings = forwardRef<ProjectSettingsRef, Props>(({ project }, ref)
                 showToast(t('apache.empty_project_name'), "warning");
                 return false;
             }
+            if (isProxyProject && (!proxyPort || proxyPort < 1024 || proxyPort > 65535)) {
+                showToast(t('apache.invalid_proxy_port_error'), "warning");
+                return false;
+            }
 
             try {
                 const payload = {
                     id: project.id,
                     name: projectName,
-                    php_version: phpVersion
+                    php_version: phpVersion,
+                    ...(isProxyProject ? { proxy_port: Number(proxyPort) } : {}),
                 };
 
                 const api = window.pywebview?.api;
@@ -65,7 +72,6 @@ const ProjectSettings = forwardRef<ProjectSettingsRef, Props>(({ project }, ref)
 
                     if (res.status === 'success') {
                         showToast(t(res.message || '', res.args || {}) as string, 'success');
-                        // Beri sinyal ke Main.tsx agar daftar project dimuat ulang
                         window.dispatchEvent(new CustomEvent('project_list_updated'));
                         return true;
                     } else {
@@ -74,7 +80,8 @@ const ProjectSettings = forwardRef<ProjectSettingsRef, Props>(({ project }, ref)
                     }
                 }
                 return false;
-            } catch (error){ console.error(error);
+            } catch (error) {
+                console.error(error);
                 showToast(t('apache.update_settings_error'), "error");
                 return false;
             }
@@ -115,24 +122,42 @@ const ProjectSettings = forwardRef<ProjectSettingsRef, Props>(({ project }, ref)
                 <p className="text-xs text-slate-500">{t('apache.domain_locked_desc')}</p>
             </div>
 
-            {/* Opsi Edit Binding PHP */}
+            {/* Opsi Edit Binding PHP atau Reverse Proxy Port */}
             <div className="flex flex-col gap-2">
-                {isLoading ? (
-                    <div role="status" aria-busy="true" aria-live="polite" className="flex flex-col gap-2">
-                        <FieldLabel>{t('apache.php_fastcgi_routing')}</FieldLabel>
-                        <Skeleton className="h-[42px] w-full rounded-lg" />
-                    </div>
+                {isProxyProject ? (
+                    <>
+                        <FieldLabel htmlFor="apache_project_proxy_port">{t('apache.target_localhost_port')}</FieldLabel>
+                        <input
+                            id="apache_project_proxy_port"
+                            type="number"
+                            min={1024}
+                            max={65535}
+                            value={proxyPort}
+                            onChange={(e) => setProxyPort(Number(e.target.value))}
+                            className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2.5 outline-none transition-colors"
+                        />
+                        <p className="text-xs text-slate-500">{t('apache.proxy_routing_desc')}</p>
+                    </>
                 ) : (
-                    <Select
-                        searchable={false}
-                        label={t('apache.php_fastcgi_routing')}
-                        options={phpVersions.map(v => ({ value: v.version, label: `PHP ${v.version} (FastCGI)` }))}
-                        value={phpVersion || null}
-                        onChange={setPhpVersion}
-                        placeholder={t('apache.no_php_installed')}
-                    />
+                    <>
+                        {isLoading ? (
+                            <div role="status" aria-busy="true" aria-live="polite" className="flex flex-col gap-2">
+                                <FieldLabel>{t('apache.php_fastcgi_routing')}</FieldLabel>
+                                <Skeleton className="h-[42px] w-full rounded-lg" />
+                            </div>
+                        ) : (
+                            <Select
+                                searchable={false}
+                                label={t('apache.php_fastcgi_routing')}
+                                options={phpVersions.map(v => ({ value: v.version, label: `PHP ${v.version} (FastCGI)` }))}
+                                value={phpVersion || null}
+                                onChange={setPhpVersion}
+                                placeholder={t('apache.no_php_installed')}
+                            />
+                        )}
+                        <p className="text-xs text-slate-500">{t('apache.php_routing_desc')}</p>
+                    </>
                 )}
-                <p className="text-xs text-slate-500">{t('apache.php_routing_desc')}</p>
             </div>
         </div>
     );

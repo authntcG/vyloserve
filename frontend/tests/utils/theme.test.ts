@@ -28,4 +28,14 @@ describe('applyTheme', () => {
 
         expect(document.documentElement.classList.contains('dark')).toBe(true);
     });
+
+    it('correctly applies classic Windows XP Luna (light) and Zune (dark) themes', () => {
+        applyTheme('xp-zune-dark');
+        expect(document.documentElement.dataset.theme).toBe('xp-zune-dark');
+        expect(document.documentElement.classList.contains('dark')).toBe(true);
+
+        applyTheme('xp-luna-light');
+        expect(document.documentElement.dataset.theme).toBe('xp-luna-light');
+        expect(document.documentElement.classList.contains('dark')).toBe(false);
+    });
 });

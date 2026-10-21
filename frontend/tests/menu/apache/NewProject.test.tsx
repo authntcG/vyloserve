@@ -224,11 +224,11 @@ describe('NewApacheProject', () => {
         });
 
         act(() => {
-            window.dispatchEvent(new CustomEvent('vylo_progress', { detail: { source: 'ProjectManager', percent: 33, text: 'apache.copying_files' } }));
+            window.dispatchEvent(new CustomEvent('vylo_progress', { detail: { source: 'ProjectManager', percent: 50, text: 'backend.project.installing_runtime_deps', args: { framework: 'Next.js' } } }));
         });
 
-        expect(await screen.findByText('apache.copying_files')).toBeInTheDocument();
-        expect(screen.getByText('33%')).toBeInTheDocument();
+        expect(await screen.findByText('backend.project.installing_runtime_deps')).toBeInTheDocument();
+        expect(screen.getByText('50%')).toBeInTheDocument();
     });
 
     it('lets the user type the workspace location directly on the fresh-install field', async () => {
@@ -297,5 +297,63 @@ describe('NewApacheProject', () => {
 
         expect(detectFramework).not.toHaveBeenCalled();
         expect(screen.getByPlaceholderText('apache.placeholder_project_directory')).toHaveValue('');
+    });
+
+    it('grays out uninstalled runtimes and allows selecting an installed Node.js runtime with live framework versions and proxy port', async () => {
+        const user = userEvent.setup();
+        const getFrameworkVersions = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: [{ value: '5.4.8', label: 'v5.4.8 (Node ^18.0.0 || >=20.0.0)' }],
+        });
+        const create = vi.fn().mockResolvedValue({ status: 'success', message: 'apache.project_created', args: {} });
+        mockPywebviewApi({
+            get_installed_php: vi.fn().mockResolvedValue(phpVersions),
+            get_project_runtimes_info: vi.fn().mockResolvedValue({
+                status: 'success',
+                data: {
+                    php: { installed: true, version: '8.3', versions: ['8.3'] },
+                    node: { installed: true, in_path: true, version: '20.11.0' },
+                    python: { installed: true, in_path: false, version: '3.12.0' },
+                    go: { installed: false, in_path: false, version: '' },
+                    java: { installed: false, in_path: false, version: '' },
+                },
+            }),
+            get_framework_versions: getFrameworkVersions,
+            create_project: create,
+        });
+        const ref = createRef<NewProjectRef>();
+        renderWithToast(<NewApacheProject ref={ref} />);
+        await screen.findByRole('button', { name: 'PHP (8.3)' });
+
+        await user.click(screen.getByRole('button', { name: 'apache.php_engine' }));
+        const pyOption = screen.getByRole('option', { name: /apache\.runtime_python/ });
+        expect(pyOption).toHaveAttribute('aria-disabled', 'true');
+
+        const nodeOption = screen.getByRole('option', { name: /apache\.runtime_node/ });
+        expect(nodeOption).toHaveAttribute('aria-disabled', 'false');
+        await user.click(nodeOption);
+
+        expect(await screen.findByLabelText('apache.target_localhost_port')).toHaveValue(5173);
+        await waitFor(() => {
+            expect(getFrameworkVersions).toHaveBeenCalledWith('node', 'react-vite', '20.11.0');
+        });
+
+        await user.click(screen.getByRole('button', { name: 'apache.framework_version_latest' }));
+        await user.click(screen.getByRole('option', { name: /v5\.4\.8/ }));
+
+        await user.type(screen.getByLabelText('apache.project_name'), 'React Portal');
+        fireEvent.change(screen.getByPlaceholderText('apache.placeholder_workspace'), { target: { value: 'C:/workspace' } });
+
+        const result = await act(async () => ref.current!.submit());
+        expect(result).toBe(true);
+        expect(create).toHaveBeenCalledWith(expect.objectContaining({
+            name: 'React Portal',
+            domain: 'react-portal',
+            project_type: 'node',
+            proxy_port: 5173,
+            framework: 'react-vite',
+            specific_version: '5.4.8',
+            install_location: 'C:/workspace',
+        }));
     });
 });
