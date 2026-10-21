@@ -366,9 +366,6 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
         const handleCliState = (e: any) => {
             if (!e.detail) return;
             const isWaiting = Boolean(e.detail.waiting_input);
-            if (isWaiting) {
-                setIsCreatingProject(true);
-            }
             setIsCliModalOpen(isWaiting);
             setCliPromptText(e.detail.prompt || '');
         };

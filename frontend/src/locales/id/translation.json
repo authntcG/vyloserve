@@ -50,7 +50,8 @@
         "toggle_service": "Aktifkan/matikan {{service}}",
         "menu_tunnels": "Tunnels",
         "menu_docs-reader": "Penampil Markdown",
-        "menu_ai-assistant": "AI Assistant"
+        "menu_ai-assistant": "AI Assistant",
+        "menu_terminal": "Terminal"
     },
     "apache": {
         "fetch_projects_error": "Gagal memuat daftar proyek.",
@@ -227,7 +228,8 @@
         "cli_cancel_install_btn": "Batalkan & Revert",
         "cli_cancel_confirm_title": "Batalkan Instalasi Projek?",
         "cli_cancel_confirm_desc": "Membatalkan akan langsung menghentikan proses installer CLI dan menghapus file projek yang sempat dibuat. Apakah Anda yakin ingin membatalkan?",
-        "cli_cancel_confirm_yes": "Ya, Batalkan & Revert"
+        "cli_cancel_confirm_yes": "Ya, Batalkan & Revert",
+        "open_in_terminal": "Buka di Terminal"
     },
     "php": {
         "fetch_php_data_error": "Gagal memuat data PHP.",
@@ -923,6 +925,40 @@
             "switch_dark": "Ganti ke Mode Gelap",
             "switch_light": "Ganti ke Mode Terang",
             "refresh_tree": "Muat Ulang Direktori"
+        },
+        "terminal": {
+            "title": "Terminal Pengembang",
+            "subtitle": "Ruang kerja baris perintah interaktif dengan lingkungan runtime bawaan.",
+            "new_tab": "Tab Baru",
+            "close_tab": "Tutup Tab",
+            "clear": "Bersihkan",
+            "copy": "Salin Pilihan",
+            "paste": "Tempel",
+            "shell_selector": "Pilih Shell",
+            "select_shell_desc": "Pilih lingkungan shell untuk tab ini",
+            "no_sessions": "Tidak ada sesi terminal aktif.",
+            "open_session": "Buka Terminal",
+            "session_closed_msg": "Sesi telah berakhir dengan kode {{code}}.",
+            "reconnect": "Mulai Ulang Sesi",
+            "cwd": "Direktori Kerja",
+            "running": "Berjalan",
+            "shortcut_hint": "Tekan Ctrl+` untuk beralih ke terminal",
+            "context_copy": "Salin Pilihan",
+            "context_paste": "Tempel",
+            "context_select_all": "Pilih Semua",
+            "context_clear": "Bersihkan Terminal",
+            "context_restart": "Mulai Ulang Sesi",
+            "paste_hint": "Klik kanan atau Ctrl+V untuk menempel",
+            "env_title": "Lingkungan Runtime Terminal",
+            "env_desc": "Atur versi mesin yang diprioritaskan pada sesi terminal ini.",
+            "env_use_vyloserve": "Dikelola VyloServe",
+            "env_use_os": "Bawaan Sistem OS",
+            "env_apply": "Terapkan Lingkungan",
+            "env_restart_title": "Mulai Ulang Terminal untuk Menerapkan Lingkungan?",
+            "env_restart_desc": "Proses terminal yang sedang berjalan mewarisi variabel lingkungan saat pertama kali dijalankan. Untuk segera menggunakan versi runtime yang baru dipilih, sesi terminal aktif perlu dimulai ulang.",
+            "env_restart_now": "Mulai Ulang Terminal",
+            "env_restart_later": "Terapkan Hanya untuk Tab Baru",
+            "env_restart_warning": "Perintah atau skrip yang sedang berjalan di dalam sesi aktif akan dihentikan saat mulai ulang."
         }
     },
     "components": {
@@ -1340,6 +1376,15 @@
             "ollama_offline": "Tidak dapat terhubung ke Ollama. Pastikan Ollama sedang berjalan di komputer Anda.",
             "key_invalid": "API key tidak valid atau tidak diizinkan.",
             "usage_reset_success": "Statistik penggunaan token AI berhasil direset."
+        },
+        "terminal": {
+            "session_created": "Sesi terminal berhasil dibuat.",
+            "session_closed": "Sesi terminal ditutup.",
+            "session_not_found": "Sesi terminal tidak ditemukan.",
+            "spawn_failed": "Gagal memulai terminal: {{e}}",
+            "shell_not_found": "Shell yang diminta tidak terpasang atau tidak tersedia.",
+            "input_sent": "Input berhasil dikirim.",
+            "resized": "Ukuran terminal disesuaikan."
         }
     },
     "ui": {

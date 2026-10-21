@@ -88,21 +88,24 @@ function PhpMainView() {
                                             gridCols="grid-cols-2 md:grid-cols-3"
                                             dropdownActions={
                                                 <>
-                                                    <button type="button" onClick={() => openPhpIni(php.version)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">
-                                                        {t('php.open_php_ini')}
+                                                    <button type="button" onClick={() => openPhpIni(php.version)} className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/70 transition-colors">
+                                                        <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">description</span>
+                                                        <span className="truncate">{t('php.open_php_ini')}</span>
                                                     </button>
-                                                    <button type="button" onClick={() => openPhpDir(php.version)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">
-                                                        {t('php.open_directory')}
+                                                    <button type="button" onClick={() => openPhpDir(php.version)} className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/70 transition-colors">
+                                                        <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">folder_open</span>
+                                                        <span className="truncate">{t('php.open_directory')}</span>
                                                     </button>
                                                     <div className="border-t border-slate-200 dark:border-slate-700 my-1"></div>
                                                     {updateVer && (
-                                                        <button type="button" onClick={() => handleUpdatePhp(php, updateVer.version, updateVer.filename)} className="w-full text-left px-4 py-2 text-sm text-primary hover:bg-slate-100 dark:hover:bg-slate-700 font-medium">
-                                                            <span className="material-symbols-outlined text-[16px] align-text-bottom mr-1">upgrade</span>
-                                                            {t('php.update_to', { version: updateVer.version })}
+                                                        <button type="button" onClick={() => handleUpdatePhp(php, updateVer.version, updateVer.filename)} className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-primary hover:bg-slate-100 dark:hover:bg-slate-700/70 font-medium transition-colors">
+                                                            <span className="material-symbols-outlined text-[16px] text-primary shrink-0">upgrade</span>
+                                                            <span className="truncate">{t('php.update_to', { version: updateVer.version })}</span>
                                                         </button>
                                                     )}
-                                                    <button type="button" onClick={() => handleConfirmUninstall(php)} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">
-                                                        {t('php.uninstall')}
+                                                    <button type="button" onClick={() => handleConfirmUninstall(php)} className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+                                                        <span className="material-symbols-outlined text-[16px] text-red-500 shrink-0">delete</span>
+                                                        <span className="truncate">{t('php.uninstall')}</span>
                                                     </button>
                                                 </>
                                             }

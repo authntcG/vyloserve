@@ -52,8 +52,9 @@ const SERVICES: ServiceConfig[] = [
 // dari VyloServe).
 const TOOLS: NavItemConfig[] = [
     { id: 'ai-assistant', name: 'AI Assistant', icon: 'smart_toy' },
+    { id: 'terminal', name: 'Terminal', icon: 'terminal' },
     { id: 'tunnels', name: 'Tunnels', icon: 'router' },
-    { id: 'runtimes', name: 'Runtimes', icon: 'terminal' },
+    { id: 'runtimes', name: 'Runtimes', icon: 'layers' },
     { id: 'git', name: 'Git', icon: 'merge' },
 ];
 

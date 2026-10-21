@@ -19,6 +19,7 @@ from core.services.updater import UpdaterManager
 from core.services.tunnels import TunnelsManager
 from core.services.markdown_viewer import MarkdownViewerManager
 from core.services.ai_assistant import AIAssistantManager
+from core.services.terminal import TerminalManager
 
 PROJECT_NOT_LOADED_MSG = "backend.error.project_module_not_loaded"
 UNEXPECTED_ERROR_MSG = "backend.error.unexpected"
@@ -44,6 +45,7 @@ class Api:
         self.tunnels = TunnelsManager(self)
         self.markdown = MarkdownViewerManager(self)
         self.ai = AIAssistantManager(self)
+        self.terminal = TerminalManager(self)
         self._log_watcher_thread: Optional[threading.Thread] = None
         self._log_watcher_stop = threading.Event()
         self._is_shutting_down = False
@@ -161,6 +163,26 @@ class Api:
             return
         detail = json.dumps({"data": data})
         script = f"window.dispatchEvent(new CustomEvent('vylo_cli_output', {{detail: {detail} }}));"
+        try:
+            self._window.evaluate_js(script)
+        except Exception:
+            pass
+
+    def emit_terminal_output(self, session_id: str, data: str):
+        if self._is_shutting_down or not self._window:
+            return
+        detail = json.dumps({"sessionId": session_id, "data": data})
+        script = f"window.dispatchEvent(new CustomEvent('vylo_terminal_output', {{detail: {detail} }}));"
+        try:
+            self._window.evaluate_js(script)
+        except Exception:
+            pass
+
+    def emit_terminal_exit(self, session_id: str, exit_code: int = 0):
+        if self._is_shutting_down or not self._window:
+            return
+        detail = json.dumps({"sessionId": session_id, "exitCode": exit_code})
+        script = f"window.dispatchEvent(new CustomEvent('vylo_terminal_exit', {{detail: {detail} }}));"
         try:
             self._window.evaluate_js(script)
         except Exception:
@@ -512,6 +534,44 @@ class Api:
         if hasattr(self, 'project') and self.project:
             return self.project.cancel_project_install()
         return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+
+    # ==========================================
+    # DEDICATED DEVELOPER TERMINAL SECTIONS
+    # ==========================================
+    def get_terminal_shells(self):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.get_available_shells()
+        return []
+
+    def get_terminal_runtimes_matrix(self):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.get_runtimes_matrix()
+        return {}
+
+    def create_terminal_session(self, shell_id: str = "powershell", cwd: str = "", title: str = "", env_overrides: dict = None, env_profile: dict = None):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.create_session(shell_id, cwd, title, env_overrides, env_profile)
+        return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
+
+    def send_terminal_input(self, session_id: str, data: str):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.send_input(session_id, data)
+        return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
+
+    def resize_terminal(self, session_id: str, cols: int, rows: int):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.resize(session_id, cols, rows)
+        return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
+
+    def close_terminal_session(self, session_id: str):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.close_session(session_id)
+        return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
+
+    def list_terminal_sessions(self):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.list_sessions()
+        return {"status": "success", "sessions": []}
     
     # ==========================================
     # DASHBOARD SECTIONS

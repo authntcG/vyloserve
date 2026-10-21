@@ -99,18 +99,20 @@ export function GitCoreSystemCard() {
                         <button
                             type="button"
                             onClick={() => handleUpdateClick(updateAvailable)}
-                            className="w-full text-left px-4 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                            className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
                         >
-                            {t('ui.update.update_to_target', { version: updateAvailable.version_text })}
+                            <span className="material-symbols-outlined text-[16px] text-blue-500 shrink-0">upgrade</span>
+                            <span className="truncate">{t('ui.update.update_to_target', { version: updateAvailable.version_text })}</span>
                         </button>
                     )}
                     <button
                         type="button"
                         onClick={() => setIsUninstallModalOpen(true)}
                         disabled={isProcessing}
-                        className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 transition-colors"
+                        className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 transition-colors"
                     >
-                        {t('tools.git.uninstall_git')}
+                        <span className="material-symbols-outlined text-[16px] text-red-500 shrink-0">delete</span>
+                        <span className="truncate">{t('tools.git.uninstall_git')}</span>
                     </button>
                 </>
             }

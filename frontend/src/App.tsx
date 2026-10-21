@@ -18,6 +18,7 @@ import QrMain from './menu/tools/qr-generator/Main';
 import TunnelsMain from './menu/tools/tunnels/Main';
 import DocsReaderMain from './menu/tools/markdown-viewer/Main';
 import AiAssistantMain from './menu/tools/ai-assistant/Main';
+import TerminalMain from './menu/tools/terminal/Main';
 import AiFloatingWidget from './menu/tools/ai-assistant/components/AiFloatingWidget';
 import { AiProvider, useAiAssistant } from './context/AiContext';
 import { applyTheme } from './utils/theme';
@@ -74,6 +75,24 @@ function AppContent() {
       setActiveMenu('dashboard');
     }
   }, [enableAi, activeMenu]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === '`') {
+        e.preventDefault();
+        setActiveMenu(prev => prev === 'terminal' ? 'dashboard' : 'terminal');
+      }
+    };
+    const handleOpenProjectTerminal = () => {
+      setActiveMenu('terminal');
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('vylo_open_terminal_project', handleOpenProjectTerminal);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('vylo_open_terminal_project', handleOpenProjectTerminal);
+    };
+  }, []);
 
   const [isApiReady, setIsApiReady] = useState(false);
   const [isSettingsLoaded, setIsSettingsLoaded] = useState(false);
@@ -171,12 +190,13 @@ function AppContent() {
         <div className={`flex flex-col flex-1 min-w-0 h-full min-h-0 transition-[margin] duration-300 ${mainContentMargin}`}>
 
           {/* ---> FIX: Ganti Kondisional Render dengan CSS Hiding <--- */}
-          <div className={`flex-1 min-h-0 px-4 py-6 md:px-8 md:py-8 relative ${activeMenu === 'ai-assistant' ? 'flex flex-col h-full overflow-hidden' : 'overflow-y-auto'}`}>
+          <div className={`flex-1 min-h-0 px-4 py-6 md:px-8 md:py-8 relative ${activeMenu === 'ai-assistant' || activeMenu === 'terminal' ? 'flex flex-col h-full overflow-hidden' : 'overflow-y-auto'}`}>
             <div className={activeMenu === 'dashboard' ? 'block' : 'hidden'}><DashboardMain /></div>
             <div className={activeMenu === 'apache' ? 'block' : 'hidden'}><ApacheMain /></div>
             <div className={activeMenu === 'php' ? 'block' : 'hidden'}><PhpMain /></div>
             <div className={activeMenu === 'database' ? 'block' : 'hidden'}><DatabaseMain /></div>
             <div className={activeMenu === 'ai-assistant' ? 'flex-1 min-h-0 flex flex-col w-full' : 'hidden'}><AiAssistantMain isActive={activeMenu === 'ai-assistant'} /></div>
+            <div className={activeMenu === 'terminal' ? 'flex-1 min-h-0 flex flex-col w-full' : 'hidden'}><TerminalMain isActive={activeMenu === 'terminal'} /></div>
             <div className={activeMenu === 'tunnels' ? 'block' : 'hidden'}><TunnelsMain /></div>
             <div className={activeMenu === 'runtimes' ? 'block' : 'hidden'}><RuntimesMain /></div>
             <div className={activeMenu === 'git' ? 'block' : 'hidden'}><GitMain /></div>

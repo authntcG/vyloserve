@@ -975,7 +975,7 @@ def test_run_nextjs_interactive_cli(project_manager):
             assert ok is True
             assert err == ""
             mock_run.assert_called_once_with(
-                ["C:/bin/npx.cmd", "create-next-app@14.2.0", "C:/www/my-app"],
+                ["C:/bin/npx.cmd", "--yes", "create-next-app@14.2.0", "C:/www/my-app", "--use-npm"],
                 cwd="C:/www",
                 env={"PATH": "C:/bin"}
             )
@@ -992,7 +992,7 @@ def test_run_nextjs_interactive_cli(project_manager):
             assert ok is False
             assert err == "CLI error"
             mock_run_fail.assert_called_once_with(
-                ["C:/bin/npx.cmd", "create-next-app@latest", "C:/www/my-app"],
+                ["C:/bin/npx.cmd", "--yes", "create-next-app@latest", "C:/www/my-app", "--use-npm"],
                 cwd="C:/www",
                 env={}
             )
@@ -1008,7 +1008,7 @@ def test_run_react_interactive_cli_and_patch_vite(project_manager):
         assert ok is True
         assert err == ""
         mock_run.assert_called_once_with(
-            ["C:/bin/npx.cmd", "create-vite@5.4.0", "C:/www/my-react", "--template", "react", "--interactive", "--no-immediate"],
+            ["C:/bin/npx.cmd", "--yes", "create-vite@5.4.0", "C:/www/my-react", "--template", "react"],
             cwd="C:/www",
             env={}
         )

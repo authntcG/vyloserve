@@ -212,6 +212,7 @@ class AppLifecycle:
             lambda: self.api.apache.stop_server(),
             lambda: self.api.php.stop_all(),
             lambda: self.api.database.stop_all(),
+            lambda: getattr(self.api, 'terminal', None) and self.api.terminal.cleanup_all(),
         ):
             try:
                 stop_func()

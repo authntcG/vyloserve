@@ -821,7 +821,7 @@ class ProjectManager:
         os.makedirs(parent_dir, exist_ok=True)
         next_ver = specific_version if specific_version else "latest"
         self._progress(45, "backend.project.installing_runtime_deps", {"framework": "nextjs"})
-        ok, err_out = self._run_cli_or_pty([npx_cmd, f"create-next-app@{next_ver}", target_dir], cwd=parent_dir, env=custom_env)
+        ok, err_out = self._run_cli_or_pty([npx_cmd, "--yes", f"create-next-app@{next_ver}", target_dir, "--use-npm"], cwd=parent_dir, env=custom_env)
         if not ok:
             return False, err_out
         pkg_path = os.path.join(target_dir, "package.json")
@@ -861,7 +861,7 @@ class ProjectManager:
         os.makedirs(parent_dir, exist_ok=True)
         vite_pkg = f"create-vite@{specific_version}" if specific_version else "create-vite@latest"
         self._progress(40, "backend.project.installing_runtime_deps", {"framework": "react-vite"})
-        ok, err_out = self._run_cli_or_pty([npx_cmd, vite_pkg, target_dir, "--template", "react", "--interactive", "--no-immediate"], cwd=parent_dir, env=custom_env)
+        ok, err_out = self._run_cli_or_pty([npx_cmd, "--yes", vite_pkg, target_dir, "--template", "react"], cwd=parent_dir, env=custom_env)
         if not ok:
             return False, err_out
         self._patch_vite_config_port(target_dir, proxy_port)

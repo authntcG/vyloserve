@@ -14,7 +14,6 @@ import ApacheOptionsModal from './ApacheOptionsModal';
 import ApacheNewProjectModal from './ApacheNewProjectModal';
 import ApacheProjectSettingsModal from './ApacheProjectSettingsModal';
 import ApacheDeleteProjectModal from './ApacheDeleteProjectModal';
-import ApacheCliInstallModal from './ApacheCliInstallModal';
 
 export { type ProjectData };
 
@@ -82,20 +81,24 @@ function ApacheStatusSection({
                             <button
                                 type="button"
                                 onClick={onUpdateClick}
-                                className="w-full text-left px-4 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
+                                className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
                             >
-                                {t('ui.update.update_to_target', { version: updateAvailable })}
+                                <span className="material-symbols-outlined text-[16px] text-blue-500 shrink-0">upgrade</span>
+                                <span className="truncate">{t('ui.update.update_to_target', { version: updateAvailable })}</span>
                             </button>
                         )}
-                        <button type="button" onClick={onOpenConfig} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">
-                            {t('apache.open_httpd_conf')}
+                        <button type="button" onClick={onOpenConfig} className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/70 transition-colors">
+                            <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">description</span>
+                            <span className="truncate">{t('apache.open_httpd_conf')}</span>
                         </button>
-                        <button type="button" onClick={onOpenDirectory} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">
-                            {t('apache.open_directory')}
+                        <button type="button" onClick={onOpenDirectory} className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/70 transition-colors">
+                            <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">folder_open</span>
+                            <span className="truncate">{t('apache.open_directory')}</span>
                         </button>
                         <div className="border-t border-slate-200 dark:border-slate-700 my-1"></div>
-                        <button type="button" onClick={onUninstallClick} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">
-                            {t('apache.uninstall_server')}
+                        <button type="button" onClick={onUninstallClick} className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+                            <span className="material-symbols-outlined text-[16px] text-red-500 shrink-0">delete</span>
+                            <span className="truncate">{t('apache.uninstall_server')}</span>
                         </button>
                     </>
                 }
@@ -165,20 +168,39 @@ function ApacheProjectCard({
             gridCols="grid-cols-1"
             dropdownActions={
                 <>
-                    <button type="button" onClick={() => onOpenDocumentRoot(project.path)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">
-                        {t('apache.open_document_root')}
+                    <button type="button" onClick={() => onOpenDocumentRoot(project.path)} className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/70 transition-colors">
+                        <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">folder_open</span>
+                        <span className="truncate">{t('apache.open_document_root')}</span>
                     </button>
-                    <button type="button" onClick={() => onOpenSettings(project.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">
-                        {t('apache.vhost_settings')}
+                    <button
+                        type="button"
+                        onClick={() => {
+                            window.dispatchEvent(new CustomEvent('vylo_open_terminal_project', {
+                                detail: {
+                                    cwd: project.path,
+                                    title: project.domain || project.name
+                                }
+                            }));
+                        }}
+                        className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/70 transition-colors"
+                    >
+                        <span className="material-symbols-outlined text-[16px] text-primary shrink-0">terminal</span>
+                        <span className="truncate">{t('apache.open_in_terminal')}</span>
+                    </button>
+                    <button type="button" onClick={() => onOpenSettings(project.id)} className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/70 transition-colors">
+                        <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">tune</span>
+                        <span className="truncate">{t('apache.vhost_settings')}</span>
                     </button>
                     {project.host_synced === false && (
-                        <button type="button" onClick={() => onSyncHost(project.id)} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">
-                            {t('apache.retry_host_sync')}
+                        <button type="button" onClick={() => onSyncHost(project.id)} className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors">
+                            <span className="material-symbols-outlined text-[16px] text-amber-500 shrink-0">sync</span>
+                            <span className="truncate">{t('apache.retry_host_sync')}</span>
                         </button>
                     )}
                     <div className="border-t border-slate-200 dark:border-slate-700 my-1"></div>
-                    <button type="button" onClick={() => onDeleteClick(project.id)} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">
-                        {t('apache.delete_project')}
+                    <button type="button" onClick={() => onDeleteClick(project.id)} className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+                        <span className="material-symbols-outlined text-[16px] text-red-500 shrink-0">delete</span>
+                        <span className="truncate">{t('apache.delete_project')}</span>
                     </button>
                 </>
             }
@@ -422,7 +444,6 @@ function ApacheMainView() {
             <ApacheNewProjectModal />
             <ApacheProjectSettingsModal />
             <ApacheDeleteProjectModal />
-            <ApacheCliInstallModal />
         </>
     );
 }

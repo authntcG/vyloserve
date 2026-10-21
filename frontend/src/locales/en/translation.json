@@ -50,7 +50,8 @@
         "toggle_service": "Toggle {{service}}",
         "menu_tunnels": "Tunnels",
         "menu_docs-reader": "Markdown Viewer",
-        "menu_ai-assistant": "AI Assistant"
+        "menu_ai-assistant": "AI Assistant",
+        "menu_terminal": "Terminal"
     },
     "apache": {
         "fetch_projects_error": "Failed to load projects.",
@@ -227,7 +228,8 @@
         "cli_cancel_install_btn": "Cancel & Revert",
         "cli_cancel_confirm_title": "Cancel Project Installation?",
         "cli_cancel_confirm_desc": "Cancelling will immediately terminate the CLI installer process and delete any created project files. Are you sure you want to cancel?",
-        "cli_cancel_confirm_yes": "Yes, Cancel & Revert"
+        "cli_cancel_confirm_yes": "Yes, Cancel & Revert",
+        "open_in_terminal": "Open in Terminal"
     },
     "php": {
         "fetch_php_data_error": "Failed to load PHP data.",
@@ -923,6 +925,40 @@
             "switch_dark": "Switch to Dark Mode",
             "switch_light": "Switch to Light Mode",
             "refresh_tree": "Refresh Directory"
+        },
+        "terminal": {
+            "title": "Developer Terminal",
+            "subtitle": "Interactive command-line workspace with built-in runtime environment.",
+            "new_tab": "New Tab",
+            "close_tab": "Close Tab",
+            "clear": "Clear",
+            "copy": "Copy Selection",
+            "paste": "Paste",
+            "shell_selector": "Select Shell",
+            "select_shell_desc": "Choose shell environment for this tab",
+            "no_sessions": "No active terminal sessions.",
+            "open_session": "Open Terminal",
+            "session_closed_msg": "Session has exited with code {{code}}.",
+            "reconnect": "Restart Session",
+            "cwd": "Working Directory",
+            "running": "Running",
+            "shortcut_hint": "Press Ctrl+` to toggle terminal",
+            "context_copy": "Copy Selection",
+            "context_paste": "Paste",
+            "context_select_all": "Select All",
+            "context_clear": "Clear Terminal",
+            "context_restart": "Restart Session",
+            "paste_hint": "Right-click or Ctrl+V to paste",
+            "env_title": "Terminal Runtime Environment",
+            "env_desc": "Configure which engine versions are prioritized in this terminal session.",
+            "env_use_vyloserve": "VyloServe Managed",
+            "env_use_os": "OS System Default",
+            "env_apply": "Apply Environment",
+            "env_restart_title": "Restart Terminal to Apply Environment?",
+            "env_restart_desc": "Active terminal processes inherit their environment variables at launch. To use the newly selected runtime versions immediately, the active terminal session must be restarted.",
+            "env_restart_now": "Restart Terminal",
+            "env_restart_later": "Apply to New Tabs Only",
+            "env_restart_warning": "Any currently running command or script inside the active session will be terminated upon restart."
         }
     },
     "components": {
@@ -1340,6 +1376,15 @@
             "ollama_offline": "Could not connect to Ollama. Make sure Ollama is running locally.",
             "key_invalid": "API key is invalid or unauthorized.",
             "usage_reset_success": "AI token usage statistics reset successfully."
+        },
+        "terminal": {
+            "session_created": "Terminal session created.",
+            "session_closed": "Terminal session closed.",
+            "session_not_found": "Terminal session not found.",
+            "spawn_failed": "Failed to start terminal: {{e}}",
+            "shell_not_found": "Requested shell is not installed or available.",
+            "input_sent": "Input sent.",
+            "resized": "Terminal resized."
         }
     },
     "ui": {

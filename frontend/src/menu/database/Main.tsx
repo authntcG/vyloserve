@@ -109,41 +109,46 @@ function DatabaseMainView() {
                                                 <button
                                                     type="button"
                                                     onClick={() => window.pywebview?.api?.open_db_config_file(db.id)}
-                                                    className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                                                    className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700/70 transition-colors"
                                                 >
-                                                    {db.engine === 'postgres' ? t('database.open_postgres_conf') : t('database.open_my_ini')}
+                                                    <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">description</span>
+                                                    <span className="truncate">{db.engine === 'postgres' ? t('database.open_postgres_conf') : t('database.open_my_ini')}</span>
                                                 </button>
                                                 <button
                                                     type="button"
                                                     onClick={() => window.pywebview?.api?.open_db_dir(db.id)}
-                                                    className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                                                    className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700/70 transition-colors"
                                                 >
-                                                    {t('database.open_data_folder')}
+                                                    <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">folder_open</span>
+                                                    <span className="truncate">{t('database.open_data_folder')}</span>
                                                 </button>
                                                 <button
                                                     type="button"
                                                     onClick={() => setLogViewer({ dbId: db.id, type: 'startup' })}
-                                                    className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                                                    className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700/70 transition-colors"
                                                 >
-                                                    {t('settings.log_file_startup')}
+                                                    <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">history</span>
+                                                    <span className="truncate">{t('settings.log_file_startup')}</span>
                                                 </button>
 
                                                 {db.engine === 'mysql' && (
                                                     <button
                                                         type="button"
                                                         onClick={() => setLogViewer({ dbId: db.id, type: 'native' })}
-                                                        className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                                                        className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700/70 transition-colors"
                                                     >
-                                                        {t('settings.log_file_native')}
+                                                        <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">article</span>
+                                                        <span className="truncate">{t('settings.log_file_native')}</span>
                                                     </button>
                                                 )}
 
                                                 <button
                                                     type="button"
                                                     onClick={() => openPasswordModal(db)}
-                                                    className="w-full flex items-center justify-between px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                                                    className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700/70 transition-colors"
                                                 >
-                                                    {t('database.change_password')}
+                                                    <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">key</span>
+                                                    <span className="truncate">{t('database.change_password')}</span>
                                                 </button>
 
                                                 <div className="border-t border-slate-200 dark:border-slate-700 my-1"></div>
@@ -152,18 +157,19 @@ function DatabaseMainView() {
                                                         type="button"
                                                         onClick={() => handleUpdateDatabase(db)}
                                                         disabled={isInstalling}
-                                                        className="w-full text-left px-4 py-2 text-sm text-primary hover:bg-slate-100 dark:hover:bg-slate-700 font-medium disabled:opacity-50"
+                                                        className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-primary hover:bg-slate-100 dark:hover:bg-slate-700/70 font-medium disabled:opacity-50 transition-colors"
                                                     >
-                                                        <span className="material-symbols-outlined text-[16px] align-text-bottom mr-1">upgrade</span>
-                                                        {t('database.update_to', { version: update.version })}
+                                                        <span className="material-symbols-outlined text-[16px] text-primary shrink-0">upgrade</span>
+                                                        <span className="truncate">{t('database.update_to', { version: update.version })}</span>
                                                     </button>
                                                 )}
                                                 <button
                                                     type="button"
                                                     onClick={() => handleConfirmUninstall(db)}
-                                                    className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                                                    className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 transition-colors"
                                                 >
-                                                    {t('database.drop_engine')}
+                                                    <span className="material-symbols-outlined text-[16px] text-red-500 shrink-0">delete</span>
+                                                    <span className="truncate">{t('database.drop_engine')}</span>
                                                 </button>
                                             </>
                                         }
