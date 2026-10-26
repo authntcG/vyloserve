@@ -1,7 +1,7 @@
 interface EmptyStateProps {
     readonly icon: string;
     readonly title: string;
-    readonly description: string;
+    readonly description?: string;
     readonly actionText?: string;
     readonly onAction?: () => void;
 }
@@ -20,9 +20,11 @@ export default function EmptyState({ icon, title, description, actionText, onAct
                 {title}
             </h3>
             
-            <p className="min-w-[250px] max-w-md mx-auto text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
-                {description}
-            </p>
+            {description && (
+                <p className="min-w-[250px] max-w-md mx-auto text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
+                    {description}
+                </p>
+            )}
             
             {actionText && onAction && (
                 <div className="mt-5 block">

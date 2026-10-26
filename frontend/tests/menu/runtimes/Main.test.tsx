@@ -74,12 +74,13 @@ describe('RuntimesMain', () => {
         expect(await screen.findByText('runtimes.node_not_installed')).toBeInTheDocument();
     });
 
-    it('shows the installed Node.js card once fetched, and disables the header install button', async () => {
+    it('shows the installed Node.js card and header actions once fetched', async () => {
         mockPywebviewApi(runtimesApi({ get_node_status: vi.fn().mockResolvedValue(nodeInstalled) }));
         renderWithToast(<RuntimesMain />);
 
         expect(await screen.findByText('Node.js (VyloServe)')).toBeInTheDocument();
-        expect(screen.getByText('common.installed').closest('button')).toBeDisabled();
+        expect(screen.getByRole('button', { name: /runtimes.add Node/i })).toBeInTheDocument();
+        expect(screen.getByTitle('Table View')).toBeInTheDocument();
     });
 
     it('shows the locked external-native card for Node.js when detected but not installed', async () => {
@@ -306,5 +307,113 @@ describe('RuntimesMain', () => {
         await user.click(screen.getByText('runtimes.install_engine_btn'));
 
         await waitFor(() => expect(install).toHaveBeenCalled());
+    });
+
+    it('renders subtool when present and triggers folder open & terminal actions', async () => {
+        const user = userEvent.setup();
+        const openDir = vi.fn().mockResolvedValue({ status: 'success' });
+        const listener = vi.fn();
+        window.addEventListener('vylo_open_terminal_project', listener);
+
+        mockPywebviewApi(runtimesApi({
+            get_node_status: vi.fn().mockResolvedValue({
+                ...nodeInstalled,
+                subtool: 'npm v10.8.2',
+            }),
+            open_runtime_dir: openDir,
+        }));
+
+        renderWithToast(<RuntimesMain />);
+
+        expect(await screen.findByText('npm v10.8.2')).toBeInTheDocument();
+        expect(screen.getByText('runtimes.subtools_ecosystem')).toBeInTheDocument();
+
+        // Click Open Folder button
+        const openFolderBtn = screen.getByRole('button', { name: /runtimes\.open_folder/i });
+        await user.click(openFolderBtn);
+        expect(openDir).toHaveBeenCalledWith('node');
+
+        // Click Open in Terminal button
+        const openTerminalBtn = screen.getByRole('button', { name: /runtimes\.open_in_terminal/i });
+        await user.click(openTerminalBtn);
+        expect(listener).toHaveBeenCalled();
+
+        window.removeEventListener('vylo_open_terminal_project', listener);
+    });
+
+    it('renders multi-version list in card view and switches to table view', async () => {
+        const user = userEvent.setup();
+        const nodeWithVersions = {
+            ...nodeInstalled,
+            installed_versions: [
+                { version: '20.18.0', path: 'C:/bin/runtimes/node/20.18.0', subtool: 'npm', is_active: true, in_path: true },
+                { version: '18.17.0', path: 'C:/bin/runtimes/node/18.17.0', subtool: 'npm', is_active: false, in_path: false },
+            ]
+        };
+
+        const setActive = vi.fn().mockResolvedValue({ status: 'success', message: 'backend.runtimes.version_activated', args: { engine: 'NODE', version: '18.17.0' } });
+        const uninstallVer = vi.fn().mockResolvedValue({ status: 'success', message: 'backend.runtimes.version_uninstalled', args: { engine: 'NODE', version: '18.17.0' } });
+
+        mockPywebviewApi(runtimesApi({
+            get_node_status: vi.fn().mockResolvedValue(nodeWithVersions),
+            set_active_runtime_version: setActive,
+            uninstall_runtime_version: uninstallVer,
+        }));
+
+        renderWithToast(<RuntimesMain />);
+
+        expect((await screen.findAllByText('Node.js 20.18.0')).length).toBeGreaterThanOrEqual(1);
+        expect(screen.getByText('Node.js 18.17.0')).toBeInTheDocument();
+
+        // Switch to Table View
+        const tableViewBtn = screen.getByTitle('Table View');
+        await user.click(tableViewBtn);
+
+        // Table headers and items should be visible
+        expect(screen.getByText('runtimes.th_version')).toBeInTheDocument();
+        expect(screen.getByText('NODE 20.18.0')).toBeInTheDocument();
+        expect(screen.getByText('NODE 18.17.0')).toBeInTheDocument();
+
+        // Centralized RuntimePathHub remains visible above table
+        expect(screen.getByText('runtimes.path_orchestration_title')).toBeInTheDocument();
+        expect(screen.getByLabelText('runtimes.register_path')).toBeInTheDocument();
+    });
+
+    it('renders centralized RuntimePathHub with PATH toggle and version select', async () => {
+        const user = userEvent.setup();
+        const nodeWithVersions = {
+            ...nodeInstalled,
+            in_path: true,
+            installed_versions: [
+                { version: '20.18.0', path: 'C:/bin/runtimes/node/20.18.0', subtool: 'npm', is_active: true, in_path: true },
+                { version: '18.17.0', path: 'C:/bin/runtimes/node/18.17.0', subtool: 'npm', is_active: false, in_path: false },
+            ]
+        };
+
+        const togglePath = vi.fn().mockResolvedValue({ status: 'success' });
+        const setActive = vi.fn().mockResolvedValue({ status: 'success', message: 'backend.runtimes.version_activated' });
+
+        mockPywebviewApi(runtimesApi({
+            get_node_status: vi.fn().mockResolvedValue(nodeWithVersions),
+            toggle_global_path: togglePath,
+            set_active_runtime_version: setActive,
+        }));
+
+        renderWithToast(<RuntimesMain />);
+
+        expect(await screen.findByText('runtimes.path_orchestration_title')).toBeInTheDocument();
+        const pathToggle = screen.getByLabelText('runtimes.register_path');
+        expect(pathToggle).toBeChecked();
+
+        // Clicking toggle in RuntimePathHub calls toggle_global_path
+        await user.click(pathToggle);
+        expect(togglePath).toHaveBeenCalledWith('node', false);
+
+        // Centralized active version select switches active version
+        const versionSelect = screen.getByLabelText('runtimes.active_system_version');
+        await user.click(versionSelect);
+        const option18 = await screen.findByRole('option', { name: /18\.17\.0/i });
+        await user.click(option18);
+        expect(setActive).toHaveBeenCalledWith('node', '18.17.0');
     });
 });

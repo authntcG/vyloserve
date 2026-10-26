@@ -198,6 +198,16 @@ class Api:
         except Exception:
             pass
 
+    def emit_project_server_state(self, detail: dict):
+        if self._is_shutting_down or not self._window:
+            return
+        safe_detail = json.dumps(detail)
+        script = f"window.dispatchEvent(new CustomEvent('vylo_project_server_changed', {{detail: {safe_detail} }}));"
+        try:
+            self._window.evaluate_js(script)
+        except Exception:
+            pass
+
     def emit_window_state(self, minimized: Optional[bool] = None, hidden: Optional[bool] = None):
         """
         Menembakkan perubahan state window (minimized / hidden-ke-tray) ke
@@ -409,6 +419,18 @@ class Api:
     def open_apache_directory(self):
         return self.apache.open_directory()
         
+    def open_apache_htdocs(self):
+        return self.apache.open_htdocs()
+
+    def open_apache_conf_dir(self):
+        return self.apache.open_conf_dir()
+
+    def open_apache_logs_dir(self):
+        return self.apache.open_logs_dir()
+
+    def get_apache_ports_status(self):
+        return self.apache.get_ports_status()
+
     def open_apache_config(self):
         return self.apache.open_config()
     
@@ -535,6 +557,31 @@ class Api:
             return self.project.cancel_project_install()
         return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
 
+    def start_project_server(self, project_id: str):
+        if hasattr(self, 'project') and self.project:
+            return self.project.start_project_server(project_id)
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+
+    def stop_project_server(self, project_id: str):
+        if hasattr(self, 'project') and self.project:
+            return self.project.stop_project_server(project_id)
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+
+    def get_project_server_status(self, project_id: str):
+        if hasattr(self, 'project') and self.project:
+            return self.project.get_project_server_status(project_id)
+        return {"running": False, "port": None, "pid": None}
+
+    def get_all_running_project_servers(self):
+        if hasattr(self, 'project') and self.project:
+            return self.project.get_all_running_project_servers()
+        return {}
+
+    def get_project_server_logs(self, project_id: str):
+        if hasattr(self, 'project') and self.project:
+            return self.project.get_project_server_logs(project_id)
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+
     # ==========================================
     # DEDICATED DEVELOPER TERMINAL SECTIONS
     # ==========================================
@@ -553,9 +600,9 @@ class Api:
             return self.terminal.create_session(shell_id, cwd, title, env_overrides, env_profile)
         return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
 
-    def send_terminal_input(self, session_id: str, data: str):
+    def send_terminal_input(self, session_id: str, data: str, line_context: str = ""):
         if hasattr(self, 'terminal') and self.terminal:
-            return self.terminal.send_input(session_id, data)
+            return self.terminal.send_input(session_id, data, line_context)
         return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
 
     def resize_terminal(self, session_id: str, cols: int, rows: int):
@@ -572,6 +619,51 @@ class Api:
         if hasattr(self, 'terminal') and self.terminal:
             return self.terminal.list_sessions()
         return {"status": "success", "sessions": []}
+
+    def get_terminal_config(self):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.get_terminal_config()
+        return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
+
+    def save_terminal_default_profile(self, profile: dict):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.save_terminal_default_profile(profile)
+        return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
+
+    def get_terminal_saved_sessions(self):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.get_saved_sessions()
+        return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
+
+    def save_terminal_preset(self, preset: dict):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.save_preset(preset)
+        return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
+
+    def delete_terminal_preset(self, preset_id: str):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.delete_preset(preset_id)
+        return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
+
+    def save_terminal_workspace(self, workspace: dict):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.save_workspace(workspace)
+        return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
+
+    def delete_terminal_workspace(self, workspace_id: str):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.delete_workspace(workspace_id)
+        return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
+
+    def get_terminal_session_cwd(self, session_id: str):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.get_session_cwd(session_id)
+        return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
+
+    def save_terminal_settings(self, settings: dict):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.save_terminal_settings(settings)
+        return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
     
     # ==========================================
     # DASHBOARD SECTIONS
@@ -588,7 +680,10 @@ class Api:
     def save_app_settings(self, data: dict):
         res = self.settings.save_settings(data)
         if isinstance(res, dict) and res.get("status") == "success" and "theme" in data:
-            self.apply_titlebar_theme(data.get("theme"))
+            theme_name = data.get("theme")
+            self.apply_titlebar_theme(theme_name)
+            from core.utils.system_utils import sync_theme_bootstrap_file
+            sync_theme_bootstrap_file(theme_name)
         return res
 
     def apply_titlebar_theme(self, theme_name: Optional[str] = None) -> bool:
@@ -657,8 +752,8 @@ class Api:
     def get_node_status(self, silent: bool = False):
         return self.runtimes_manager.get_node_status(silent=silent)
 
-    def install_node(self, version_mode, enable_corepack):
-        return self.runtimes_manager.install_node(version_mode, enable_corepack)
+    def install_node(self, version_mode, enable_corepack, set_as_active: bool = True):
+        return self.runtimes_manager.install_node(version_mode, enable_corepack, set_as_active=set_as_active)
 
     def uninstall_node(self):
         return self.runtimes_manager.uninstall_node()
@@ -670,8 +765,8 @@ class Api:
     def get_python_status(self, silent: bool = False):
         return self.runtimes_manager.get_python_status(silent=silent)
         
-    def install_python(self, minor_version, install_pip):
-        return self.runtimes_manager.install_python(minor_version, install_pip)
+    def install_python(self, minor_version, install_pip, set_as_active: bool = True):
+        return self.runtimes_manager.install_python(minor_version, install_pip, set_as_active=set_as_active)
         
     def uninstall_python(self):
         return self.runtimes_manager.uninstall_python()
@@ -683,8 +778,8 @@ class Api:
     def get_java_status(self, silent: bool = False):
         return self.runtimes_manager.get_java_status(silent=silent)
         
-    def install_java(self, version):
-        return self.runtimes_manager.install_java(version)
+    def install_java(self, version, set_as_active: bool = True):
+        return self.runtimes_manager.install_java(version, set_as_active=set_as_active)
         
     def uninstall_java(self):
         return self.runtimes_manager.uninstall_java()
@@ -699,15 +794,30 @@ class Api:
     def get_available_go_versions(self):
         return self.runtimes_manager.get_available_go_versions()
         
-    def install_go(self, version):
-        return self.runtimes_manager.install_go(version)
+    def install_go(self, version, set_as_active: bool = True):
+        return self.runtimes_manager.install_go(version, set_as_active=set_as_active)
         
     def uninstall_go(self):
         return self.runtimes_manager.uninstall_go()
 
-    # --- Universal Config ---
+    # --- Universal Config & Multi-Version Operations ---
     def toggle_global_path(self, engine, enable):
         return self.runtimes_manager.toggle_user_path(engine, enable)
+
+    def open_runtime_dir(self, engine: str, version: str = None):
+        return self.runtimes_manager.open_runtime_directory(engine, version=version)
+
+    def get_engine_versions(self, engine: str):
+        return self.runtimes_manager.get_engine_versions(engine)
+
+    def set_active_runtime_version(self, engine: str, version: str):
+        return self.runtimes_manager.set_active_version(engine, version)
+
+    def deactivate_runtime_version(self, engine: str):
+        return self.runtimes_manager.deactivate_active_version(engine)
+
+    def uninstall_runtime_version(self, engine: str, version: str):
+        return self.runtimes_manager.uninstall_engine_version(engine, version)
 
     # ==========================================
     # TOOLS API ENDPOINTS (GIT)

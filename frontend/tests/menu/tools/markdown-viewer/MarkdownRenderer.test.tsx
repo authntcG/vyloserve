@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import React from 'react';
-import MarkdownRenderer from '../../../../src/menu/tools/markdown-viewer/MarkdownRenderer';
+import MarkdownRenderer, { stripHtmlComments } from '../../../../src/menu/tools/markdown-viewer/MarkdownRenderer';
 import { mockPywebviewApi, resetPywebviewApi } from '../../../test-utils';
 
 vi.mock('mermaid', () => ({
@@ -59,7 +59,13 @@ A --> B
         });
     });
 
-    it('renders regular code block with copy button', () => {
+    it('renders regular code block with copy button and copies snippet to clipboard', () => {
+        const writeTextMock = vi.fn().mockResolvedValue(undefined);
+        Object.defineProperty(navigator, 'clipboard', {
+            value: { writeText: writeTextMock },
+            configurable: true,
+        });
+
         const content = `
 \`\`\`javascript
 const x = 10;
@@ -74,6 +80,74 @@ const x = 10;
         );
 
         expect(screen.getByText(/const x = 10;/)).toBeInTheDocument();
+        expect(screen.getByText('javascript')).toBeInTheDocument();
+
+        const copyBtn = screen.getByRole('button', { name: /tools\.docs_reader\.copy_code|Copy Code/i });
+        expect(copyBtn).toBeInTheDocument();
+
+        fireEvent.click(copyBtn);
+        expect(writeTextMock).toHaveBeenCalledWith('const x = 10;');
+        expect(screen.getByText(/tools\.docs_reader\.copied|Copied!/i)).toBeInTheDocument();
+    });
+
+    it('strips HTML comments (including RAG section tags) outside code blocks while preserving comments inside code blocks', () => {
+        const content = `
+# Title
+
+<!-- section: getting-started, module: general, tags: [persyaratan, arsitektur] -->
+## 1. Pengenalan
+
+Teks dokumen sebelum komentar <!-- komentar sebaris --> teks setelah komentar.
+
+<!--
+Komentar multi-baris
+yang seharusnya tidak bocor ke tampilan
+-->
+Paragraf setelah komentar multi-baris.
+
+\`\`\`html
+<!-- Komentar di dalam code block HTML ini HARUS tetap utuh -->
+<div class="test">Hello World</div>
+\`\`\`
+`;
+        render(
+            <MarkdownRenderer
+                content={content}
+                rootPath="/test/root"
+                readerTheme="light"
+            />
+        );
+
+        // Headers and visible text are present
+        expect(screen.getByText('Title')).toBeInTheDocument();
+        expect(screen.getByText('1. Pengenalan')).toBeInTheDocument();
+        expect(screen.getByText(/Teks dokumen sebelum komentar/)).toBeInTheDocument();
+        expect(screen.getByText(/Paragraf setelah komentar multi-baris/)).toBeInTheDocument();
+
+        // RAG section tag and outside comments are completely removed from DOM
+        expect(screen.queryByText(/section: getting-started/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/komentar sebaris/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/Komentar multi-baris/)).not.toBeInTheDocument();
+
+        // Comment inside code block is preserved
+        expect(screen.getByText(/Komentar di dalam code block HTML ini HARUS tetap utuh/)).toBeInTheDocument();
+        expect(screen.getByText(/<div class="test">Hello World<\/div>/)).toBeInTheDocument();
+    });
+
+    it('stripHtmlComments helper handles edge cases correctly', () => {
+        expect(stripHtmlComments('')).toBe('');
+        expect(stripHtmlComments('No comments here')).toBe('No comments here');
+        
+        const singleComment = '<!-- only comment -->';
+        expect(stripHtmlComments(singleComment).trim()).toBe('');
+
+        const codeWithTildes = `
+~~~python
+<!-- inside tilde fence -->
+y = 20
+~~~
+`;
+        expect(stripHtmlComments(codeWithTildes)).toContain('<!-- inside tilde fence -->');
     });
 
     it('resolves and renders local media images via desktop API bridge', async () => {

@@ -7,6 +7,7 @@ import { DashboardProvider, useDashboard } from '../../src/context/DashboardCont
 import { RuntimesProvider, useRuntimes } from '../../src/context/RuntimesContext';
 import { TunnelsProvider, useTunnels } from '../../src/context/TunnelsContext';
 import { GitProvider, useGit } from '../../src/context/GitContext';
+import { ProjectProvider, useProject } from '../../src/context/ProjectContext';
 import { ToastProvider } from '../../src/context/ToastContext';
 import { AlertProvider } from '../../src/context/AlertContext';
 
@@ -29,7 +30,22 @@ describe('Module Contexts error boundaries and initialization', () => {
                 wrapper: ({ children }) => wrapper({ children: <ApacheProvider>{children}</ApacheProvider> })
             });
             expect(result.current.isApacheRunning).toBe(false);
+            expect(result.current.installedApacheVersion).toBe(null);
+            expect(typeof result.current.fetchApacheStatus).toBe('function');
+        });
+    });
+
+    describe('ProjectContext', () => {
+        it('throws error when useProject is used outside ProjectProvider', () => {
+            expect(() => renderHook(() => useProject())).toThrow('useProject must be used within a ProjectProvider');
+        });
+
+        it('initializes inside ProjectProvider', () => {
+            const { result } = renderHook(() => useProject(), {
+                wrapper: ({ children }) => wrapper({ children: <ProjectProvider>{children}</ProjectProvider> })
+            });
             expect(result.current.projects).toEqual([]);
+            expect(typeof result.current.fetchProjects).toBe('function');
         });
     });
 

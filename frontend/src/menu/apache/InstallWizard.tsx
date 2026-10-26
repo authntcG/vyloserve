@@ -90,10 +90,10 @@ export default function ApacheInstallWizard({
                 />
 
                 <div className="flex flex-col gap-2">
-                    <label className="text-sm font-medium text-slate-900 dark:text-white flex items-center gap-2">
+                    <span className="text-sm font-medium text-slate-900 dark:text-white flex items-center gap-2">
                         <span className="material-symbols-outlined text-[18px] text-primary">dns</span>
                         {t('apache.target_apache_version')}
-                    </label>
+                    </span>
 
                     <Select
                         searchable={false}
@@ -121,10 +121,10 @@ export default function ApacheInstallWizard({
 
             {/* --- PENGATURAN PORT ESENSIAL --- */}
             <div className="flex flex-col gap-3">
-                <label className="text-sm font-medium text-slate-900 dark:text-white flex items-center gap-2">
+                <span className="text-sm font-medium text-slate-900 dark:text-white flex items-center gap-2">
                     <span className="material-symbols-outlined text-[18px] text-emerald-500">settings_ethernet</span>
                     {t('apache.default_listening_ports')}
-                </label>
+                </span>
 
                 <div className="grid grid-cols-2 gap-4">
                     <div className="flex flex-col gap-2">

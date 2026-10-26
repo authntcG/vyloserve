@@ -1,9 +1,9 @@
 import { useTranslation } from 'react-i18next';
 import Modal from '../../components/Modal';
 import ProjectSettings from './ProjectSettings';
-import { useApache } from '../../context/ApacheContext';
+import { useProject } from '../../context/ProjectContext';
 
-export default function ApacheProjectSettingsModal() {
+export default function ProjectSettingsModal() {
     const { t } = useTranslation();
     const {
         isProjectSettingsOpen,
@@ -12,7 +12,7 @@ export default function ApacheProjectSettingsModal() {
         isUpdatingProject,
         handleUpdateProjectSubmit,
         projectSettingsRef,
-    } = useApache();
+    } = useProject();
 
     return (
         <Modal

@@ -1,9 +1,9 @@
 import { useTranslation } from 'react-i18next';
 import Modal from '../../components/Modal';
-import NewApacheProject from './NewProject';
-import { useApache } from '../../context/ApacheContext';
+import NewProject from './NewProject';
+import { useProject } from '../../context/ProjectContext';
 
-export default function ApacheNewProjectModal() {
+export default function ProjectNewModal() {
     const { t } = useTranslation();
     const {
         isNewProjectModalOpen,
@@ -11,7 +11,7 @@ export default function ApacheNewProjectModal() {
         closeNewProjectModal,
         handleCreateSubmit,
         projectFormRef,
-    } = useApache();
+    } = useProject();
 
     return (
         <Modal
@@ -24,7 +24,7 @@ export default function ApacheNewProjectModal() {
             applyText={isCreatingProject ? t('apache.installing_start') : t('apache.create_project')}
             isApplyDisabled={isCreatingProject}
         >
-            <NewApacheProject ref={projectFormRef} isCreatingExternal={isCreatingProject} />
+            <NewProject ref={projectFormRef} isCreatingExternal={isCreatingProject} />
         </Modal>
     );
 }

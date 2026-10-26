@@ -1,8 +1,8 @@
 import { useTranslation } from 'react-i18next';
 import Modal from '../../components/Modal';
-import { useApache } from '../../context/ApacheContext';
+import { useProject } from '../../context/ProjectContext';
 
-export default function ApacheDeleteProjectModal() {
+export default function ProjectDeleteModal() {
     const { t } = useTranslation();
     const {
         isDeleteConfirmOpen,
@@ -12,7 +12,7 @@ export default function ApacheDeleteProjectModal() {
         isDeleteFiles,
         setIsDeleteFiles,
         handleDeleteProjectSubmit,
-    } = useApache();
+    } = useProject();
 
     return (
         <Modal

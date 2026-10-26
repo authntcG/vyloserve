@@ -27,7 +27,7 @@ describe('CloudflareTunnel in TunnelsMain', () => {
         renderWithToast(<TunnelsMain initialTab="cloudflare" />);
 
         expect(await screen.findByText('tools.cloudflare.not_installed_title')).toBeInTheDocument();
-        const installBtn = screen.getByRole('button', { name: 'tools.cloudflare.install_cloudflare' });
+        const installBtn = screen.getAllByRole('button', { name: 'tools.cloudflare.install_cloudflare' })[0];
         await user.click(installBtn);
 
         await waitFor(() => {

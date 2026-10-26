@@ -134,17 +134,89 @@ Untuk mematuhi prinsip Clean Code, Single Responsibility Principle (SRP), dan ba
 
 ### 8.1 Pemisahan Domain Context (`frontend/src/context/`)
 Komunikasi dan state dalam lingkup modul didelegasikan ke React Context terdedikasi, memisahkan logika bisnis (fetch status, validasi input, handler submit) dari hierarki rendering:
-- **`ApacheContext.tsx`**: State lifecycle Apache, daftar virtual host, create/edit project, switch versi.
+- **`ProjectContext.tsx`**: State proyek web, scaffolding multi-runtime (PHP, Node, Python, Go, Java), dev server lifecycle & live logs, pembuatan Virtual Host, dan sinkronisasi Windows hosts.
+- **`ApacheContext.tsx`**: State lifecycle Apache, status port, switch versi Apache, konfigurasi proxy.
 - **`PhpContext.tsx`**: State multi-versi PHP, port configuration, php.ini parser, modul ekstensi.
 - **`DatabaseContext.tsx`**: Instance MySQL/PostgreSQL, validasi port ganda, reset password root.
 - **`DashboardContext.tsx`**: Agregasi global service toggles, resource load (CPU/RAM), suggestions.
-- **`RuntimesContext.tsx`**: Status 4 runtime engine (Node, Python, Java, Go), registrasi PATH Windows.
-- **`TunnelsContext.tsx`**: Tunneling zrok & Cloudflare, session token, port proxying.
-- **`GitContext.tsx`**: PortableGit install & user path synchronization.
+- **`RuntimesContext.tsx`**: Status 4 runtime engine (Node, Python, Java, Go), orkestrasi `RuntimePathHub`, registrasi PATH Windows, switch versi aktif.
+- **`TunnelsContext.tsx`**: Tunneling zrok & Cloudflare, session token, port proxying, searchable project selector.
+- **`GitContext.tsx`**: PortableGit install, konfigurasi global git, deteksi native OS alert, & user path synchronization.
 - **`AiContext.tsx`**: Chat stream, model discovery, attachment context, action card states.
 
 ### 8.2 Component Hygiene & Extraction
-- **Pembersihan Folder `components/`**: Komponen yang ada di `frontend/src/components/` dijamin bersifat 100% generik (`Modal`, `Card`, `Button`, `PageHeader`, `Select`, `StatusBadge`, `ProgressStatusBlock`). Komponen yang terikat spesifik ke modul tertentu (misalnya `AiActionCard`, `AiChatMessage`, `AiFloatingWidget`) dipindahkan ke direktori modul masing-masing (`menu/tools/ai-assistant/components/`).
-- **Orchestration Views**: File `Main.tsx` di tiap modul tidak lagi menjadi "God Component" monolitik ribuan baris, melainkan file orkestrator ramping (berisi `<PageHeader>`, status kartu, dan delegasi sub-komponen modal).
-- **Sub-komponen Dialog**: Dialog modal diekstrak ke file terpisah (`ApacheInstallModal.tsx`, `PhpSettingsModal.tsx`, `DatabaseSettingsModal.tsx`, `InstallGitModal.tsx`, `TunnelsInstallModal.tsx`) sehingga mempermudah pengujian terisolasi dan pemeliharaan jangka panjang.
+- **Pembersihan Folder `components/`**: Komponen yang ada di `frontend/src/components/` dijamin bersifat 100% generik (`Modal`, `Card`, `Button`, `PageHeader`, `Select`, `StatusBadge`, `ProgressStatusBlock`, `DataTable`, `FilterChips`, `ViewModeToggle`, `InstalledBadge`, `ServiceToggleButton`). Komponen yang terikat spesifik ke modul tertentu (misalnya `AiActionCard`, `AiChatMessage`, `AiFloatingWidget`, `RuntimePathHub`, `ProjectsTable`) diletakkan di direktori modul masing-masing (`menu/tools/ai-assistant/components/`, `menu/runtimes/`, `menu/projects/`).
+- **Orchestration Views**: File `Main.tsx` di tiap modul tidak lagi menjadi "God Component" monolitik ribuan baris, melainkan file orkestrator ramping (berisi `<PageHeader>`, status kartu, dan delegasi sub-komponen modal/tabel).
+- **Sub-komponen Dialog**: Dialog modal diekstrak ke file terpisah (`NewProjectModal.tsx`, `ProjectSettingsModal.tsx`, `ProjectCliInstallModal.tsx`, `PhpSettingsModal.tsx`, `DatabaseSettingsModal.tsx`, `InstallGitModal.tsx`, `TunnelsInstallModal.tsx`, `TerminalSettingsModal.tsx`) sehingga mempermudah pengujian terisolasi dan pemeliharaan jangka panjang.
+
+## 9. Pola Async Kelima: Interactive CLI / PTY Subprocess Streaming (`ProjectManager`)
+
+Saat membuat proyek baru berbasis framework modern (seperti `create-next-app`, `create-vite`, atau Laravel Composer), CLI sering kali meminta masukan interaktif dari pengguna (misal: pilihan TypeScript, ESLint, Tailwind CSS, App Router). Jika dieksekusi lewat `subprocess.run()` biasa, proses akan terblokir selamanya (*hang*) di latar belakang.
+
+VyloServe menerapkan jembatan PTY/Subprocess dua arah:
+
+```mermaid
+sequenceDiagram
+    participant React as Frontend (ProjectCliInstallModal)
+    participant Bridge as PyWebView Bridge
+    participant Api as core/api.py
+    participant PM as ProjectManager (core/services/project.py)
+    participant CLI as Framework CLI (npx / composer)
+
+    React->>Bridge: api.create_project(payload)
+    Bridge->>Api: create_project()
+    Api->>PM: create_project() -> _run_cli_or_pty()
+    PM->>CLI: Spawn Subprocess (stdin=PIPE, stdout=PIPE, stderr=STDOUT)
+    
+    loop Output Streaming
+        CLI-->>PM: stdout chunk
+        PM->>Api: emit_cli_output(chunk)
+        Api->>React: CustomEvent('vylo_cli_output', {data})
+        React->>React: Render output di xterm.js terminal view
+    end
+
+    opt Prompt Menunggu Input Pengguna
+        PM->>PM: _is_cli_prompt_waiting(buffer) == True
+        PM->>Api: emit_cli_state(waiting_input=True)
+        Api->>React: CustomEvent('vylo_cli_state', {waiting_input: True})
+        React->>React: Buka fokus input terminal
+        React->>Bridge: api.send_project_cli_input(data)
+        Bridge->>Api: send_project_cli_input()
+        Api->>PM: send_project_cli_input()
+        PM->>CLI: stdin.write(data) & stdin.flush()
+    end
+
+    CLI-->>PM: Process Exit (Code 0)
+    PM->>Api: emit_cli_state(waiting_input=False)
+    PM-->>Api: {"status": "success", "message": "backend.project.install_success"}
+    Api-->>Bridge: return JSON
+    Bridge-->>React: Toast Sukses & Modal Ditutup
+```
+
+## 10. Pola Async Keenam: Integrated Developer Terminal Subprocess/PTY Bridge (`TerminalManager`)
+
+Developer Terminal terintegrasi (`core/services/terminal.py`) mengoperasikan sesi shell interaktif persisten multi-tab berbasis `xterm.js`:
+1. **Pembuatan Sesi & Environment Scoping:** `create_session(shell_id, cwd, runtime_scope)` membangun variabel lingkungan terisolasi via `_build_session_env()`. Direktori `bin` runtime yang dipilih (mis. Node.js v20 dan Go 1.22) disuntikkan ke variabel `PATH` lokal sesi tersebut, memprioritaskannya di atas PATH sistem tanpa mengubah Windows Registry global.
+2. **Pembacaan Output Asinkron:** Setiap sesi terminal menjalankan thread latar belakang `_reader_thread_func()` yang membaca `stdout` proses secara terus-menerus dan menembakkannya via `api.emit_terminal_output(session_id, data)`.
+3. **Pelacakan CWD Real-Time:** Frontend secara berkala memanggil `api.get_terminal_session_cwd(session_id)` untuk mendeteksi direktori kerja terkini dari proses anak (menggunakan `GetModuleFileName` / parsing prompt) agar tab dapat menampilkan nama direktori aktif secara dinamis.
+4. **Pembersihan Bersih (Clean Teardown):** Saat tab ditutup atau aplikasi keluar, `close_session(session_id)` mengirim sinyal terminasi ke process tree anak dan menutup file descriptor untuk mencegah kebocoran proses OS.
+
+## 11. Alur Manajemen Dev Server Proyek
+
+Untuk framework non-PHP (seperti Next.js, FastAPI, Vite, Gin, atau Spring Boot), VyloServe menyediakan kontrol siklus hidup Dev Server terintegrasi:
+- **`start_project_server(project_id)`**: Membaca file starter yang di-generate (mis. `start-dev.bat`), meluncurkan server pengembangan di port reverse proxy teralokasi (mis. `127.0.0.1:3000`), dan memetakan output log ke `data/logs/projects/<project_id>.log`.
+- **`stop_project_server(project_id)`**: Mematikan pohon proses server pengembangan (`taskkill /F /T /PID`) dan memperbarui status vhost.
+- **Reverse Proxy Virtual Host:** Konfigurasi Apache `<VirtualHost>` mengarahkan domain `.local` langsung ke port internal dev server menggunakan `ProxyPass` dan `ProxyPassReverse`, lengkap dengan tunneling WebSocket (`ws://` / `wss://`) untuk mendukung fitur *Hot Module Replacement* (HMR) bawaan framework modern.
+
+## 12. Orkestrasi Multi-Versi Runtimes & Centralized `RuntimePathHub`
+
+Modul Runtimes menerapkan pemisahan dua tingkat (*Two-Tier UX Pattern*):
+1. **Level 1 (Global System Orchestration — `RuntimePathHub`):**
+   - Mengendalikan variabel `HKCU\Environment\Path` tingkat sistem operasi melalui toggle tunggal.
+   - Mengatur versi mana yang dipromosikan sebagai versi aktif di CMD/PowerShell global melalui dropdown pemilih versi.
+   - Menampilkan kotak alert kontekstual in-card (`data-testid="path-hub-external-alert"`) bila biner native OS terdeteksi, mengunci toggle registrasi PATH untuk mencegah benturan prioritas binary (*path shadowing*).
+2. **Level 2 (Local Binary Inventory — 100% Symmetric Cards):**
+   - Menampilkan daftar versi portable yang terpasang di `bin/runtimes/<engine>/<version>`.
+   - Seluruh kartu versi memiliki struktur visual simetris yang bersih, hanya menyajikan informasi biner dan tombol aksi primer (*Open Folder*, *Open in Terminal*).
+   - Aksi mutasi (*Set as Active*, *Deactivate*, *Update*, *Uninstall*) diakses secara rapi melalui menu `...` di pojok kanan atas kartu, menciptakan konsistensi antarmuka yang setara di Card View maupun Table View.
 

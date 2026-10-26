@@ -7,6 +7,7 @@ MSG_ERROR_UNEXPECTED = "backend.error.unexpected"
 class MarkdownViewerManager:
     def __init__(self, api_ref):
         self.api = api_ref
+        self.current_root = None
 
     def select_directory(self) -> dict:
         """ Buka OS Folder Picker. """
@@ -21,6 +22,19 @@ class MarkdownViewerManager:
             return {"status": "success", "data": None}
         except Exception as e:
             return {"status": "error", "message": MSG_ERROR_UNEXPECTED, "args": {"e": str(e)}}
+
+    def _is_safe_path(self, target_path: str) -> bool:
+        """ Memvalidasi bahwa path target aman dan berada di dalam direktori root aktif jika diset """
+        if not target_path or not isinstance(target_path, str):
+            return False
+        if not self.current_root:
+            return True
+        try:
+            real_target = os.path.realpath(target_path)
+            real_root = os.path.realpath(self.current_root)
+            return os.path.commonpath([real_root, real_target]) == real_root
+        except Exception:
+            return False
 
     def _build_tree(self, path: str):
         """ Fungsi rekursif untuk membangun tree direktori yang mengandung file .md """
@@ -55,9 +69,13 @@ class MarkdownViewerManager:
     def get_markdown_tree(self, root_path: str) -> dict:
         """ Mendapatkan struktur folder dan file markdown """
         try:
+            if not root_path or not isinstance(root_path, str):
+                return {"status": "error", "message": "backend.md.folder_not_found"}
+
             if not os.path.exists(root_path) or not os.path.isdir(root_path):
                 return {"status": "error", "message": "backend.md.folder_not_found"}
 
+            self.current_root = os.path.realpath(root_path)
             tree = self._build_tree(root_path)
             if not tree:
                 return {"status": "success", "data": []}
@@ -69,6 +87,9 @@ class MarkdownViewerManager:
     def read_markdown_file(self, file_path: str) -> dict:
         """ Membaca konten teks dari file .md """
         try:
+            if not self._is_safe_path(file_path):
+                return {"status": "error", "message": "backend.error.path_traversal"}
+
             if not os.path.exists(file_path):
                 return {"status": "error", "message": "backend.md.file_not_found"}
             
@@ -82,6 +103,9 @@ class MarkdownViewerManager:
     def get_local_media_base64(self, file_path: str) -> dict:
         """ Membaca file media (image) dan mengembalikannya sebagai base64 URI """
         try:
+            if not self._is_safe_path(file_path):
+                return {"status": "error", "message": "backend.error.path_traversal"}
+
             if not os.path.exists(file_path):
                 return {"status": "error", "message": "backend.md.media_not_found"}
                 

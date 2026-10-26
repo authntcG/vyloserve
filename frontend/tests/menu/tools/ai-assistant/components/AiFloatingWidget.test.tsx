@@ -105,13 +105,17 @@ describe('AiFloatingWidget', () => {
         expect(screen.getByRole('textbox').id).toBe('ai-floating-prompt-input');
     });
 
-    it('calls onOpenFullPage when dock button is clicked', async () => {
+    it('calls onOpenFullPage when dock button in kebab menu is clicked', async () => {
         const { onOpen } = renderWidget({ activeScreen: 'apache' });
 
         const fab = screen.getByRole('button', { name: /vyloserve copilot/i });
         fireEvent.click(fab);
 
-        const dockBtn = screen.getByTitle(/open in full page/i);
+        // Open kebab menu
+        const moreBtn = screen.getByRole('button', { name: /more options/i });
+        fireEvent.click(moreBtn);
+
+        const dockBtn = screen.getByRole('button', { name: /open in full page/i });
         expect(dockBtn).toBeInTheDocument();
 
         fireEvent.click(dockBtn);
@@ -237,5 +241,72 @@ describe('AiFloatingWidget', () => {
             fabTop >= popBottom;   // FAB is below popup
 
         expect(noOverlap).toBe(true);
+    });
+
+    it('renders the model switcher using accessible Select component inside kebab menu', async () => {
+        renderWidget({ activeScreen: 'dashboard' });
+
+        const fab = screen.getByRole('button', { name: /vyloserve copilot/i });
+        fireEvent.click(fab);
+
+        // Open kebab menu
+        const moreBtn = screen.getByRole('button', { name: /more options/i });
+        fireEvent.click(moreBtn);
+
+        // Select component with id="ai-floating-model-select"
+        const selectTrigger = screen.getByLabelText(/^model$/i);
+        expect(selectTrigger).toBeInTheDocument();
+        expect(selectTrigger.id).toBe('ai-floating-model-select');
+    });
+
+    it('renders model name as static label without toggle button, and kebab menu toggles via burger button', async () => {
+        renderWidget({ activeScreen: 'dashboard' });
+
+        const fab = screen.getByRole('button', { name: /vyloserve copilot/i });
+        fireEvent.click(fab);
+
+        // Model subtitle must be a static text label, not a button
+        expect(screen.getByText(/gemini 3.5 flash lite/i)).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /gemini 3.5 flash lite/i })).not.toBeInTheDocument();
+
+        // Open kebab menu via burger options button
+        const moreBtn = screen.getByRole('button', { name: /more options/i });
+        fireEvent.click(moreBtn);
+
+        // Menu should be open
+        expect(screen.getByRole('button', { name: /open in full page/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /ai assistant settings/i })).toBeInTheDocument();
+
+        // Press Escape to close
+        fireEvent.keyDown(window, { key: 'Escape' });
+        expect(screen.queryByRole('button', { name: /open in full page/i })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /ai assistant settings/i })).not.toBeInTheDocument();
+    });
+
+    it('renders session usage footer in kebab menu with simplified inline stats and no nested popover', async () => {
+        renderWidget({ activeScreen: 'dashboard' });
+
+        const fab = screen.getByRole('button', { name: /vyloserve copilot/i });
+        fireEvent.click(fab);
+
+        // Open kebab menu
+        const moreBtn = screen.getByRole('button', { name: /more options/i });
+        fireEvent.click(moreBtn);
+
+        const usageLabel = screen.getByText(/session usage/i);
+        expect(usageLabel).toBeInTheDocument();
+        expect(usageLabel).toHaveClass('text-slate-700', 'dark:text-slate-200');
+
+        // Verify tokens count and requests count are rendered inline without extra clicks
+        expect(screen.getByText(/0 Tokens/i)).toBeInTheDocument();
+        expect(screen.getByText(/0 requests/i)).toBeInTheDocument();
+
+        // Ensure there is no secondary button or popup that can get clipped
+        expect(screen.queryByRole('button', { name: /token usage/i })).not.toBeInTheDocument();
+
+        const footer = usageLabel.closest('.border-t');
+        expect(footer).toBeInTheDocument();
+        expect(footer).toHaveClass('bg-slate-100/70', 'dark:bg-slate-800/80');
+        expect(footer?.className).not.toContain('slate-850');
     });
 });

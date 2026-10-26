@@ -133,10 +133,10 @@ export default function NewPhpInstance({
                 />
 
                 <div className="flex flex-col gap-2">
-                    <label className="text-sm font-medium text-slate-900 dark:text-white flex items-center gap-2">
+                    <span className="text-sm font-medium text-slate-900 dark:text-white flex items-center gap-2">
                         <span className="material-symbols-outlined text-[18px] text-primary">php</span>
                         {t('php.target_php_version')}
-                    </label>
+                    </span>
 
                     <Select
                         options={availableVersions.map((v, index) => ({
@@ -158,10 +158,10 @@ export default function NewPhpInstance({
 
             {/* --- PENGATURAN PORT ESENSIAL --- */}
             <div className="flex flex-col gap-3">
-                <label className="text-sm font-medium text-slate-900 dark:text-white flex items-center gap-2">
+                <span className="text-sm font-medium text-slate-900 dark:text-white flex items-center gap-2">
                     <span className="material-symbols-outlined text-[18px] text-emerald-500">settings_ethernet</span>
                     {t('php.fastcgi_configuration')}
-                </label>
+                </span>
                 <p className="text-[13px] text-slate-500 dark:text-slate-400 mb-2">
                     {t('php.fastcgi_desc')}
                 </p>

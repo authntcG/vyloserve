@@ -65,22 +65,27 @@
 | Endpoint (JS) | Handler Python | Delegasi ke |
 |--------------|----------------|-------------|
 | `get_node_status()` | `get_node_status()` | `runtimes_manager.get_node_status()` |
-| `install_node(mode, corepack)` | `install_node()` | `runtimes_manager.install_node()` |
+| `install_node(ver, corepack, set_active)` | `install_node()` | `runtimes_manager.install_node()` |
 | `uninstall_node()` | `uninstall_node()` | `runtimes_manager.uninstall_node()` |
 | `get_available_node_versions()` | `get_available_node_versions()` | `runtimes_manager.get_available_node_versions()` |
 | `get_python_status()` | `get_python_status()` | `runtimes_manager.get_python_status()` |
-| `install_python(minor, pip)` | `install_python()` | `runtimes_manager.install_python()` |
+| `install_python(minor, pip, set_active)` | `install_python()` | `runtimes_manager.install_python()` |
 | `uninstall_python()` | `uninstall_python()` | `runtimes_manager.uninstall_python()` |
 | `get_java_status()` | `get_java_status()` | `runtimes_manager.get_java_status()` |
-| `install_java(ver)` | `install_java()` | `runtimes_manager.install_java()` |
+| `install_java(ver, set_active)` | `install_java()` | `runtimes_manager.install_java()` |
 | `uninstall_java()` | `uninstall_java()` | `runtimes_manager.uninstall_java()` |
 | `get_go_status()` | `get_go_status()` | `runtimes_manager.get_go_status()` |
-| `install_go(ver)` | `install_go()` | `runtimes_manager.install_go()` |
+| `install_go(ver, set_active)` | `install_go()` | `runtimes_manager.install_go()` |
 | `uninstall_go()` | `uninstall_go()` | `runtimes_manager.uninstall_go()` |
 | `toggle_global_path(engine, enable)` | `toggle_global_path()` | `runtimes_manager.toggle_user_path()` |
 | `get_available_python_versions()` | `get_available_python_versions()` | `runtimes_manager.get_available_python_versions()` |
 | `get_available_java_versions()` | `get_available_java_versions()` | `runtimes_manager.get_available_java_versions()` |
 | `get_available_go_versions()` | `get_available_go_versions()` | `runtimes_manager.get_available_go_versions()` |
+| `get_engine_versions(engine)` | `get_engine_versions()` | `runtimes_manager.get_engine_versions()` |
+| `set_active_runtime_version(engine, ver)` | `set_active_runtime_version()` | `runtimes_manager.set_active_version()` |
+| `deactivate_runtime_version(engine)` | `deactivate_runtime_version()` | `runtimes_manager.deactivate_active_version()` |
+| `uninstall_runtime_version(engine, ver)` | `uninstall_runtime_version()` | `runtimes_manager.uninstall_engine_version()` |
+| `open_runtime_dir(engine, ver?)` | `open_runtime_dir()` | `runtimes_manager.open_runtime_directory()` |
 
 ### Project & Git Endpoints
 | Endpoint (JS) | Handler Python | Delegasi ke |
@@ -92,6 +97,16 @@
 | `detect_framework(dir)` | `detect_framework()` | `project.detect_framework()` |
 | `retry_sync_host(id)` | `retry_sync_host()` | `project.retry_sync_host()` |
 | `open_in_explorer(path)` | `open_in_explorer()` | `project.open_in_explorer()` |
+| `get_project_runtimes_info()` | `get_project_runtimes_info()` | `project.get_project_runtimes_info()` |
+| `get_framework_versions(eng, fw, ver)` | `get_framework_versions()` | `project.get_framework_versions()` |
+| `send_project_cli_input(data)` | `send_project_cli_input()` | `project.send_project_cli_input()` |
+| `resize_project_cli(cols, rows)` | `resize_project_cli()` | `project.resize_project_cli()` |
+| `cancel_project_install()` | `cancel_project_install()` | `project.cancel_project_install()` |
+| `start_project_server(project_id)` | `start_project_server()` | `project.start_project_server()` |
+| `stop_project_server(project_id)` | `stop_project_server()` | `project.stop_project_server()` |
+| `get_project_server_status(project_id)` | `get_project_server_status()` | `project.get_project_server_status()` |
+| `get_all_running_project_servers()` | `get_all_running_project_servers()` | `project.get_all_running_project_servers()` |
+| `get_project_server_logs(project_id)` | `get_project_server_logs()` | `project.get_project_server_logs()` |
 | `get_git_status()` | `get_git_status()` | `git_manager.get_git_status()` |
 | `install_git(url, file, ver)` | `install_git()` | `git_manager.install_git()` |
 | `uninstall_git()` | `uninstall_git()` | `git_manager.uninstall_git()` |
@@ -99,6 +114,26 @@
 | `get_git_config()` | `get_git_config()` | `git_manager.get_git_config()` |
 | `set_git_config(name, email)` | `set_git_config()` | `git_manager.set_git_config()` |
 | `get_available_git_versions()` | `get_available_git_versions()` | `git_manager.get_available_git_versions()` |
+
+### Developer Terminal Endpoints
+| Endpoint (JS) | Handler Python | Delegasi ke |
+|--------------|----------------|-------------|
+| `get_terminal_shells()` | `get_terminal_shells()` | `terminal.get_available_shells()` |
+| `get_terminal_runtimes_matrix()` | `get_terminal_runtimes_matrix()` | `terminal.get_runtimes_matrix()` |
+| `create_terminal_session(shell, cwd, scope)` | `create_terminal_session()` | `terminal.create_session()` |
+| `send_terminal_input(id, data, ctx)` | `send_terminal_input()` | `terminal.send_input()` |
+| `resize_terminal(id, cols, rows)` | `resize_terminal()` | `terminal.resize()` |
+| `close_terminal_session(id)` | `close_terminal_session()` | `terminal.close_session()` |
+| `list_terminal_sessions()` | `list_terminal_sessions()` | `terminal.list_sessions()` |
+| `get_terminal_session_cwd(id)` | `get_terminal_session_cwd()` | `terminal.get_session_cwd()` |
+| `get_terminal_config()` | `get_terminal_config()` | `terminal.get_terminal_config()` |
+| `save_terminal_default_profile(profile)` | `save_terminal_default_profile()` | `terminal.save_terminal_default_profile()` |
+| `save_terminal_settings(settings)` | `save_terminal_settings()` | `terminal.save_terminal_settings()` |
+| `get_terminal_saved_sessions()` | `get_terminal_saved_sessions()` | `terminal.get_saved_sessions()` |
+| `save_terminal_preset(data)` | `save_terminal_preset()` | `terminal.save_preset()` |
+| `delete_terminal_preset(id)` | `delete_terminal_preset()` | `terminal.delete_preset()` |
+| `save_terminal_workspace(data)` | `save_terminal_workspace()` | `terminal.save_workspace()` |
+| `delete_terminal_workspace(id)` | `delete_terminal_workspace()` | `terminal.delete_workspace()` |
 
 ### System & Utility Endpoints
 | Endpoint (JS) | Handler Python | Delegasi ke |
@@ -192,15 +227,16 @@ Fitur *public tunnel* — expose project lokal/`localhost:port` apa pun ke inter
 ### Backend Files
 | File | Ukuran | Tanggung Jawab |
 |------|--------|----------------|
-| `core/api.py` | ~720 baris | Facade/Router — meneruskan semua panggilan JS ke manager; juga memiliki `start_log_watcher()`/`stop_log_watcher()`, `emit_window_state()`, `emit_ai_chunk()`, dan `show_native_notification()` |
-| `core/services/ai_assistant.py` | ~1420 baris | ⚠️ File backend terbesar — Copilot AI: `DocRetriever` (in-memory RAG panduan pengguna), SSE streaming, empirical tier probing, context aggregator sistem server, token usage tracker (`data/ai_usage.json`), persistensi chat & action states |
-| `core/services/tunnels.py` | ~867 baris | Public tunnel — **dua provider**: zrok (install/enable/disable/share) DAN Cloudflare Tunnel (install/share, tanpa enable/disable karena *quick tunnel* tidak butuh token) — lihat §1 "Tunnels Endpoints". Termasuk `_extract_zrok_public_url()`/`_parse_zrok_log_line()` (parsing output JSON `zrok.exe` v2 — lihat `docs/known_bugs.md` #35) dan `_extract_cloudflare_public_url()` setara untuk `cloudflared.exe` |
-| `core/services/runtimes_manager.py` | ~841 baris | Node, Python, Java, Go — Windows Registry PATH injection |
-| `core/services/database.py` | ~780 baris | MySQL/MariaDB dan PostgreSQL daemon management; `tail_new_logs()`/`get_log_content()` untuk System Logs; `update_database()`; `_assert_installer_present()` (validasi biner hasil ekstraksi ada sebelum dieksekusi — lihat `docs/known_bugs.md` #52) |
-| `core/services/apache.py` | ~555 baris | Instalasi, konfigurasi, dan lifecycle httpd.exe; `tail_new_logs()`/`get_log_content()` untuk System Logs (lihat `docs/backend_services.md` §11); `get_http_port()` untuk resolusi port HTTP aktif (dipakai `TunnelsManager`) |
-| `core/services/project.py` | ~510 baris | VirtualHost, Composer, UAC hosts injection |
+| `core/api.py` | ~930 baris | Facade/Router — meneruskan semua panggilan JS ke manager; juga memiliki `start_log_watcher()`/`stop_log_watcher()`, `emit_window_state()`, `emit_ai_chunk()`, `emit_cli_output()`, `emit_terminal_output()`, dan `show_native_notification()` |
+| `core/services/project.py` | ~1750 baris | ⚠️ File backend terbesar — Scaffolding multi-runtime (PHP, Node, Python, Go, Java), Dev Server process management, VirtualHost & WebSocket proxy, UAC hosts injection, interactive CLI streaming via PTY |
+| `core/services/ai_assistant.py` | ~1580 baris | Copilot AI: `DocRetriever` (in-memory RAG panduan pengguna), SSE streaming, empirical tier probing, context aggregator sistem server, token usage tracker (`data/ai_usage.json`), persistensi chat & action states |
+| `core/services/runtimes_manager.py` | ~1200 baris | Multi-version concurrency (Node, Python, Java, Go), Centralized `RuntimePathHub`, isolasi instalasi eksternal, dan Windows Registry PATH injection |
+| `core/services/terminal.py` | ~1110 baris | Developer Terminal: session manager, subprocess reader threads, real-time CWD tracking, environment scoping (`_build_session_env`), saved presets, workspace & settings persistence |
+| `core/services/tunnels.py` | ~867 baris | Public tunnel — **dua provider**: zrok (install/enable/disable/share) DAN Cloudflare Tunnel (install/share) — lihat §1 "Tunnels Endpoints" |
+| `core/services/database.py` | ~780 baris | MySQL/MariaDB dan PostgreSQL daemon management; `tail_new_logs()`/`get_log_content()` untuk System Logs; `update_database()`; `_assert_installer_present()` |
+| `core/services/apache.py` | ~555 baris | Instalasi, konfigurasi, dan lifecycle httpd.exe; `tail_new_logs()`/`get_log_content()` untuk System Logs; `get_http_port()` untuk resolusi port HTTP aktif |
 | `core/services/php.py` | ~438 baris | Multi-version PHP-CGI, extensions, php.ini management, `update_version()` |
-| `core/services/git_manager.py` | ~363 baris | PortableGit installer dan PATH management |
+| `core/services/git_manager.py` | ~363 baris | PortableGit installer, global git config, dan PATH management |
 | `core/services/updater.py` | ~242 baris | Auto-Updater: cek/unduh/pasang rilis baru dari GitHub Releases |
 | `core/services/ssl_manager.py` | ~101 baris | Root CA generation via OpenSSL |
 | `core/services/markdown_viewer.py` | ~96 baris | Scanner hierarki folder rekursif, filter direktori berkas markdown, reader isi teks `.md`, dan converter media lokal ke Base64 data URI |
@@ -213,22 +249,25 @@ Fitur *public tunnel* — expose project lokal/`localhost:port` apa pun ke inter
 ### Frontend Files (Halaman Utama, Domain Contexts, & Sub-Komponen)
 | File | Ukuran | Konten |
 |------|--------|--------|
-| `menu/tools/settings/SettingsModals.tsx` | ~676 baris | **Satu modal bertab** (General/Logs/Updates/AI/About) + `AiTabContent.tsx` (~295 baris) |
-| `menu/apache/NewProject.tsx` | ~476 baris | Form buat proyek baru |
+| `menu/projects/Main.tsx` | ~280 baris | Projects Hub orchestrator dengan tampilan ganda (`ProjectsTable.tsx`, `ProjectCards.tsx`, `NewProjectModal.tsx`, `ProjectSettingsModal.tsx`, `ProjectCliInstallModal.tsx`, `ProjectServerLogsModal.tsx`) |
+| `menu/tools/terminal/Main.tsx` | ~250 baris | Developer Terminal multi-tab orchestrator (`TerminalInstance.tsx`, `TerminalTabBar.tsx`, `TerminalToolbar.tsx`, `TerminalSettingsModal.tsx`, `TerminalPresetsMenu.tsx`, `TerminalSavePresetModal.tsx`, `TerminalEnvModal.tsx`) |
+| `menu/tools/settings/SettingsModals.tsx` | ~460 baris | Modal settings terpusat (General, Logs, Updates, About) dengan pencarian 15 tema |
+| `context/ProjectContext.tsx` | ~320 baris | State provider Projects Hub: proses dev server, live logs, dan scaffolding multi-runtime |
 | `context/AiContext.tsx` | ~350 baris | State provider AI global: SSE streaming, riwayat chat, usage stats, dual-layer action states persistence |
-| `menu/tools/tunnels/Main.tsx` | ~240 baris | UI tunnel publik (zrok + Cloudflare), didekomposisi bersama `TunnelsComponents.tsx`, `TunnelsInstallModal.tsx`, `TunnelsUninstallModal.tsx`, `ProjectDropdown.tsx`, dan `InstallTunnel.tsx` |
-| `menu/apache/Main.tsx` | ~230 baris | Apache server UI (Golden Standard), didekomposisi bersama `ApacheInstallModal.tsx`, `ApacheNewProjectModal.tsx`, `ApacheDeleteProjectModal.tsx`, `ApacheProjectSettingsModal.tsx`, dan `ApacheOptionsModal.tsx` |
-| `menu/database/Main.tsx` | ~220 baris | Database instance cards, didekomposisi bersama `DatabaseNewInstanceModal.tsx`, `DatabasePasswordModal.tsx`, dan `DatabaseSettingsModal.tsx` |
-| `menu/tools/ai-assistant/Main.tsx` | ~260 baris | Workspace penuh AI Copilot dengan side settings drawer, `AiUsageBadge.tsx`, `AiSuggestionChips.tsx`, dan `AiChatInput.tsx` |
-| `menu/tools/ai-assistant/components/*` | ~100–250 baris | Sub-komponen AI terisolasi: `AiActionCard.tsx`, `AiChatInput.tsx`, `AiChatMessage.tsx`, `AiFloatingWidget.tsx`, `AiSuggestionChips.tsx`, `AiUsageBadge.tsx` |
+| `menu/tools/tunnels/Main.tsx` | ~240 baris | UI tunnel publik (zrok + Cloudflare) dengan Card & Table View mode dan searchable project selector (`TunnelsComponents.tsx`, `InstallTunnel.tsx`) |
+| `menu/apache/Main.tsx` | ~230 baris | Apache server UI (Golden Standard), didekomposisi bersama `ApacheInstallModal.tsx` |
+| `menu/database/Main.tsx` | ~220 baris | Database instance cards & table view (`DatabaseTable.tsx`), didekomposisi bersama `NewInstance.tsx`, `DatabasePasswordModal.tsx`, dan `Settings.tsx` |
+| `menu/runtimes/Main.tsx` | ~140 baris | Runtime orchestrator (Node, Python, Java, Go) dengan `RuntimePathHub.tsx` terpusat, `RuntimeTable.tsx`, dan `RuntimeEnginePanel.tsx` |
+| `menu/tools/ai-assistant/Main.tsx` | ~260 baris | Workspace penuh AI Copilot dengan `AiSettingsModal.tsx`, `AiUsageBadge.tsx`, `AiSuggestionChips.tsx`, dan `AiChatInput.tsx` |
+| `menu/tools/ai-assistant/components/*` | ~100–250 baris | Sub-komponen AI terisolasi: `AiActionCard.tsx`, `AiChatInput.tsx`, `AiChatMessage.tsx`, `AiFloatingWidget.tsx`, `AiSuggestionChips.tsx`, `AiUsageBadge.tsx`, `AiSettingsModal.tsx` |
 | `menu/dashboard/Main.tsx` | ~120 baris | Dashboard orchestrator, didekomposisi bersama `components/DashboardControlPanel.tsx`, `RecentProjectsSection.tsx`, `SystemResourcesCard.tsx`, dan `OptimizationSuggestions.tsx` |
-| `menu/runtimes/Main.tsx` | ~140 baris | Runtime orchestrator (Node, Python, Java, Go), didekomposisi bersama `RuntimeEnginePanel.tsx` dan `RuntimeInstallModal.tsx` |
-| `menu/php/Main.tsx` | ~160 baris | PHP instance cards, didekomposisi bersama `PhpNewInstanceModal.tsx` dan `PhpSettingsModal.tsx` |
-| `menu/tools/git/Main.tsx` | ~140 baris | Git manager UI, didekomposisi bersama `GitComponents.tsx`, `InstallGitModal.tsx`, dan `GitUninstallModal.tsx` |
+| `menu/php/Main.tsx` | ~160 baris | PHP instance cards & table view (`PhpTable.tsx`), didekomposisi bersama `NewInstance.tsx` dan `Settings.tsx` |
+| `menu/tools/git/Main.tsx` | ~140 baris | Git manager UI dengan in-card alert & adaptive status badge (`GitComponents.tsx`, `InstallGitModal.tsx`, `GitUninstallModal.tsx`) |
 | `menu/tools/markdown-viewer/Main.tsx` | ~200 baris | UI Markdown Documentation Viewer (`FolderTreeView.tsx`, `MarkdownRenderer.tsx`) |
 | `menu/tools/qr-generator/Main.tsx` | ~320 baris | UI alat QR Generator (Client-side) |
 | `menu/tools/base64-encode-decode/Main.tsx` | ~310 baris | UI alat Base64 Encode/Decode (Client-side) |
 | `menu/tools/url-encode-decode/Main.tsx` | ~175 baris | UI alat URL Encode/Decode (Client-side) |
+| `components/DataTable.tsx` | ~180 baris | Komponen tabel data modern berdensitas tinggi (compact/normal/relaxed) |
 | `components/skeleton/*` | ~30–140 baris | Sistem primitif Skeleton (`Skeleton.tsx`, `SkeletonCard.tsx`, `SkeletonForm.tsx`, `SkeletonDocument.tsx`, `SkeletonChatMessage.tsx`, `AppSkeletonLayout.tsx`) |
 
 ---
@@ -241,8 +280,18 @@ Semua state aplikasi disimpan di folder `data/` (di-ignore git). Format **selalu
 |-----------|-----|-------------|
 | `data/apache.json` | `{"active_version": "2.4.68"}` — **hanya** versi aktif, TIDAK menyimpan `port` (port Apache dikonfigurasi langsung di `httpd.conf`, bukan JSON ini) | `ApacheManager` |
 | `data/databases.json` *(plural — bukan `database.json`)* | List instance database `[{id, name, engine, version, port, dataDir, installDir}]` | `DatabaseManager` |
-| `data/projects.json` | List virtual host project Apache `[{id, name, domain, path, php_version, php_port, framework, host_synced, tunnel_url?}]` — field `tunnel_url` ditambahkan dinamis oleh `TunnelsManager` saat share zrok aktif untuk project tsb, dihapus lagi saat share dihentikan | `ProjectManager` (ditulis juga oleh `TunnelsManager` lewat `Api.project`) |
-| `data/settings.json` | `{"language": "en", "theme": "vyloserve-dark", "ai_provider": "openrouter", "ai_model": "...", "receive_prerelease_updates": false, "default_apache_install_location": "", "system_log_levels": null, "system_log_sources": null}` — preferensi UI generik, mudah diperluas lewat `default_config` di `SettingsManager.get_settings()`. `theme`: salah satu dari 10 preset (`vyloserve-dark/light`, `darcula-dark`, `solarized-dark/light`, `high-contrast-dark/light`, `monokai-dark`, `dracula-dark`, `nord-dark`) — dipetakan ke warna background window pywebview oleh `main.py` `get_theme_bg_color()`. `system_log_*`: `null` = belum dikustomisasi (tampilkan semua), array APAPUN (termasuk `[]`) = daftar eksplisit tersimpan — **jangan** pakai `[]` sebagai default, itu bug lama yang bikin "uncheck semua lalu Save" terlihat gagal tersimpan (lihat `docs/known_bugs.md` #26). JANGAN pakai `localStorage` browser untuk apa pun yang perlu bertahan antar sesi (lihat `docs/known_bugs.md` #24) | `SettingsManager`; `theme` juga dibaca langsung oleh `main.py` `get_theme_bg_color()` lewat `json.load()` mentah |
+| `data/projects.json` | List project multi-runtime `[{id, name, domain, path, runtime_engine, framework, proxy_port, php_version?, php_port?, host_synced, tunnel_url?}]` | `ProjectManager` (ditulis juga oleh `TunnelsManager` lewat `Api.project`) |
+| `data/terminal_config.json` | Konfigurasi Developer Terminal: font family, font size, cursor style, blink, scrollback, copy on select, default shell profile | `TerminalManager` |
+| `data/terminal_presets.json` | List konfigurasi environment scoping preset tersimpan `[{id, name, shell, runtimes: {php?, node?, python?, java?, go?, git?}}]` | `TerminalManager` |
+| `data/terminal_sessions.json` | Snapshot tab sesi terminal untuk pemulihan workspace | `TerminalManager` |
+| `data/settings.json` | `{"language": "en", "theme": "vyloserve-dark", "ai_provider": "openrouter", "ai_model": "...", "receive_prerelease_updates": false, "default_apache_install_location": "", "system_log_levels": null, "system_log_sources": null}` — preferensi UI generik. `theme`: salah satu dari 15 preset tema — dipetakan ke warna background window pywebview oleh `main.py` `get_theme_bg_color()`. | `SettingsManager`; `theme` juga dibaca oleh `main.py` `get_theme_bg_color()` |
+| `data/dashboard.json` | Toggle config mana service yang tampil | `DashboardManager` |
+| `data/ai_chat_history.json` | List pesan percakapan `[{id, role, content, timestamp, model?, provider?, sources?, context?}]` — dibatasi `MAX_HISTORY_ITEMS = 40` | `AIAssistantManager` |
+| `data/ai_action_states.json` | Status eksekusi kartu proposal aksi `{"action_id": "idle" | "executing" | "executed" | "failed"}` | `AIAssistantManager` |
+| `data/ai_usage.json` | Metrik penggunaan token & request AI harian (`YYYY-MM-DD`) dan mingguan (`YYYY-Www`) per provider `{"daily": {"2026-10-15": {"gemini": {"prompt_tokens", "completion_tokens", "total_tokens", "requests"}}}}` | `AIAssistantManager` |
+| `data/db_startup.log` | Error log saat daemon DB gagal start (per-instance, di dalam `dataDir` masing-masing, bukan satu file global di `data/`) | `DatabaseManager` |
+| `data/VyloServeRootCA.key` | SSL private key | `SslManager` |
+| `data/temp/*.exe/.bat/.tmp` | Installer update yang sedang/sudah diunduh — dibersihkan otomatis saat aplikasi start (`UpdaterManager._cleanup_temp()`) | `UpdaterManager` |
 | `data/dashboard.json` | Toggle config mana service yang tampil | `DashboardManager` |
 | `data/ai_chat_history.json` | List pesan percakapan `[{id, role, content, timestamp, model?, provider?, sources?, context?}]` — dibatasi `MAX_HISTORY_ITEMS = 40` | `AIAssistantManager` |
 | `data/ai_action_states.json` | Status eksekusi kartu proposal aksi `{"action_id": "idle" | "executing" | "executed" | "failed"}` | `AIAssistantManager` |

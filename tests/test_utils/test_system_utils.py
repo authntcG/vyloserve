@@ -15,7 +15,8 @@ from core.utils.system_utils import (
     get_theme_titlebar_palette,
     get_window_handle,
     apply_window_titlebar_theme,
-    THEME_TITLEBAR_CONFIGS
+    THEME_TITLEBAR_CONFIGS,
+    sync_theme_bootstrap_file,
 )
 
 def test_get_project_root_py_mode():
@@ -447,5 +448,37 @@ def test_find_external_executable_ttl_cache():
         exe2 = find_external_executable('node', vyloserve_bin='C:\\vyloserve\\bin')
         assert exe1 == exe2
         assert mock_subp.call_count == 1  # Reused from cache!
+
+
+def test_sync_theme_bootstrap_file_writes_to_targets(tmp_path):
+    """sync_theme_bootstrap_file harus menulis window.__VYLO_INITIAL_THEME__ ke folder public dan dist."""
+    public_dir = tmp_path / "frontend" / "public"
+    public_dir.mkdir(parents=True)
+    dist_dir = tmp_path / "frontend" / "dist"
+    dist_dir.mkdir(parents=True)
+
+    with patch('core.utils.system_utils.get_project_root', return_value=str(tmp_path)):
+        success = sync_theme_bootstrap_file("tokyo-night-dark")
+        assert success is True
+
+        pub_file = public_dir / "vylo-theme.js"
+        dist_file = dist_dir / "vylo-theme.js"
+        assert pub_file.exists()
+        assert dist_file.exists()
+        assert 'window.__VYLO_INITIAL_THEME__ = "tokyo-night-dark";' in pub_file.read_text(encoding="utf-8")
+        assert 'window.__VYLO_INITIAL_THEME__ = "tokyo-night-dark";' in dist_file.read_text(encoding="utf-8")
+
+
+def test_sync_theme_bootstrap_file_fallback_on_invalid_theme(tmp_path):
+    """sync_theme_bootstrap_file fallback ke vyloserve-dark jika argumen tidak valid."""
+    public_dir = tmp_path / "frontend" / "public"
+    public_dir.mkdir(parents=True)
+
+    with patch('core.utils.system_utils.get_project_root', return_value=str(tmp_path)):
+        success = sync_theme_bootstrap_file(None)
+        assert success is True
+        pub_file = public_dir / "vylo-theme.js"
+        assert 'window.__VYLO_INITIAL_THEME__ = "vyloserve-dark";' in pub_file.read_text(encoding="utf-8")
+
 
 

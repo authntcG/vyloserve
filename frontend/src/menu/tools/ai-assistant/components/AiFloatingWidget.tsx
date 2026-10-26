@@ -3,9 +3,10 @@ import { useTranslation } from 'react-i18next';
 import { useAiAssistant } from '../../../../context/AiContext';
 import AiChatMessage, { extractVyloSuggestions } from './AiChatMessage';
 import AiChatInput, { type AiChatInputHandle } from './AiChatInput';
-import AiUsageBadge from './AiUsageBadge';
+import { formatTokens } from './AiUsageBadge';
 import Button from '../../../../components/Button';
 import InfoBox from '../../../../components/InfoBox';
+import Select from '../../../../components/Select';
 import SkeletonChatMessage from '../../../../components/skeleton/SkeletonChatMessage';
 
 interface AiFloatingWidgetProps {
@@ -105,6 +106,7 @@ export default function AiFloatingWidget({ activeScreen, onOpenFullPage }: AiFlo
         hasApiKey,
         availableModels,
         attachedContext,
+        usageStats,
         sendMessage,
         stopGenerating,
         clearChat,
@@ -113,6 +115,7 @@ export default function AiFloatingWidget({ activeScreen, onOpenFullPage }: AiFlo
         setFloatingPosition,
         setActiveModel,
         setAttachedContext,
+        openAiSettings,
     } = useAiAssistant();
 
     const [localPos, setLocalPos] = useState(floatingPosition);
@@ -126,6 +129,46 @@ export default function AiFloatingWidget({ activeScreen, onOpenFullPage }: AiFlo
     });
     const rafIdRef = useRef<number | null>(null);
     const latestPosRef = useRef(floatingPosition);
+    const [isMenuOpen, setIsMenuOpen] = useState(false);
+    const menuRef = useRef<HTMLDivElement>(null);
+
+    const activeModelLabel = useMemo(() => {
+        const found = availableModels.find((m) => m.value === activeModel);
+        return found ? found.label : activeModel;
+    }, [availableModels, activeModel]);
+
+    const todayTokens = usageStats?.today?.total_tokens || 0;
+    const todayRequests = usageStats?.today?.requests || 0;
+
+    useEffect(() => {
+        if (!isMenuOpen) return;
+        const handleClickOutside = (e: MouseEvent) => {
+            const target = e.target as HTMLElement | null;
+            if (target?.closest('[role="listbox"]') || target?.closest('[role="option"]')) {
+                return;
+            }
+            if (menuRef.current && !menuRef.current.contains(target)) {
+                setIsMenuOpen(false);
+            }
+        };
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                setIsMenuOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        window.addEventListener('keydown', handleKeyDown);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+            window.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [isMenuOpen]);
+
+    useEffect(() => {
+        if (!isFloatingOpen) {
+            setIsMenuOpen(false);
+        }
+    }, [isFloatingOpen]);
 
     const chatScrollRef = useRef<HTMLDivElement>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -375,34 +418,27 @@ export default function AiFloatingWidget({ activeScreen, onOpenFullPage }: AiFlo
                     }`}
                 >
                     {/* HEADER */}
-                    <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200/80 dark:border-slate-800/80 bg-slate-50/80 dark:bg-slate-800/40 shrink-0">
-                        <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200/80 dark:border-slate-800/80 bg-slate-50/80 dark:bg-slate-800/40 shrink-0">
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
                             <div className="w-7 h-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
                                 <span className="material-symbols-outlined text-[17px]">smart_toy</span>
                             </div>
-                            <div className="flex flex-col min-w-0">
-                                <span className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate leading-none">
+                            <div className="flex flex-col min-w-0 flex-1 mr-2">
+                                <span className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate leading-none mb-1">
                                     {t('ai.floating_title', 'VyloServe Copilot')}
                                 </span>
-                                {/* Quick Model Switcher */}
-                                <select
-                                    value={activeModel}
-                                    onChange={(e) => setActiveModel(e.target.value)}
-                                    aria-label={t('ai.model', 'Model')}
-                                    className="bg-transparent text-[10px] text-slate-500 dark:text-slate-400 font-mono border-none outline-none cursor-pointer hover:text-primary truncate p-0 mt-0.5"
+                                {/* Model Subtitle (Static label - users configure options via kebab menu) */}
+                                <span
+                                    className="text-[11px] font-medium text-slate-500 dark:text-slate-400 truncate max-w-[200px]"
+                                    title={activeModelLabel}
                                 >
-                                    {availableModels.map((m) => (
-                                        <option key={m.value} value={m.value} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200">
-                                            {m.label}
-                                        </option>
-                                    ))}
-                                </select>
+                                    {activeModelLabel}
+                                </span>
                             </div>
                         </div>
 
-                        {/* Header Action Buttons using Button component */}
-                        <div className="flex items-center gap-1 shrink-0">
-                            <AiUsageBadge compact />
+                        {/* Header Action Buttons: Clean 3-Action Group */}
+                        <div className="flex items-center gap-0.5 shrink-0">
                             <Button
                                 variant="ghost"
                                 size="icon"
@@ -411,24 +447,99 @@ export default function AiFloatingWidget({ activeScreen, onOpenFullPage }: AiFlo
                                 title={t('ai.clear_chat', 'New Chat')}
                                 aria-label={t('ai.clear_chat', 'New Chat')}
                             />
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                icon="open_in_full"
-                                onClick={() => {
-                                    setFloatingOpen(false);
-                                    onOpenFullPage();
-                                }}
-                                title={t('ai.dock_full', 'Open in Full Page')}
-                                aria-label={t('ai.dock_full', 'Open in Full Page')}
-                            />
+
+                            {/* Kebab Menu (More Options) */}
+                            <div className="relative" ref={menuRef}>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    icon="more_vert"
+                                    onClick={() => setIsMenuOpen((prev) => !prev)}
+                                    title={t('common.more_options', 'More Options')}
+                                    aria-label={t('common.more_options', 'More Options')}
+                                    aria-expanded={isMenuOpen}
+                                    aria-haspopup="true"
+                                />
+
+                                {isMenuOpen && (
+                                    <div className="absolute right-0 mt-1.5 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl py-1 z-30 animate-in fade-in zoom-in-95 duration-150">
+                                        {/* Quick Model Switcher inside Menu */}
+                                        <div className="px-3 py-2.5 border-b border-slate-100 dark:border-slate-800/80">
+                                            <label htmlFor="ai-floating-model-select" className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider block mb-1.5">
+                                                {t('ai.model', 'Model')}
+                                            </label>
+                                            <Select
+                                                id="ai-floating-model-select"
+                                                size="sm"
+                                                value={activeModel}
+                                                onChange={(val) => {
+                                                    setActiveModel(val);
+                                                    setIsMenuOpen(false);
+                                                }}
+                                                options={availableModels}
+                                                searchable={false}
+                                            />
+                                        </div>
+
+                                        {/* Secondary Actions */}
+                                        <div className="py-1">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setIsMenuOpen(false);
+                                                    setFloatingOpen(false);
+                                                    onOpenFullPage();
+                                                }}
+                                                className="w-full text-left px-3 py-2 text-xs flex items-center gap-2.5 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                                            >
+                                                <span className="material-symbols-outlined text-[17px] text-slate-400">open_in_full</span>
+                                                <span>{t('ai.dock_full', 'Open in Full Page')}</span>
+                                            </button>
+
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setIsMenuOpen(false);
+                                                    openAiSettings();
+                                                }}
+                                                className="w-full text-left px-3 py-2 text-xs flex items-center gap-2.5 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                                            >
+                                                <span className="material-symbols-outlined text-[17px] text-slate-400">settings</span>
+                                                <span>{t('settings.tab_ai', 'AI Assistant Settings')}</span>
+                                            </button>
+                                        </div>
+
+                                        {/* Simplified Session Usage Footer (Inline Display, No Nested Popover, No Clipping) */}
+                                        <div className="px-3 py-2.5 border-t border-slate-200/80 dark:border-slate-800 flex items-center justify-between text-xs bg-slate-100/70 dark:bg-slate-800/80 min-w-0">
+                                            <div className="flex items-center gap-1.5 min-w-0">
+                                                <span className="material-symbols-outlined text-[16px] text-primary shrink-0">data_usage</span>
+                                                <div className="flex flex-col min-w-0">
+                                                    <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 truncate">
+                                                        {t('ai.usage_status', 'Session Usage')}
+                                                    </span>
+                                                    <span className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                                                        {t('ai.requests_count', '{{count}} requests', { count: todayRequests })}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <span
+                                                className="font-mono text-xs font-bold text-primary bg-white/90 dark:bg-slate-900/90 px-2 py-0.5 rounded-md border border-slate-200/80 dark:border-slate-700/60 shadow-2xs shrink-0"
+                                                title={t('ai.usage_today', { tokens: todayTokens.toLocaleString() })}
+                                            >
+                                                {formatTokens(todayTokens)} {t('ai.tokens', 'Tokens')}
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
                             <Button
                                 variant="danger-ghost"
                                 size="icon"
                                 icon="close"
                                 onClick={() => setFloatingOpen(false)}
-                                title={t('ai.close', 'Close')}
-                                aria-label={t('ai.close', 'Close')}
+                                title={t('common.close', 'Close')}
+                                aria-label={t('common.close', 'Close')}
                             />
                         </div>
                     </div>
@@ -441,7 +552,7 @@ export default function AiFloatingWidget({ activeScreen, onOpenFullPage }: AiFlo
                                     <span className="truncate">{t('ai.no_key_warning')}</span>
                                     <button
                                         type="button"
-                                        onClick={() => window.dispatchEvent(new CustomEvent('vylo_open_settings_modal', { detail: { modal: 'settings' } }))}
+                                        onClick={openAiSettings}
                                         className="underline font-semibold shrink-0 cursor-pointer text-amber-700 dark:text-amber-400 hover:text-amber-800"
                                     >
                                         {t('ai.configure_key', 'Settings')}

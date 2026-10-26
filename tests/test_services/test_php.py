@@ -49,11 +49,12 @@ def test_php_uninstall_not_found(mock_exists, php_mgr):
     res = php_mgr.uninstall_version("8.1")
     assert res['status'] == 'error'
 
+@patch('core.services.php.PhpManager.toggle_global_path')
 @patch('core.services.php.PhpManager._get_port_from_ini', return_value=9000)
 @patch('core.services.php.PhpManager._verify_and_patch_ini')
 @patch('core.services.php.PhpManager._update_apache_proxy_silent')
 @patch('core.services.php.start_silent_process')
-def test_php_start_php(mock_start, mock_update, mock_patch, mock_get_port, php_mgr):
+def test_php_start_php(mock_start, mock_update, mock_patch, mock_get_port, mock_toggle, php_mgr):
     mock_proc = MagicMock()
     mock_proc.poll.return_value = None
     mock_proc.pid = 1234
@@ -63,13 +64,15 @@ def test_php_start_php(mock_start, mock_update, mock_patch, mock_get_port, php_m
         res = php_mgr.start_php("8.1")
         assert res['status'] == 'success'
         assert "8.1" in php_mgr.processes
+        mock_toggle.assert_called_once_with(os.path.join(php_mgr.base_dir, "8.1"), enable=True)
         
     # Test already running
     res = php_mgr.start_php("8.1")
     assert res['status'] == 'error'
     
+@patch('core.services.php.PhpManager.toggle_global_path')
 @patch('core.services.php.run_silent_command')
-def test_php_stop_php(mock_run, php_mgr):
+def test_php_stop_php(mock_run, mock_toggle, php_mgr):
     mock_proc = MagicMock()
     mock_proc.poll.return_value = None
     mock_proc.pid = 1234
@@ -79,6 +82,7 @@ def test_php_stop_php(mock_run, php_mgr):
         res = php_mgr.stop_php("8.1")
         assert res['status'] == 'success'
         mock_run.assert_called_once()
+        mock_toggle.assert_called_once_with(os.path.join(php_mgr.base_dir, "8.1"), enable=False)
         assert "8.1" not in php_mgr.processes
         
     # Stop already stopped
@@ -479,10 +483,11 @@ def test_start_php_binary_not_found(mock_exists, php_mgr):
     assert res['status'] == 'error'
     assert res['message'] == 'backend.php.binary_not_found'
 
+@patch('core.services.php.PhpManager.toggle_global_path')
 @patch('core.services.php.PhpManager._get_port_from_ini', return_value=9000)
 @patch('core.services.php.PhpManager._verify_and_patch_ini')
 @patch('core.services.php.start_silent_process')
-def test_start_php_cgi_process_dies_immediately(mock_start, mock_patch_ini, mock_get_port, php_mgr):
+def test_start_php_cgi_process_dies_immediately(mock_start, mock_patch_ini, mock_get_port, mock_toggle, php_mgr):
     mock_proc = MagicMock()
     mock_proc.poll.return_value = 1  # proses langsung mati
     mock_start.return_value = mock_proc
@@ -492,10 +497,11 @@ def test_start_php_cgi_process_dies_immediately(mock_start, mock_patch_ini, mock
     assert res['status'] == 'error'
     assert res['message'] == 'backend.php.cgi_failed'
 
+@patch('core.services.php.PhpManager.toggle_global_path')
 @patch('core.services.php.PhpManager._get_port_from_ini', return_value=9000)
 @patch('core.services.php.PhpManager._verify_and_patch_ini')
 @patch('core.services.php.start_silent_process', side_effect=OSError("php-cgi.exe crashed"))
-def test_start_php_handles_launch_exception(mock_start, mock_patch_ini, mock_get_port, php_mgr):
+def test_start_php_handles_launch_exception(mock_start, mock_patch_ini, mock_get_port, mock_toggle, php_mgr):
     with patch('os.path.exists', return_value=True):
         res = php_mgr.start_php("8.1")
     assert res['status'] == 'error'

@@ -12,9 +12,60 @@ export interface TerminalSession {
     title: string;
     shell_id: string;
     cwd: string;
+    lastCwd?: string;
+    historyBuffer?: string;
     isClosed?: boolean;
     exitCode?: number;
     envProfile?: Record<string, string>;
+    isCustomEnv?: boolean;
+    envProfileSummary?: string;
+    color?: string;
+    icon?: string;
+}
+
+export interface TerminalPreset {
+    id: string;
+    name: string;
+    shell_id: string;
+    cwd: string;
+    lastCwd?: string;
+    historyBuffer?: string;
+    envProfile: RuntimeProfile;
+    color?: string;
+    icon?: string;
+    createdAt?: number;
+}
+
+export interface TerminalWorkspaceTab {
+    title: string;
+    shell_id: string;
+    cwd: string;
+    lastCwd?: string;
+    historyBuffer?: string;
+    envProfile?: RuntimeProfile;
+    color?: string;
+    icon?: string;
+}
+
+export interface TerminalWorkspace {
+    id: string;
+    name: string;
+    tabs: TerminalWorkspaceTab[];
+    createdAt?: number;
+}
+
+export interface TerminalSettings {
+    fontFamily: string;
+    fontSize: number;
+    lineHeight: number;
+    theme: string;
+    cursorStyle: "block" | "underline" | "bar";
+    cursorBlink: boolean;
+    cursorBlinkStyle?: "classic" | "smooth" | "gradient" | "none";
+    defaultCwd: string;
+    defaultShell: string;
+    scrollback: number;
+    copyOnSelect: boolean;
 }
 
 export interface RuntimeVersionInfo {

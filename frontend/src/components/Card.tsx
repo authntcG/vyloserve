@@ -32,7 +32,7 @@ export default function Card({
     const fallbackUpdateBadge = 'bg-amber-500/10 text-amber-600 dark:bg-amber-500/20 dark:text-amber-500 border-amber-500/20 dark:border-amber-500/30';
 
     return (
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 flex flex-col gap-6 shadow-sm hover:shadow-md transition-all duration-200 group">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 flex flex-col gap-4 shadow-sm hover:shadow-md transition-all duration-200 group">
 
             {/* Header & Status dalam file Card.tsx */}
             <div className="flex justify-between items-start gap-4">
@@ -67,8 +67,8 @@ export default function Card({
                 {/* Dropdown Menu Burger (Kanan Atas) */}
                 {dropdownActions && (
                     <div className="relative group/menu">
-                        <button type="button" className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors rounded-md hover:bg-slate-50 dark:hover:bg-slate-800 outline-none">
-                            <span className="material-symbols-outlined">more_vert</span>
+                        <button type="button" aria-label={t('common.options', 'Options')} className="h-8 w-8 flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 outline-none">
+                            <span className="material-symbols-outlined text-[20px]">more_vert</span>
                         </button>
 
                         <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-10 opacity-0 invisible group-hover/menu:opacity-100 group-hover/menu:visible transition-all duration-200 overflow-hidden">
@@ -79,13 +79,13 @@ export default function Card({
             </div>
 
             {/* Dynamic Grid Body */}
-            <div className={`grid gap-6 ${gridCols}`}>
+            <div className={`grid gap-3.5 sm:gap-4 ${gridCols}`}>
                 {children}
             </div>
 
             {/* Action Footer (Opsional, tombol-tombol utama) */}
             {footerActions && (
-                <div className="flex gap-3 mt-2 pt-6 border-t border-slate-100 dark:border-slate-800">
+                <div className="flex gap-2.5 pt-3.5 sm:pt-4 border-t border-slate-100 dark:border-slate-800">
                     {footerActions}
                 </div>
             )}

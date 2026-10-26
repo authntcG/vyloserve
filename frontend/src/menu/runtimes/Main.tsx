@@ -1,6 +1,8 @@
 import { useTranslation } from 'react-i18next';
 import PageHeader from '../../components/PageHeader';
 import Tabs from '../../components/Tabs';
+import Button from '../../components/Button';
+import ViewModeToggle, { type ViewMode } from '../../components/ViewModeToggle';
 import {
     RuntimesProvider,
     useRuntimes,
@@ -33,33 +35,30 @@ interface RuntimesHeaderActionsProps {
     readonly activeEngine: EngineData;
     readonly activeTab: RuntimeEngine;
     readonly isLoading: boolean;
+    readonly viewMode: ViewMode;
+    readonly setViewMode: (mode: ViewMode) => void;
     readonly onOpenInstall: () => void;
     readonly t: any;
 }
 
-function RuntimesHeaderActions({ activeEngine, activeTab, isLoading, onOpenInstall, t }: RuntimesHeaderActionsProps) {
-    if (activeEngine.installed) {
-        return (
-            <button
-                type="button"
-                disabled
-                className="text-white text-sm font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2 shadow-sm bg-emerald-500 opacity-80 cursor-default whitespace-nowrap shrink-0"
-            >
-                <span className="material-symbols-outlined text-[18px]">check_circle</span>
-                {t('common.installed') || 'Installed'}
-            </button>
-        );
-    }
+function RuntimesHeaderActions({ activeEngine, activeTab, isLoading, viewMode, setViewMode, onOpenInstall, t }: RuntimesHeaderActionsProps) {
+    const hasVersions = Boolean(activeEngine.installed_versions && activeEngine.installed_versions.length > 0) || activeEngine.installed;
+
     return (
-        <button
-            type="button"
-            onClick={onOpenInstall}
-            disabled={isLoading}
-            className="text-white text-sm font-medium py-2 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-sm whitespace-nowrap shrink-0 bg-primary hover:bg-primary/90 border border-transparent"
-        >
-            <span className="material-symbols-outlined text-[18px]">add</span>
-            {`${t('runtimes.add')} ${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}`}
-        </button>
+        <div className="flex items-center gap-2.5">
+            {hasVersions && (
+                <ViewModeToggle mode={viewMode} onChange={setViewMode} />
+            )}
+            <Button
+                variant="primary"
+                icon="add"
+                onClick={onOpenInstall}
+                disabled={isLoading}
+                className="whitespace-nowrap shrink-0 shadow-sm"
+            >
+                {`${t('runtimes.add')} ${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}`}
+            </Button>
+        </div>
     );
 }
 
@@ -68,6 +67,8 @@ export function RuntimesMainView() {
     const {
         activeTab,
         setActiveTab,
+        viewMode,
+        setViewMode,
         runtimeData,
         isLoading,
         isProcessing,
@@ -79,7 +80,12 @@ export function RuntimesMainView() {
         setIsGoModalOpen,
         handleUpdateClick,
         handleTogglePath,
-        executeUninstall
+        executeUninstall,
+        handleSetActiveVersion,
+        handleDeactivateVersion,
+        handleUninstallVersion,
+        handleOpenFolder,
+        handleOpenTerminal,
     } = useRuntimes();
 
     return (
@@ -93,6 +99,8 @@ export function RuntimesMainView() {
                         activeEngine={runtimeData[activeTab]}
                         activeTab={activeTab}
                         isLoading={isLoading}
+                        viewMode={viewMode}
+                        setViewMode={setViewMode}
                         onOpenInstall={handleOpenInstall}
                         t={t}
                     />
@@ -115,6 +123,8 @@ export function RuntimesMainView() {
 
             <div className={tabVisibilityClass(activeTab, 'node')}>
                 <RuntimeEnginePanel
+                    engine="node"
+                    viewMode={viewMode}
                     data={runtimeData.node}
                     isLoading={isLoading}
                     isProcessing={isProcessing}
@@ -123,20 +133,29 @@ export function RuntimesMainView() {
                     emptyDesc={t('runtimes.node_desc')}
                     emptyActionText={t('runtimes.install_node_now')}
                     onOpenModal={() => setIsNodeModalOpen(true)}
-                    onUpdateClick={() => handleUpdateClick('node', runtimeData.node.updateAvailable!)}
+                    onUpdateClick={(newVer, oldVer) => handleUpdateClick('node', newVer || runtimeData.node.updateAvailable!, oldVer)}
                     cardTitle="Node.js (VyloServe)"
                     engineTitle="Node.js"
                     onUninstallClick={() => executeUninstall('node')}
+                    onSetActiveVersion={(ver) => handleSetActiveVersion('node', ver)}
+                    onDeactivateVersion={() => handleDeactivateVersion('node')}
+                    onUninstallVersion={(ver) => handleUninstallVersion('node', ver)}
                     uninstallLabel={t('runtimes.uninstall_node')}
                     field2Label={t('runtimes.package_manager')}
                     field2Value={t('runtimes.npm_corepack')}
                     pathDescKey="runtimes.node_path_desc"
                     onTogglePath={(checked) => handleTogglePath('node', checked)}
+                    onOpenFolder={() => handleOpenFolder('node')}
+                    onOpenTerminal={() => handleOpenTerminal('node')}
+                    onOpenFolderForVersion={(ver) => handleOpenFolder('node', ver)}
+                    onOpenTerminalForVersion={(ver) => handleOpenTerminal('node', ver)}
                 />
             </div>
 
             <div className={tabVisibilityClass(activeTab, 'python')}>
                 <RuntimeEnginePanel
+                    engine="python"
+                    viewMode={viewMode}
                     data={runtimeData.python}
                     isLoading={isLoading}
                     isProcessing={isProcessing}
@@ -145,20 +164,29 @@ export function RuntimesMainView() {
                     emptyDesc={t('runtimes.python_desc')}
                     emptyActionText={t('runtimes.install_python_now')}
                     onOpenModal={() => setIsPythonModalOpen(true)}
-                    onUpdateClick={() => handleUpdateClick('python', runtimeData.python.updateAvailable!)}
+                    onUpdateClick={(newVer, oldVer) => handleUpdateClick('python', newVer || runtimeData.python.updateAvailable!, oldVer)}
                     cardTitle="Python (VyloServe)"
                     engineTitle="Python"
                     onUninstallClick={() => executeUninstall('python')}
+                    onSetActiveVersion={(ver) => handleSetActiveVersion('python', ver)}
+                    onDeactivateVersion={() => handleDeactivateVersion('python')}
+                    onUninstallVersion={(ver) => handleUninstallVersion('python', ver)}
                     uninstallLabel={t('runtimes.uninstall_python')}
                     field2Label={t('runtimes.package_manager')}
                     field2Value={t('runtimes.pip_available')}
                     pathDescKey="runtimes.python_path_desc"
                     onTogglePath={(checked) => handleTogglePath('python', checked)}
+                    onOpenFolder={() => handleOpenFolder('python')}
+                    onOpenTerminal={() => handleOpenTerminal('python')}
+                    onOpenFolderForVersion={(ver) => handleOpenFolder('python', ver)}
+                    onOpenTerminalForVersion={(ver) => handleOpenTerminal('python', ver)}
                 />
             </div>
 
             <div className={tabVisibilityClass(activeTab, 'java')}>
                 <RuntimeEnginePanel
+                    engine="java"
+                    viewMode={viewMode}
                     data={runtimeData.java}
                     isLoading={isLoading}
                     isProcessing={isProcessing}
@@ -167,21 +195,30 @@ export function RuntimesMainView() {
                     emptyDesc={t('runtimes.java_desc')}
                     emptyActionText={t('runtimes.install_java_now')}
                     onOpenModal={() => setIsJavaModalOpen(true)}
-                    onUpdateClick={() => handleUpdateClick('java', runtimeData.java.updateAvailable!)}
+                    onUpdateClick={(newVer, oldVer) => handleUpdateClick('java', newVer || runtimeData.java.updateAvailable!, oldVer)}
                     cardTitle="Java JDK (VyloServe)"
                     engineTitle="Java JDK"
                     onUninstallClick={() => executeUninstall('java')}
+                    onSetActiveVersion={(ver) => handleSetActiveVersion('java', ver)}
+                    onDeactivateVersion={() => handleDeactivateVersion('java')}
+                    onUninstallVersion={(ver) => handleUninstallVersion('java', ver)}
                     uninstallLabel={t('runtimes.uninstall_java')}
                     field2Label={t('runtimes.environment')}
                     field2Value={t('runtimes.java_home_set')}
                     pathDescKey="runtimes.java_path_desc"
                     toggleMarginClass="ml-4"
                     onTogglePath={(checked) => handleTogglePath('java', checked)}
+                    onOpenFolder={() => handleOpenFolder('java')}
+                    onOpenTerminal={() => handleOpenTerminal('java')}
+                    onOpenFolderForVersion={(ver) => handleOpenFolder('java', ver)}
+                    onOpenTerminalForVersion={(ver) => handleOpenTerminal('java', ver)}
                 />
             </div>
 
             <div className={tabVisibilityClass(activeTab, 'go')}>
                 <RuntimeEnginePanel
+                    engine="go"
+                    viewMode={viewMode}
                     data={runtimeData.go}
                     isLoading={isLoading}
                     isProcessing={isProcessing}
@@ -190,16 +227,23 @@ export function RuntimesMainView() {
                     emptyDesc={t('runtimes.go_desc')}
                     emptyActionText={t('runtimes.install_go_now')}
                     onOpenModal={() => setIsGoModalOpen(true)}
-                    onUpdateClick={() => handleUpdateClick('go', runtimeData.go.updateAvailable!)}
+                    onUpdateClick={(newVer, oldVer) => handleUpdateClick('go', newVer || runtimeData.go.updateAvailable!, oldVer)}
                     cardTitle="Go Compiler (VyloServe)"
                     engineTitle="Go Compiler"
                     onUninstallClick={() => executeUninstall('go')}
+                    onSetActiveVersion={(ver) => handleSetActiveVersion('go', ver)}
+                    onDeactivateVersion={() => handleDeactivateVersion('go')}
+                    onUninstallVersion={(ver) => handleUninstallVersion('go', ver)}
                     uninstallLabel={t('runtimes.uninstall_go')}
                     field2Label={t('runtimes.architecture')}
                     field2Value="amd64"
                     pathDescKey="runtimes.go_path_desc"
                     toggleMarginClass="ml-4"
                     onTogglePath={(checked) => handleTogglePath('go', checked)}
+                    onOpenFolder={() => handleOpenFolder('go')}
+                    onOpenTerminal={() => handleOpenTerminal('go')}
+                    onOpenFolderForVersion={(ver) => handleOpenFolder('go', ver)}
+                    onOpenTerminalForVersion={(ver) => handleOpenTerminal('go', ver)}
                 />
             </div>
 

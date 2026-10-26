@@ -143,12 +143,92 @@ def test_send_input(terminal_manager):
     mock_pty = MagicMock()
     terminal_manager._sessions["sess-1"] = {
         "id": "sess-1",
+        "shell_id": "powershell",
         "pty": mock_pty,
         "stop_event": threading.Event()
     }
     res_ok = terminal_manager.send_input("sess-1", "echo hi\r")
     assert res_ok["status"] == "success"
     mock_pty.write.assert_called_once_with("echo hi\r")
+
+    # CMD input translation: converts path slashes, prefixes initial relative path with '.\', and ends with '\'
+    mock_cmd_pty = MagicMock()
+    terminal_manager._sessions["sess-cmd"] = {
+        "id": "sess-cmd",
+        "shell_id": "cmd",
+        "pty": mock_cmd_pty,
+        "stop_event": threading.Event()
+    }
+    # 1. Switch flag with space preserves '/'
+    terminal_manager.send_input("sess-cmd", "dir /w")
+    mock_cmd_pty.write.assert_called_with("dir /w")
+    terminal_manager.send_input("sess-cmd", "\r\n")
+
+    # 2. cd + relative path initial argument gets prefixed with '.\' and ends with '\'
+    mock_cmd_pty.reset_mock()
+    for ch in ['c', 'd', ' ', 'P', 'r', 'o', 'j', '\t']:
+        terminal_manager.send_input("sess-cmd", ch)
+    written_stream = "".join(call[0][0] for call in mock_cmd_pty.write.call_args_list)
+    assert written_stream == "cd .\\Proj\t\\"
+
+    # 3. Subdirectory traversal '/Pyt' drops redundant '/' after '\' and Tab appends trailing '\'
+    mock_cmd_pty.reset_mock()
+    for ch in ['/', 'P', 'y', 't', '\t']:
+        terminal_manager.send_input("sess-cmd", ch)
+    sub_stream = "".join(call[0][0] for call in mock_cmd_pty.write.call_args_list)
+    assert "/" not in sub_stream
+    assert sub_stream == "Pyt\t\\"
+
+    # 4. Enter resets session cmd_line
+    mock_cmd_pty.reset_mock()
+    terminal_manager.send_input("sess-cmd", "\r\n")
+    assert terminal_manager._sessions["sess-cmd"]["cmd_line"] == ""
+
+    # 5. Direct Tab after cd creates '.\' prefix and trailing '\'
+    mock_cmd_pty.reset_mock()
+    terminal_manager.send_input("sess-cmd", "cd ")
+    terminal_manager.send_input("sess-cmd", "\t")
+    direct_tab_stream = "".join(call[0][0] for call in mock_cmd_pty.write.call_args_list)
+    assert direct_tab_stream == "cd .\\\t\\"
+
+    # 6. Windows drive letter 'cd D:' is not prefixed with '.\'
+    terminal_manager.send_input("sess-cmd", "\r\n")
+    mock_cmd_pty.reset_mock()
+    terminal_manager.send_input("sess-cmd", "cd ")
+    terminal_manager.send_input("sess-cmd", "D")
+    terminal_manager.send_input("sess-cmd", ":")
+    drive_stream = "".join(call[0][0] for call in mock_cmd_pty.write.call_args_list)
+    assert drive_stream == "cd D:"
+    assert ".\\D:" not in drive_stream
+
+    # 7. Backspace cancels pending character
+    terminal_manager.send_input("sess-cmd", "\r\n")
+    mock_cmd_pty.reset_mock()
+    terminal_manager.send_input("sess-cmd", "cd ")
+    terminal_manager.send_input("sess-cmd", "P")
+    terminal_manager.send_input("sess-cmd", "\x08")
+    assert terminal_manager._sessions["sess-cmd"]["pending_char"] == ""
+    assert terminal_manager._sessions["sess-cmd"]["cmd_line"] == "cd "
+
+    # 8. ANSI control sequences (Focus In \x1b[I, Focus Out \x1b[O, arrow keys) do not corrupt cmd_line
+    terminal_manager.send_input("sess-cmd", "\r\n")
+    mock_cmd_pty.reset_mock()
+    terminal_manager.send_input("sess-cmd", "\x1b[I")  # xterm focus in
+    terminal_manager.send_input("sess-cmd", "cd ")
+    for ch in ['P', 'r', 'o', 'j', '\t']:
+        terminal_manager.send_input("sess-cmd", ch)
+    focus_stream = "".join(call[0][0] for call in mock_cmd_pty.write.call_args_list)
+    assert focus_stream.startswith("\x1b[I")
+    assert "cd .\\Proj\t\\" in focus_stream
+
+    # 9. Reactive Tab fallback with line_context synchronizes cmd_line and adds .\ prefix
+    terminal_manager.send_input("sess-cmd", "\r\n")
+    mock_cmd_pty.reset_mock()
+    # Simulate user having typed 'cd Proj' on screen without .\\ prefix
+    terminal_manager._sessions["sess-cmd"]["cmd_line"] = ""
+    terminal_manager.send_input("sess-cmd", "\t", line_context="D:\\vyloserve>cd Proj")
+    reactive_call = "".join(call[0][0] for call in mock_cmd_pty.write.call_args_list)
+    assert reactive_call == "\x08\x08\x08\x08.\\Proj\t\\"
 
     # Exception during write
     mock_pty.write.side_effect = Exception("Write failed")

@@ -3,8 +3,8 @@ import { describe, it, expect, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { act, fireEvent, screen, waitFor } from '../../test-utils';
 import { mockPywebviewApi, renderWithToast } from '../../test-utils';
-import ProjectSettings, { type ProjectSettingsRef } from '../../../src/menu/apache/ProjectSettings';
-import type { ProjectData } from '../../../src/menu/apache/Main';
+import ProjectSettings, { type ProjectSettingsRef } from '../../../src/menu/projects/ProjectSettings';
+import type { ProjectData } from '../../../src/context/ProjectContext';
 
 const project: ProjectData = {
     id: 'proj_1',

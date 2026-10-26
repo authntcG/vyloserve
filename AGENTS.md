@@ -16,14 +16,14 @@ vyloserve/
 │   └── services/           # Modul Manager spesifik (Single Responsibility Principle)
 │       ├── apache.py, php.py, database.py, runtimes_manager.py
 │       ├── project.py, git_manager.py, ssl_manager.py, dashboard.py
-│       └── settings.py, updater.py, tunnels.py, markdown_viewer.py, ai_assistant.py
+│       └── settings.py, updater.py, tunnels.py, markdown_viewer.py, ai_assistant.py, terminal.py
 ├── frontend/               # Kode React UI
 │   ├── src/
-│   │   ├── components/     # Reusable UI generik (Modal.tsx, PageHeader.tsx, StatusBadge.tsx, ProgressStatusBlock.tsx, dll)
+│   │   ├── components/     # Reusable UI generik (Modal.tsx, PageHeader.tsx, StatusBadge.tsx, ProgressStatusBlock.tsx, DataTable.tsx, FilterChips.tsx, ViewModeToggle.tsx, InstalledBadge.tsx, dll)
 │   │   │   └── skeleton/   # Primitif Skeleton Loading modular (Skeleton, SkeletonCard, SkeletonForm, SkeletonDocument, dll)
-│   │   ├── context/        # React Context lintas-aplikasi & modul (Alert, Toast, Ai, Apache, Php, Database, Dashboard, Runtimes, Tunnels, Git)
+│   │   ├── context/        # React Context lintas-aplikasi & modul (Alert, Toast, Ai, Apache, Php, Database, Dashboard, Project, Runtimes, Tunnels, Git)
 │   │   ├── locales/        # File terjemahan JSON (en & id)
-│   │   ├── menu/           # Halaman/Menu utama berdasarkan modul (apache, php, database, dll)
+│   │   ├── menu/           # Halaman/Menu utama berdasarkan modul (apache, php, database, projects, runtimes, tools/terminal, dll)
 │   │   ├── hooks/          # Custom hooks lintas-komponen (useWindowPresence.ts, dll)
 │   │   ├── utils/          # Helper murni non-komponen (a11y.ts, progress.ts, theme.ts, version.ts)
 │   │   └── App.tsx         # Routing & Layout Utama
@@ -200,6 +200,9 @@ VyloServe punya 15 preset tema (`vyloserve-dark`/`-light`, Darcula, Solarized Da
 33. **Pola Pengujian Komponen `<Select>` Custom & Animasi `<Modal>` di Vitest:**
     - Seluruh dropdown di VyloServe telah dimigrasikan ke komponen `<Select>` kustom (`components/Select.tsx`) yang me-render `<button aria-haspopup="listbox">` dan menampilkan daftar opsi di dalam React Portal (`document.body`), **BUKAN** elemen `<select>` HTML native. Saat menulis unit test Vitest, **DILARANG** menggunakan `userEvent.selectOptions()` atau mencari `getByRole('combobox')` — klik tombol trigger terlebih dahulu (`fireEvent.click(trigger)`), lalu klik elemen opsi yang muncul di portal.
     - Komponen `<Modal>` menggunakan `requestAnimationFrame` ganda untuk menganimasikan transisi `invisible` → `visible` saat `isOpen` berubah menjadi `true`. Saat menguji interaksi di dalam modal yang baru saja dibuka pada test, gunakan `fireEvent.click` atau tunggu siklus animasi selesai jika menggunakan `userEvent` (karena `userEvent` memeriksa visibilitas CSS ancestor).
+34. **🚨 WAJIB: Isolasi Mutlak Windows Registry pada Test Pytest (Anti-Pencemaran HKCU Environment):**
+    - Setiap test yang memanggil fungsi servis yang berpotensi memodifikasi registry Windows (misal `install_go(..., set_as_active=True)`, `toggle_user_path`, `toggle_global_path`, `modify_user_path`) **WAJIB** meng-mock pemanggilan registry.
+    - Sebagai jaring pengaman permanen, fixture autouse `guard_registry_and_env` terpasang di `tests/conftest.py` yang secara otomatis memblokir `winreg.SetValueEx`, `DeleteValue`, dan `DeleteKey` agar tidak pernah menyentuh registry fisik Windows pengembang. Jangan pernah menonaktifkan fixture ini (lihat `docs/known_bugs.md` #73).
 
 ---
 *File ini adalah sumber rujukan utama lintas-vendor untuk AI Assistant (Claude Code, OpenAI Codex CLI, Cursor, Amp, Jules, Gemini, dan tool lain yang mendukung standar terbuka [agents.md](https://agents.md)) agar bisa langsung memahami ekosistem VyloServe tanpa perlu menganalisa ulang seluruh repositori secara manual dari awal setiap memulai percakapan atau sesi baru.*

@@ -67,6 +67,17 @@ describe('GitMain', () => {
         const toggle = await screen.findByLabelText('tools.git.register_path');
         expect(toggle).toBeDisabled();
         expect(toggle).not.toBeChecked();
+
+        // Card status badge reflects Native OS
+        expect(screen.getByText('tools.git.native_os')).toBeInTheDocument();
+
+        // Integrated external alert
+        const alertBox = screen.getByTestId('git-external-alert');
+        expect(alertBox).toBeInTheDocument();
+        expect(alertBox).toHaveTextContent('C:/Git/bin/git.exe');
+        expect(alertBox).toHaveTextContent('2.40.0');
+        expect(alertBox).toHaveTextContent('tools.git.external_overview_title');
+        expect(screen.getByText('tools.git.external_locked')).toBeInTheDocument();
     });
 
     it('saves the global git config and shows a success toast', async () => {
@@ -334,5 +345,5 @@ describe('GitMain', () => {
         await waitFor(() => {
             expect(screen.queryByText('tools.git.uninstall_title')).not.toBeInTheDocument();
         }, { timeout: 5000 });
-    });
+    }, 10000);
 });

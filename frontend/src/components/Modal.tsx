@@ -113,7 +113,7 @@ export default function Modal({
                     </div>
                 )}
 
-                <div className={`${bodyPaddingClass} flex flex-col gap-6 max-h-[70vh] overflow-y-auto`}>
+                <div className={`${bodyPaddingClass} flex flex-col gap-6 max-h-[70vh] overflow-y-auto min-w-0 overflow-x-hidden`}>
                     {children}
                 </div>
 

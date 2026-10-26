@@ -408,7 +408,7 @@ def test_runtimes_endpoints(api_instance):
     api_instance.runtimes_manager.get_node_status.assert_called_once()
     
     api_instance.install_node("latest", True)
-    api_instance.runtimes_manager.install_node.assert_called_once_with("latest", True)
+    api_instance.runtimes_manager.install_node.assert_called_once_with("latest", True, set_as_active=True)
     
     api_instance.uninstall_node()
     api_instance.runtimes_manager.uninstall_node.assert_called_once()
@@ -420,7 +420,7 @@ def test_runtimes_endpoints(api_instance):
     api_instance.runtimes_manager.get_python_status.assert_called_once()
     
     api_instance.install_python("3.10", True)
-    api_instance.runtimes_manager.install_python.assert_called_once_with("3.10", True)
+    api_instance.runtimes_manager.install_python.assert_called_once_with("3.10", True, set_as_active=True)
     
     api_instance.uninstall_python()
     api_instance.runtimes_manager.uninstall_python.assert_called_once()
@@ -432,7 +432,7 @@ def test_runtimes_endpoints(api_instance):
     api_instance.runtimes_manager.get_java_status.assert_called_once()
     
     api_instance.install_java("17")
-    api_instance.runtimes_manager.install_java.assert_called_once_with("17")
+    api_instance.runtimes_manager.install_java.assert_called_once_with("17", set_as_active=True)
     
     api_instance.uninstall_java()
     api_instance.runtimes_manager.uninstall_java.assert_called_once()
@@ -447,13 +447,25 @@ def test_runtimes_endpoints(api_instance):
     api_instance.runtimes_manager.get_available_go_versions.assert_called_once()
     
     api_instance.install_go("1.21")
-    api_instance.runtimes_manager.install_go.assert_called_once_with("1.21")
+    api_instance.runtimes_manager.install_go.assert_called_once_with("1.21", set_as_active=True)
     
     api_instance.uninstall_go()
     api_instance.runtimes_manager.uninstall_go.assert_called_once()
     
     api_instance.toggle_global_path("node", True)
     api_instance.runtimes_manager.toggle_user_path.assert_called_once_with("node", True)
+
+    api_instance.get_engine_versions("node")
+    api_instance.runtimes_manager.get_engine_versions.assert_called_once_with("node")
+
+    api_instance.set_active_runtime_version("node", "20.10.0")
+    api_instance.runtimes_manager.set_active_version.assert_called_once_with("node", "20.10.0")
+
+    api_instance.deactivate_runtime_version("node")
+    api_instance.runtimes_manager.deactivate_active_version.assert_called_once_with("node")
+
+    api_instance.uninstall_runtime_version("node", "20.10.0")
+    api_instance.runtimes_manager.uninstall_engine_version.assert_called_once_with("node", "20.10.0")
 
 def test_git_endpoints(api_instance):
     api_instance.get_git_status()

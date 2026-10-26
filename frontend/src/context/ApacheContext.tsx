@@ -4,22 +4,13 @@ import { useToast } from './ToastContext';
 import { useAlert } from './AlertContext';
 import { clampPercent } from '../utils/progress';
 import type { ApacheVersionData } from '../menu/apache/InstallWizard';
-import type { NewProjectRef } from '../menu/apache/NewProject';
 
-export interface ProjectData {
-    id: string;
-    name: string;
-    domain: string;
-    path: string;
-    php_version: string;
-    php_port: number;
-    project_type?: 'php' | 'node' | 'python' | 'go' | 'java';
-    proxy_port?: number | null;
-    framework?: string;
-    host_synced?: boolean;
+export interface PortsStatusData {
+    http: { port: number; status: 'listening' | 'ready' | 'conflict' };
+    https: { port: number; status: 'listening' | 'ready' | 'conflict' };
 }
 
-interface ApacheContextValue {
+export interface ApacheContextValue {
     // Status
     isFetchingApacheStatus: boolean;
     isApacheInstalled: boolean;
@@ -28,6 +19,7 @@ interface ApacheContextValue {
     apachePath: string;
     isApacheRunning: boolean;
     isTogglingServer: boolean;
+    portsStatus: PortsStatusData | null;
 
     // Installation
     isInstallServerOpen: boolean;
@@ -45,59 +37,31 @@ interface ApacheContextValue {
     setHttpPort: React.Dispatch<React.SetStateAction<number>>;
     setHttpsPort: React.Dispatch<React.SetStateAction<number>>;
 
-    // Projects
-    projects: ProjectData[];
-    isFetchingProjects: boolean;
-    selectedProjectId: string | null;
-    selectedProject: ProjectData | undefined;
-    isCreatingProject: boolean;
-    isUpdatingProject: boolean;
-    isDeletingProject: boolean;
-    isDeleteFiles: boolean;
-    setIsDeleteFiles: (val: boolean) => void;
-
     // Modal Visibility
     isOptionsOpen: boolean;
-    isNewProjectModalOpen: boolean;
-    isProjectSettingsOpen: boolean;
-    isDeleteConfirmOpen: boolean;
-    isCliModalOpen: boolean;
-    cliPromptText: string;
 
     // Modal Control
     openInstallModal: () => void;
     closeInstallModal: () => void;
     openOptionsModal: () => void;
     closeOptionsModal: () => void;
-    openNewProjectModal: () => void;
-    closeNewProjectModal: () => void;
-    openProjectSettingsModal: (projectId: string) => void;
-    closeProjectSettingsModal: () => void;
-    openDeleteConfirmModal: (projectId: string) => void;
-    closeDeleteConfirmModal: () => void;
     restoreProgressWidget: () => void;
-
-    // Refs for Modals
-    projectFormRef: React.RefObject<NewProjectRef | null>;
-    projectSettingsRef: React.RefObject<any>;
 
     // Actions
     fetchApacheStatus: () => Promise<void>;
-    fetchProjects: () => Promise<void>;
     fetchAvailableVersions: () => Promise<void>;
     handleToggleServer: () => Promise<void>;
     handleInstallApache: () => Promise<void>;
     handleUpdateApacheClick: () => Promise<void>;
     handleUninstall: () => Promise<void>;
-    handleCreateSubmit: () => Promise<void>;
-    handleUpdateProjectSubmit: () => Promise<void>;
-    handleDeleteProjectSubmit: () => Promise<void>;
-    handleSyncHost: (projectId: string) => Promise<void>;
-    handleOpenBrowser: (domain: string) => Promise<void>;
-    handleOpenDocumentRoot: (path: string) => Promise<void>;
     openConfigFile: () => void;
     openDirectory: () => void;
-    confirmCancelProjectInstall: () => Promise<void>;
+    openLocalhost: () => void;
+    openHtdocs: () => void;
+    openConfDir: () => void;
+    openLogsDir: () => void;
+    openHttpdConf: () => void;
+    openVhostsConf: () => void;
 }
 
 const ApacheContext = createContext<ApacheContextValue | undefined>(undefined);
@@ -118,6 +82,7 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
     const [isApacheRunning, setIsApacheRunning] = useState(false);
     const [isTogglingServer, setIsTogglingServer] = useState(false);
     const [updateAvailable, setUpdateAvailable] = useState<string | null>(null);
+    const [portsStatus, setPortsStatus] = useState<PortsStatusData | null>(null);
 
     const [isInstallServerOpen, setIsInstallServerOpen] = useState(false);
     const [availableVersions, setAvailableVersions] = useState<ApacheVersionData[]>([]);
@@ -127,139 +92,11 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
     const [httpPort, setHttpPort] = useState(80);
     const [httpsPort, setHttpsPort] = useState(443);
     const [isInstalling, setIsInstalling] = useState(false);
+    const [isOptionsOpen, setIsOptionsOpen] = useState(false);
 
     const [progress, setProgress] = useState(0);
     const [progressText, setProgressText] = useState('');
     const hideProgressTimeoutRef = useRef<number | null>(null);
-
-    // State Project Management
-    const [projects, setProjects] = useState<ProjectData[]>([]);
-    const [isFetchingProjects, setIsFetchingProjects] = useState(true);
-    const [isOptionsOpen, setIsOptionsOpen] = useState(false);
-    const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-    const [isProjectSettingsOpen, setIsProjectSettingsOpen] = useState(false);
-    const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
-    const [isDeletingProject, setIsDeletingProject] = useState(false);
-    const [isDeleteFiles, setIsDeleteFiles] = useState(false);
-    const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
-    const [isUpdatingProject, setIsUpdatingProject] = useState(false);
-    const [isCreatingProject, setIsCreatingProject] = useState(false);
-    const [isCliModalOpen, setIsCliModalOpen] = useState(false);
-    const [cliPromptText, setCliPromptText] = useState('');
-
-    const selectedProject = useMemo(() => projects.find(p => p.id === selectedProjectId), [projects, selectedProjectId]);
-    const projectFormRef = useRef<NewProjectRef>(null);
-    const projectSettingsRef = useRef<any>(null);
-
-    const handleOpenBrowser = useCallback(async (domain: string) => {
-        const url = `https://${domain}`;
-        try {
-            if (window.pywebview?.api?.open_browser) window.pywebview.api.open_browser(url);
-            else window.open(url, '_blank');
-        } catch (e) {
-            console.error(e);
-        }
-    }, []);
-
-    const fetchProjects = useCallback(async () => {
-        setIsFetchingProjects(true);
-        try {
-            const api = window.pywebview?.api;
-            if (api && typeof api.get_projects === 'function') {
-                const res = await api.get_projects();
-                if (res.status === 'success') {
-                    setProjects(res.data || []);
-                } else {
-                    showToast(tRef.current(res.message) as string, 'error');
-                }
-            }
-        } catch (e) {
-            console.error(e);
-            showToast(tRef.current('apache.fetch_projects_error'), 'error');
-        } finally {
-            setIsFetchingProjects(false);
-        }
-    }, [showToast]);
-
-    const handleCreateSubmit = useCallback(async () => {
-        if (!projectFormRef.current) return;
-        setIsCreatingProject(true);
-        setIsCliModalOpen(false);
-        setCliPromptText('');
-        if (await projectFormRef.current.submit()) {
-            setIsNewProjectModalOpen(false);
-        }
-        setIsCliModalOpen(false);
-        setCliPromptText('');
-        setIsCreatingProject(false);
-    }, []);
-
-    const confirmCancelProjectInstall = useCallback(async () => {
-        const isConfirmed = await confirm({
-            title: tRef.current('apache.cli_cancel_confirm_title'),
-            message: tRef.current('apache.cli_cancel_confirm_desc'),
-            type: 'danger',
-            confirmText: tRef.current('apache.cli_cancel_confirm_yes'),
-        });
-        if (!isConfirmed) return;
-        setIsCliModalOpen(false);
-        setCliPromptText('');
-        try {
-            const api = window.pywebview?.api as any;
-            await api?.cancel_project_install?.();
-        } catch (e) {
-            console.error(e);
-        }
-    }, [confirm]);
-
-    const handleUpdateProjectSubmit = useCallback(async () => {
-        if (!projectSettingsRef.current) return;
-        setIsUpdatingProject(true);
-        if (await projectSettingsRef.current.submit()) {
-            setIsProjectSettingsOpen(false);
-        }
-        setIsUpdatingProject(false);
-    }, []);
-
-    const handleDeleteProjectSubmit = useCallback(async () => {
-        if (!selectedProjectId) return;
-        setIsDeletingProject(true);
-        try {
-            const res = await window.pywebview?.api?.delete_project(selectedProjectId, isDeleteFiles);
-            if (res?.status === 'success') {
-                showToast((res.message ? tRef.current(res.message, res.args || {}) : tRef.current('apache.project_deleted')) as string, 'success');
-                fetchProjects();
-                setIsDeleteConfirmOpen(false);
-            } else {
-                showToast(tRef.current(res?.message || '', res?.args || {}) as string, 'error');
-            }
-        } catch (e) {
-            console.error(e);
-            showToast(tRef.current('apache.delete_error'), 'error');
-        } finally {
-            setIsDeletingProject(false);
-            setIsDeleteFiles(false);
-        }
-    }, [selectedProjectId, isDeleteFiles, showToast, fetchProjects]);
-
-    const handleSyncHost = useCallback(async (projectId: string) => {
-        try {
-            const res = await window.pywebview?.api?.retry_sync_host(projectId);
-            showToast(tRef.current(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
-            if (res?.status === 'success') fetchProjects();
-        } catch (e) {
-            console.error(e);
-            showToast(tRef.current('apache.sync_error'), 'error');
-        }
-    }, [showToast, fetchProjects]);
-
-    const handleOpenDocumentRoot = useCallback(async (path: string) => {
-        try {
-            window.pywebview?.api?.open_in_explorer(path);
-        } catch (e) {
-            console.error(e);
-        }
-    }, []);
 
     const openConfigFile = useCallback(() => {
         window.pywebview?.api?.open_apache_config?.();
@@ -267,6 +104,30 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
 
     const openDirectory = useCallback(() => {
         window.pywebview?.api?.open_apache_directory?.();
+    }, []);
+
+    const openLocalhost = useCallback(() => {
+        window.pywebview?.api?.open_browser?.('http://localhost');
+    }, []);
+
+    const openHtdocs = useCallback(() => {
+        window.pywebview?.api?.open_apache_htdocs?.();
+    }, []);
+
+    const openConfDir = useCallback(() => {
+        window.pywebview?.api?.open_apache_conf_dir?.();
+    }, []);
+
+    const openLogsDir = useCallback(() => {
+        window.pywebview?.api?.open_apache_logs_dir?.();
+    }, []);
+
+    const openHttpdConf = useCallback(() => {
+        window.pywebview?.api?.open_apache_file?.('httpd');
+    }, []);
+
+    const openVhostsConf = useCallback(() => {
+        window.pywebview?.api?.open_apache_file?.('vhosts');
     }, []);
 
     const fetchApacheStatus = useCallback(async () => {
@@ -278,11 +139,23 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
                 setApachePath(res.path || tRef.current('apache.not_installed'));
                 setIsApacheRunning(res.running || false);
             }
-            const ver = await window.pywebview?.api?.get_apache_installed_versions();
+            try {
+                const pRes = await window.pywebview?.api?.get_apache_ports_status?.();
+                if (pRes?.status === 'success') {
+                    setPortsStatus(pRes.data);
+                }
+            } catch {
+                // ignore
+            }
             let activeVersion = null;
-            if (ver?.status === 'success') {
-                activeVersion = ver.active || ver.data[0];
-                setInstalledApacheVersion(activeVersion);
+            if (res?.status === 'success' && res.installed) {
+                const ver = await window.pywebview?.api?.get_apache_installed_versions();
+                if (ver?.status === 'success') {
+                    activeVersion = ver.active || ver.data[0];
+                    setInstalledApacheVersion(activeVersion);
+                }
+            } else {
+                setInstalledApacheVersion(null);
             }
             if (res?.status === 'success' && res.installed && activeVersion) {
                 const avail = await window.pywebview?.api?.get_available_apache();
@@ -305,19 +178,8 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
         }
     }, []);
 
-    // Stabilized refs for event listeners
     const fetchApacheStatusRef = useRef(fetchApacheStatus);
     fetchApacheStatusRef.current = fetchApacheStatus;
-
-    const fetchProjectsRef = useRef(fetchProjects);
-    fetchProjectsRef.current = fetchProjects;
-
-    useEffect(() => {
-        fetchProjectsRef.current();
-        const handleProjectListUpdated = () => { fetchProjectsRef.current(); };
-        window.addEventListener('project_list_updated', handleProjectListUpdated);
-        return () => window.removeEventListener('project_list_updated', handleProjectListUpdated);
-    }, []);
 
     useEffect(() => {
         fetchApacheStatusRef.current();
@@ -338,7 +200,7 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
         };
 
         const handleProg = (e: any) => {
-            if (e.detail?.source && !['ApacheManager', 'ProjectManager'].includes(e.detail.source)) return;
+            if (e.detail?.source && e.detail.source !== 'ApacheManager') return;
             if (e.detail) {
                 const text = e.detail.text || '';
                 const args = e.detail.args || {};
@@ -350,33 +212,19 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
                     window.clearTimeout(hideProgressTimeoutRef.current);
                     hideProgressTimeoutRef.current = null;
                 }
-                if (e.detail?.source === 'ProjectManager' && pct > 0 && pct < 100) {
-                    setIsCreatingProject(true);
-                }
                 if (pct >= 100 || pct === 0) {
                     hideProgressTimeoutRef.current = window.setTimeout(() => {
                         setProgress(0);
-                        setIsCreatingProject(false);
-                        setIsCliModalOpen(false);
                     }, 3000);
                 }
             }
         };
 
-        const handleCliState = (e: any) => {
-            if (!e.detail) return;
-            const isWaiting = Boolean(e.detail.waiting_input);
-            setIsCliModalOpen(isWaiting);
-            setCliPromptText(e.detail.prompt || '');
-        };
-
         window.addEventListener('service_status_changed', handleStatus);
         window.addEventListener('vylo_progress', handleProg);
-        window.addEventListener('vylo_cli_state', handleCliState);
         return () => {
             window.removeEventListener('service_status_changed', handleStatus);
             window.removeEventListener('vylo_progress', handleProg);
-            window.removeEventListener('vylo_cli_state', handleCliState);
             if (hideProgressTimeoutRef.current) window.clearTimeout(hideProgressTimeoutRef.current);
         };
     }, []);
@@ -440,37 +288,9 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
         setIsOptionsOpen(false);
     }, []);
 
-    const openNewProjectModal = useCallback(() => {
-        setIsNewProjectModalOpen(true);
-    }, []);
-
-    const closeNewProjectModal = useCallback(() => {
-        setIsNewProjectModalOpen(false);
-    }, []);
-
-    const openProjectSettingsModal = useCallback((projectId: string) => {
-        setSelectedProjectId(projectId);
-        setIsProjectSettingsOpen(true);
-    }, []);
-
-    const closeProjectSettingsModal = useCallback(() => {
-        if (!isUpdatingProject) setIsProjectSettingsOpen(false);
-    }, [isUpdatingProject]);
-
-    const openDeleteConfirmModal = useCallback((projectId: string) => {
-        setSelectedProjectId(projectId);
-        setIsDeleteFiles(false);
-        setIsDeleteConfirmOpen(true);
-    }, []);
-
-    const closeDeleteConfirmModal = useCallback(() => {
-        if (!isDeletingProject) setIsDeleteConfirmOpen(false);
-    }, [isDeletingProject]);
-
     const restoreProgressWidget = useCallback(() => {
         if (isInstalling) setIsInstallServerOpen(true);
-        if (isCreatingProject) setIsNewProjectModalOpen(true);
-    }, [isInstalling, isCreatingProject]);
+    }, [isInstalling]);
 
     const handleInstallApache = useCallback(async () => {
         if (!installVersion || !installUrl) return;
@@ -589,50 +409,27 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
         setInstallUrl,
         setHttpPort,
         setHttpsPort,
-        projects,
-        isFetchingProjects,
-        selectedProjectId,
-        selectedProject,
-        isCreatingProject,
-        isUpdatingProject,
-        isDeletingProject,
-        isDeleteFiles,
-        setIsDeleteFiles,
         isOptionsOpen,
-        isNewProjectModalOpen,
-        isProjectSettingsOpen,
-        isDeleteConfirmOpen,
-        isCliModalOpen,
-        cliPromptText,
         openInstallModal,
         closeInstallModal,
         openOptionsModal,
         closeOptionsModal,
-        openNewProjectModal,
-        closeNewProjectModal,
-        openProjectSettingsModal,
-        closeProjectSettingsModal,
-        openDeleteConfirmModal,
-        closeDeleteConfirmModal,
         restoreProgressWidget,
-        projectFormRef,
-        projectSettingsRef,
         fetchApacheStatus,
-        fetchProjects,
         fetchAvailableVersions,
         handleToggleServer,
         handleInstallApache,
         handleUpdateApacheClick,
         handleUninstall,
-        handleCreateSubmit,
-        handleUpdateProjectSubmit,
-        handleDeleteProjectSubmit,
-        handleSyncHost,
-        handleOpenBrowser,
-        handleOpenDocumentRoot,
+        portsStatus,
         openConfigFile,
         openDirectory,
-        confirmCancelProjectInstall,
+        openLocalhost,
+        openHtdocs,
+        openConfDir,
+        openLogsDir,
+        openHttpdConf,
+        openVhostsConf,
     }), [
         isFetchingApacheStatus,
         isApacheInstalled,
@@ -641,6 +438,7 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
         apachePath,
         isApacheRunning,
         isTogglingServer,
+        portsStatus,
         isInstallServerOpen,
         availableVersions,
         isFetchingVersions,
@@ -651,47 +449,26 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
         isInstalling,
         progress,
         progressText,
-        projects,
-        isFetchingProjects,
-        selectedProjectId,
-        selectedProject,
-        isCreatingProject,
-        isUpdatingProject,
-        isDeletingProject,
-        isDeleteFiles,
         isOptionsOpen,
-        isNewProjectModalOpen,
-        isProjectSettingsOpen,
-        isDeleteConfirmOpen,
-        isCliModalOpen,
-        cliPromptText,
         openInstallModal,
         closeInstallModal,
         openOptionsModal,
         closeOptionsModal,
-        openNewProjectModal,
-        closeNewProjectModal,
-        openProjectSettingsModal,
-        closeProjectSettingsModal,
-        openDeleteConfirmModal,
-        closeDeleteConfirmModal,
         restoreProgressWidget,
         fetchApacheStatus,
-        fetchProjects,
         fetchAvailableVersions,
         handleToggleServer,
         handleInstallApache,
         handleUpdateApacheClick,
         handleUninstall,
-        handleCreateSubmit,
-        handleUpdateProjectSubmit,
-        handleDeleteProjectSubmit,
-        handleSyncHost,
-        handleOpenBrowser,
-        handleOpenDocumentRoot,
         openConfigFile,
         openDirectory,
-        confirmCancelProjectInstall,
+        openLocalhost,
+        openHtdocs,
+        openConfDir,
+        openLogsDir,
+        openHttpdConf,
+        openVhostsConf,
     ]);
 
     return <ApacheContext.Provider value={value}>{children}</ApacheContext.Provider>;

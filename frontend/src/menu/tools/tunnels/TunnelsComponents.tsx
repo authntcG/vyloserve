@@ -1,8 +1,11 @@
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import Card from '../../../components/Card';
 import EmptyState from '../../../components/EmptyState';
 import SkeletonCard from '../../../components/skeleton/SkeletonCard';
-import ProjectDropdown from './ProjectDropdown';
+import Button from '../../../components/Button';
+import InstalledBadge from '../../../components/InstalledBadge';
+import Select from '../../../components/Select';
 import {
     type ShareMode,
     type ZrokStatus,
@@ -49,16 +52,16 @@ export function TunnelOverviewCard({
                             <button
                                 type="button"
                                 onClick={onUpdate}
-                                className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
+                                className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-primary hover:bg-primary/10 transition-colors"
                             >
-                                <span className="material-symbols-outlined text-[16px] text-blue-500 shrink-0">upgrade</span>
+                                <span className="material-symbols-outlined text-[16px] text-primary shrink-0">upgrade</span>
                                 <span className="truncate">{t('ui.update.update_to_target', { version: updateAvailable })}</span>
                             </button>
                         )}
                         <button
                             type="button"
                             onClick={onUninstall}
-                            className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
+                            className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                         >
                             <span className="material-symbols-outlined text-[16px] text-red-500 shrink-0">delete</span>
                             <span className="truncate">{t('common.uninstall')}</span>
@@ -73,13 +76,13 @@ export function TunnelOverviewCard({
                     <span className="text-sm text-slate-500 dark:text-slate-400">{description}</span>
                 </div>
                 {installed && (
-                    <button
-                        type="button"
+                    <Button
+                        variant="secondary"
+                        size="sm"
                         onClick={onManage}
-                        className="px-4 py-2 text-sm bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg transition-colors text-slate-700 dark:text-slate-300 font-medium"
                     >
                         {t('common.manage')}
-                    </button>
+                    </Button>
                 )}
             </div>
         </Card>
@@ -97,29 +100,19 @@ export function InstallHeaderButton({
     readonly label: string;
     readonly onClick: () => void;
 }) {
-    const { t } = useTranslation();
     if (installed) {
-        return (
-            <button
-                type="button"
-                disabled
-                className="text-white text-sm font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2 shadow-sm bg-emerald-500 opacity-80 cursor-default"
-            >
-                <span className="material-symbols-outlined text-[18px]">check_circle</span>
-                {t('common.installed') || 'Installed'}
-            </button>
-        );
+        return <InstalledBadge />;
     }
     return (
-        <button
-            type="button"
+        <Button
+            variant="primary"
+            icon="download"
             onClick={onClick}
             disabled={isLoading}
-            className="text-white text-sm font-medium py-2 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-sm bg-primary hover:bg-primary/90 border border-transparent"
+            className="whitespace-nowrap shrink-0 shadow-sm"
         >
-            <span className="material-symbols-outlined text-[18px]">download</span>
             {label}
-        </button>
+        </Button>
     );
 }
 
@@ -172,16 +165,16 @@ export function EngineCard({
                         <button
                             type="button"
                             onClick={onUpdate}
-                            className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
+                            className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-primary hover:bg-primary/10 transition-colors"
                         >
-                            <span className="material-symbols-outlined text-[16px] text-blue-500 shrink-0">upgrade</span>
+                            <span className="material-symbols-outlined text-[16px] text-primary shrink-0">upgrade</span>
                             <span className="truncate">{t('ui.update.update_to_target', { version: updateAvailable })}</span>
                         </button>
                     )}
                     <button
                         type="button"
                         onClick={onUninstall}
-                        className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
+                        className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                     >
                         <span className="material-symbols-outlined text-[16px] text-red-500 shrink-0">delete</span>
                         <span className="truncate">{uninstallText}</span>
@@ -221,17 +214,17 @@ export function ZrokEnableForm({ token, isEnabling, onTokenChange, onEnable }: E
                         value={token}
                         onChange={(e) => onTokenChange(e.target.value)}
                         placeholder={t('tools.zrok.token_placeholder')}
-                        className="w-full px-4 py-2 border rounded-lg dark:bg-slate-800 dark:border-slate-700 focus:ring-2 focus:ring-blue-500 outline-none text-slate-700 dark:text-slate-200 bg-white"
+                        className="w-full px-4 py-2 border rounded-lg dark:bg-slate-800 dark:border-slate-700 focus:ring-2 focus:ring-primary focus:border-primary outline-none text-slate-700 dark:text-slate-200 bg-white"
                     />
                 </div>
-                <button
-                    type="button"
+                <Button
+                    variant="primary"
                     onClick={onEnable}
                     disabled={isEnabling || !token.trim()}
-                    className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                    loading={isEnabling}
                 >
                     {t('common.enable')}
-                </button>
+                </Button>
             </div>
         </div>
     );
@@ -267,13 +260,13 @@ export function ZrokAccountCard({ status, token, isEnabling, onTokenChange, onEn
             gridCols="grid-cols-1"
             footerActions={
                 status.enabled ? (
-                    <button
-                        type="button"
+                    <Button
+                        variant="danger-ghost"
+                        size="sm"
                         onClick={onDisable}
-                        className="text-sm text-red-600 hover:text-red-700 font-medium px-4 py-2"
                     >
                         {t('tools.zrok.disable_account')}
-                    </button>
+                    </Button>
                 ) : null
             }
         >
@@ -298,14 +291,14 @@ export function ShareModeButton({
     readonly onClick: () => void;
 }) {
     const stateClass = active
-        ? 'bg-white dark:bg-slate-700 shadow-sm text-primary dark:text-white'
+        ? 'bg-white dark:bg-slate-700 shadow-xs text-primary font-semibold'
         : 'text-slate-500 hover:text-slate-700 dark:text-slate-400';
     return (
         <button
             type="button"
             disabled={disabled}
             onClick={onClick}
-            className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all duration-200 outline-none ${stateClass}`}
+            className={`flex-1 py-2 text-sm rounded-md transition-all duration-200 outline-none ${stateClass}`}
         >
             {label}
         </button>
@@ -318,7 +311,7 @@ export interface ShareTargetFieldProps {
     readonly selectedProject: string;
     readonly customTarget: string;
     readonly isStarting: boolean;
-    readonly dropdown: any;
+    readonly dropdown?: any;
     readonly onSelectProject: (id: string) => void;
     readonly onCustomTargetChange: (value: string) => void;
 }
@@ -329,15 +322,17 @@ export function ShareTargetField({
     selectedProject,
     customTarget,
     isStarting,
-    dropdown,
     onSelectProject,
     onCustomTargetChange
 }: ShareTargetFieldProps) {
     const { t } = useTranslation();
     const isProjectMode = shareMode === 'project';
-    const toggleDropdown = () => {
-        if (projects.length > 0 && !isStarting) dropdown.setIsDropdownOpen(!dropdown.isDropdownOpen);
-    };
+    const projectOptions = useMemo(() => projects.map((p: any) => ({
+        value: p.id,
+        label: p.domain,
+        sublabel: p.name
+    })), [projects]);
+
     return (
         <div className="flex-1 flex flex-col gap-2">
             <label
@@ -347,18 +342,20 @@ export function ShareTargetField({
                 {isProjectMode ? t('tools.zrok.select_project') : t('tools.zrok.custom_target')}
             </label>
             {isProjectMode ? (
-                <ProjectDropdown
-                    projects={projects}
-                    selectedProject={selectedProject}
-                    isDropdownOpen={dropdown.isDropdownOpen}
-                    onToggleDropdown={toggleDropdown}
-                    searchQuery={dropdown.searchQuery}
-                    onSearchChange={dropdown.setSearchQuery}
-                    onSelectProject={onSelectProject}
-                    dropdownRef={dropdown.dropdownRef}
-                    searchInputRef={dropdown.searchInputRef}
-                    t={t}
-                    disabled={isStarting}
+                <Select
+                    id="project-select"
+                    options={projectOptions}
+                    value={selectedProject || null}
+                    onChange={onSelectProject}
+                    disabled={isStarting || projects.length === 0}
+                    placeholder={projects.length === 0 ? t('tools.zrok.no_projects') : t('tools.zrok.select_project')}
+                    searchable={true}
+                    searchPlaceholder={t('common.search')}
+                    emptyText={t('common.no_results')}
+                    filterFn={(option, query) => {
+                        const q = query.toLowerCase();
+                        return option.label.toLowerCase().includes(q) || (option.sublabel?.toLowerCase().includes(q) ?? false);
+                    }}
                 />
             ) : (
                 <input
@@ -367,7 +364,7 @@ export function ShareTargetField({
                     value={customTarget}
                     onChange={(e) => onCustomTargetChange(e.target.value)}
                     placeholder="localhost:3000"
-                    className="w-full px-4 py-2 border rounded-lg dark:bg-slate-800 dark:border-slate-700 focus:ring-2 focus:ring-blue-500 outline-none text-slate-700 dark:text-slate-200 bg-white"
+                    className="w-full px-4 py-2 border rounded-lg dark:bg-slate-800 dark:border-slate-700 focus:ring-2 focus:ring-primary focus:border-primary outline-none text-slate-700 dark:text-slate-200 bg-white"
                 />
             )}
         </div>
@@ -401,15 +398,15 @@ export function ShareCard(props: ShareCardProps) {
             </div>
             <div className="flex gap-4 items-end mt-2">
                 <ShareTargetField {...props} />
-                <button
-                    type="button"
+                <Button
+                    variant="primary"
                     onClick={onStartShare}
                     disabled={isStarting || !hasTarget}
-                    className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 h-10 flex items-center justify-center gap-2"
+                    loading={isStarting}
+                    className="h-10 flex items-center justify-center gap-2"
                 >
-                    {isStarting && <span className="material-symbols-outlined text-[18px] animate-spin">sync</span>}
                     {t('tools.zrok.start_share')}
-                </button>
+                </Button>
             </div>
         </Card>
     );
@@ -445,18 +442,18 @@ export function ActiveSharesCard({ shares, projects, onStop }: ActiveSharesCardP
                                         href={share.url}
                                         target="_blank"
                                         rel="noreferrer"
-                                        className="text-sm text-blue-600 hover:underline"
+                                        className="text-sm text-primary hover:underline"
                                     >
                                         {share.url}
                                     </a>
                                 </div>
-                                <button
-                                    type="button"
+                                <Button
+                                    variant="danger-ghost"
+                                    size="sm"
                                     onClick={() => onStop(share.id)}
-                                    className="bg-red-100 text-red-700 px-4 py-2 rounded-lg hover:bg-red-200 font-medium text-sm"
                                 >
                                     {t('tools.zrok.stop_share')}
-                                </button>
+                                </Button>
                             </div>
                         );
                     })}

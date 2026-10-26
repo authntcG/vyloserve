@@ -3,19 +3,19 @@ import { describe, it, expect, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { act, fireEvent, screen, waitFor } from '../../test-utils';
 import { mockPywebviewApi, renderWithToast } from '../../test-utils';
-import NewApacheProject, { type NewProjectRef } from '../../../src/menu/apache/NewProject';
+import NewProject, { type NewProjectRef } from '../../../src/menu/projects/NewProject';
 
 const phpVersions = [
     { name: 'PHP', version: '8.2', port: 9002 },
     { name: 'PHP', version: '8.3', port: 9003 },
 ];
 
-describe('NewApacheProject', () => {
+describe('NewProject', () => {
     it('defaults to fresh-install mode and slugifies the project name into the domain', async () => {
         const user = userEvent.setup();
         mockPywebviewApi({ get_installed_php: vi.fn().mockResolvedValue([]) });
         const ref = createRef<NewProjectRef>();
-        renderWithToast(<NewApacheProject ref={ref} />);
+        renderWithToast(<NewProject ref={ref} />);
 
         await user.type(screen.getByLabelText('apache.project_name'), 'My Cool App!');
         await user.click(screen.getByText('apache.advanced_settings'));
@@ -25,14 +25,14 @@ describe('NewApacheProject', () => {
 
     it('auto-selects the last installed PHP version once fetched', async () => {
         mockPywebviewApi({ get_installed_php: vi.fn().mockResolvedValue(phpVersions) });
-        renderWithToast(<NewApacheProject ref={createRef<NewProjectRef>()} />);
+        renderWithToast(<NewProject ref={createRef<NewProjectRef>()} />);
 
         expect(await screen.findByRole('button', { name: 'PHP (8.3)' })).toBeInTheDocument();
     });
 
     it('shows the "no PHP installed" option when there are no PHP versions', async () => {
         mockPywebviewApi({ get_installed_php: vi.fn().mockResolvedValue([]) });
-        renderWithToast(<NewApacheProject ref={createRef<NewProjectRef>()} />);
+        renderWithToast(<NewProject ref={createRef<NewProjectRef>()} />);
 
         expect(await screen.findByText('apache.no_php_installed_exc')).toBeInTheDocument();
     });
@@ -46,7 +46,7 @@ describe('NewApacheProject', () => {
             browse_directory: browseDirectory,
             save_app_settings: saveAppSettings,
         });
-        renderWithToast(<NewApacheProject ref={createRef<NewProjectRef>()} />);
+        renderWithToast(<NewProject ref={createRef<NewProjectRef>()} />);
         expect(screen.getByText('apache.workspace_required')).toBeInTheDocument();
 
         await user.click(screen.getAllByText('apache.browse')[0]);
@@ -61,7 +61,7 @@ describe('NewApacheProject', () => {
             get_installed_php: vi.fn().mockResolvedValue([]),
             get_app_settings: vi.fn().mockResolvedValue({ status: 'success', data: { default_apache_install_location: 'C:/remembered' } }),
         });
-        renderWithToast(<NewApacheProject ref={createRef<NewProjectRef>()} />);
+        renderWithToast(<NewProject ref={createRef<NewProjectRef>()} />);
 
         expect(await screen.findByText('C:/remembered')).toBeInTheDocument();
     });
@@ -73,7 +73,7 @@ describe('NewApacheProject', () => {
             browse_directory: vi.fn().mockResolvedValue('C:/sites/my-app'),
             detect_framework: vi.fn().mockResolvedValue('laravel'),
         });
-        renderWithToast(<NewApacheProject ref={createRef<NewProjectRef>()} />);
+        renderWithToast(<NewProject ref={createRef<NewProjectRef>()} />);
         await user.click(screen.getByRole('button', { name: /apache.link_existing/ }));
 
         await user.click(screen.getByText('apache.browse'));
@@ -89,7 +89,7 @@ describe('NewApacheProject', () => {
             browse_directory: vi.fn().mockResolvedValue('C:/sites/blog'),
             detect_framework: vi.fn().mockResolvedValue('wordpress'),
         });
-        renderWithToast(<NewApacheProject ref={createRef<NewProjectRef>()} />);
+        renderWithToast(<NewProject ref={createRef<NewProjectRef>()} />);
         await user.click(screen.getByRole('button', { name: /apache.link_existing/ }));
 
         await user.click(screen.getByText('apache.browse'));
@@ -101,7 +101,7 @@ describe('NewApacheProject', () => {
         const create = vi.fn();
         mockPywebviewApi({ get_installed_php: vi.fn().mockResolvedValue([]), create_project: create });
         const ref = createRef<NewProjectRef>();
-        renderWithToast(<NewApacheProject ref={ref} />);
+        renderWithToast(<NewProject ref={ref} />);
 
         const result = await act(async () => ref.current!.submit());
 
@@ -115,7 +115,7 @@ describe('NewApacheProject', () => {
         const create = vi.fn();
         mockPywebviewApi({ get_installed_php: vi.fn().mockResolvedValue(phpVersions), create_project: create });
         const ref = createRef<NewProjectRef>();
-        renderWithToast(<NewApacheProject ref={ref} />);
+        renderWithToast(<NewProject ref={ref} />);
         await screen.findByRole('button', { name: 'PHP (8.3)' });
         await user.type(screen.getByLabelText('apache.project_name'), 'My App');
 
@@ -131,7 +131,7 @@ describe('NewApacheProject', () => {
         const create = vi.fn();
         mockPywebviewApi({ get_installed_php: vi.fn().mockResolvedValue(phpVersions), create_project: create });
         const ref = createRef<NewProjectRef>();
-        renderWithToast(<NewApacheProject ref={ref} />);
+        renderWithToast(<NewProject ref={ref} />);
         await screen.findByRole('button', { name: 'PHP (8.3)' });
         await user.type(screen.getByLabelText('apache.project_name'), 'My App');
         await user.click(screen.getByRole('button', { name: /apache.link_existing/ }));
@@ -150,7 +150,7 @@ describe('NewApacheProject', () => {
         const listener = vi.fn();
         window.addEventListener('project_list_updated', listener);
         const ref = createRef<NewProjectRef>();
-        renderWithToast(<NewApacheProject ref={ref} />);
+        renderWithToast(<NewProject ref={ref} />);
         await screen.findByRole('button', { name: 'PHP (8.3)' });
         await user.type(screen.getByLabelText('apache.project_name'), 'My App');
         await user.click(screen.getByText('apache.advanced_settings'));
@@ -175,7 +175,7 @@ describe('NewApacheProject', () => {
             create_project: vi.fn().mockResolvedValue({ status: 'error', message: 'apache.project_conflict', args: {} }),
         });
         const ref = createRef<NewProjectRef>();
-        renderWithToast(<NewApacheProject ref={ref} />);
+        renderWithToast(<NewProject ref={ref} />);
         await screen.findByRole('button', { name: 'PHP (8.3)' });
         await user.type(screen.getByLabelText('apache.project_name'), 'My App');
         await user.click(screen.getByText('apache.advanced_settings'));
@@ -194,7 +194,7 @@ describe('NewApacheProject', () => {
             create_project: vi.fn().mockRejectedValue(new Error('boom')),
         });
         const ref = createRef<NewProjectRef>();
-        renderWithToast(<NewApacheProject ref={ref} />);
+        renderWithToast(<NewProject ref={ref} />);
         await screen.findByRole('button', { name: 'PHP (8.3)' });
         await user.type(screen.getByLabelText('apache.project_name'), 'My App');
         await user.click(screen.getByText('apache.advanced_settings'));
@@ -213,7 +213,7 @@ describe('NewApacheProject', () => {
         });
         const user = userEvent.setup();
         const ref = createRef<NewProjectRef>();
-        renderWithToast(<NewApacheProject ref={ref} />);
+        renderWithToast(<NewProject ref={ref} />);
         await screen.findByRole('button', { name: 'PHP (8.3)' });
         await user.type(screen.getByLabelText('apache.project_name'), 'My App');
         await user.click(screen.getByText('apache.advanced_settings'));
@@ -233,7 +233,7 @@ describe('NewApacheProject', () => {
 
     it('lets the user type the workspace location directly on the fresh-install field', async () => {
         mockPywebviewApi({ get_installed_php: vi.fn().mockResolvedValue([]) });
-        renderWithToast(<NewApacheProject ref={createRef<NewProjectRef>()} />);
+        renderWithToast(<NewProject ref={createRef<NewProjectRef>()} />);
 
         // Single atomic change: once installLocation is non-empty, the component swaps this
         // input for a read-only "confirmed workspace" label, so per-keystroke typing can't be used here.
@@ -245,7 +245,7 @@ describe('NewApacheProject', () => {
     it('lets the user type the project directory directly when linking an existing project', async () => {
         const user = userEvent.setup();
         mockPywebviewApi({ get_installed_php: vi.fn().mockResolvedValue([]) });
-        renderWithToast(<NewApacheProject ref={createRef<NewProjectRef>()} />);
+        renderWithToast(<NewProject ref={createRef<NewProjectRef>()} />);
         await user.click(screen.getByRole('button', { name: /apache.link_existing/ }));
 
         await user.type(screen.getByPlaceholderText('apache.placeholder_project_directory'), 'C:/typed-project');
@@ -256,7 +256,7 @@ describe('NewApacheProject', () => {
     it('changes the framework-to-install select', async () => {
         const user = userEvent.setup();
         mockPywebviewApi({ get_installed_php: vi.fn().mockResolvedValue([]) });
-        renderWithToast(<NewApacheProject ref={createRef<NewProjectRef>()} />);
+        renderWithToast(<NewProject ref={createRef<NewProjectRef>()} />);
 
         await user.click(screen.getByRole('button', { name: 'apache.framework_laravel' }));
         await user.click(screen.getByRole('option', { name: 'apache.framework_wordpress' }));
@@ -267,7 +267,7 @@ describe('NewApacheProject', () => {
     it('edits the domain name/extension, specific version, and environment fields in Advanced Settings', async () => {
         const user = userEvent.setup();
         mockPywebviewApi({ get_installed_php: vi.fn().mockResolvedValue([]) });
-        renderWithToast(<NewApacheProject ref={createRef<NewProjectRef>()} />);
+        renderWithToast(<NewProject ref={createRef<NewProjectRef>()} />);
         await user.click(screen.getByText('apache.advanced_settings'));
 
         await user.type(screen.getByDisplayValue('.test'), '2');
@@ -281,7 +281,7 @@ describe('NewApacheProject', () => {
 
     it('does not crash and leaves the PHP version list empty when fetching installed PHP versions throws', async () => {
         mockPywebviewApi({ get_installed_php: vi.fn().mockRejectedValue(new Error('boom')) });
-        renderWithToast(<NewApacheProject ref={createRef<NewProjectRef>()} />);
+        renderWithToast(<NewProject ref={createRef<NewProjectRef>()} />);
 
         expect(await screen.findByText('apache.no_php_installed_exc')).toBeInTheDocument();
     });
@@ -290,7 +290,7 @@ describe('NewApacheProject', () => {
         const user = userEvent.setup();
         const detectFramework = vi.fn();
         mockPywebviewApi({ get_installed_php: vi.fn().mockResolvedValue([]), browse_directory: vi.fn().mockResolvedValue(''), detect_framework: detectFramework });
-        renderWithToast(<NewApacheProject ref={createRef<NewProjectRef>()} />);
+        renderWithToast(<NewProject ref={createRef<NewProjectRef>()} />);
         await user.click(screen.getByRole('button', { name: /apache.link_existing/ }));
 
         await user.click(screen.getByText('apache.browse'));
@@ -322,7 +322,7 @@ describe('NewApacheProject', () => {
             create_project: create,
         });
         const ref = createRef<NewProjectRef>();
-        renderWithToast(<NewApacheProject ref={ref} />);
+        renderWithToast(<NewProject ref={ref} />);
         await screen.findByRole('button', { name: 'PHP (8.3)' });
 
         await user.click(screen.getByRole('button', { name: 'apache.php_engine' }));

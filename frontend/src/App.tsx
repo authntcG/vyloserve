@@ -9,6 +9,7 @@ import { ToastProvider } from './context/ToastContext';
 import { AlertProvider, useAlert, type AlertOptions } from './context/AlertContext';
 import DatabaseMain from './menu/database/Main';
 import DashboardMain from './menu/dashboard/Main';
+import ProjectsMain from './menu/projects/Main';
 import GlobalAppInterceptor from './components/AppInterceptor';
 import RuntimesMain from './menu/runtimes/Main';
 import GitMain from './menu/tools/git/Main';
@@ -20,8 +21,9 @@ import DocsReaderMain from './menu/tools/markdown-viewer/Main';
 import AiAssistantMain from './menu/tools/ai-assistant/Main';
 import TerminalMain from './menu/tools/terminal/Main';
 import AiFloatingWidget from './menu/tools/ai-assistant/components/AiFloatingWidget';
+import AiSettingsModal from './menu/tools/ai-assistant/components/AiSettingsModal';
 import { AiProvider, useAiAssistant } from './context/AiContext';
-import { applyTheme } from './utils/theme';
+import { applyTheme, getCachedTheme } from './utils/theme';
 import AppSkeletonLayout from './components/skeleton/AppSkeletonLayout';
 import i18n from './i18n';
 
@@ -88,9 +90,17 @@ function AppContent() {
     };
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('vylo_open_terminal_project', handleOpenProjectTerminal);
+    const handleNavigateMenu = (e: Event) => {
+      const customEvent = e as CustomEvent<{ menu: string }>;
+      if (customEvent.detail?.menu) {
+        setActiveMenu(customEvent.detail.menu);
+      }
+    };
+    window.addEventListener('vylo_navigate_menu', handleNavigateMenu);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('vylo_open_terminal_project', handleOpenProjectTerminal);
+      window.removeEventListener('vylo_navigate_menu', handleNavigateMenu);
     };
   }, []);
 
@@ -107,7 +117,7 @@ function AppContent() {
                     if (res.data?.language) {
                         i18n.changeLanguage(res.data.language);
                     }
-                    const theme = res.data?.theme || 'vyloserve-dark';
+                    const theme = res.data?.theme || getCachedTheme();
                     applyTheme(theme);
 
                     // Broadcast ke ToastProvider (ToastContext.tsx) -- provider itu SENGAJA
@@ -192,6 +202,7 @@ function AppContent() {
           {/* ---> FIX: Ganti Kondisional Render dengan CSS Hiding <--- */}
           <div className={`flex-1 min-h-0 px-4 py-6 md:px-8 md:py-8 relative ${activeMenu === 'ai-assistant' || activeMenu === 'terminal' ? 'flex flex-col h-full overflow-hidden' : 'overflow-y-auto'}`}>
             <div className={activeMenu === 'dashboard' ? 'block' : 'hidden'}><DashboardMain /></div>
+            <div className={activeMenu === 'projects' ? 'block' : 'hidden'}><ProjectsMain /></div>
             <div className={activeMenu === 'apache' ? 'block' : 'hidden'}><ApacheMain /></div>
             <div className={activeMenu === 'php' ? 'block' : 'hidden'}><PhpMain /></div>
             <div className={activeMenu === 'database' ? 'block' : 'hidden'}><DatabaseMain /></div>
@@ -214,7 +225,8 @@ function AppContent() {
 
       <AiFloatingWidget
         activeScreen={activeMenu}
-        onOpenFullPage={() => setActiveMenu('ai-assistant')}
+        onOpenFullPage={() => setActiveMenu('ai-assistant')} />
+      <AiSettingsModal
       />
     </div>
   );

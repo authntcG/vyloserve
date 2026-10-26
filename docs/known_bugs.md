@@ -750,3 +750,270 @@ Google telah menghentikan akses (*deprecated / sunset*) ke model `gemini-2.0-fla
      Menambahkan pencatatan token (*prompt*, *completion*, *total*) dan jumlah request per provider di `core/services/ai_assistant.py` (dengan ekstraksi `usageMetadata` Gemini, `x-ratelimit-*` headers Groq, `/api/v1/auth/key` OpenRouter, dan `eval_count` Ollama, serta estimasi fallback `len(text) // 4`) yang disimpan secara persisten di `data/ai_usage.json`. Menampilkan lencana & popover `AiUsageBadge` di header chat dengan statistik harian, akumulasi 7 hari terakhir, sisa limit real-time provider, dan tombol reset.
   4. **Chip Rekomendasi Pertanyaan Lanjutan (`AiSuggestionChips.tsx`):**
      Memperbarui *system prompt* di `core/services/ai_assistant.py` agar menyertakan blok ```` ```vylo_suggestions ```` berisi 2–3 pertanyaan lanjutan kontekstual di akhir respons. `AiContext.tsx` mengekstrak dan menyembunyikan blok tersebut dari teks gelembung chat utama, lalu merendernya melalui `AiSuggestionChips` tepat di atas kolom input dengan aksi klik-kirim langsung atau klik-edit ke kolom input.
+
+---
+
+## 66. Developer Terminal: Integrasi Backend Subprocess/PTY Bridge, Multi-Tab Streaming xterm.js, & Deteksi CWD Real-Time — SELESAI
+- **Lokasi:**
+  - `core/services/terminal.py` & `core/api.py`
+  - `frontend/src/menu/tools/terminal/Main.tsx`
+  - `frontend/src/menu/tools/terminal/components/TerminalInstance.tsx`
+  - `frontend/src/menu/tools/terminal/components/TerminalTabBar.tsx`
+- **Masalah:**
+  Sebelumnya, VyloServe tidak memiliki terminal pengembang terintegrasi mandiri dan mengandalkan command prompt eksternal Windows yang tidak mewarisi konfigurasi biner runtime portable aplikasi. Selain itu, eksekusi subprocess shell interaktif di Windows sering kali menghadapi buffer blocking dan ketidakmampuan melacak direktori kerja aktif (*Current Working Directory* / CWD) secara dinamis.
+- **Solusi:**
+  1. **Backend Terminal Manager & Reader Threads (`core/services/terminal.py`):**
+     Membangun `TerminalManager` dengan arsitektur multi-sesi independen. Setiap sesi shell diluncurkan via `subprocess.Popen(stdin=PIPE, stdout=PIPE, stderr=STDOUT, bufsize=0)` dengan background thread `_reader_thread_func()` yang terus membaca output dan menembakkannya secara real-time via `api.emit_terminal_output(session_id, data)`.
+  2. **Pelacakan CWD Real-Time:**
+     Mengimplementasikan `get_session_cwd(session_id)` yang memadukan inspeksi handle proses Win32 dan parsing konsol prompt terakhir, memungkinkan tab UI secara otomatis menyelaraskan label direktori aktif saat developer berpindah folder via perintah `cd`.
+  3. **Multi-Tab xterm.js UI:**
+     Menerapkan antarmuka multi-tab berbasis `xterm.js` dengan penanganan keyboard shortcut (`Ctrl+C`, `Ctrl+V`, shortcut tambah tab `+`, tutup tab `x`, dan tombol pembersihan konsol).
+
+---
+
+## 67. Developer Terminal: Kustomisasi Tampilan/Perilaku, Presets & Environment Scoping Modal — SELESAI
+- **Lokasi:**
+  - `frontend/src/menu/tools/terminal/components/TerminalSettingsModal.tsx`
+  - `frontend/src/menu/tools/terminal/components/TerminalPresetsMenu.tsx`
+  - `frontend/src/menu/tools/terminal/components/TerminalSavePresetModal.tsx`
+  - `frontend/src/menu/tools/terminal/components/TerminalEnvModal.tsx`
+  - `core/services/terminal.py`
+- **Masalah:**
+  Pengembang membutuhkan kemampuan menjalankan sesi shell dengan versi bahasa pemrograman tertentu (misal: sesi A membutuhkan Node.js v20, sesi B membutuhkan Python 3.11 dan Go) tanpa mengubah variabel Windows User PATH global yang dapat merusak aplikasi lain di sistem.
+- **Solusi:**
+  1. **Environment Scoping (`_build_session_env`):**
+     Menambahkan metode penyuntikan direktori bin runtime tertentu ke variabel `PATH` lokal sesi terminal tanpa pernah menyentuh registry Windows (`HKCU\Environment\Path`).
+  2. **Saved Presets & Workspaces:**
+     Menyediakan penyimpanan konfigurasi stack favorit pengguna ke `data/terminal_presets.json` dan pemulihan sesi aktif di `data/terminal_sessions.json`.
+  3. **Pengaturan Tampilan & Perilaku Konsol (`TerminalSettingsModal.tsx`):**
+     Menyediakan kustomisasi font family, font size, kursor (`block`, `underline`, `bar`, serta animasi blink), ukuran buffer scrollback, dan opsi *copy on select* yang disimpan persisten di `data/terminal_config.json`.
+
+---
+
+## 68. Migrasi Projects Hub Mandiri, Scaffolding 5 Runtime, Dev Server Management & Modal CLI PTY — SELESAI
+- **Lokasi:**
+  - `frontend/src/menu/projects/` (`Main.tsx`, `ProjectsTable.tsx`, `ProjectCards.tsx`, `NewProjectModal.tsx`, `ProjectSettingsModal.tsx`, `ProjectCliInstallModal.tsx`)
+  - `frontend/src/context/ProjectContext.tsx`
+  - `core/services/project.py` & `core/api.py`
+- **Masalah:**
+  Manajemen proyek sebelumnya tergabung di dalam modul Apache dan hanya mendukung proyek berbasis PHP/Composer. Framework modern (Next.js, Vite/React, Express, FastAPI, Django, Gin, Spring Boot) yang memerlukan server pengembangan tersendiri (*dev server*) dan tanya-jawab CLI interaktif saat instalasi tidak dapat ditangani.
+- **Solusi:**
+  1. **Pemisahan Modul Mandiri:**
+     Membuat menu tingkat atas **Projects Hub** di navigasi utama dengan dukungan tampilan ganda (`ProjectsTable.tsx` dan `ProjectCards.tsx`).
+  2. **Dukungan Scaffolding Multi-Runtime:**
+     Menambahkan pembuatan proyek otomatis untuk 5 engine runtime: PHP, Node.js, Python, Go, dan Java.
+  3. **Dev Server Process Manager & Live Logs:**
+     Menyediakan API `start_project_server`, `stop_project_server`, dan `get_project_server_logs` yang mengontrol proses server dev latar belakang secara mandiri dan mengalirkan log ke `data/logs/projects/<project_id>.log`.
+  4. **Reverse Proxy VHost Otomatis:**
+     Men-generate virtual host Apache dengan konfigurasi `ProxyPass` dan tunneling WebSocket (`ws://` / `wss://`) untuk mendukung HMR.
+  5. **Modal Terminal CLI Interaktif (`ProjectCliInstallModal.tsx`):**
+     Menyediakan jembatan bidirectional PTY (`send_project_cli_input`, `resize_project_cli`, `cancel_project_install`) dengan deteksi prompt otomatis sehingga CLI framework tidak pernah terblokir diam-diam.
+
+---
+
+## 69. Penyelarasan Modul Tunnels: Dual View Mode & Searchable Project Selector — SELESAI
+- **Lokasi:**
+  - `frontend/src/menu/tools/tunnels/Main.tsx`
+  - `frontend/src/menu/tools/tunnels/TunnelsComponents.tsx`
+- **Masalah:**
+  Modul Tunnels sebelumnya hanya memiliki tampilan kartu dengan dropdown statis yang sulit dinavigasi ketika pengguna memiliki banyak proyek terdaftar, serta belum selaras dengan standar densitas tabel di modul lain.
+- **Solusi:**
+  Menerapkan `<ViewModeToggle>` (Card View & Table View) dengan `<DataTable>`, serta mengintegrasikan pemilih proyek pencarian instan (*searchable project selector*) lengkap dengan status zero-state hint saat pencarian tidak menemukan hasil.
+
+---
+
+## 70. Arsitektur Multi-Versi Runtimes: Konkurensi Per-Engine & Portable Go Unpacking — SELESAI
+- **Lokasi:**
+  - `core/services/runtimes_manager.py`
+  - `frontend/src/menu/runtimes/`
+- **Masalah:**
+  Modul Runtimes sebelumnya hanya mengizinkan 1 versi per engine (menimpa instalasi lama saat versi baru diinstal). Selain itu, ekstraksi biner Go versi Google sering kali menyisakan subdirektori root `go/` yang merusak struktur direktori bin.
+- **Solusi:**
+  1. Mengubah struktur penyimpanan menjadi `bin/runtimes/<engine>/<version>/` sehingga pengguna dapat menginstal banyak versi Node.js, Python, Java, dan Go secara berdampingan.
+  2. Menambahkan metode `get_installed_engine_versions`, `get_engine_versions`, `set_active_version`, `deactivate_active_version`, dan `uninstall_engine_version`.
+  3. Menyempurnakan penanganan ekstraksi arsip Go portable agar folder root `go/` otomatis diekstrak langsung ke folder target versi.
+
+---
+
+## 71. Centralized `RuntimePathHub`: Orkestrasi PATH & 100% Simetri Kartu Versi — SELESAI
+- **Lokasi:**
+  - `frontend/src/menu/runtimes/RuntimePathHub.tsx`
+  - `frontend/src/menu/runtimes/RuntimeEnginePanel.tsx`
+  - `frontend/src/menu/runtimes/RuntimeTable.tsx`
+- **Masalah:**
+  Pada implementasi awal multi-versi, kontrol registrasi PATH dan tombol "Set as Active" tersebar di bagian bawah masing-masing kartu versi lokal. Ini memicu asimetri visual yang membingungkan: kartu versi aktif memiliki toggle PATH, sedangkan kartu versi lain memiliki tombol teks "Set as Active", serta tata letak kartu menjadi tidak konsisten.
+- **Solusi:**
+  1. **Pemisahan Level 1 & Level 2 UX:**
+     Mengekstrak kontrol registrasi PATH dan pemilihan versi aktif ke komponen terpusat **`RuntimePathHub`** di bagian atas halaman (berlaku seragam untuk Card View maupun Table View).
+  2. **100% Simetri Kartu Versi:**
+     Seluruh kartu versi lokal kini memiliki struktur visual identik: badge status, detail versi/subtools/path, dan footer standar yang hanya berisi dua tombol aksi primer: `[ Buka Folder ]` dan `[ Buka di Terminal ]`. Aksi mutasi (*Set as Active*, *Deactivate*, *Update*, *Uninstall*) dipindahkan secara teratur ke dropdown menu tiga titik.
+
+---
+
+## 72. Integrasi In-Card Contextual Native OS Alert & Eliminasi Warning Banner Redundan — SELESAI
+- **Lokasi:**
+  - `frontend/src/menu/runtimes/RuntimePathHub.tsx`
+  - `frontend/src/menu/runtimes/RuntimeEnginePanel.tsx`
+- **Masalah:**
+  Ketika runtime native OS terdeteksi, aplikasi merender banner peringatan kuning terpisah (`ExternalWarningBanner`) yang menumpuk di atas konten dan memicu kelelahan visual (*warning fatigue*).
+- **Solusi:**
+  Menghapus `ExternalWarningBanner` terpisah dan mengintegrasikan callout peringatan amber kontekstual langsung di dalam kartu **`RuntimePathHub`** (`data-testid="path-hub-external-alert"`). Menampilkan versi native terdeteksi, path biner di Windows, dan penjelasan penguncian toggle PATH secara transparan dan terpadu.
+
+---
+
+## 73. Pencemaran Registry Windows Pengembang oleh Pytest & Permanent Autouse Winreg Guard — SELESAI
+- **Lokasi:**
+  - `tests/conftest.py`
+  - `tests/test_services/test_runtimes_manager.py`
+  - `tests/test_services/test_service_lifecycles.py`
+  - `tests/test_services/test_php.py`
+- **Masalah:**
+  Ditemukan 9 entri path pengujian unit sementara (seperti `...\pytest-of-Lenovo\pytest-1390\test_install_go_latest0\...`) tersimpan di dalam registry pengguna fisik Windows (`HKCU\Environment\Path`). Hal ini terjadi karena beberapa test service (`install_go`, `start_php`) memanggil fungsi yang memodifikasi registry tanpa melakukan mock terhadap operasi `winreg.SetValueEx`.
+- **Solusi:**
+  1. Membersihkan seluruh path residu `pytest-` dari `HKCU\Environment\Path` menggunakan skrip Python langsung dan mem-broadcast `WM_SETTINGCHANGE`.
+  2. Menambahkan fixture autouse permanen `guard_registry_and_env(monkeypatch)` di `tests/conftest.py` yang mencegat setiap pemanggilan `winreg.SetValueEx`, `winreg.DeleteValue`, dan `winreg.DeleteKey` selama eksekusi test runner, sehingga tidak ada pengujian unit baru apa pun yang dapat memodifikasi registry Windows pengembang.
+  3. Memperbaiki mock eksplisit pada `test_runtimes_manager.py`, `test_service_lifecycles.py`, dan `test_php.py`.
+
+---
+
+## 74. Penyelarasan Modul Git: Status Badge Adaptif & In-Card Alert Box Kontekstual — SELESAI
+- **Lokasi:**
+  - `frontend/src/menu/tools/git/GitComponents.tsx`
+  - `frontend/src/locales/en/translation.json` & `frontend/src/locales/id/translation.json`
+  - `frontend/tests/menu/tools/git/Main.test.tsx`
+- **Masalah:**
+  Tampilan kartu Git Core System sebelumnya menggunakan info box kuning yang memotong konten di atas detail versi biner dan belum selaras dengan pola in-card alert dan status badge adaptif yang telah diadopsi oleh modul Runtimes.
+- **Solusi:**
+  1. Menyelaraskan status badge kartu: menampilkan `Native OS` (`amber`) saat Git terpasang di level OS, `PATH Active` (`emerald`) saat aktif di registry, dan `Isolated` (`primary`) saat berjalan terisolasi.
+  2. Menghapus info box lama dan menambahkan in-card alert box terpadu (`data-testid="git-external-alert"`) di bawah toggle registrasi PATH, menampilkan versi Git native, direktori biner, serta alasan penguncian toggle.
+  3. Menonaktifkan toggle PATH secara visual dan fungsional saat instalasi native terdeteksi dengan subteks deskripsi pelindung (`tools.git.external_locked`).
+  4. Menambahkan translation key `tools.git.external_overview_title` dan `tools.git.external_overview_desc` di kedua file locale.
+
+---
+
+## 75. Flash of Incorrect Theme (FOIT) & Glitch Transisi Tema Saat Restart Aplikasi (WebView2 Private Mode & Skeleton Loading) — SELESAI
+- **Lokasi:**
+  - `frontend/index.html`
+  - `frontend/public/vylo-theme.js` & `frontend/dist/vylo-theme.js`
+  - `frontend/src/utils/theme.ts`
+  - `frontend/src/main.tsx`
+  - `frontend/src/App.tsx`
+  - `frontend/src/menu/tools/settings/SettingsModals.tsx`
+  - `core/utils/system_utils.py`
+  - `core/api.py`
+  - `main.py`
+  - `frontend/tests/utils/theme.test.ts`
+  - `tests/test_main.py`
+  - `tests/test_utils/test_system_utils.py`
+- **Masalah:**
+  Setelah pengguna memilih tema baru (misal: *Gruvbox Dark*, *Tokyo Night*, *Catppuccin*, *XP Luna*, *Darcula*, dll) dan menutup aplikasi, saat aplikasi dibuka kembali (baik dari terminal `python main.py` maupun shortcut desktop), warna komponen skeleton loading (`AppSkeletonLayout`) masih menggunakan palet tema default (`vyloserve-dark`), baru kemudian melompat ke warna tema pilihan setelah antarmuka selesai dimuat. Akar masalah terjadi secara bertingkat:
+  1. **WebView2 InPrivate Mode Purge:** `pywebview.start` secara default berjalan dengan `private_mode=True`. Pada backend `edgechromium`, ini mengaktifkan `IsInPrivateModeEnabled=True` pada WebView2 dan membuat direktori cache sementara yang otomatis dimusnahkan saat aplikasi ditutup. Akibatnya, `localStorage` selalu terhapus setiap kali aplikasi ditutup, sehingga `localStorage.getItem('vylo_theme')` selalu mengembalikan `null` saat aplikasi baru dinyalakan.
+  2. **Jeda Asinkron IPC vs First Contentful Paint (FCP):** Tanpa cache instan, frontend harus menunggu IPC asinkron `pywebview.api.get_app_settings()` dari backend Python untuk mengetahui tema terpilih. Selama jeda rendering awal, browser mengeksekusi `<AppSkeletonLayout>` dengan warna fallback `vyloserve-dark`.
+- **Solusi:**
+  1. **Persistensi WebView2 UserDataFolder di `main.py`:** Mematikan mode InPrivate (`private_mode=False`) dan menentukan direktori penyimpanan persisten (`storage_path=os.path.join(get_project_root(), 'data', 'webview')`). Hal ini menjamin `localStorage`, cookies, dan cache WebView2 tersimpan permanen lintas restart aplikasi.
+  2. **Dual-Layer Bootstrap File (`vylo-theme.js`):** Menambahkan fungsi `sync_theme_bootstrap_file(theme)` di `core/utils/system_utils.py` yang menuliskan `window.__VYLO_INITIAL_THEME__ = "<theme>";` secara langsung ke file statis `frontend/public/vylo-theme.js` dan `frontend/dist/vylo-theme.js`. Fungsi ini dipanggil di dua titik krusial:
+     - Saat user mengganti tema (`api.save_app_settings` di `core/api.py`).
+     - Saat aplikasi pertama kali di-boot di `main.py` sebelum jendela `webview.create_window` dibuat.
+  3. **Pemuatan Sinkron di `<head>` `index.html`:** Memuat `<script src="./vylo-theme.js"></script>` secara sinkron di `<head>`. Skrip inline di `<head>` kemudian memprioritaskan `window.__VYLO_INITIAL_THEME__` disusul `localStorage.getItem('vylo_theme')`, lalu menetapkan atribut `document.documentElement.dataset.theme` dan toggle kelas `dark` pada 0 milidetik sebelum DOM mulai diparsing.
+  4. **Frontend Theme Pre-Mount di `theme.ts` & `main.tsx`:** Mengoptimalkan `getCachedTheme()` untuk membaca `window.__VYLO_INITIAL_THEME__` sebelum `localStorage`, serta mengeksekusi `applyTheme(getCachedTheme())` sebelum React me-mount komponen root di `main.tsx`.
+  5. **Window Background & Titlebar Synchronization di `main.py`:** Mengimplementasikan helper `get_saved_theme()` dan `get_theme_bg_color()` di `main.py` yang membaca `data/settings.json` secara sinkron agar jendela native OS memiliki background awal yang tepat (termasuk `#f4f2e8` untuk *XP Luna Light*).
+  6. **Unit Tests Komprehensif:** Menambahkan pengujian di `theme.test.ts` (verifikasi window state priority, fallback, dan error tolerance), `test_system_utils.py` (verifikasi penulisan target file bootstrap), dan `test_main.py` (verifikasi `get_saved_theme`, sinkronisasi tema saat boot, serta argumen `private_mode=False` dan `storage_path` pada `webview.start`).
+
+---
+
+## 76. Celah Keamanan Path Traversal pada Markdown Viewer Service & Standarisasi UI/UX Seluruh Modul Utilitas — SELESAI
+- **Lokasi:**
+  - `core/services/markdown_viewer.py`
+  - `frontend/src/menu/tools/markdown-viewer/Main.tsx`
+  - `frontend/src/menu/tools/markdown-viewer/FolderTreeView.tsx`
+  - `frontend/src/menu/tools/markdown-viewer/MarkdownRenderer.tsx`
+  - `frontend/src/menu/tools/qr-generator/Main.tsx`
+  - `frontend/src/menu/tools/base64-encode-decode/Main.tsx`
+  - `frontend/src/menu/tools/url-encode-decode/Main.tsx`
+  - `frontend/src/locales/en/translation.json` & `frontend/src/locales/id/translation.json`
+  - `tests/test_services/test_markdown_viewer.py`
+  - `frontend/tests/menu/tools/markdown-viewer/Main.test.tsx`
+  - `frontend/tests/menu/tools/qr-generator/Main.test.tsx`
+  - `frontend/tests/menu/tools/base64-encode-decode/Main.test.tsx`
+  - `frontend/tests/menu/tools/url-encode-decode/Main.test.tsx`
+- **Masalah:**
+  1. **Keamanan Backend (Path Traversal):** Metode `read_markdown_file` dan `get_local_media_base64` di `core/services/markdown_viewer.py` sebelumnya tidak memverifikasi apakah `file_path` yang diminta oleh frontend berada di dalam direktori dokumentasi root yang sedang dibuka (`current_root`). Eksploitasi path traversal (`../`) memungkinkan pembacaan berkas arbitrer di luar direktori dokumentasi (pelanggaran Aturan 12 `AGENTS.md`).
+  2. **Inkonsistensi UI/UX Antar Utilitas:** Empat modul utilitas (`qr-generator`, `base64-encode-decode`, `url-encode-decode`, `markdown-viewer`) memiliki tata letak yang sangat berbeda:
+     - QR Generator memakai dropdown untuk memilih tipe konten alih-alih tab/segmented control standar, tidak memiliki tombol salin gambar ke clipboard, tidak memiliki pemilih tingkat koreksi error (ECC), dan kontrol form belum mematuhi Aturan 6 (`htmlFor`/`id` association).
+     - Base64 belum mendukung URL-Safe encoding RFC 4648, line wrapping MIME, drag-and-drop file langsung ke textarea, dan unduh binary file.
+     - URL Encode/Decode tidak membedakan scope encoding (`encodeURI` vs `encodeURIComponent`), tidak mendukung mode spasi `%20` vs `+`, dan tidak memiliki editor parameter query dua arah (two-way interactive table).
+     - Markdown Viewer memiliki tombol light/dark lokal yang bentrok dengan 15 sistem tema global aplikasi, tidak memiliki pencarian pada pohon berkas (file tree search/filter), tidak memiliki ringkasan statistik baca (word count & reading time), serta tidak memiliki riwayat folder terakhir (recent folders).
+- **Solusi:**
+  1. **Path Traversal Protection di Backend:** Menambahkan validasi `self.current_root` dan metode `_is_safe_path(target_path)` pada `MarkdownViewerManager` menggunakan `os.path.commonpath([real_root, real_target]) == real_root`. Jika path di luar root diminta, kembalikan status error dengan translation key `backend.error.path_traversal`.
+  2. **Penyeragaman Tata Letak & Toolbar Standar:**
+     - Semua utilitas mengadopsi layout grid 12-kolom responsif (split 7:5 pada desktop) dan tab bar standar aplikasi `<Tabs>`.
+     - Toolbar kartu input terstandarisasi dengan tombol aksi cepat: *Sample* (`auto_fix_high`), *Paste* (`content_paste`), dan *Clear* (`clear`).
+     - Kartu output terstandarisasi dengan penghitung karakter/byte, pratinjau langsung, dan tombol aksi salin/unduh.
+  3. **Fitur Baru QR Code Generator:** Menambahkan tab segmented (URL, Teks, Wi-Fi, Email, vCard 3.0, SMS), pemilih Error Correction Level (ECC L/M/Q/H), salin gambar langsung ke Clipboard (`navigator.clipboard.write([new ClipboardItem(...)])`), preset contoh data, dan penyelarasan a11y label `htmlFor`/`id` 100%.
+  4. **Fitur Baru Base64:** Menambahkan mode URL-Safe RFC 4648 (`-`/`_`), pemformatan Line Wrapping (tanpa wrap, 64 karakter MIME, 76 karakter), unduh decoded binary file melalui bridge desktop `save_base64_file`, dan drag-and-drop berkas langsung ke textarea input.
+  5. **Fitur Baru URL Encode/Decode:** Menambahkan toggle Scope (`component` vs `full`), mode encoding spasi (`%20` vs `+`), dan Tabel Interaktif Parameter Query yang mendukung penambahan, pengeditan dua arah secara langsung (live URL sync), dan penghapusan parameter URL.
+  6. **Fitur Baru Markdown Viewer:** Sinkronisasi otomatis dengan 15 tema global melalui MutationObserver DOM, filter pencarian instan pada pohon berkas di `FolderTreeView`, ekstraksi Outline / Daftar Isi (TOC) dinamis dengan smooth scroll anchor jump, kartu riwayat folder terakhir (`localStorage`), serta statistik baca (kata dan estimasi menit membaca).
+  7. **Verifikasi Tes Menyeluruh:** Seluruh 215 tes vitest tools frontend, 19 tes pytest backend markdown viewer, tes paritas i18n dua arah, dan pengecekan build produksi TypeScript berhasil lulus 100% tanpa regresi.
+
+## 77. Simplifikasi Antarmuka Modul QR Generator & Base64 Converter — SELESAI
+- **Lokasi:**
+  - `frontend/src/components/CompactFileDropzone.tsx` (Komponen baru)
+  - `frontend/src/menu/tools/base64-encode-decode/Main.tsx`
+  - `frontend/src/menu/tools/qr-generator/Main.tsx`
+  - `frontend/src/locales/en/translation.json` & `frontend/src/locales/id/translation.json`
+  - `frontend/tests/components/CompactFileDropzone.test.tsx` (Test suite baru)
+  - `frontend/tests/menu/tools/base64-encode-decode/Main.test.tsx`
+  - `frontend/tests/menu/tools/qr-generator/Main.test.tsx`
+- **Masalah:**
+  1. *Fatik Keputusan pada QR Code Generator (Hick's Law):* Pemisahan 6 tab teratas (URL, Teks Bebas, Wi-Fi, Email, vCard, SMS) terlalu granular dan memecah alur pikir pengguna. Input URL pada dasarnya adalah string teks biasa. Selain itu, susunan vertikal 3 kartu di kolom kiri (Data Konten, Desain Visual, Sisipkan Logo) menimbulkan fatik gulir vertikal (~40% tinggi layar terbuang) dan membuat halaman terasa tidak seimbang dengan kartu Live Preview di kolom kanan.
+  2. *Friksi Mode Biner/Teks pada Base64:* Penggunaan toggle biner [Text Input] vs [File Input] memutus alur pengguna karena mengetik teks dan menyeret berkas seharusnya dapat dilakukan secara serentak tanpa saling menghapus teks sebelumnya atau beralih tampilan. Selain itu, mode Decode sebelumnya tidak memiliki fasilitas unggah berkas `.b64` / teks encoded.
+  3. *Duplikasi Kode Pengunggah Berkas:* Kode upload berkas di Base64 dan input logo di QR Generator menggunakan elemen input file native yang tidak seragam dan belum memiliki komponen dropzone visual bersama yang terisolasi dan dapat diuji.
+- **Solusi:**
+  1. *Ekstraksi Komponen Bersama `CompactFileDropzone`:* Membuat komponen dropzone serbaguna dengan dua varian (standar vertikal untuk Base64 dan horizontal ringkas untuk Logo QR), dilengkapi penanganan drag-and-drop, validasi tipe/ukuran, badge file terlampir, tombol hapus (X), dan pemenuhan aksesibilitas `id`/`htmlFor` Aturan 6.
+  2. *Konsolidasi 3 Kategori Tab pada QR Generator:* Menyederhanakan 6 tab menjadi 3 kategori tingkat atas yang intuitif (`text_url`, `wifi`, `contact` dengan sub-pill vCard/Email/SMS). Tab `text_url` memiliki deteksi otomatis format URL dengan badge indikator `tools.qr.url_detected`.
+  3. *Penyatuan Kartu Desain & Logo QR:* Menggabungkan Card 2 (*Visual Design*) dan Card 3 (*Insert Logo*) menjadi 1 kartu seimbang 2-kolom (*Appearance & Logo*), memangkas ~250px tinggi vertikal dan menghadirkan tata letak proporsional berdampingan dengan Live Preview di desktop.
+  4. *Universal Dual-Input Area pada Base64:* Mengeliminasi toggle pemisah Text/File dan menghadirkan input universal di mana pengguna dapat mengetik teks atau menyeret berkas kapan saja, baik pada mode Encode maupun Decode. Pengaturan URL-Safe dan Line Wrap diintegrasikan rapi ke toolbar kartu input.
+  5. *Paritas i18n Dua Arah & Verifikasi Uji:* Seluruh translation key baru terdaftar serentak di `en` dan `id`, 213 pengujian unit tools vitest lulus 100%, 5 pengujian unit `CompactFileDropzone` lulus 100%, 62 pengujian pytest backend lulus, dan build produksi TypeScript bersih tanpa peringatan.
+
+## 78. Glitch Tampilan Outline pada Markdown Viewer saat Jumlah Heading Besar (> 60) — SELESAI
+- **Lokasi:**
+  - `frontend/src/menu/tools/markdown-viewer/Main.tsx`
+  - `frontend/src/menu/tools/markdown-viewer/MarkdownRenderer.tsx`
+  - `frontend/src/locales/en/translation.json` & `frontend/src/locales/id/translation.json`
+  - `frontend/tests/menu/tools/markdown-viewer/Main.test.tsx`
+- **Masalah:**
+  1. *CSS Flexbox Collapse Bug (Text Smudge / Overlap):* Tombol item heading outline berada di dalam flex container berkolom (`flex flex-col gap-1 max-h-56 overflow-y-auto`). Tombol tersebut menerapkan class Tailwind `truncate`, yang menerapkan `overflow: hidden`. Sesuai spesifikasi W3C CSS Flexible Box Layout Module Level 1 §4.5, elemen flex dengan `overflow` selain `visible` memiliki ukuran minimum otomatis `min-height: 0`. Karena tombol tidak memiliki `shrink-0` (`flex-shrink: 0`), saat jumlah heading banyak (misal > 60), total tinggi konten (~1500px) jauh melebihi batas `max-h-56` (224px). Alih-alih membuat scrollbar vertikal, browser Edge WebView2/Blink mengecilkan (*shrink*) ke-60 tombol secara serentak menjadi masing-masing ~3.7px tinggi. Akibatnya, baris-baris teks heading bertumpuk dan saling tumpang tindih (*overlap*) menjadi coretan yang sama sekali tidak terbaca, dan kontainer tidak dapat di-scroll karena tinggi total yang telah diciutkan muat di dalam 224px. Sebaliknya, saat jumlah heading sedikit (misal 3), total tinggi (< 80px) tidak memicu negative space pada flexbox sehingga terlihat normal.
+  2. *Code Block Contamination:* Ekstraksi heading sebelumnya memindai baris markdown dengan regex tanpa mengecualikan blok kode (```` ``` ```` / `~~~`). Akibatnya, baris komentar Python/Bash/Shell (`# ...`) di dalam blok kode ikut terdaftar sebagai heading palsu pada outline, membuat jumlah outline membengkak secara tidak wajar.
+  3. *Ketiadaan Filter & Scroll Offset:* Ketika dokumen memiliki puluhan heading, tinggi kontainer 224px terlalu sempit dan tidak ada kolom pencarian cepat untuk melompat ke seksi tertentu, serta loncatan anchor tidak memiliki margin atas (`scroll-mt`).
+- **Solusi:**
+  1. *Eliminasi Flexbox Shrink:* Menambahkan `shrink-0 w-full` pada setiap tombol heading outline dan memindahkan class `truncate` ke elemen teks internal (`<span>`), sehingga tombol mempertahankan tinggi minimum alami (~28px) dan kontainer memunculkan scrollbar vertikal yang mulus.
+  2. *Exclusion Code Block:* Menambahkan pelacakan state `inCodeBlock` pada parser regex heading untuk mengabaikan seluruh baris komentar di dalam blok kode.
+  3. *Search/Filter Bar Outline:* Menambahkan kolom filter pencarian instan pada outline ketika jumlah heading > 8 dengan indikator pencocokan real-time (misal `1/65`), pembersihan filter instan (X), dan pesan fallback jika tidak ada judul yang cocok.
+  4. *Visual Hierarchy & Scroll Comfort:* Menambahkan lencana level heading (`H1`, `H2`, `H3`), menambah kapasitas ketinggian (`max-h-72 sm:max-h-84`), serta menyematkan `scroll-mt-6` pada elemen heading di `MarkdownRenderer.tsx` agar perpindahan smooth scroll menyisakan jarak baca yang lega di bawah header.
+  5. *Unit Testing & i18n Parity:* Menambahkan unit test komprehensif di `Main.test.tsx` untuk dokumen ber-heading 60+ dengan pengecekan `shrink-0` dan pengabaian komentar blok kode, memastikan seluruh tes lulus 100%.
+
+## 79. Markdown Viewer: Kebocoran Tag Metadata RAG `<!-- section:... -->`, Menu Klik Kanan Salin Teks Seleksi, Gap Penjajaran Toolbar (< 1233px), & Optimasi Performa Resize — SELESAI
+- **Lokasi:**
+  - `frontend/src/components/AppInterceptor.tsx`
+  - `frontend/src/menu/tools/markdown-viewer/MarkdownRenderer.tsx`
+  - `frontend/src/menu/tools/markdown-viewer/FolderTreeView.tsx`
+  - `frontend/src/menu/tools/markdown-viewer/Main.tsx`
+  - `frontend/src/locales/en/translation.json` & `frontend/src/locales/id/translation.json`
+  - `frontend/tests/components/AppInterceptor.test.tsx`
+  - `frontend/tests/menu/tools/markdown-viewer/MarkdownRenderer.test.tsx`
+  - `frontend/tests/menu/tools/markdown-viewer/Main.test.tsx`
+- **Masalah:**
+  1. *Kebocoran Tag Komentar HTML RAG (`<!-- section:... -->`):* Pada dokumen panduan (seperti `docs/user_guide.md`), terdapat baris metadata seperti `<!-- section: getting-started, module: general, tags: [...] -->`. Tag ini bukanlah kesalahan penulisan dokumen, melainkan metadata indeks RAG (Retrieval-Augmented Generation) yang digunakan backend AI Assistant (`core/services/ai_assistant.py` pada class `DocRetriever._parse_sections`). Format komentar HTML (`<!-- ... -->`) sengaja dipilih agar machine-readable bagi parser backend namun invisible bagi pembaca manusia di viewer Markdown standar. Namun, karena `ReactMarkdown` secara default mematikan HTML parsing demi keamanan (XSS protection), tag komentar HTML di luar code block diperlakukan sebagai teks biasa dan bocor ke layar sebagai raw text.
+  2. *Ketiadaan Menu Konteks Klik Kanan untuk Blok Kalimat & Collapse Seleksi pada Chromium:* Komponen `GlobalAppInterceptor` sebelumnya memanggil `e.preventDefault()` pada event `contextmenu` global dan hanya memunculkan menu salin jika target klik berada di dalam `.vylo-log-area`. Akibatnya, ketika pengguna melakukan *text block* (menyeleksi kalimat atau kata) pada Markdown Viewer maupun area dokumen lainnya, klik kanan tidak memunculkan opsi "Salin" (*Copy*) sama sekali. Selain itu, pada WebView2/Chromium, event `mousedown` klik kanan (button 2) dapat membatalkan atau meng-collapse seleksi DOM sebelum event `contextmenu` sempat membaca string seleksi.
+  3. *Glitch Tata Letak & Gap Offset Toolbar Top Bar pada Layar < 1233px:* Baris atas dokumen (*Document Top Bar*) yang memuat judul berkas, statistik kata, estimasi waktu baca, tombol salin markdown, tombol outline, dan tombol switch tema sebelumnya menggunakan `flex flex-wrap items-center justify-between`. Pada lebar layar < 1233px (atau ketika sidebar terbuka), ruang horizontal berkurang sehingga tombol-tombol aksi terdorong sebagian ke bawah secara canggung. Ketika baris dipindahkan ke bawah, muncul gap indentasi horizontal karena tombol aksi pertama (`Button`) memiliki padding default `px-3` (12px), sehingga ikon tombol terlihat tidak rata kiri (tidak sejajar vertikal) dengan ikon judul dokumen di baris atasnya.
+  4. *Lag & Stutter Performa saat Resizing Jendela:* Pada modul Markdown Viewer, saat jendela aplikasi di-resize (diubah ukurannya), UI mengalami stutter/lag berat. Penyebab utamanya adalah kontainer TOC menerapkan utility CSS `transition-all` yang memaksa browser me-recalculate style dan layout reflow ribuan node AST Markdown secara terus menerus selama resize, dikombinasikan dengan ketiadaan memoization (`React.memo`) pada komponen-komponen berat seperti `MarkdownRenderer`, `MermaidBlock`, `MarkdownPre`, dan `FolderTreeView`/`TreeItem`.
+- **Solusi:**
+  1. *Penyaringan Komentar HTML Bertarget (`stripHtmlComments`):* Mengembangkan parser pembersih komentar HTML multi-baris dan sebaris pada fase preprocessing di `MarkdownRenderer.tsx`. Parser ini melacak status code fence (```` ``` ```` dan `~~~`) sehingga seluruh komentar HTML di luar blok kode dibersihkan tuntas dari DOM, sementara komentar HTML di dalam blok kode (misalnya contoh markup HTML/XML) tetap dipertahankan 100% tanpa modifikasi.
+  2. *Menu Konteks Klik Kanan Universal untuk Seleksi Teks & Persistent Selection Ref:* Memperbarui `GlobalAppInterceptor.tsx` dengan listener `selectionchange` pada `document` yang menyelaraskan `savedSelectionRef.current` secara real-time agar seleksi teks tidak pernah hilang akibat mousedown collapse. Ketika pengguna mem-blok kalimat atau teks di area manapun (termasuk Markdown Viewer) dan melakukan klik kanan, menu pop-up konteks "Salin Teks" (`components.interceptor.copy_selection_btn`) muncul secara presisi pada koordinat kursor, menyalin teks terpilih ke clipboard (dengan fallback `document.execCommand`), dan memunculkan notifikasi toast konfirmasi. Jika tidak ada teks yang diblok dan klik kanan dilakukan pada area log, menu tetap menampilkan "Salin Teks Log" secara konsisten.
+  3. *Layout Responsif & Penjajaran Rata Kiri Presisi (< 1233px):* Mengonfigurasi Document Top Bar di `Main.tsx` dengan tata letak adaptif `flex flex-col min-[1233px]:flex-row min-[1233px]:items-center justify-between`. Pada lebar layar < 1233px, baris tombol aksi (Salin Markdown, Outline, dan Pengalih Tema) secara otomatis berpindah ke baris baru di bawah judul dokumen (`w-full`) dengan koreksi offset `-ml-2.5 min-[1233px]:ml-0` dan `gap-2.5 min-[1233px]:gap-3`. Hal ini membuat ikon tombol Salin Markdown berada persis sejajar vertikal di bawah ikon judul berkas tanpa gap.
+  4. *Optimasi Performa Resizing & Pohon Komponen:* Mengganti `transition-all` pada kontainer TOC dengan `transition-colors` untuk menghentikan layout thrashing saat window resizing. Membungkus `FolderTreeView`, `TreeItem`, `MarkdownRenderer`, `MermaidBlock`, dan `MarkdownPre` dengan `React.memo`, serta me-memoize seluruh handler aksi (`handleLinkClick`, `handleFileClick`, `handleCloseFolder`, `handleCopyDoc`, `handleJumpToHeading`) dengan `useCallback`.
+  5. *Kartu Blok Kode dengan Tombol Salin Mandiri (`MarkdownPre`):* Menggantikan tag `<pre>` standar dengan kontainer kartu kode interaktif (`MarkdownPre`). Kontainer ini menyajikan header gelap elegan dengan lencana bahasa (misal `JAVASCRIPT`, `PYTHON`, `BASH`, `CODE`) dan tombol salin snippet kode (`tools.docs_reader.copy_code`) dengan status feedback visual instan (`tools.docs_reader.copied`).
+  6. *Pengujian Menyeluruh & Paritas i18n:* Menambahkan unit test di `AppInterceptor.test.tsx` (menu konteks untuk seleksi teks pada dokumen), `MarkdownRenderer.test.tsx` (pembersihan komentar RAG dan tombol copy code), serta `Main.test.tsx` (verifikasi breakpoint responsif < 1233px, alignment gap, dan tombol copy markdown). Seluruh 252 tes unit komponen, 25 tes vitest markdown viewer, tes paritas i18n, 20 tes pytest backend, dan build produksi TypeScript lulus 100%.
+
+
+

@@ -1,6 +1,6 @@
 import { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { ProjectData } from './Main';
+import type { ProjectData } from '../../context/ProjectContext';
 import { useToast } from '../../context/ToastContext';
 import Select from '../../components/Select';
 import FieldLabel from '../../components/FieldLabel';

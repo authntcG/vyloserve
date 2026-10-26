@@ -163,3 +163,26 @@ def test_get_local_media_base64_unknown_mime(manager):
         result = manager.get_local_media_base64("/file.unknown")
         assert result['status'] == 'success'
         assert result['data'] == "data:application/octet-stream;base64,aW1hZ2VfZGF0YQ=="
+
+def test_read_markdown_file_path_traversal_blocked(manager, tmp_path):
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    secret_file = tmp_path / "secret.md"
+    secret_file.write_text("classified", encoding="utf-8")
+
+    manager.current_root = str(docs_dir.resolve())
+    result = manager.read_markdown_file(str(secret_file.resolve()))
+    assert result['status'] == 'error'
+    assert result['message'] == 'backend.error.path_traversal'
+
+def test_get_local_media_path_traversal_blocked(manager, tmp_path):
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    secret_img = tmp_path / "secret.png"
+    secret_img.write_bytes(b"image")
+
+    manager.current_root = str(docs_dir.resolve())
+    result = manager.get_local_media_base64(str(secret_img.resolve()))
+    assert result['status'] == 'error'
+    assert result['message'] == 'backend.error.path_traversal'
+

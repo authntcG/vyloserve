@@ -9,8 +9,9 @@ import tempfile
 import time
 from typing import Optional
 
-from core.utils.system_utils import get_project_root, get_silent_flags
-from core.utils.file_utils import read_json, write_json
+from core.utils.system_utils import get_project_root, get_silent_flags, check_port_in_use, run_silent_command
+from core.utils.file_utils import read_json, write_json, read_log_tail
+
 
 MSG_UNEXPECTED_ERROR = "backend.error.unexpected"
 USER_AGENT = "Mozilla/5.0"
@@ -50,6 +51,7 @@ class ProjectManager:
         self._cli_waiting_input: bool = False
         self._last_enter_time: float = 0.0
         self._cli_tail_buffer: str = ""
+        self._running_servers: dict = {}
 
     def _log(self, msg: str, level: str = "info", args: dict = None):
         if hasattr(self, 'api') and self.api: self.api.emit_log(msg, level, args)
@@ -728,9 +730,9 @@ class ProjectManager:
         except Exception as e:
             return {"status": "error", "message": "backend.project.composer_run_failed", "args": {"e": str(e)}}
 
-    def _resolve_runtime_bin(self, engine: str, exe_name: str) -> Optional[str]:
+    def _resolve_runtime_bin(self, engine: str, exe_name: str, version: Optional[str] = None) -> Optional[str]:
         rm = getattr(self.api, 'runtimes_manager', None)
-        engine_dir = rm._get_engine_dir(engine) if rm and hasattr(rm, '_get_engine_dir') else None
+        engine_dir = rm._get_engine_dir(engine, version=version) if rm and hasattr(rm, '_get_engine_dir') else None
         if engine_dir:
             sub = os.path.join(engine_dir, 'bin', exe_name) if engine in ('go', 'java') else os.path.join(engine_dir, exe_name)
             if os.path.exists(sub):
@@ -1417,6 +1419,7 @@ public class Main {{
 
     def delete_project(self, project_id: str, delete_files: bool = False):
         try:
+            self.stop_project_server(project_id)
             projects = self._read_projects()
             project_to_delete = next((p for p in projects if p['id'] == project_id), None)
             if not project_to_delete: return {"status": "error", "message": "backend.project.project_not_found"}
@@ -1499,3 +1502,227 @@ public class Main {{
 
             return {"status": "success", "message": "backend.project.settings_saved"}
         except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def start_project_server(self, project_id: str) -> dict:
+        try:
+            projects = self._read_projects()
+            project = next((p for p in projects if p.get('id') == project_id), None)
+            if not project:
+                return {"status": "error", "message": "backend.project.project_not_found"}
+
+            status = self.get_project_server_status(project_id)
+            if status.get("running"):
+                return {
+                    "status": "info",
+                    "message": "backend.project.server_already_running",
+                    "args": {"name": project.get("name") or project.get("domain", project_id)},
+                    "pid": status.get("pid"),
+                    "port": status.get("port")
+                }
+
+            proxy_port = project.get("proxy_port")
+            if not proxy_port:
+                proxy_port = DEFAULT_PROXY_PORTS.get(project.get("framework", ""), 3000)
+
+            if check_port_in_use(proxy_port):
+                return {
+                    "status": "error",
+                    "message": "backend.project.port_in_use",
+                    "args": {"port": proxy_port}
+                }
+
+            raw_path = project.get("path", "")
+            base_path = raw_path.replace('/public', '').replace('\\public', '')
+            base_path = os.path.normpath(base_path)
+            if not os.path.exists(base_path):
+                return {"status": "error", "message": "backend.project.dir_not_found"}
+
+            bat_path = os.path.join(base_path, "start-dev.bat")
+            if not os.path.exists(bat_path):
+                project_type = project.get("project_type", "node")
+                framework = project.get("framework", "")
+                if project_type == "node":
+                    cmd = "npm run dev" if os.path.exists(os.path.join(base_path, "package.json")) else "node index.js"
+                    self._write_start_dev_bat(base_path, cmd)
+                elif project_type == "python":
+                    venv_prefix = "call .venv\\Scripts\\activate.bat\n" if os.path.exists(os.path.join(base_path, ".venv")) else ""
+                    if framework == "fastapi":
+                        self._write_start_dev_bat(base_path, f"{venv_prefix}python -m uvicorn main:app --host 127.0.0.1 --port {proxy_port} --reload")
+                    elif framework == "flask":
+                        self._write_start_dev_bat(base_path, f"{venv_prefix}python app.py")
+                    elif framework == "django":
+                        self._write_start_dev_bat(base_path, f"{venv_prefix}python manage.py runserver 127.0.0.1:{proxy_port}")
+                    else:
+                        self._write_start_dev_bat(base_path, f"{venv_prefix}python main.py")
+                elif project_type == "go":
+                    self._write_start_dev_bat(base_path, "go run main.go")
+                elif project_type == "java":
+                    if os.path.exists(os.path.join(base_path, "mvnw.cmd")):
+                        self._write_start_dev_bat(base_path, "mvnw.cmd spring-boot:run")
+                    else:
+                        self._write_start_dev_bat(base_path, "java Main.java")
+                else:
+                    return {"status": "error", "message": "backend.project.no_start_script"}
+
+            custom_env = os.environ.copy()
+            project_type = project.get("project_type", "node")
+            runtime_version = project.get("runtime_version") or None
+            if project_type == "node":
+                node_exe = self._resolve_runtime_bin("node", "node.exe", version=runtime_version)
+                if node_exe:
+                    custom_env["PATH"] = os.path.dirname(node_exe) + os.pathsep + custom_env.get("PATH", "")
+            elif project_type == "python":
+                py_exe = self._resolve_runtime_bin("python", "python.exe", version=runtime_version)
+                if py_exe:
+                    custom_env["PATH"] = os.path.dirname(py_exe) + os.pathsep + custom_env.get("PATH", "")
+            elif project_type == "go":
+                go_exe = self._resolve_runtime_bin("go", "go.exe", version=runtime_version)
+                if go_exe:
+                    go_bin_dir = os.path.dirname(go_exe)
+                    custom_env["PATH"] = go_bin_dir + os.pathsep + custom_env.get("PATH", "")
+                    custom_env["GOROOT"] = os.path.dirname(go_bin_dir)
+            elif project_type == "java":
+                java_exe = self._resolve_runtime_bin("java", "java.exe", version=runtime_version)
+                if java_exe:
+                    custom_env["PATH"] = os.path.dirname(java_exe) + os.pathsep + custom_env.get("PATH", "")
+                    custom_env["JAVA_HOME"] = os.path.dirname(os.path.dirname(java_exe))
+
+            log_dir = os.path.join(self.base_dir, "logs", "projects")
+            os.makedirs(log_dir, exist_ok=True)
+            log_path = os.path.join(log_dir, f"{project_id}.log")
+            log_file = open(log_path, "a", encoding="utf-8")
+            log_file.write(f"\n--- Starting Dev Server at {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+            log_file.flush()
+
+            cmd = ["cmd.exe", "/c", "start-dev.bat"]
+            flags = get_silent_flags() if sys.platform == 'win32' else 0
+
+            proc = subprocess.Popen(
+                cmd,
+                cwd=base_path,
+                env=custom_env,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                creationflags=flags
+            )
+
+            self._running_servers[project_id] = {
+                "process": proc,
+                "pid": proc.pid,
+                "port": proxy_port,
+                "log_file_path": log_path,
+                "file_handle": log_file,
+                "start_time": time.time(),
+                "name": project.get("name", project_id),
+                "project_type": project_type
+            }
+
+            self._log("backend.project.server_started", "success", {"name": project.get("name", project_id), "port": proxy_port})
+            if hasattr(self.api, 'emit_project_server_state'):
+                self.api.emit_project_server_state({
+                    "project_id": project_id,
+                    "status": "running",
+                    "port": proxy_port,
+                    "pid": proc.pid
+                })
+
+            return {
+                "status": "success",
+                "message": "backend.project.server_started",
+                "args": {"name": project.get("name", project_id), "port": proxy_port},
+                "pid": proc.pid,
+                "port": proxy_port
+            }
+        except Exception as e:
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def stop_project_server(self, project_id: str) -> dict:
+        try:
+            if project_id not in self._running_servers:
+                return {"status": "info", "message": "backend.project.server_not_running"}
+
+            info = self._running_servers.pop(project_id)
+            pid = info.get("pid")
+            proc = info.get("process")
+            file_handle = info.get("file_handle")
+
+            if pid:
+                if sys.platform == 'win32':
+                    run_silent_command(['taskkill', '/F', '/T', '/PID', str(pid)])
+                else:
+                    run_silent_command(['kill', '-9', str(pid)])
+
+            if proc:
+                try:
+                    proc.poll()
+                except Exception:
+                    pass
+
+            if file_handle:
+                try:
+                    file_handle.write(f"\n--- Stopped Dev Server at {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+                    file_handle.close()
+                except Exception:
+                    pass
+
+            self._log("backend.project.server_stopped", "info", {"name": info.get("name", project_id)})
+            if hasattr(self.api, 'emit_project_server_state'):
+                self.api.emit_project_server_state({
+                    "project_id": project_id,
+                    "status": "stopped"
+                })
+
+            return {"status": "success", "message": "backend.project.server_stopped"}
+        except Exception as e:
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def get_project_server_status(self, project_id: str) -> dict:
+        info = self._running_servers.get(project_id)
+        if not info:
+            return {"running": False, "port": None, "pid": None}
+
+        proc = info.get("process")
+        if proc and proc.poll() is not None:
+            self._running_servers.pop(project_id, None)
+            file_handle = info.get("file_handle")
+            if file_handle:
+                try:
+                    file_handle.close()
+                except Exception:
+                    pass
+            if hasattr(self.api, 'emit_project_server_state'):
+                self.api.emit_project_server_state({
+                    "project_id": project_id,
+                    "status": "stopped"
+                })
+            return {"running": False, "port": None, "pid": None}
+
+        return {
+            "running": True,
+            "port": info.get("port"),
+            "pid": info.get("pid"),
+            "uptime": round(time.time() - info.get("start_time", time.time()), 1)
+        }
+
+    def get_all_running_project_servers(self) -> dict:
+        result = {}
+        for proj_id in list(self._running_servers.keys()):
+            status = self.get_project_server_status(proj_id)
+            if status.get("running"):
+                result[proj_id] = status
+        return result
+
+    def stop_all_project_servers(self):
+        for proj_id in list(self._running_servers.keys()):
+            try:
+                self.stop_project_server(proj_id)
+            except Exception:
+                pass
+
+    def get_project_server_logs(self, project_id: str) -> dict:
+        log_dir = os.path.join(self.base_dir, "logs", "projects")
+        log_path = os.path.join(log_dir, f"{project_id}.log")
+        if not os.path.exists(log_path):
+            return {"status": "success", "logs": ""}
+        content = read_log_tail(log_path, max_lines=200)
+        return {"status": "success", "logs": content}

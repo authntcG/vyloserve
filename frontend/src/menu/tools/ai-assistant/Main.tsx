@@ -32,6 +32,7 @@ export default function AiAssistantMain({ isActive = true }: AiAssistantMainProp
         clearChat,
         setActiveModel,
         setAttachedContext,
+        openAiSettings,
     } = useAiAssistant();
 
     const chatScrollRef = useRef<HTMLDivElement>(null);
@@ -105,11 +106,7 @@ export default function AiAssistantMain({ isActive = true }: AiAssistantMainProp
     };
 
     const handleOpenSettings = () => {
-        window.dispatchEvent(
-            new CustomEvent('vylo_open_settings_modal', {
-                detail: { modal: 'settings', tab: 'ai' },
-            })
-        );
+        openAiSettings();
     };
 
     return (

@@ -49,23 +49,32 @@ Get the latest build from the [Releases page](https://github.com/authntcG/vylose
 - Auto-tunes memory settings on install.
 
 ### Runtimes Manager
-- Install Node.js (portable, with Corepack/Yarn/pnpm support), Python (embeddable distribution with pip), Java (OpenJDK/Temurin), and Go.
-- Automatically registers each runtime to your system PATH.
+- Multi-version concurrency per engine: install and manage multiple versions of Node.js (with Corepack), Python (embeddable with pip), Java (Adoptium Temurin JDK), and Go (official portable binary).
+- Centralized `RuntimePathHub`: single-toggle Windows System PATH management per engine, 1-click active version switcher, and in-card native OS detection preventing priority conflicts.
+- Dual layout modes: 100% symmetric inventory cards with standard quick actions (Open Folder, Open Terminal) and high-density Table View.
 
-### Project Manager
-- One-click scaffolding for PHP projects (Laravel, CodeIgniter 4, and more) via a bundled Composer.
-- Auto-creates an Apache virtual host with a `.local` domain for every project.
-- Auto-registers the domain in your Windows `hosts` file (with an admin-elevation prompt when needed).
+### Projects Hub
+- Dedicated top-level project manager supporting multi-runtime framework scaffolding: PHP (Laravel, CodeIgniter 3/4, WordPress, Raw), Node.js (Next.js, Vite/React, Express), Python (FastAPI, Flask, Django), Go (Gin, Fiber, Standard HTTP), and Java (Spring Boot).
+- Automated Apache Virtual Hosts (`.local` domains) with reverse proxy port allocation and WebSocket proxy support.
+- Automated Windows `hosts` file synchronization (with UAC elevation prompt).
+- Integrated Dev Server process manager with live background log tailing.
+- Interactive CLI installation modal with real-time bidirectional terminal streaming (PTY/stdin/stdout) for frameworks requiring interactive prompt answers.
+
+### Developer Terminal
+- Integrated multi-tab developer terminal powered by `xterm.js` with real-time bidirectional backend subprocess streaming.
+- Shell profile support: PowerShell, Command Prompt (CMD), Git Bash, and custom shells.
+- Environment Presets & Scoping: launch isolated shell sessions injecting specific PHP, Node, Python, Java, Go, or Git paths into session PATH without modifying Windows global PATH.
+- Real-time current working directory (CWD) detection and terminal appearance customization (font family, size, cursor style, blinking, scrollback).
 
 ### Git & SSL
-- Portable Git install, integrated with a built-in terminal.
-- Generates a local trusted Root CA, so your `.local` domains get a valid HTTPS lock in the browser.
+- Portable Git installation with aligned in-card native OS warning, adaptive status badges (`Native OS`, `PATH Active`, `Isolated`), toggle lockout, and global git configuration (`user.name`, `user.email`).
+- Local trusted Root CA generator (`VyloServeRootCA`) with automatic Windows Trust Store registration for valid HTTPS `.local` domains.
 
 ### Customization
-- 10 built-in color themes (VyloServe Dark/Light, Darcula, Solarized Dark/Light, High Contrast Dark/Light, Monokai, Dracula, Nord) with native Windows DWM titlebar color palette synchronization.
+- 15 built-in color themes (VyloServe Dark/Light, Darcula, Solarized Dark/Light, High Contrast Dark/Light, Monokai, Dracula, Nord, Windows XP Luna Light, Windows XP Zune Dark, Catppuccin Mocha, Tokyo Night, Gruvbox Dark) with native Windows DWM titlebar color palette synchronization and quick theme search.
 - English and Indonesian language support.
-- Choose which services show up on your dashboard.
-- Safe single-instance application management using Windows Named Pipe IPC — bringing the existing window to the front smoothly without cross-instance collisions between dev and prod modes.
+- Notification history panel (bell icon) with desktop notifications (`win11toast`) active when window is minimized or hidden in the tray.
+- Modular Home Dashboard and safe single-instance management using Windows Named Pipe IPC.
 
 ### System Logs
 - A centralized, real-time log panel covering every module — installs, service start/stop, errors.
@@ -74,6 +83,7 @@ Get the latest build from the [Releases page](https://github.com/authntcG/vylose
 
 ### Tunnels (Zrok & Cloudflare Tunnel)
 - Share a running Apache project, or any `localhost:<port>` address, to a public URL via open-source [zrok](https://zrok.io) or zero-config Cloudflare Quick Tunnels (`*.trycloudflare.com`).
+- Dual view modes (Card View & Table View) with a searchable project selector.
 - Run multiple shares at once, each stoppable independently from an Active Shares list.
 
 ### Auto-Updater

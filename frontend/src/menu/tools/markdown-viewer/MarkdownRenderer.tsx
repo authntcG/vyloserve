@@ -1,4 +1,4 @@
-import { useEffect, useState, useContext, createContext, useMemo, isValidElement, Children, type ReactNode } from 'react';
+import { useEffect, useState, useContext, createContext, useMemo, isValidElement, Children, memo, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import mermaid from 'mermaid';
@@ -217,9 +217,63 @@ function consumeMkDocsBlock(
     return idx;
 }
 
-export function preprocessAdmonitions(markdown: string): string {
+export function stripHtmlComments(markdown: string): string {
     if (!markdown) return '';
     const lines = markdown.replaceAll('\r\n', '\n').split('\n');
+    const out: string[] = [];
+    let fenceMarker = '';
+    let inHtmlComment = false;
+
+    for (let i = 0; i < lines.length; i++) {
+        let line = lines[i];
+        const fence = updateFenceState(line.trimStart(), fenceMarker);
+        fenceMarker = fence.nextFence;
+
+        // Inside code block or fence line itself: preserve untouched
+        if (fence.isFenceLine || fenceMarker) {
+            out.push(line);
+            continue;
+        }
+
+        // Outside code fence: handle multi-line comment state
+        if (inHtmlComment) {
+            const closeIdx = line.indexOf('-->');
+            if (closeIdx !== -1) {
+                inHtmlComment = false;
+                line = line.slice(closeIdx + 3);
+            } else {
+                continue;
+            }
+        }
+
+        // Handle inline and multi-line comments starting on this line
+        while (line.includes('<!--')) {
+            const startIdx = line.indexOf('<!--');
+            const endIdx = line.indexOf('-->', startIdx + 4);
+            if (endIdx !== -1) {
+                line = line.slice(0, startIdx) + line.slice(endIdx + 3);
+            } else {
+                line = line.slice(0, startIdx);
+                inHtmlComment = true;
+                break;
+            }
+        }
+
+        // Normalize blanked comment line
+        if (line.trim() === '') {
+            line = '';
+        }
+
+        out.push(line);
+    }
+
+    return out.join('\n');
+}
+
+export function preprocessAdmonitions(markdown: string): string {
+    if (!markdown) return '';
+    const cleanMarkdown = stripHtmlComments(markdown);
+    const lines = cleanMarkdown.split('\n');
     const out: string[] = [];
     let fenceMarker = '';
     let i = 0;
@@ -258,7 +312,7 @@ interface MermaidBlockProps {
 
 let mermaidCounter = 0;
 
-function MermaidBlock({ code, readerTheme }: MermaidBlockProps) {
+const MermaidBlock = memo(function MermaidBlock({ code, readerTheme }: MermaidBlockProps) {
     const { t } = useTranslation();
     const [svg, setSvg] = useState<string>('');
 
@@ -313,7 +367,7 @@ function MermaidBlock({ code, readerTheme }: MermaidBlockProps) {
             </TransformWrapper>
         </div>
     );
-}
+});
 
 function extractNodeText(node: ReactNode): string {
     if (typeof node === 'string') return node;
@@ -365,6 +419,76 @@ function MarkdownBlockquote({ node, children, ...props }: any) {
     return <blockquote {...props}>{children}</blockquote>;
 }
 
+const InPreContext = createContext<boolean>(false);
+
+interface MarkdownPreProps {
+    readonly children?: React.ReactNode;
+    readonly [key: string]: any;
+}
+
+const MarkdownPre = memo(function MarkdownPre({ children, ...props }: MarkdownPreProps) {
+    const { readerTheme } = useContext(MarkdownContext);
+    const { t } = useTranslation();
+    const [copied, setCopied] = useState(false);
+
+    const codeProps = isValidElement(children) ? (children.props as any) : null;
+    const className = codeProps?.className || '';
+    const match = /language-(\w+)/.exec(className);
+    const lang = match ? match[1] : '';
+
+    if (lang === 'mermaid') {
+        const codeText = extractNodeText(codeProps?.children || children).replace(/\n$/, '');
+        return <MermaidBlock code={codeText} readerTheme={readerTheme} />;
+    }
+
+    const codeText = extractNodeText(codeProps?.children || children).replace(/\n$/, '');
+
+    const handleCopy = () => {
+        if (!codeText) return;
+        navigator.clipboard.writeText(codeText);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+
+    const isDark = readerTheme === 'dark';
+
+    return (
+        <InPreContext.Provider value={true}>
+            <div
+                className={`relative group my-4 rounded-xl border overflow-hidden not-prose shadow-xs ${
+                    isDark ? 'border-slate-700/80 bg-slate-900/90' : 'border-slate-200 bg-slate-900 text-slate-100'
+                }`}
+            >
+                <div className="flex items-center justify-between px-3.5 py-1.5 border-b border-slate-800 bg-slate-950/70 text-xs text-slate-400 select-none">
+                    <span className="font-mono uppercase font-semibold text-[11px] tracking-wider text-slate-300">
+                        {lang || 'code'}
+                    </span>
+                    <button
+                        type="button"
+                        onClick={handleCopy}
+                        className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer text-xs"
+                        title={copied ? t('tools.docs_reader.copied') : t('tools.docs_reader.copy_code')}
+                        aria-label={copied ? t('tools.docs_reader.copied') : t('tools.docs_reader.copy_code')}
+                    >
+                        <span className="material-symbols-outlined text-[15px]">
+                            {copied ? 'check' : 'content_copy'}
+                        </span>
+                        <span className="text-[11px] font-medium">
+                            {copied ? t('tools.docs_reader.copied') : t('tools.docs_reader.copy_code')}
+                        </span>
+                    </button>
+                </div>
+                <pre
+                    className="!m-0 p-4 overflow-x-auto text-xs font-mono text-slate-100 leading-relaxed bg-transparent"
+                    {...props}
+                >
+                    {children}
+                </pre>
+            </div>
+        </InPreContext.Provider>
+    );
+});
+
 interface CodeBlockProps {
     readonly inline?: boolean;
     readonly className?: string;
@@ -373,16 +497,28 @@ interface CodeBlockProps {
 }
 
 function CodeBlock({ inline, className, children, ...props }: CodeBlockProps) {
+    const inPre = useContext(InPreContext);
     const { readerTheme } = useContext(MarkdownContext);
     const match = /language-(\w+)/.exec(className || '');
     const isMermaid = match?.[1] === 'mermaid';
 
-    if (isMermaid) {
+    if (isMermaid && !inPre) {
         return <MermaidBlock code={extractNodeText(children).replace(/\n$/, '')} readerTheme={readerTheme} />;
     }
 
+    if (inPre) {
+        return (
+            <code className={className} {...props}>
+                {children}
+            </code>
+        );
+    }
+
     return (
-        <code className={className} {...props}>
+        <code
+            className={`px-1.5 py-0.5 rounded text-xs font-mono bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200/60 dark:border-slate-700/60 ${className || ''}`}
+            {...props}
+        >
             {children}
         </code>
     );
@@ -470,7 +606,24 @@ function MarkdownTd({ node, ...props }: any) {
 
 function MarkdownLink({ node, href, children, ...props }: any) {
     const { onLinkClick } = useContext(MarkdownContext);
-    const isLocal = href && !href.startsWith('http') && !href.startsWith('mailto:') && !href.startsWith('#');
+    if (href?.startsWith('#')) {
+        return (
+            <a
+                href={href}
+                onClick={(e) => {
+                    e.preventDefault();
+                    const targetId = href.substring(1);
+                    const el = document.getElementById(targetId);
+                    if (el) el.scrollIntoView({ behavior: 'smooth' });
+                }}
+                className="cursor-pointer text-primary hover:underline"
+                {...props}
+            >
+                {children}
+            </a>
+        );
+    }
+    const isLocal = href && !href.startsWith('http') && !href.startsWith('mailto:');
     if (isLocal && onLinkClick) {
         return (
             <a 
@@ -479,7 +632,7 @@ function MarkdownLink({ node, href, children, ...props }: any) {
                     e.preventDefault();
                     onLinkClick(href);
                 }} 
-                className="cursor-pointer"
+                className="cursor-pointer text-primary hover:underline"
                 {...props}
             >
                 {children}
@@ -487,25 +640,40 @@ function MarkdownLink({ node, href, children, ...props }: any) {
         );
     }
     return (
-        <a href={href} target="_blank" rel="noopener noreferrer" {...props}>
+        <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline" {...props}>
             {children}
         </a>
     );
 }
 
+const createHeading = (Tag: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6') => {
+    return function Heading({ children, className = '', ...props }: any) {
+        const text = extractNodeText(children);
+        const id = text.toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-');
+        return <Tag id={id} className={`scroll-mt-6 ${className}`} {...props}>{children}</Tag>;
+    };
+};
+
 const MARKDOWN_COMPONENTS = {
     blockquote: MarkdownBlockquote,
+    pre: MarkdownPre,
     code: CodeBlock,
     img: ImageRenderer,
     table: MarkdownTable,
     th: MarkdownTh,
     td: MarkdownTd,
     a: MarkdownLink,
+    h1: createHeading('h1'),
+    h2: createHeading('h2'),
+    h3: createHeading('h3'),
+    h4: createHeading('h4'),
+    h5: createHeading('h5'),
+    h6: createHeading('h6'),
 };
 
 const REMARK_PLUGINS = [remarkGfm];
 
-export default function MarkdownRenderer({ content, rootPath, readerTheme, onLinkClick }: MarkdownRendererProps) {
+const MarkdownRenderer = memo(function MarkdownRenderer({ content, rootPath, readerTheme, onLinkClick }: MarkdownRendererProps) {
     // Initialize mermaid theme based on readerTheme
     useEffect(() => {
         mermaid.initialize({
@@ -539,5 +707,7 @@ export default function MarkdownRenderer({ content, rootPath, readerTheme, onLin
             </div>
         </MarkdownContext.Provider>
     );
-}
+});
+
+export default MarkdownRenderer;
 

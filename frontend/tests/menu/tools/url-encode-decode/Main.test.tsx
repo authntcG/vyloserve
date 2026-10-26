@@ -99,4 +99,59 @@ describe('UrlMain', () => {
 
         expect(screen.getByPlaceholderText('tools.url.placeholder_encode')).toHaveValue('');
     });
+
+    it('toggles scope from component to full URL and encodes preserving protocol and slash', async () => {
+        const user = userEvent.setup();
+        renderWithToast(<UrlMain />);
+
+        await user.type(screen.getByPlaceholderText('tools.url.placeholder_encode'), 'https://example.com/a b');
+        expect(screen.getByDisplayValue('https%3A%2F%2Fexample.com%2Fa%20b')).toBeInTheDocument();
+
+        await user.click(screen.getByText('tools.url.scope_full'));
+        expect(screen.getByDisplayValue('https://example.com/a%20b')).toBeInTheDocument();
+    });
+
+    it('toggles space encoding to plus sign in encode mode', async () => {
+        const user = userEvent.setup();
+        renderWithToast(<UrlMain />);
+
+        await user.type(screen.getByPlaceholderText('tools.url.placeholder_encode'), 'hello world');
+        expect(screen.getByDisplayValue('hello%20world')).toBeInTheDocument();
+
+        await user.click(screen.getByText('tools.url.space_plus'));
+        expect(screen.getByDisplayValue('hello+world')).toBeInTheDocument();
+    });
+
+    it('loads sample URL when clicking sample button and clears when clicking clear', async () => {
+        const user = userEvent.setup();
+        renderWithToast(<UrlMain />);
+
+        const sampleButtons = screen.getAllByRole('button', { name: /tools\.url\.sample/i });
+        await user.click(sampleButtons[0]);
+
+        expect(screen.getAllByDisplayValue(/vyloserve\.com/).length).toBeGreaterThan(0);
+
+        const clearBtn = screen.getByRole('button', { name: /tools\.url\.clear/i });
+        await user.click(clearBtn);
+
+        expect(screen.getByPlaceholderText('tools.url.placeholder_encode')).toHaveValue('');
+    });
+
+    it('allows editing and deleting query parameters interactively', async () => {
+        const user = userEvent.setup();
+        renderWithToast(<UrlMain />);
+
+        await user.type(screen.getByPlaceholderText('tools.url.placeholder_encode'), 'https://example.com?foo=bar');
+
+        const addBtn = screen.getByRole('button', { name: /tools\.url\.add_param/i });
+        await user.click(addBtn);
+
+        expect(screen.getByDisplayValue(/foo=bar&key=value/)).toBeInTheDocument();
+
+        const deleteButtons = screen.getAllByRole('button', { name: /tools\.url\.delete_param/i });
+        await user.click(deleteButtons[0]);
+
+        expect(screen.getByDisplayValue(/key=value/)).toBeInTheDocument();
+        expect(screen.queryByDisplayValue(/foo=bar/)).not.toBeInTheDocument();
+    });
 });

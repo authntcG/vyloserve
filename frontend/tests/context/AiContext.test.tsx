@@ -154,10 +154,13 @@ describe('AiContext', () => {
         expect(screen.getByTestId('active-model')).toHaveTextContent('llama-3.3-70b-versatile');
     });
 
-    it('sends message, updates user message in state, and sets isGenerating', async () => {
+    it('sends message, updates user message in state immediately (optimistic UI), and sets isGenerating', async () => {
         renderWithProviders(<ConsumerComponent />);
 
         fireEvent.click(screen.getByText('send-btn'));
+
+        // Optimistic UI: user message is rendered in the DOM immediately (0ms latency)
+        expect(screen.getByText('user: Hello AI')).toBeInTheDocument();
 
         await waitFor(() => {
             expect(screen.getByTestId('is-generating')).toHaveTextContent('true');

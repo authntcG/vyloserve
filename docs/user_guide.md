@@ -14,12 +14,13 @@ Selamat datang di Panduan Pengguna Resmi dan Pusat Pengetahuan **VyloServe**. Do
    - [3.2 Bahasa Pemrograman (PHP FastCGI Engine)](#32-bahasa-pemrograman-php-fastcgi-engine)
    - [3.3 Layanan Database (MariaDB & PostgreSQL)](#33-layanan-database-mariadb--postgresql)
    - [3.4 Manajer Runtimes (Node.js, Python, Java, Go)](#34-manajer-runtimes-nodejs-python-java-go)
-   - [3.5 Manajer Proyek & Virtual Host Otomatis (Project Manager)](#35-manajer-proyek--virtual-host-otomatis-project-manager)
+   - [3.5 Projects Hub (Manajer Proyek Multi-Runtime & Virtual Host Otomatis)](#35-projects-hub-manajer-proyek-multi-runtime--virtual-host-otomatis)
    - [3.6 Git Manager & Otoritas Sertifikat SSL Lokal (Git & Root CA)](#36-git-manager--otoritas-sertifikat-ssl-lokal-git--root-ca)
    - [3.7 Tunnel Publik Instan (Cloudflare & Zrok)](#37-tunnel-publik-instan-cloudflare--zrok)
    - [3.8 Utilitas Pengembang (Developer Tools)](#38-utilitas-pengembang-developer-tools)
    - [3.9 AI Assistant Copilot & In-App RAG Retriever](#39-ai-assistant-copilot--in-app-rag-retriever)
-   - [3.10 Pengaturan Sistem & Kustomisasi (Settings & Preferences)](#310-pengaturan-sistem--kustomisasi-settings--preferences)
+   - [3.10 Developer Terminal (Terminal Konsol Pengembang Terpadu)](#310-developer-terminal-terminal-konsol-pengembang-terpadu)
+   - [3.11 Pengaturan Sistem & Kustomisasi (Settings & Preferences)](#311-pengaturan-sistem--kustomisasi-settings--preferences)
 4. [Kamus Kode Error & Log Sistem Lengkap (Exhaustive Error Dictionary)](#4-kamus-kode-error--log-sistem-lengkap-exhaustive-error-dictionary)
 5. [Panduan Pemecahan Masalah Langkah-demi-Langkah (Step-by-Step Troubleshooting)](#5-panduan-pemecahan-masalah-langkah-demi-langkah-step-by-step-troubleshooting)
 6. [Tanya Jawab Umum Komprehensif (FAQ)](#6-tanya-jawab-umum-komprehensif-faq)
@@ -50,8 +51,10 @@ Selamat datang di Panduan Pengguna Resmi dan Pusat Pengetahuan **VyloServe**. Do
 | **Public Tunnels** | ✅ Terpadu (Cloudflare Quick Tunnel & Zrok Share) | ❌ Perlu tool luar (ngrok terpisah) | ⚠️ Tersedia ngrok bawaan |
 | **AI Assistant / Copilot** | ✅ Ya (Streaming LLM, RAG Dokumen, HITL Action) | ❌ Tidak ada | ❌ Tidak ada |
 | **Local HTTPS SSL CA** | ✅ Otomatis (Root CA terdaftar ke Windows Store) | ⚠️ Manual via script OpenSSL | ✅ Otomatis via mkcert |
-| **Manajemen Runtimes** | ✅ Lengkap (Node.js, Python, Java, Go + Corepack) | ❌ Terbatas | ⚠️ Terbatas pada Node/Python |
-| **Tema & Tampilan** | ✅ 10 Tema + Sinkronisasi DWM Titlebar Native | ❌ Tampilan kaku abu-abu | ❌ Tampilan tetap standar |
+| **Manajemen Runtimes** | ✅ Lengkap (Node.js, Python, Java, Go + Multi-Versi & Centralized PATH Hub) | ❌ Terbatas | ⚠️ Terbatas pada Node/Python |
+| **Projects Hub** | ✅ Multi-Runtime (PHP, Node.js, Python, Go, Java) + Dev Server Lifecycle & Reverse Proxy | ❌ PHP saja via htdocs | ⚠️ PHP saja via vhosts |
+| **Developer Terminal** | ✅ Multi-Tab ConPTY (PowerShell, CMD, Bash) + Scoped Environment | ❌ Tidak ada | ⚠️ Terminal Windows CMD standar |
+| **Tema & Tampilan** | ✅ 15 Tema + Sinkronisasi DWM Titlebar Native | ❌ Tampilan kaku abu-abu | ❌ Tampilan tetap standar |
 
 ### 1.3 Persyaratan Sistem Operasi (System Prerequisites)
 Sebelum menjalankan atau menginstal modul di VyloServe, pastikan sistem komputer memenuhi spesifikasi berikut:
@@ -93,15 +96,17 @@ Antarmuka pengguna VyloServe dibagi menjadi 4 komponen tata letak utama yang res
 |                   |                                                               |
 | -- SERVICES --    | [Kartu Kontrol Status & Statistik Port]                       |
 | * Dashboard       | [Tabel / Grid Data / Daftar Instance Server]                  |
-| * Apache Server   | [Formulir / Wizard Konfigurasi]                               |
+| * Projects Hub    | [Formulir / Wizard Konfigurasi]                               |
+| * Apache Server   |                                                               |
 | * PHP FastCGI     |                                                               |
 | * Database        |                                                               |
 | * Runtimes        |                                                               |
 |                   +---------------------------------------------------------------+
 | -- TOOLS --       | TERMINAL & SYSTEM LOG VIEWER (Collapsible)                    |
-| * Git Manager     | [Filter: All | Info | Warning | Error] [Clear Logs]           |
-| * Tunnels         | > 11:45:02 [INFO] Apache daemon started on port 80 (PID 4120) |
-| * Markdown Viewer | > 11:45:03 [SUCCESS] PHP FastCGI listening at 127.0.0.1:9000  |
+| * Dev Terminal    | [Filter: All | Info | Warning | Error] [Clear Logs]           |
+| * Git Manager     | > 11:45:02 [INFO] Apache daemon started on port 80 (PID 4120) |
+| * Tunnels         | > 11:45:03 [SUCCESS] PHP FastCGI listening at 127.0.0.1:9000  |
+| * Markdown Viewer |                                                               |
 | * AI Assistant    +---------------------------------------------------------------+
 |                   |                                       [ (🤖) FAB AI Melayang] |
 | -- FOOTER --      +---------------------------------------------------------------+
@@ -114,13 +119,15 @@ Antarmuka pengguna VyloServe dibagi menjadi 4 komponen tata letak utama yang res
 - **Pencarian Cepat Menu (*Quick Search Filter*)**: Kolom input pencarian instan. Mengetik nama modul atau kata kunci (misal: "php", "sql", "ssl", "tunnel", "git") akan menyaring daftar menu secara *real-time*.
 - **Kelompok Services**:
   - `Dashboard`: Tampilan terpadu seluruh server, sakelar *Master Switch* (Start All / Stop All), daftar project, dan monitoring port.
+  - `Projects`: Pusat pengelolaan proyek multi-runtime (PHP, Node.js, Python, Go, Java), dev server controls, interactive CLI modal, reverse proxy port, dan virtual host.
   - `Apache Server`: Kontrol web server Apache, virtual host, dan rilis biner.
   - `PHP FastCGI`: Daftar versi PHP terpasang, switcher versi global, alokasi port, dan editor ekstensi `php.ini`.
   - `Database`: Manajer multi-instance MariaDB dan PostgreSQL, port, dan reset kata sandi root.
-  - `Runtimes`: Manajer lingkungan eksekusi bahasa (Node.js, Python, Java, Go) dan deteksi instalasi eksternal.
+  - `Runtimes`: Manajer lingkungan eksekusi bahasa multi-versi (Node.js, Python, Java, Go), Centralized PATH Hub, dan deteksi instalasi eksternal.
 - **Kelompok Tools**:
-  - `Git Manager`: Version control, konfigurasi identitas global, inisialisasi repo, kloning remote, dan Root SSL CA.
-  - `Tunnels`: Publikasi localhost via Cloudflare Tunnel atau Zrok Share.
+  - `Developer Terminal`: Terminal multi-tab bawaan (PowerShell, CMD, Git Bash) berbasis Windows ConPTY dengan isolasi Scoped Environment.
+  - `Git Manager`: Version control, konfigurasi identitas global, inisialisasi repo, kloning remote, penataan PATH terselaraskan, dan Root SSL CA.
+  - `Tunnels`: Publikasi localhost via Cloudflare Tunnel atau Zrok Share dengan Dual View Mode (Card / Table) dan searchable project selector.
   - `Markdown Viewer`: Pembaca dokumentasi offline dengan navigasi folder tree rekursif dan penampil gambar base64.
   - `AI Assistant`: Halaman percakapan penuh dengan Copilot developer, selector model, dan kartu aksi server.
 - **Footer Sidebar**:
@@ -317,109 +324,126 @@ VyloServe menerapkan fitur *Smart Routing* cerdas:
 
 ---
 
-<!-- section: runtimes, module: runtimes, tags: [runtimes, nodejs, python, java, go, npm, pip, yarn, pnpm, corepack, external-detection, path, tutorial-runtimes, venv, adoptium, external-scan] -->
+<!-- section: runtimes, module: runtimes, tags: [runtimes, nodejs, python, java, go, npm, pip, yarn, pnpm, corepack, external-detection, path, tutorial-runtimes, venv, adoptium, external-scan, multi-version, path-hub, runtime-path-hub] -->
 ### 3.4 Manajer Runtimes (Node.js, Python, Java, Go)
 
-Modul Runtimes memungkinkan pengembang mengisolasi toolchain pemrograman tanpa perlu installer global yang merusak sistem.
+Modul Runtimes memungkinkan pengembang mengisolasi toolchain pemrograman tanpa perlu installer global yang merusak sistem. Di VyloServe, modul Runtimes telah ditingkatkan secara menyeluruh dengan dukungan instalasi multi-versi konkuren, manajemen versi aktif mandiri, dan registrasi PATH sistem terpusat.
 
 #### A. Runtimes yang Didukung & Fitur Spesifik
 1. **Node.js**:
-   - Pilihan rilis LTS (Long Term Support) atau Current dari repositori resmi `nodejs.org`.
+   - Mendukung instalasi multi-versi (misal: Node.js 18 LTS, Node.js 20 LTS, dan Node.js 22 Current dapat terpasang berdampingan).
+   - Pengalihan versi aktif (*Active Version Switching*) dapat dilakukan seketika dengan satu klik.
    - **Opsi Corepack**: Pilihan checkbox untuk langsung mengaktifkan `corepack enable` (mendukung `pnpm` dan `yarn` tanpa instalasi npm global tambahan).
 2. **Python**:
-   - Rilis embeddable mandiri Windows dari `python.org`.
-   - **Injeksi Pip & Site-Packages**: Secara bawaan, rilis embeddable Python mematikan impor paket eksternal. VyloServe secara otomatis:
-     - Mengedit file `python*._pth` untuk mengaktifkan baris `import site` dan `Lib\site-packages`.
-     - Mengunduh skrip `get-pip.py`.
-     - Menginstal `pip` menggunakan sertifikat CA terpercaya dari pustaka `certifi`.
-     - Menyediakan pip yang siap digunakan untuk `pip install virtualenv` atau instalasi pustaka lainnya.
+   - Rilis embeddable mandiri Windows resmi dari `python.org` (mendukung multi-versi seperti 3.10, 3.11, 3.12).
+   - **Injeksi Pip & Site-Packages Otomatis**: Secara bawaan, rilis embeddable Python mematikan impor pustaka eksternal. VyloServe secara otomatis:
+     - Mengedit file `python*._pth` untuk mengaktifkan direktif `import site` dan `Lib\site-packages`.
+     - Mengunduh skrip resmi `get-pip.py`.
+     - Menginstal `pip` menggunakan bundle sertifikat CA terpercaya dari pustaka `certifi`.
+     - Menyediakan lingkungan pip fungsional yang siap digunakan untuk `pip install`, `virtualenv`, maupun library machine learning / web framework.
 3. **Java (OpenJDK)**:
-   - Rilis JDK resmi Eclipse Temurin dari Adoptium API (`api.adoptium.net`).
-   - Menyediakan `javac` dan `java.exe` lengkap untuk pengembangan backend berbasis Spring Boot atau Android SDK.
-   - Mengatur environment variable `JAVA_HOME` ke direktori instalasi saat diaktifkan.
+   - Rilis JDK resmi Eclipse Temurin dari Adoptium API (`api.adoptium.net`) (mendukung LTS 17, 21, dll).
+   - Menyediakan compiler `javac` dan runtime `java.exe` lengkap untuk pengembangan backend berbasis Spring Boot, Gradle/Maven, atau Android SDK.
+   - Mengatur variabel lingkungan `JAVA_HOME` ke direktori instalasi aktif.
 4. **Go (Golang)**:
-   - Rilis binary resmi Windows AMD64 dari `go.dev/dl/`.
-   - Menyediakan toolchain `go build`, `go run`, dan `go mod`.
+   - Rilis binary resmi Windows AMD64 portabel dari repositori resmi `go.dev/dl/`.
+   - Menyediakan toolchain lengkap `go build`, `go run`, dan manajemen dependensi `go mod`.
+   - Mengonfigurasi `GOROOT` secara otomatis mengarah ke folder instalasi aktif.
 
-#### B. Fitur Deteksi Instalasi Eksternal (External Detection Layer)
+#### B. Pusat Registrasi PATH Terpadu (Centralized Runtime PATH Hub)
+Alih-alih tombol pendaftaran terpisah yang tercecer di setiap kartu runtime dengan kotak peringatan bertumpuk, VyloServe menyediakan komponen terpadu **RuntimePathHub** di bagian atas halaman Runtimes:
+- **Pengaturan Terpusat**: Terdapat dropdown pemilih versi untuk setiap sub-modul (Node.js, Python, Java, Go, serta Git). Anda dapat menentukan versi mana yang ingin didaftarkan ke PATH pengguna Windows, atau memilih *"Do not add to PATH"* untuk menjaga kebersihan sistem.
+- **Satu Tombol Aksi "Apply to System PATH"**: Perubahan seluruh pilihan disinkronkan ke registry pengguna Windows (`HKCU\Environment\Path`) sekaligus dalam satu kali klik.
+- **In-Card Contextual Alert & Safeguard**: Banner peringatan mengenai implikasi modifikasi PATH sistem disematkan langsung di dalam kartu PATH Hub, memberikan panduan keselamatan tanpa mengorbankan kerapian visual antarmuka.
+
+#### C. Fitur Deteksi Instalasi Eksternal (External Detection Layer)
 VyloServe melakukan pemindaian 3 lapis saat halaman Runtimes dibuka:
-1. Memeriksa perintah `where <engine>`.
+1. Memeriksa perintah eksekusi `where <engine>`.
 2. Memeriksa kunci registry Windows (`HKLM` dan `HKCU\Environment\Path`).
-3. Memeriksa variabel lingkungan sistem.
+3. Memeriksa variabel lingkungan sistem operasi.
 
 Jika runtime tersebut sudah terinstal di komputer pengguna di luar VyloServe:
 - Lencana peringatan **External Installation Detected** akan muncul beserta path lokasinya (misal: `C:\Program Files\nodejs\node.exe`).
-- Tombol **Register to PATH** akan dinonaktifkan demi mencegah rusaknya konfigurasi toolchain bawaan Windows Anda. Anda tetap dapat menggunakan versi portabel VyloServe di dalam workspace proyek.
+- Pilihan registrasi ke PATH untuk runtime tersebut pada `RuntimePathHub` otomatis dinonaktifkan (*disabled*) demi mencegah rusaknya konfigurasi toolchain bawaan Windows Anda. Anda tetap dapat menggunakan versi portabel VyloServe di dalam workspace proyek atau terminal sesi terisolasi.
 
 ---
 
-<!-- section: project, module: project, tags: [project-manager, vhost, virtual-host, local-domain, hosts-file, uac, ssl-cert, laravel, codeigniter, wordpress, tutorial-project, new-project, fresh-install, link-existing, raw-php, ssl-local] -->
-### 3.5 Manajer Proyek & Virtual Host Otomatis (Project Manager)
+<!-- section: project, module: project, tags: [project-manager, vhost, virtual-host, local-domain, hosts-file, uac, ssl-cert, laravel, codeigniter, wordpress, tutorial-project, new-project, fresh-install, link-existing, raw-php, ssl-local, projects-hub, dev-server, reverse-proxy, cli-modal] -->
+### 3.5 Projects Hub (Manajer Proyek Multi-Runtime & Virtual Host Otomatis)
 
-Modul Project Manager (terletak di halaman Apache) adalah jantung pengembangan web di VyloServe yang mengotomatiskan scaffolding framework, konfigurasi Virtual Host, registrasi domain lokal di Windows hosts, dan pembuatan sertifikat SSL.
+Menu **Projects** pada sidebar utama adalah pusat pengembangan web & backend multi-runtime di VyloServe yang mengotomatiskan scaffolding framework lintas-bahasa, konfigurasi Virtual Host Apache, registrasi domain lokal di Windows hosts, penerbitan sertifikat SSL Root CA, serta manajemen proses Development Server mandiri.
 
-#### A. Tutorial Membuat Proyek Baru (Mode: Fresh Install)
-Gunakan mode ini jika Anda ingin memulai website atau aplikasi baru dari awal menggunakan framework:
+#### A. Dukungan Framework & Runtime Lintas-Bahasa
+VyloServe mendukung pembuatan proyek baru (*Fresh Install*) dan penautan proyek yang sudah ada (*Link Existing*) untuk 5 ekosistem runtime utama:
+1. **PHP**:
+   - **Laravel**: Menjalankan Composer create-project, otomatis menyalin `.env.example` ke `.env`, dan mengeksekusi `php artisan key:generate`.
+   - **CodeIgniter 4**: Menyiapkan struktur framework, menyalin `env` ke `.env`, dan menyetel `CI_ENVIRONMENT = development`.
+   - **WordPress**: Mengunduh rilis resmi WordPress terbaru langsung dari `wordpress.org`.
+   - **Raw PHP**: Menyiapkan struktur dasar dengan file `index.php`.
+2. **Node.js**:
+   - **Express**: Aplikasi REST API minimalis berbasis Express.js.
+   - **NestJS**: Framework enterprise TypeScript modular berbasis Nest CLI.
+   - **Next.js**: Framework React fullstack dengan App Router/Pages Router.
+   - **Vite / React**: Single Page Application (SPA) modern ultra-cepat berbasis Vite.
+3. **Python**:
+   - **FastAPI**: Backend REST API performa tinggi berbasis ASGI (`uvicorn`).
+   - **Flask**: Web framework micro berbasis WSGI.
+   - **Django**: Web framework fullstack dengan ORM dan admin dashboard bawaan.
+4. **Go**:
+   - **Gin**: HTTP web framework performa tinggi dengan routing cepat.
+   - **Fiber**: Framework web terinspirasi Express yang berjalan di atas FastHTTP.
+   - **Standard HTTP**: Boilerplate web service berbasis pustaka standar `net/http`.
+5. **Java**:
+   - **Spring Boot**: Framework backend enterprise berbasis Maven/Gradle.
+   - **Javalin**: Web microframework ringan dan ekspresif untuk Kotlin/Java.
 
-```text
-[ Form New Project: Fresh Install ]
-1. Setup Mode        : (•) 🚀 Fresh Install    ( ) 🔗 Link Existing
-2. Project Name      : [ toko-online           ] -> Domain otomatis: toko-online
-3. PHP Version       : [ PHP 8.3.16 (Port 9000) \/]
-4. Framework         : [ Laravel                \/] (Laravel / CodeIgniter / WordPress / Raw)
-5. Workspace Location: [ D:\Projects\Web        ] [Browse...]
-6. Advanced Settings : [v] (Klik untuk membuka opsi domain kustom & versi framework)
-   - Domain Ext      : [.test   ] (Pilihan: .test, .local, .internal, dll)
-   - Specific Version: [ 11.*   ] (Opsional: tag versi framework spesifik)
-```
+#### B. Tutorial Membuat Proyek Baru (Mode: Fresh Install)
+1. Buka menu **Projects** dari sidebar utama.
+2. Klik tombol **New Project** di pojok kanan atas.
+3. Form modal penambahan proyek akan muncul:
+   - **Setup Mode**: Pilih **🚀 Fresh Install**.
+   - **Runtime & Framework**: Pilih runtime (PHP, Node.js, Python, Go, atau Java) dan framework yang diinginkan.
+   - **Project Name**: Masukkan nama proyek (misal: `toko-online`). Kolom domain otomatis disetel ke format slug `toko-online`.
+   - **Runtime Version**: Pilih versi runtime aktif yang akan melayani proyek.
+   - **Workspace Location**: Folder induk tempat proyek diletakkan (misal: `D:\Projects\Web`).
+   - **Advanced Settings**: Buka opsi lanjutan untuk menentukan ekstensi domain lokal (`.test`, `.local`), port reverse proxy kustom, atau tag versi framework spesifik.
+4. **Interactive CLI Scaffolding Modal (`ProjectCliModal`)**:
+   - Jika proses pembuatan memerlukan interaksi baris perintah (seperti pertanyaan CLI pada `create-next-app` atau prompt dependensi Composer/NPM), VyloServe otomatis membuka jendela modal terminal interaktif real-time berbasis xterm.js dan streaming PTY.
+   - Anda dapat menekan tombol panah keyboard, Enter, atau mengetik pilihan langsung di jendela modal sampai proses scaffolding selesai.
+5. **Virtual Host, SSL & Windows Hosts Synchronization**:
+   - Backend menulis konfigurasi Virtual Host Apache (`vyloserve-vhosts.conf`).
+   - Sertifikat SSL domain lokal diterbitkan otomatis menggunakan Root CA VyloServe.
+   - Baris `127.0.0.1 namaproyek.test` dituliskan ke `C:\Windows\System32\drivers\etc\hosts` via dialog persetujuan Windows UAC (*User Account Control*). Klik **Yes**.
+   - Apache me-reload konfigurasinya tanpa downtime.
+   - Kartu proyek muncul di halaman Projects dengan badge status hijau **Synced**!
 
-**Langkah-langkah Eksekusi**:
-1. Klik tombol **New Project** di halaman Apache.
-2. Pastikan tombol segmen atas berada di posisi **🚀 Fresh Install**.
-3. Masukkan **Project Name** (misal: `toko-online`). Kolom domain akan otomatis terisi format slug `toko-online`.
-4. Pilih **PHP Version** yang kompatibel dengan framework pilihan Anda.
-5. Pilih **Framework to Install**:
-   - `Laravel`: Menjalankan Composer create-project.
-   - `CodeIgniter`: Menyiapkan struktur CodeIgniter 4 (atau CI3 jika menggunakan PHP 7.x).
-   - `WordPress`: Mengunduh rilis resmi WordPress terbaru.
-   - `Raw`: Membuat proyek PHP dasar berisi file `index.php`.
-6. Tentukan **Workspace Location** (folder induk tempat project akan diletakkan). Folder akhir proyek Anda akan menjadi `D:\Projects\Web\toko-online`. Lokasi ini otomatis tersimpan untuk proyek-proyek berikutnya.
-7. *(Opsional)* Buka **Advanced Settings** untuk mengganti ekstensi domain (misal menjadi `.test` atau `.local`) atau menentukan versi spesifik framework.
-8. Klik tombol **Create Project**:
-   - Progress bar akan muncul menampilkan tahapan:
-     - 10%: Menyiapkan konfigurasi.
-     - 20%: Menyiapkan environment PHP & Composer.
-     - 40%–60%: Mengunduh paket framework via Composer atau ZIP WordPress.
-     - 60%–95%: Menjalankan instalasi dependensi vendor.
-     - 100%: Menjalankan post-install hook:
-       - Pada Laravel: otomatis menyalin `.env.example` menjadi `.env` dan mengeksekusi `php artisan key:generate`.
-       - Pada CodeIgniter: otomatis menyalin `env` menjadi `.env` dan menyetel `CI_ENVIRONMENT = development`.
-   - **Pembuatan Virtual Host Otomatis**: Backend membuat file konfigurasi Apache di `bin/apache/<version>/conf/extra/vyloserve-vhosts.conf`.
-   - **Penerbitan Sertifikat SSL**: Backend menandatangani sertifikat SSL untuk domain `toko-online.test` menggunakan Root CA VyloServe.
-   - **Injeksi Windows Hosts & UAC Elevation**:
-     - Sistem menuliskan baris `127.0.0.1 toko-online.test` ke `C:\Windows\System32\drivers\etc\hosts`.
-     - Dialog keamanan Windows UAC (*User Account Control*) akan muncul sekali di layar. Klik **Yes / Ya**.
-   - Apache me-restart konfigurasinya secara otomatis.
-   - Kartu proyek baru Anda muncul di daftar dengan tombol **Open Web** dan badge status domain **Synced (Hijau)**!
+#### C. Tutorial Menghubungkan Proyek yang Sudah Ada (Mode: Link Existing)
+Gunakan mode ini jika Anda sudah memiliki folder proyek di komputer Anda (misal hasil clone dari Git atau proyek dari folder lama):
+1. Klik tombol **New Project** di menu **Projects**.
+2. Pilih segmen **🔗 Link Existing**.
+3. Klik **Browse** dan pilih folder proyek Anda di disk.
+4. **Mesin Deteksi Otomatis (Auto-Detection Engine)**:
+   - VyloServe membaca struktur direktori secara instan:
+     - PHP: Mendeteksi `artisan` (Laravel -> `public/`), `spark` (CodeIgniter -> `public/`), `wp-config.php` (WordPress -> root), atau file `.php`.
+     - Node.js: Mendeteksi `package.json` dan membaca skrip dev/start.
+     - Python: Mendeteksi `requirements.txt`, `Pipfile`, atau `pyproject.toml`.
+     - Go: Mendeteksi `go.mod`.
+     - Java: Mendeteksi `pom.xml` (Maven) atau `build.gradle` (Gradle).
+5. Konfirmasi runtime dan port target, lalu klik **Create Project**. Sistem langsung menerbitkan sertifikat SSL, mendaftarkan Virtual Host, dan menyinkronkan domain lokal.
 
-#### B. Tutorial Menghubungkan Proyek yang Sudah Ada (Mode: Link Existing)
-Gunakan mode ini jika Anda sudah memiliki folder proyek website di komputer Anda (misal hasil clone dari Git atau proyek dari folder lama):
-1. Klik tombol **New Project** di halaman Apache.
-2. Alihkan tombol segmen atas ke posisi **🔗 Link Existing**.
-3. Masukkan **Project Name** dan tentukan **PHP Version** yang digunakan proyek tersebut.
-4. Pada kolom **Project Directory**, klik tombol **Browse** dan pilih folder proyek Anda di komputer.
-5. **Auto-Detection Engine**:
-   - VyloServe memindai struktur file folder tersebut secara otomatis:
-     - Jika terdeteksi file `artisan` dan `composer.json` berisi `laravel/framework` -> terdeteksi sebagai **Laravel**, dan DocumentRoot secara otomatis diarahkan ke subfolder `public/`.
-     - Jika terdeteksi file `spark` dan `public` -> terdeteksi sebagai **CodeIgniter**, DocumentRoot diarahkan ke `public/`.
-     - Jika terdeteksi file `wp-config-sample.php` atau folder `wp-admin` -> terdeteksi sebagai **WordPress**, DocumentRoot disetel di root folder.
-6. Klik **Create Project**. Sistem langsung membuatkan Virtual Host, sertifikat SSL, dan menyinkronkan domain ke file hosts tanpa perlu instalasi ulang!
+#### D. Manajemen Lifecycle Development Server (Dev Server Controls)
+Untuk proyek non-PHP (seperti Node.js, Python, Go, Java) yang membutuhkan server proses terpisah:
+- **Status Dev Server Real-Time**: Kartu proyek menampilkan status server pengembang (Running, Stopped, atau Crashed) beserta port yang sedang digunakan.
+- **Tombol Start / Stop Dev Server**: Menyalakan atau mematikan proses dev server (misal: `npm run dev` atau `uvicorn`) dengan satu klik tanpa perlu membuka jendela konsol eksternal terpisah.
+- **Live Logs Modal**: Tombol **Live Logs** membuka penampil log streaming real-time untuk memantau output kompilasi kode, request HTTP masuk, atau jejak error stack trace.
+- **Integrasi Reverse Proxy Apache**: Apache dikonfigurasi secara transparan untuk meneruskan request dari domain `https://namaproyek.test` langsung ke port localhost dev server yang sedang berjalan, sehingga Anda tetap menikmati URL cantik dan HTTPS lokal tanpa embel-embel port di browser!
 
-#### C. Pengaturan & Penghapusan Proyek (Project Settings & Deletion)
+#### E. Pengaturan & Penghapusan Proyek (Project Settings & Deletion)
 - **Tombol Aksi pada Kartu Proyek**:
-  - `Open Web` (Ikon Browser): Membuka browser langsung ke domain `http://namaproyek.test` atau `https://namaproyek.test`.
+  - `Open Web` (Ikon Globe/Browser): Membuka browser langsung ke domain `http://namaproyek.test` atau `https://namaproyek.test`.
   - `Open Folder` (Ikon Folder): Membuka Windows File Explorer langsung ke direktori proyek.
-  - `Settings` (Ikon Gir): Membuka modal pengaturan proyek untuk mengganti nama atau mengganti versi PHP proyek tersebut secara dinamis.
+  - `Open Terminal` (Ikon Terminal): Membuka Developer Terminal VyloServe langsung di direktori proyek dengan environment runtime yang sudah disesuaikan.
+  - `Settings` (Ikon Gir): Membuka modal pengaturan proyek untuk mengganti nama domain, versi runtime, atau port proxy secara dinamis.
   - `Retry Sync Hosts` (Muncul jika UAC ditolak sebelumnya): Mencoba kembali menyuntikkan domain ke file `hosts` Windows.
 - **Menghapus Proyek (Delete Project)**:
   - Klik ikon tong sampah pada kartu proyek.
@@ -429,7 +453,7 @@ Gunakan mode ini jika Anda sudah memiliki folder proyek website di komputer Anda
 
 ---
 
-<!-- section: git-ssl, module: git, tags: [git, ssl, root-ca, openssl, credentials, terminal, portable-git, tutorial-git, tutorial-ssl, certutil, windows-store, clone-repo, commit, https-local] -->
+<!-- section: git-ssl, module: git, tags: [git, ssl, root-ca, openssl, credentials, terminal, portable-git, tutorial-git, tutorial-ssl, certutil, windows-store, clone-repo, commit, https-local, git-path-alert, global-config] -->
 ### 3.6 Git Manager & Otoritas Sertifikat SSL Lokal (Git & Root CA)
 
 #### A. VyloServe Local Root Certificate Authority (SSL Root CA)
@@ -447,35 +471,47 @@ Secara bawaan, sertifikat SSL lokal yang dibuat sendiri (*self-signed certificat
    - Setiap kali Anda membuat virtual host baru (misal: `toko-online.test`), VyloServe otomatis menerbitkan sertifikat domain dengan Subject Alternative Names (`DNS.1 = toko-online.test`, `DNS.2 = *.toko-online.test`) yang ditandatangani oleh Root CA ini.
    - Saat Anda membuka `https://toko-online.test` di Google Chrome, Microsoft Edge, atau browser Windows lainnya, koneksi HTTPS menampilkan ikon gembok aman hijau tanpa peringatan keamanan!
 
-#### B. Portable Git Manager
+#### B. Portable Git Manager & Penyelarasan PATH
 - Jika komputer Anda belum terpasang Git, VyloServe menyediakan modul Git portabel yang diunduh langsung dari repositori Git for Windows.
+- **Kartu Add to System PATH Terselaraskan**:
+  - Kartu pendaftaran Git ke Windows PATH kini diselaraskan dengan standar `RuntimePathHub`: kotak peringatan (*in-card contextual alert*) disematkan langsung di dalam kartu, menyajikan informasi konsekuensi modifikasi variabel lingkungan secara elegan.
+  - Lencana status adaptif di sudut kartu menampilkan status registrasi: `Registered to User PATH`, `External Installation Detected`, atau `Not Registered`.
+  - Jika Git eksternal terdeteksi di Windows, tombol pendaftaran otomatis dikunci (*disabled*) untuk melindungi integritas toolchain bawaan Anda.
 - **Fitur Git di Antarmuka**:
-  - Konfigurasi identitas global (`git config --global user.name` dan `user.email`).
-  - Kloning repositori remote via URL HTTPS atau SSH.
-  - Status working tree (file modified, staged, untracked).
-  - Melakukan staging (`git add`) dan commit (`git commit -m "pesan"`).
+  - **Konfigurasi Identitas Global**: Atur `git config --global user.name` dan `user.email` langsung dari form modal Git tanpa perlu membuka baris perintah.
+  - **Kloning Repositori Remote**: Masukkan URL repositori HTTPS atau SSH dan tentukan folder tujuan kloning.
+  - **Status Working Tree & Branch**: Memantau branch aktif, file modified, staged, serta untracked files secara visual.
+  - **Staging & Commit Cepat**: Lakukan `git add` dan `git commit -m "pesan"` dengan satu tombol.
 
 ---
 
-<!-- section: tunnels, module: tunnels, tags: [tunnels, cloudflare, zrok, public-url, share, trycloudflare, remote-access, reverse-proxy, tutorial-tunnels, webhook-testing, remote-demo] -->
+<!-- section: tunnels, module: tunnels, tags: [tunnels, cloudflare, zrok, public-url, share, trycloudflare, remote-access, reverse-proxy, tutorial-tunnels, webhook-testing, remote-demo, dual-view, searchable-selector] -->
 ### 3.7 Tunnel Publik Instan (Cloudflare & Zrok)
 
 Fitur Tunnels memungkinkan website lokal di komputer Anda diakses oleh klien, rekan tim, atau layanan webhook (seperti Midtrans, Stripe, GitHub Webhooks) dari seluruh dunia tanpa perlu IP publik statis atau konfigurasi port-forwarding router WiFi.
 
-#### A. Cloudflare Tunnel (Quick Tunnel - Tanpa Akun)
+#### A. Fleksibilitas Tampilan & Pencarian Proyek
+- **Dual View Mode (Card Grid vs Table View)**:
+  - Tombol pengalih tampilan (*ViewModeToggle*) di header memungkinkan Anda beralih seketika antara:
+    - **Card Grid View**: Tampilan kartu visual besar dengan kartu status ekspansif, cocok untuk demonstrasi cepat.
+    - **Compact Data Table View**: Tampilan tabel data ringkas yang memuat kolom Target, Type, Public URL, Uptime, Status, dan Tombol Aksi, sangat ideal untuk memantau banyak tunnel aktif sekaligus.
+- **Searchable Project Selector**:
+  - Dropdown pemilihan proyek terdaftar kini dilengkapi kotak pencarian interaktif (*filter search*), memudahkan Anda mencari nama proyek dengan mengetik huruf awal di antara puluhan virtual host yang ada.
+
+#### B. Cloudflare Tunnel (Quick Tunnel - Tanpa Akun)
 1. Buka menu **Tunnels** dari sidebar.
 2. Jika biner `cloudflared.exe` belum terpasang, klik tombol **Install Cloudflare**.
 3. Pada tab **Cloudflare**, tentukan mode berbagi:
-   - **Share Registered Project**: Pilih salah satu proyek Apache yang terdaftar di VyloServe (misal: `toko-online.test`). Sistem otomatis membaca port HTTP yang digunakan.
-   - **Share Custom Target**: Masukkan sembarang target lokal (misal: `localhost:3000` untuk aplikasi React/Next.js).
+   - **Share Registered Project**: Pilih salah satu proyek yang terdaftar di VyloServe (misal: `toko-online.test`). Sistem otomatis membaca port HTTP yang digunakan.
+   - **Share Custom Target**: Masukkan sembarang target lokal (misal: `localhost:3000` untuk aplikasi React/Next.js atau port dev server lainnya).
 4. Klik tombol hijau **Start Tunnel**:
    - Backend menjalankan `cloudflared.exe tunnel --url http://127.0.0.1:<port>`.
    - Log proses dipindai secara real-time untuk mengekstrak URL publik sementara.
-   - URL publik berformat `https://<kata-acak>.trycloudflare.com` akan muncul di kartu tunnel aktif.
+   - URL publik berformat `https://<kata-acak>.trycloudflare.com` akan muncul di kartu/tabel tunnel aktif.
    - Tombol **Copy URL** siap disalin dan dibagikan.
    - Pada mode proyek terdaftar, domain tunnel tersebut secara otomatis ditambahkan sebagai `ServerAlias` di Virtual Host Apache!
 
-#### B. Zrok Tunnel (OpenZiti - Berautentikasi & Cepat)
+#### C. Zrok Tunnel (OpenZiti - Berautentikasi & Cepat)
 1. Daftar akun gratis di [zrok.io](https://zrok.io) untuk mendapatkan token aktivasi akun Anda.
 2. Pada tab **Zrok** di VyloServe, masukkan token Anda ke kolom **Enable Token** lalu klik **Activate Zrok**.
 3. Pilih proyek atau target localhost yang ingin dibagikan.
@@ -483,7 +519,7 @@ Fitur Tunnels memungkinkan website lokal di komputer Anda diakses oleh klien, re
    - Backend mengeksekusi `zrok.exe share public http://localhost:<port> --headless`.
    - URL publik aman berformat `https://<id>.shares.zrok.io` muncul di antarmuka.
 
-#### C. Menghentikan Tunnel
+#### D. Menghentikan Tunnel
 - Seluruh tunnel yang sedang aktif tercantum pada daftar **Active Tunnels**.
 - Cukup klik tombol merah **Stop** untuk menutup tunnel dan mematikan akses publik seketika.
 
@@ -579,28 +615,78 @@ AI Assistant memiliki hak akses untuk membantu Anda mengelola layanan server, na
 
 ---
 
-<!-- section: settings, module: settings, tags: [settings, theme, dwm, titlebar, language, i18n, native-notifications, toast, auto-updater, tutorial-settings, ganti-tema] -->
-### 3.10 Pengaturan Sistem & Kustomisasi (Settings & Preferences)
+<!-- section: terminal, module: terminal, tags: [terminal, powershell, cmd, git-bash, presets, session-scoping, cwd, terminal-settings, terminal-customization] -->
+### 3.10 Developer Terminal (Terminal Konsol Pengembang Terpadu)
+
+VyloServe menyediakan terminal pengembang bawaan (*Developer Terminal*) yang dapat diakses langsung dari menu **Tools -> Developer Terminal** pada sidebar utama atau melalui pintasan terminal pada kartu proyek. Terminal ini mengeliminasi kebutuhan membuka jendela PowerShell atau CMD Windows eksternal secara terpisah.
+
+#### A. Arsitektur Terminal & Windows ConPTY Backend
+- **Windows Pseudoconsole (ConPTY) Native**: Terminal dibangun di atas pustaka `pywinpty` yang berinteraksi langsung dengan subsistem native Windows ConPTY (`CreatePseudoConsole`).
+- **Emulasi xterm.js Lengkap**: Frontend mengintegrasikan `xterm.js` bersama addon `xterm-addon-fit` dan `xterm-addon-web-links`, mendukung 100% kode warna ANSI 24-bit, cursor control, navigasi teks, interaksi CLI interaktif (seperti Yeoman, Inquirer, Git prompts), dan rendering tautan URL yang dapat diklik.
+- **Dukungan Multi-Tab Simultan**: Anda dapat membuka, mengganti nama (*rename*), menyusun ulang, dan menutup banyak tab terminal secara simultan dalam satu jendela kerja.
+
+#### B. Pilihan Shell Bawaan
+Terminal mendukung berbagai jenis shell lingkungan Windows:
+- **PowerShell**: Shell modern Windows (`powershell.exe`) dengan cmdlet lengkap.
+- **Command Prompt (CMD)**: Shell klasik Windows (`cmd.exe`).
+- **Git Bash**: Shell Bash berbasis MinGW (`bash.exe`) yang otomatis terdeteksi jika Git portabel VyloServe atau Git eksternal terpasang di komputer.
+
+#### C. Isolasi Lingkungan & Scoping (Environment Scoping)
+Fitur unggulan Developer Terminal di VyloServe adalah kemampuannya untuk menginjeksi toolchain biner secara terisolasi tanpa mencemari konfigurasi global Windows:
+- **VyloServe Environment Injection**: Saat membuka tab terminal baru, Anda dapat memilih opsi **Scoped Environment**.
+- Pada mode ini, path direktori biner aktif VyloServe (Node.js aktif, Python aktif, Go aktif, Java aktif, PHP aktif, dan Git portabel) disuntikkan secara otomatis ke variabel lingkungan `PATH` sesi terminal tersebut.
+- Anda dapat langsung mengeksekusi perintah seperti `node -v`, `python --version`, `go run`, `java -version`, atau `composer` tanpa harus mendaftarkannya ke sistem Windows PATH global!
+
+#### D. Preset Sesi Tersimpan (Saved Presets & Quick Launch)
+Jika Anda memiliki rutinitas sesi terminal tertentu yang sering digunakan berulang:
+1. Klik tombol **Presets** pada toolbar terminal.
+2. Anda dapat membuat preset baru dengan menentukan:
+   - Nama preset (misal: *Backend API Server* atau *Frontend Vite Build*).
+   - Shell yang digunakan (PowerShell, CMD, atau Git Bash).
+   - Folder kerja awal (*Initial Working Directory*).
+   - Variabel lingkungan kustom (key-value pairs).
+   - Perintah otomatis saat sesi dibuka (*Auto-run Command*, misal: `npm run dev`).
+3. Kapan pun dibutuhkan, luncurkan preset tersebut dengan satu klik untuk membuka sesi terminal yang siap pakai seketika.
+
+#### E. Pelacakan Direktori Kerja Real-Time (CWD Tracking)
+- VyloServe memanfaatkan pemanggilan native Windows Win32 API (`OpenProcess`, `NtQueryInformationProcess`, Process Basic Information) untuk memantau perubahan folder kerja aktif (*Current Working Directory*) dari proses shell anak secara real-time.
+- Jalur direktori pada status bar terminal otomatis diperbarui saat Anda berpindah folder menggunakan perintah `cd`.
+
+#### F. Kustomisasi Tampilan & Perilaku (Terminal Settings)
+Klik ikon gerigi (**Terminal Settings**) pada toolbar terminal untuk menyesuaikan preferensi:
+- **Font Family**: Pilih antara font monospace modern seperti *Cascadia Code*, *JetBrains Mono*, *Fira Code*, atau *Consolas*.
+- **Font Size & Line Height**: Sesuaikan ukuran teks (10px–24px) dan spasi baris demi kenyamanan mata.
+- **Cursor Style**: Pilih model kursor *Block*, *Underline*, atau *Bar*, serta aktifkan animasi kedipan (*Cursor Blink*).
+- **Scrollback Buffer**: Tentukan batas riwayat baris konsol (default 1000 baris, hingga 10.000 baris).
+- **Bell Notification**: Pilih suara denting, kedipan visual (*visual bell*), atau senyap (*none*).
+
+---
+
+<!-- section: settings, module: settings, tags: [settings, theme, dwm, titlebar, language, i18n, native-notifications, toast, auto-updater, tutorial-settings, ganti-tema, notification-bell, 15-themes] -->
+### 3.11 Pengaturan Sistem & Kustomisasi (Settings & Preferences)
 
 Buka menu **Settings** di footer sidebar untuk mengonfigurasi preferensi aplikasi:
 1. **Bahasa Antarmuka (Language)**:
    - Pilih antara **Bahasa Indonesia** atau **English (US)**. Seluruh label tombol, pesan notifikasi toast, dan panduan dialog akan berubah seketika tanpa perlu restart.
-2. **Pilihan Tema Warna (Theming Engine)**:
-   - Tersedia 10 preset tema profesional:
-     - Gelap: *VyloServe Dark* (Default), *Darcula*, *Solarized Dark*, *High Contrast Dark*, *Monokai*, *Dracula*, *Nord*.
-     - Terang: *VyloServe Light*, *Solarized Light*, *High Contrast Light*.
-   - **Sinkronisasi DWM Windows Titlebar**: Mengubah tema otomatis mengubah warna latar dan warna teks pada titlebar jendela native Windows via Windows Desktop Window Manager (DWM).
-3. **Notifikasi Native Windows**:
-   - Mengaktifkan pengiriman notifikasi ke *Windows 10/11 Action Center*.
-   - Notifikasi native otomatis digerbang hanya saat jendela aplikasi sedang diminimalkan atau disembunyikan di tray, sehingga tidak menduplikasi toast di layar kerja aktif Anda.
-4. **Pembaruan Aplikasi Otomatis (Auto-Updater)**:
+2. **Pilihan 15 Tema Warna Profesional (Theming Engine)**:
+   - Tersedia 15 preset tema yang dirancang khusus untuk kenyamanan mata pengembang:
+     - **Tema Gelap (10 Tema)**: *VyloServe Dark* (Default), *Darcula*, *Solarized Dark*, *High Contrast Dark*, *Monokai*, *Dracula*, *Nord*, *Catppuccin Mocha*, *Tokyo Night*, *Gruvbox Dark*, *Windows XP Zune Dark*.
+     - **Tema Terang (5 Tema)**: *VyloServe Light*, *Solarized Light*, *High Contrast Light*, *Windows XP Luna Light*.
+   - **Sinkronisasi DWM Windows Titlebar Native**: Mengubah tema otomatis mengubah warna latar dan warna teks pada titlebar jendela native Windows via Windows Desktop Window Manager (DWM) menggunakan Windows API `DwmSetWindowAttribute`.
+3. **Pusat Riwayat Notifikasi & Lonceng Notifikasi**:
+   - Ikon lonceng notifikasi di sudut kanan atas header menampilkan lencana jumlah pesan atau proses penting yang belum dibaca.
+   - Klik ikon lonceng untuk membuka popover riwayat notifikasi, meninjau aktivitas sistem terkini, atau mengosongkan riwayat dengan satu klik.
+4. **Notifikasi Native Windows (Action Center)**:
+   - Mengaktifkan pengiriman notifikasi toast native ke *Windows 10/11 Action Center* menggunakan pustaka `win11toast`.
+   - **Smart Presence Guard**: Notifikasi desktop native secara cerdas digerbang oleh hook `useWindowPresence`: notifikasi native hanya ditampilkan saat jendela VyloServe sedang diminimalkan atau disembunyikan di System Tray, sehingga tidak membanjiri layar Anda ketika aplikasi sedang aktif di depan.
+5. **Pembaruan Aplikasi Otomatis (Auto-Updater)**:
    - Menampilkan versi aplikasi Anda saat ini.
    - Pilihan checkbox **Opt-in Pre-release** untuk mencoba versi uji coba lebih awal.
    - Tombol **Check for Updates**: Memeriksa rilis GitHub resmi terbaru dan menyajikan unduhan otomatis satu klik di latar belakang.
 
 ---
 
-<!-- section: error-codes, module: errors, tags: [error-code, os-10048, ah00072, ah00015, 403-forbidden, 502-bad-gateway, php-error, 1045-access-denied, 2002-cant-connect, http-404, http-429, uac-denied, kamus-error, error-log, php-cgi-1, memory-limit] -->
+<!-- section: error-codes, module: errors, tags: [error-code, os-10048, ah00072, ah00015, 403-forbidden, 502-bad-gateway, php-error, 1045-access-denied, 2002-cant-connect, http-404, http-429, uac-denied, kamus-error, error-log, php-cgi-1, memory-limit, eaddrinuse, terminal-spawn, path-conflict] -->
 ## 4. Kamus Kode Error & Log Sistem Lengkap (Exhaustive Error Dictionary)
 
 Tabel berikut merangkum seluruh kode error umum yang sering dijumpai dalam pengoperasian server lokal, penyebab teknisnya, dan tombol/langkah solusinya di VyloServe:
@@ -625,6 +711,9 @@ Tabel berikut merangkum seluruh kode error umum yang sering dijumpai dalam pengo
 | `Ollama Offline / Connection Refused (11434)` | **AI Assistant** | Layanan server Ollama lokal belum dijalankan di komputer pengguna. | Buka command prompt Windows, ketik perintah `ollama serve` untuk menyalakan engine Ollama di latar belakang. |
 | `cloudflared.exe: url_not_found` | **Tunnels (Cloudflare)** | Cloudflare tunnel gagal mendapatkan rute publik karena firewall memblokir UDP/QUIC atau DNS lokal bermasalah. | Buka menu **Tunnels** -> klik **Stop Tunnel** -> pastikan koneksi internet aktif -> klik **Start Tunnel** kembali. |
 | `zrok: unauthorized environment` | **Tunnels (Zrok)** | Token akun zrok belum dimasukkan atau telah di-revoke dari konsol zrok.io. | Buka tab **Zrok** di menu Tunnels -> klik **Disable Zrok** -> masukkan token baru yang valid dari web zrok.io -> klik **Activate Zrok**. |
+| `EADDRINUSE: address already in use 127.0.0.1:<port>` | **Projects Hub (Dev Server)** | Port target dev server (seperti 3000, 5173, atau 8000) sedang dipakai oleh aplikasi atau instance dev server lain di Windows. | Pada kartu proyek di menu **Projects**, klik tombol **Stop** atau buka modal **Settings** proyek untuk memindahkan target dev server port ke port kosong lain. |
+| `backend.terminal.spawn_failed / ConPTY creation error` | **Developer Terminal** | Inisialisasi ConPTY gagal karena biner shell yang dipilih (`bash.exe` atau `powershell.exe`) tidak ditemukan pada path yang ditentukan. | Buka modal **Terminal Settings** di toolbar terminal, pastikan shell biner valid atau gunakan shell default `powershell.exe` / `cmd.exe`. |
+| `Runtime PATH Conflict: Multiple versions in system PATH` | **Runtimes (Path Hub)** | Terjadi inkonsistensi environment variable karena versi biner lama masih tersisa di registry Windows PATH. | Buka menu **Runtimes** -> buka kartu **Centralized PATH Hub** -> pilih versi yang diinginkan -> klik tombol **Apply to System PATH** untuk menormalkan PATH secara otomatis. |
 
 ---
 
@@ -696,19 +785,33 @@ J: File pemetaan domain Windows (`C:\Windows\System32\drivers\etc\hosts`) adalah
 **T: Apakah AI Assistant Copilot menyimpan kode atau data pribadi saya?**  
 J: **Tidak**. Riwayat percakapan disimpan secara lokal di komputer Anda pada file `data/ai_chat_history.json`. Kunci API Anda disimpan di lokal. Jika Anda memilih menggunakan Ollama, seluruh pemrosesan AI berjalan 100% offline di mesin Anda tanpa koneksi internet sama sekali.
 
+**T: Bagaimana cara kerja Development Server pada Projects Hub dengan Apache Virtual Host?**  
+J: Proyek modern seperti Next.js, FastAPI, atau Spring Boot menjalankan proses dev server mandiri di port tertentu (misal: `127.0.0.1:3000`). Apache di VyloServe bertindak sebagai *Reverse Proxy*: setiap request browser yang menuju domain `https://proyek.test` secara transparan diteruskan ke port dev server tersebut, sehingga Anda mendapatkan domain lokal rapi dan sertifikat SSL tanpa perlu mengetik nomor port di browser.
+
+**T: Apakah Developer Terminal VyloServe mengubah PATH Windows komputer saya secara permanen?**  
+J: **Tidak sama sekali**. Terminal VyloServe menyediakan fitur *Environment Scoping*: variabel `PATH` berisi toolchain biner VyloServe hanya disuntikkan ke dalam sesi proses terminal aktif tersebut. Konfigurasi `PATH` Windows global Anda tetap bersih dan tidak terpengaruh sama sekali.
+
+**T: Mengapa registrasi PATH pada modul Runtimes disatukan ke dalam Centralized PATH Hub?**  
+J: Untuk mencegah tombol registrasi tersebar di banyak kartu dan mencegah pengguna secara tidak sengaja mendaftarkan versi yang saling bertabrakan. Centralized PATH Hub memungkinkan Anda memilih versi spesifik untuk setiap sub-modul (Node.js, Python, Java, Go, Git) dari satu tempat dan menerapkan semuanya dengan satu klik terkoordinasi.
+
 ---
 
-<!-- section: glossary, module: glossary, tags: [glosarium, definisi, fastcgi, vhost, named-pipe, dwm, uac, lpu, sse, root-ca, hitl] -->
+<!-- section: glossary, module: glossary, tags: [glosarium, definisi, fastcgi, vhost, named-pipe, dwm, uac, lpu, sse, root-ca, hitl, conpty, dev-server, scoping, reverse-proxy, path-hub] -->
 ## 7. Glosarium Istilah Teknis (Glossary)
 
+- **ConPTY (Windows Pseudoconsole)**: Arsitektur subsistem konsol bawaan Windows yang menyediakan antarmuka terminal bergaya Unix untuk menangani karakter kontrol VT/ANSI dan emulasi terminal interaktif.
+- **Dev Server**: Proses server lokal ringan (seperti Vite, Webpack Dev Server, Uvicorn, atau Spring Boot dev tools) yang memantau perubahan file kode sumber dan menyediakan fitur hot-reloading selama pengembangan.
 - **DocumentRoot**: Direktori root pada sistem file tempat file-file web publik (HTML, skrip PHP, stylesheet CSS, gambar) yang dapat diakses oleh browser klien diletakkan.
+- **Environment Scoping**: Teknik menyuntikkan variabel lingkungan (seperti path direktori biner dan runtime) secara eksklusif ke dalam proses anak atau sesi terminal tertentu tanpa memodifikasi registry atau variabel lingkungan global sistem operasi.
 - **FastCGI**: Protokol biner terbuka yang menghubungkan web server (seperti Apache) dengan engine eksekusi bahasa (seperti `php-cgi.exe`) secara persisten tanpa perlu membuat proses OS baru dari awal pada setiap request HTTP.
 - **Human-in-the-Loop (HITL)**: Pola desain interaksi AI di mana tindakan tingkat sistem (seperti menyalakan atau mematikan layanan server) hanya diusulkan dalam bentuk kartu proposal dan membutuhkan klik konfirmasi eksplisit dari pengguna sebelum dieksekusi.
 - **In-Place Update**: Mekanisme pembaruan biner server secara langsung di mana versi baru dipasang dan konfigurasi versi lama disalin secara otomatis tanpa menghapus data atau website pengguna.
 - **LPU (Language Processing Unit)**: Mikroarsitektur akselerator hardware inferensi AI khusus yang dikembangkan oleh Groq untuk menghasilkan respons model bahasa besar dengan latensi sangat rendah.
 - **Named Pipe**: Mekanisme komunikasi antar-proses (*Inter-Process Communication / IPC*) pada sistem operasi Windows yang memungkinkan instance aplikasi berkomunikasi secara aman dan cepat melalui handle berkas virtual (`\\.\pipe\...`).
 - **PHP Switcher**: Fitur yang memungkinkan pengembang mengubah versi PHP yang aktif melayani web server secara instan melalui penyuntingan konfigurasi proxy Apache tanpa restart OS.
+- **Reverse Proxy**: Server perantara (dalam hal ini Apache `mod_proxy`) yang menerima permintaan dari klien luar atas nama domain lokal dan meneruskannya ke server backend lokal lain (seperti dev server Node.js atau Python), lalu mengembalikan responsnya ke klien.
 - **Root Certificate Authority (Root CA)**: Otoritas sertifikat tingkat puncak yang diinstal ke dalam Windows Trusted Root Store untuk memvalidasi dan memercayai sertifikat HTTPS domain lokal tanpa peringatan keamanan di browser.
+- **RuntimePathHub**: Komponen antarmuka terpusat di VyloServe untuk mengelola dan menyinkronkan seluruh pilihan biner runtime bahasa pemrograman dan Git ke registry variabel lingkungan PATH pengguna Windows dalam satu pintu.
 - **Server-Sent Events (SSE)**: Standar komunikasi satu arah di mana server web dapat mengalirkan (*streaming*) data teks secara real-time ke browser (digunakan pada fitur streaming respon AI Assistant).
 - **Smart Routing**: Kemampuan VyloServe mendeteksi subfolder `public/` pada framework modern (seperti Laravel dan CodeIgniter) dan secara otomatis mengarahkan DocumentRoot web server ke folder tersebut.
 - **User Account Control (UAC)**: Fitur keamanan bawaan Microsoft Windows yang mencegah modifikasi file sistem penting tanpa izin eksplisit dari pengguna komputer.

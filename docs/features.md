@@ -22,28 +22,42 @@ VyloServe dirancang sebagai alternatif yang jauh lebih cepat, estetik, dan ringa
 - **Cek & Update Versi Engine:** Setiap instance database yang terinstal dicek otomatis di latar belakang terhadap versi terbaru yang tersedia untuk engine-nya (sekali per engine unik, bukan per-instance, dibandingkan secara semantik lewat `compareVersions()` agar versi yang sudah lebih baru dari hasil cek tidak keliru ditandai "ada update"). Kalau ada versi lebih baru, kartu instance terkait mendapat badge kecil "Update" di sebelah namanya dan opsi "Update to {versi}" muncul di menu "..." — pola yang sama persis dengan modul PHP. Alur update terdiri dari dua konfirmasi berurutan — (1) konfirmasi update ke versi target, (2) pilihan opsional membuat cadangan (*backup*) direktori data sebelum memperbarui (langkah ini khusus Database, PHP tidak punya ini) — lalu dijalankan dengan progress bar real-time dan *auto-rollback* otomatis ke versi sebelumnya kalau proses update gagal di tengah jalan.
 
 ## 4. Runtimes Manager
-Mengelola instalasi engine pemrograman pihak ketiga. Path sistem (Windows Registry) akan disuntikkan secara otomatis.
-- **Node.js:** Mendukung pengunduhan *Zip Portable* dari peladen resmi. Mendukung aktivasi otomatis untuk *Corepack* (Yarn & pnpm).
-- **Python:** Mengunduh modul Embeddable Python, dilengkapi dengan injeksi *pip* (`get-pip.py`).
-- **Java (JDK):** Mengunduh OpenJDK dari repositori Adoptium (Temurin).
-- **Go:** Mengunduh *Go archive* dari peladen resmi Google.
-- **Deteksi Instalasi Eksternal:** Kalau sebuah engine (Node/Python/Java/Go) sudah terpasang secara global di sistem pengguna di luar VyloServe, UI menampilkan badge peringatan di tab engine terkait dan mengunci toggle "Register to PATH" (mencegah dua instalasi engine yang sama bentrok memperebutkan variabel PATH sistem) — pengguna tetap bisa menginstal versi portable VyloServe-nya, hanya saja tidak bisa didaftarkan ke PATH selama instalasi eksternal itu ada.
+Mengelola instalasi engine pemrograman pihak ketiga dengan arsitektur multi-versi simultan dan kontrol orkestrasi PATH terpusat (**`RuntimePathHub`**).
+- **Multi-Version Concurrency:** Mendukung pengunduhan, pemasangan, dan penyimpanan beberapa versi sekaligus secara mandiri untuk masing-masing engine (Node.js, Python, Java, Go).
+- **Centralized `RuntimePathHub`:** Panel orkestrasi di atas inventori versi yang menyediakan:
+  - Toggle tunggal pendaftaran Windows System PATH (`HKCU\Environment\Path`) per engine.
+  - Dropdown pemilih versi aktif sistem (*1-click active version switcher*).
+  - Peringatan kontekstual terintegrasi di dalam kartu (*in-card contextual alert*, `data-testid="path-hub-external-alert"`) bila biner native OS terdeteksi di luar VyloServe — mengunci toggle PATH untuk mencegah benturan prioritas binary (*path shadowing*).
+- **Tata Letak Kartu Simetris (100% Symmetric Cards):** Setiap kartu versi terpasang memiliki geometri identik dengan dua aksi utama standar (*Open Folder* dan *Open in Terminal*) serta menu dropdown burger untuk aksi sekunder (*Set as Active*, *Deactivate*, *Update*, *Uninstall*). Mendukung pula mode **Table View** berdensitas tinggi via `<DataTable>`.
+- **Node.js:** Mendukung pengunduhan *Zip Portable* dari peladen resmi Node.js. Mendukung aktivasi otomatis untuk *Corepack* (Yarn & pnpm).
+- **Python:** Mengunduh modul Embeddable Python resmi, dilengkapi dengan injeksi instalasi *pip* otomatis (`get-pip.py`).
+- **Java (JDK):** Mengunduh OpenJDK siap pakai dari repositori resmi Adoptium (Eclipse Temurin).
+- **Go:** Mengunduh arsip biner resmi `windows/amd64` dari peladen Google, dengan penanganan ekstraksi root folder otomatis ke direktori bin versi.
 
-## 5. Project Manager
-- **Composer Integration:** Dapat menciptakan proyek PHP (seperti Laravel, CodeIgniter 4) secara otomatis melalui UI menggunakan Composer (yang telah di-embed).
-- **Auto Virtual Host:** Membuat konfigurasi Virtual Host Apache (`<VirtualHost>`) secara instan dengan domain `.local` (misal: `test.local`).
-- **Auto Windows Hosts:** Melakukan injeksi domain lokal ke file `C:\Windows\System32\drivers\etc\hosts` (memerlukan elevasi UAC/Administrator).
-- **Smart Routing (Public Folder):** Mendeteksi secara cerdas jika framework menggunakan folder `public` sebagai *document root* (seperti pada Laravel).
+## 5. Projects Hub (Manajer Proyek Multi-Runtime)
+Modul independen di navigasi utama untuk mengelola siklus hidup proyek web dan aplikasi multi-runtime secara terpadu:
+- **Dukungan Multi-Runtime Scaffolding:**
+  - **PHP:** Laravel, CodeIgniter 3, CodeIgniter 4, WordPress, dan Raw PHP (terintegrasi dengan Composer ter-embed).
+  - **Node.js:** Next.js, React (Vite), dan Express.js (menggunakan npx/npm dari runtime aktif).
+  - **Python:** FastAPI, Flask, dan Django (dengan dukungan virtual environment / venv opsional).
+  - **Go:** Gin, Fiber, dan Standard HTTP server.
+  - **Java:** Spring Boot starter web application.
+- **Auto Virtual Host & Reverse Proxy:** Membuat konfigurasi Virtual Host Apache (`<VirtualHost>`) secara instan dengan domain `.local` (misal: `toko.local`), otomatis memetakan port reverse proxy dan websocket proxy (`ws://`) untuk proyek non-PHP ke dev server lokal masing-masing.
+- **Auto Windows Hosts:** Melakukan injeksi domain lokal ke file `C:\Windows\System32\drivers\etc\hosts` secara aman dengan elevasi Administrator (UAC).
+- **Dev Server Process Manager:** Menjalankan, memantau, dan menghentikan proses server pengembangan latar belakang (*dev server*) per proyek secara independen, lengkap dengan dialog live log streaming (`get_project_server_logs`).
+- **Modal Terminal CLI Interaktif (`ProjectCliInstallModal`):** Menyediakan terminal berbasis `xterm.js` dengan streaming PTY dua arah saat instalasi framework meminta interaksi tanya-jawab CLI (seperti setup Next.js atau Vite) sehingga proses tidak pernah hang di latar belakang.
+- **Tampilan Ganda (Card View & Table View):** Fleksibilitas visual dengan opsi kerapatan tabel (*compact*, *normal*, *relaxed*) dan filter chip runtime.
 
-## 6. Git & SSL Manager
-- **Portable Git:** Menginstal Git secara *portable* dan menghubungkannya dengan Terminal.
-- **Local SSL CA:** Membuat Root Certificate Authority (CA) khusus untuk VyloServe (`VyloServeRootCA`) menggunakan OpenSSL (bawaan Apache), dan mendaftarkannya ke *Windows Trust Store* sehingga domain `.local` mendapatkan sertifikat HTTPS "hijau" (Secure).
+## 6. Git Version Control & Local SSL CA
+- **Portable Git:** Menginstal Git secara *portable*, dilengkapi pengaturan identitas global (`git config --global user.name` dan `user.email`) langsung dari antarmuka.
+- **Penyelarasan Status & Alert Native OS:** Kartu Git Core System menampilkan status badge adaptif (`Native OS`, `PATH Active`, `Isolated`) dan kotak alert kontekstual in-card (`data-testid="git-external-alert"`) bila Git native Windows terdeteksi, mengunci toggle registrasi PATH untuk menjaga integritas environment pengguna.
+- **Local SSL CA:** Membuat Root Certificate Authority (CA) khusus untuk VyloServe (`VyloServeRootCA`) menggunakan OpenSSL (bawaan Apache), dan mendaftarkannya ke *Windows Trust Store* sehingga domain `.local` mendapatkan sertifikat HTTPS valid ("gembok hijau") di peramban web.
 
-## 7. Multi-Language, Tema & Aplikasi Satu-Instance
-- **i18n Frontend:** Antarmuka mendukung multi-bahasa (Inggris dan Indonesia) yang diterjemahkan langsung melalui frontend React.
-- **10 Pilihan Tema & Sinkronisasi DWM Native Titlebar:** Modal "Settings" (tab General) menyediakan 10 skema warna (VyloServe Dark/Light, Darcula, Solarized Dark/Light, High Contrast Dark/Light, Monokai, Dracula, Nord) yang tersimpan persisten. Selain mengatur warna background awal dan kelas tema CSS, palet tema otomatis disinkronkan ke titlebar native Windows lewat DWM API (`DwmSetWindowAttribute` caption & text color) sehingga warna bar jendela menyatu mulus dengan UI tema.
+## 7. Multi-Language, 15 Tema & Single-Instance IPC
+- **i18n Frontend-Driven:** Antarmuka mendukung multi-bahasa (Inggris dan Indonesia) secara simetris di seluruh komponen UI dan log sistem.
+- **15 Pilihan Tema & Sinkronisasi DWM Native Titlebar:** Menyediakan 15 skema warna (VyloServe Dark/Light, Darcula, Solarized Dark/Light, High Contrast Dark/Light, Monokai, Dracula, Nord, Windows XP Luna Light, Windows XP Zune Dark, Catppuccin Mocha, Tokyo Night, dan Gruvbox Dark) dengan filter pencarian instan pada modal Settings. Palet tema otomatis disinkronkan ke caption dan text titlebar native Windows via API DWM (`DwmSetWindowAttribute`).
 - **Dashboard Modular:** Menyimpan preferensi pengguna mengenai layanan mana saja yang perlu ditampilkan di *Home Dashboard*.
-- **Satu Instance Aplikasi Terisolasi & Named Pipe IPC:** Membuka VyloServe saat sudah ada instance yang berjalan tidak akan membuka window baru. Aplikasi memisahkan lingkungan secara bersih antara Production dan Development (Mutex terpisah `VyloServe_App_Mutex_v1` vs `VyloServe_Dev_App_Mutex_v1`, judul window `"VyloServe"` vs `"VyloServe (Development)"`, dan AppUserModelID terpisah). Restorasi window dilakukan lewat **Windows Named Pipe IPC** (`\\.\pipe\VyloServe_IPC_v1` / `\\.\pipe\VyloServe_Dev_IPC_v1`), di mana instance baru mengirim perintah `"SHOW"` dan instance utama membawanya ke depan secara thread-safe via WinForms UI thread — mencegah crash aplikasi saat window sedang diminimize atau disembunyikan di system tray.
+- **Satu Instance Aplikasi Terisolasi & Named Pipe IPC:** Membuka VyloServe saat sudah ada instance yang berjalan tidak akan membuka window baru, melainkan membawa jendela yang sedang aktif ke depan melalui **Windows Named Pipe IPC** (`\\.\pipe\VyloServe_IPC_v1` / `\\.\pipe\VyloServe_Dev_IPC_v1`) secara thread-safe tanpa tabrakan antara mode produksi dan development.
 
 ## 8. System Logs — Panel Log Real-Time & Pembacaan File Log
 - **Panel Log Terpusat:** Panel log di bagian bawah aplikasi menampilkan event real-time dari seluruh modul (instalasi, start/stop servis, error) selama aplikasi berjalan.
@@ -60,18 +74,39 @@ Mengelola instalasi engine pemrograman pihak ketiga. Path sistem (Windows Regist
 ## 10. Tunnels (Zrok & Cloudflare Tunnel) — Berbagi Project ke Publik
 - **Dukungan Dual-Engine:** Mendukung open-source [zrok](https://zrok.io) (OpenZiti) dan **Cloudflare Tunnel** (`cloudflared`).
 - **Instalasi Portable:** Mengunduh dan mengekstrak binary portable ke folder `bin/tunnels/<engine>/` dengan deteksi rilis otomatis dari GitHub API.
+- **Tampilan Ganda (Card & Table View):** Fleksibilitas visual dengan opsi beralih antara Card View informatif dan Table View via `<ViewModeToggle>`, dilengkapi dropdown pemilih proyek yang dapat dicari (*searchable project selector*) dan indikator zero-state bila proyek tidak ditemukan.
 - **Cloudflare Quick Tunnels:** Membuka tunnel publik instan (`*.trycloudflare.com`) tanpa memerlukan token akun atau login.
 - **Aktivasi Akun Zrok:** Menghubungkan instalasi zrok lokal ke akun zrok pengguna lewat token environment (`zrok enable <token>`).
 - **Share Project atau Target Kustom:** Membuka tunnel publik untuk salah satu project Apache yang sudah terdaftar (otomatis mengarah ke port Apache aktif), atau ke target kustom (`localhost:<port>`) untuk servis non-Apache (mis. dev server Node.js).
 - **Auto-Alias ke Virtual Host:** Saat share sebuah project VyloServe aktif, URL publik zrok otomatis disisipkan sebagai `ServerAlias` di konfigurasi Virtual Host Apache project tersebut, dan dibersihkan kembali otomatis saat share dihentikan.
 - **Manajemen Multi-Share:** Mendukung beberapa tunnel aktif bersamaan, masing-masing bisa dihentikan independen dari daftar "Active Shares". UI menggunakan subkomponen terisolasi `InstallTunnel.tsx` untuk kemudahan instalasi engine.
 
-## 11. Developer Tools
-Kumpulan utilitas ringan untuk produktivitas developer yang berjalan sepenuhnya di sisi klien (*100% client-side*) dan hybrid backend:
-- **Markdown Documentation Viewer:** Penampil dokumentasi Markdown lokal interaktif. Memiliki pemilih folder OS (OS Folder Picker), navigasi pohon folder rekursif (`FolderTreeView`) yang otomatis memfilter direktori tanpa markdown dan mengabaikan `node_modules`/`.git`, pembaca dan renderer konten markdown (`MarkdownRenderer`) dengan dukungan tabel GFM dan syntax highlighting blok kode, serta konversi file gambar lokal menjadi Base64 URI data otomatis.
-- **Base64 Encode/Decode:** Mendukung konversi teks (UTF-8 safe) maupun file (melalui *drag & drop* atau *file picker*) menjadi format Base64 dan sebaliknya.
-- **URL Encode/Decode:** Mengonversi string menjadi format URL-safe dan melakukan *parsing* URI lengkap (protocol, host, path, dan query).
-- **QR Generator:** Membuat *QR Code* secara instan berdasarkan input teks atau URL, dengan fungsionalitas unduh gambar hasil *render*.
+## 11. Developer Tools (Unified Utility Workspace)
+Kumpulan utilitas pengembang modern dengan tata letak visual terpadu (12-column responsive layout, 7:5 split desktop, dan tab bar standar `<Tabs>`):
+- **Markdown Documentation Viewer:** Penampil dokumentasi Markdown lokal interaktif dengan navigasi pohon berkas pintar:
+  - *Folder Picker & Recent History:* Terintegrasi dengan OS Folder Picker dan riwayat folder terakhir (*Recent Folders*) di `localStorage` untuk pembukaan instan 1-klik.
+  - *Tree Search/Filter:* Kotak pencarian instan pada `FolderTreeView` yang memfilter node berkas secara rekursif dan membuka folder yang relevan secara otomatis.
+  - *Outline / Table of Contents (TOC):* Ekstraksi heading dinamis (`#`, `##`, `###`) menjadi daftar isi interaktif yang mendukung *smooth scrolling jump* ke jangkar judul.
+  - *Reading Statistics & Global Theming:* Menampilkan penghitung jumlah kata (*word count*) dan estimasi durasi membaca (*reading time*), serta sinkronisasi otomatis dengan 15 sistem tema VyloServe melalui MutationObserver tanpa bentrok mode lokal.
+  - *Keamanan Path Traversal:* Proteksi backend `_is_safe_path` dengan validasi `os.path.commonpath` untuk mencegah pembacaan berkas arbitrer di luar direktori root aktif.
+- **Base64 Encode/Decode:** Utilitas konversi Base64 tangguh dengan penanganan UTF-8 penuh:
+  - *Universal Dual-Input Area:* Antarmuka pengetikan teks serbaguna terintegrasi dengan zona unggah berkas kompak (`CompactFileDropzone`) tanpa perlu modal atau toggle terpisah. Pengguna dapat mengetik teks biasa maupun menyeret/memilih berkas langsung di mode Encode maupun Decode.
+  - *URL-Safe RFC 4648:* Mode encoding aman URL (karakter `+` dan `/` diganti dengan `-` dan `_`, serta pembersihan/pemulihan padding otomatis).
+  - *Line Wrapping:* Pilihan pemotongan baris tanpa wrap, standar MIME 64 karakter, atau 76 karakter langsung di toolbar kartu input.
+  - *Binary File Download:* Mendukung decoding string Base64 langsung menjadi berkas biner dan menyimpannya ke disk melalui bridge desktop `save_base64_file` atau browser blob.
+  - *Toolbar Aksi Cepat:* Tombol Sample, Paste, dan Clear terpadu untuk alur kerja cepat.
+- **URL Encode/Decode:** Utilitas manipulasi URL dan query string interaktif:
+  - *Encoding Scope:* Pemilih mode antara encoding komponen tunggal (`encodeURIComponent`) dan URI lengkap (`encodeURI`).
+  - *Space Encoding:* Dukungan format spasi standar `%20` maupun format form/query `+`.
+  - *Interactive Query Parameters Table:* Editor tabel parameter dua arah (two-way live binding) yang memungkinkan penambahan, pengeditan langsung kunci/nilai parameter, dan penghapusan parameter dengan sinkronisasi URL instan.
+  - *Toolbar & Parsing Statistik:* Toolbar aksi cepat (Sample, Paste, Clear, Copy) dan pengurai bagian URI (skema, host, port, path, query, hash fragment).
+- **Custom QR Generator:** Pembuat kode QR dinamis dengan kustomisasi visual tinggi:
+  - *Simplified 3-Tab Structure (Hick's Law):* Penataan menu yang disederhanakan dari 6 tab terfragmentasi menjadi 3 kategori intuitif: **Teks / URL** (dengan deteksi otomatis awalan protokol URL), **Wi-Fi**, dan **Kontak & Pesan** (dengan pemilih sub-pill untuk format vCard 3.0, Email, dan SMS).
+  - *Unified Appearance & Logo Card:* Menggabungkan pengaturan pola dot, bentuk sudut, koreksi error (ECC), margin, resolusi, serta penyisipan logo kustom (`CompactFileDropzone`) dalam satu kartu seimbang 2 kolom, mengeliminasi kelelahan scroll vertikal.
+  - *Copy Image to Clipboard:* Kemampuan menyalin gambar PNG hasil render langsung ke papan klip sistem tanpa harus mengunduh berkas terlebih dahulu.
+  - *Error Correction Level (ECC):* Pemilih tingkat koreksi error (`L` 7%, `M` 15%, `Q` 25%, `H` 30% - ideal untuk penyisipan logo).
+  - *Visual Styling & Logo:* Kustomisasi pola dot (square, rounded, dots, classy), sudut, warna kustom, margin, resolusi piksel, dan penyisipan logo kustom dengan skala responsif.
+  - *A11y Compliant:* Pemenuhan standar aksesibilitas 100% pada semua kontrol input melalui relasi `<FieldLabel htmlFor="...">` dan `<input id="...">`.
 
 ## 12. Histori Notifikasi & Notifikasi Native Windows
 - **Ikon Lonceng Riwayat Toast:** Setiap notifikasi toast (sukses/error/peringatan/info) yang pernah muncul selama sesi aplikasi berjalan tercatat di panel riwayat, dibuka lewat ikon lonceng di footer Sidebar — bersampingan dengan tombol Settings saat sidebar diperluas, di atas indikator beban sistem (CPU) saat sidebar diciutkan. Badge menampilkan jumlah notifikasi belum dibaca (di-cap "9+"), otomatis ter-reset begitu panel dibuka.
@@ -91,4 +126,13 @@ Kumpulan utilitas ringan untuk produktivitas developer yang berjalan sepenuhnya 
 - **Dual-Layer Action State Persistence:** Status tombol aksi (`idle` -> `executing` -> `executed` / `failed`) diamankan secara berlapis: status in-memory disinkronkan ke state frontend, dan sekaligus ditulis langsung ke disk (`data/ai_action_states.json`). Saat pengguna berpindah menu navigasi, menutup widget bubble, atau bahkan me-restart aplikasi VyloServe, riwayat kartu aksi tetap mengingat status eksekusinya dan mencegah eksekusi ganda yang tidak disengaja.
 - **Dual Interface Modes & Isolated Input Performance:** Pengguna dapat berinteraksi melalui halaman utama terdedikasi (*AI Assistant Page*) atau melalui tombol gelembung melayang (*Floating Chat Bubble*) yang persisten di pojok kanan bawah seluruh menu. Kolom input pesan (`AiChatInput`) terisolasi dari state daftar pesan yang di-memoize (`AiChatMessage`), menjamin pengetikan bebas lag dan layout anti-lompat selama streaming berlangsung.
 - **Real-Time SSE Streaming:** Streaming token respons asinkron menggunakan Server-Sent Events (SSE) di background thread Python (`vylo_ai_chunk`), memberikan efek pengetikan halus dengan latensi minimal dan penanganan kesalahan terperinci untuk kuota habis (HTTP 429), kunci tidak valid (HTTP 401), atau server lokal Ollama mati.
+
+## 14. Developer Terminal (Multi-Tab & Environment Scoping)
+Terminal terintegrasi di dalam aplikasi desktop yang dirancang khusus untuk kenyamanan alur kerja pengembangan web lokal:
+- **Arsitektur Multi-Tab Berbasis `xterm.js`:** Menjalankan beberapa sesi terminal secara independen dalam tab-tab terisolasi, lengkap dengan shortcut keyboard penambahan tab baru (`+`), penutupan tab, dan pembersihan buffer konsol (*clear*).
+- **Dukungan Ragam Shell:** Mendukung shell bawaan Windows PowerShell, Command Prompt (CMD), Git Bash (termasuk deteksi instalasi PortableGit internal), serta opsi shell kustom yang dapat diatur sebagai profil default.
+- **Environment Scoping & Saved Presets:** Memungkinkan pembukaan sesi terminal yang disuntikkan (*scoped environment*) direktori bin dari versi tertentu (PHP, Node.js, Python, Java, Go, atau Git) ke variabel PATH sesi terminal tersebut secara instan tanpa memodifikasi registry Windows PATH sistem. Konfigurasi scoping ini dapat disimpan sebagai Preset tersimpan (*Saved Presets*) untuk digunakan kembali dengan 1-klik.
+- **Pelacakan CWD Real-Time:** Memantau direktori kerja aktif (*Current Working Directory*) sesi terminal di latar belakang, memungkinkan penamaan tab yang dinamis dan penyelarasan konteks direktori secara otomatis.
+- **Kustomisasi Tampilan & Perilaku:** Dialog pengaturan terminal (`TerminalSettingsModal`) menyediakan konfigurasi font family, ukuran font, gaya kursor (*block*, *underline*, *bar*), kedipan kursor (*cursor blink*), ukuran buffer scrollback, dan opsi salin otomatis saat seleksi teks (*copy on select*).
+- **Integrasi Pintasan Lintas-Modul:** Tombol "Open in Terminal" dari modul Projects Hub, Runtimes, dan Apache secara cerdas mengarahkan pengguna ke Developer Terminal dan langsung membuka sesi di direktori proyek atau runtime yang bersangkutan.
 

@@ -37,7 +37,7 @@ describe('DatabaseMain', () => {
         await screen.findByText('MySQL');
         expect(screen.getByText('PostgreSQL')).toBeInTheDocument();
 
-        await user.click(screen.getByRole('button', { name: 'database.postgres' }));
+        await user.click(screen.getByRole('button', { name: /database\.postgres/i }));
 
         expect(screen.queryByText('MySQL')).not.toBeInTheDocument();
         expect(screen.getByText('PostgreSQL')).toBeInTheDocument();
@@ -311,7 +311,7 @@ describe('DatabaseMain', () => {
         renderWithToast(<DatabaseMain />);
         await screen.findByText('MySQL');
 
-        await user.click(screen.getByRole('button', { name: 'database.mysql_mariadb' }));
+        await user.click(screen.getByRole('button', { name: /database\.mysql_mariadb/i }));
 
         expect(screen.getByText('MySQL')).toBeInTheDocument();
         expect(screen.queryByText('PostgreSQL')).not.toBeInTheDocument();
@@ -664,5 +664,57 @@ describe('DatabaseMain', () => {
         expect(await screen.findByText('database.update_failed_rollback')).toBeInTheDocument();
         // Badge tetap ada -- instance belum berhasil di-update, jadi aksi update harus bisa dicoba lagi.
         expect(screen.getByText('Update')).toBeInTheDocument();
+    });
+
+    it('toggles between card view and table view', async () => {
+        const user = userEvent.setup();
+        mockPywebviewApi({
+            get_installed_databases: vi.fn().mockResolvedValue(apiWithDbs([mysqlDb])),
+        });
+        renderWithToast(<DatabaseMain />);
+        await screen.findByText('MySQL');
+
+        const tableBtn = screen.getByRole('button', { name: /Table View/i });
+        const cardBtn = screen.getByRole('button', { name: /Card View/i });
+
+        expect(cardBtn).toHaveAttribute('aria-pressed', 'true');
+        expect(tableBtn).toHaveAttribute('aria-pressed', 'false');
+        expect(screen.queryByRole('table')).not.toBeInTheDocument();
+
+        // Switch to Table View
+        await user.click(tableBtn);
+        expect(tableBtn).toHaveAttribute('aria-pressed', 'true');
+        expect(cardBtn).toHaveAttribute('aria-pressed', 'false');
+        expect(screen.getByRole('table')).toBeInTheDocument();
+        expect(screen.getByText('3306')).toBeInTheDocument();
+
+        // Switch back to Card View
+        await user.click(cardBtn);
+        expect(cardBtn).toHaveAttribute('aria-pressed', 'true');
+        expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    });
+
+    it('integrates filter chips into the table toolbar when in table view', async () => {
+        const user = userEvent.setup();
+        mockPywebviewApi({
+            get_installed_databases: vi.fn().mockResolvedValue(apiWithDbs([mysqlDb, pgDb])),
+        });
+        renderWithToast(<DatabaseMain />);
+        await screen.findByText('MySQL');
+
+        // Switch to Table View
+        const tableBtn = screen.getByRole('button', { name: /Table View/i });
+        await user.click(tableBtn);
+        expect(screen.getByRole('table')).toBeInTheDocument();
+
+        // Chips are present in the table toolbar
+        const pgChip = screen.getByRole('button', { name: /database\.postgres/i });
+        expect(pgChip).toBeInTheDocument();
+
+        // Filter by PostgreSQL inside table view
+        await user.click(pgChip);
+        expect(screen.queryByText('MySQL')).not.toBeInTheDocument();
+        expect(screen.getByText('PostgreSQL')).toBeInTheDocument();
+        expect(screen.getByText('5432')).toBeInTheDocument();
     });
 });

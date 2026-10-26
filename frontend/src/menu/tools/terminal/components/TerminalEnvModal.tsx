@@ -1,29 +1,38 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import Modal from "../../../../components/Modal";
+import Button from "../../../../components/Button";
 import type { RuntimeMatrix, RuntimeProfile } from "../types";
 
 interface TerminalEnvModalProps {
     readonly isOpen: boolean;
     readonly onClose: () => void;
     readonly currentProfile: RuntimeProfile;
-    readonly onApplyProfile: (newProfile: RuntimeProfile) => void;
+    readonly defaultProfile?: RuntimeProfile;
+    readonly activeSessionTitle?: string;
+    readonly onApplyProfile: (newProfile: RuntimeProfile, scope: "current" | "global") => void;
+    readonly onOpenInNewTab?: (newProfile: RuntimeProfile) => void;
 }
 
 export default function TerminalEnvModal({
     isOpen,
     onClose,
     currentProfile,
-    onApplyProfile
+    defaultProfile = {},
+    activeSessionTitle,
+    onApplyProfile,
+    onOpenInNewTab
 }: TerminalEnvModalProps) {
     const { t } = useTranslation();
     const [matrix, setMatrix] = useState<RuntimeMatrix>({});
+    const [scope, setScope] = useState<"current" | "global">("current");
     const [profile, setProfile] = useState<RuntimeProfile>(currentProfile);
     const [isLoading, setIsLoading] = useState(false);
 
     useEffect(() => {
         if (!isOpen) return;
 
+        setScope("current");
         setProfile(currentProfile);
         setIsLoading(true);
 
@@ -46,8 +55,15 @@ export default function TerminalEnvModal({
     }, [isOpen, currentProfile]);
 
     const handleApply = () => {
-        onApplyProfile(profile);
+        onApplyProfile(profile, scope);
         onClose();
+    };
+
+    const handleOpenNewTab = () => {
+        if (onOpenInNewTab) {
+            onOpenInNewTab(profile);
+            onClose();
+        }
     };
 
     const handleSetAll = (mode: "vyloserve" | "os") => {
@@ -76,19 +92,90 @@ export default function TerminalEnvModal({
             onClose={onClose}
             title={t("tools.terminal.env_title")}
             icon="bolt"
-            maxWidthClass="sm:w-[620px] max-w-full"
-            bodyPaddingClass="p-5"
-            onApply={handleApply}
-            applyText={t("tools.terminal.env_apply")}
-        >
-            <div className="flex flex-col gap-4 text-xs">
-                <p className="text-slate-500 dark:text-slate-400">
-                    {t("tools.terminal.env_desc")}
-                </p>
+            maxWidthClass="sm:w-[640px] max-w-[calc(100vw-2rem)]"
+            bodyPaddingClass="p-6"
+            customFooter={
+                <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 rounded-b-xl w-full">
+                    {scope === "current" && onOpenInNewTab ? (
+                        <Button
+                            variant="secondary"
+                            icon="tab"
+                            onClick={handleOpenNewTab}
+                        >
+                            {t("tools.terminal.env_open_new_tab")}
+                        </Button>
+                    ) : <div />}
 
-                {/* Preset quick buttons */}
+                    <div className="flex items-center gap-3">
+                        <Button
+                            variant="secondary"
+                            onClick={onClose}
+                        >
+                            {t("common.cancel")}
+                        </Button>
+                        <Button
+                            variant="primary"
+                            icon="check"
+                            onClick={handleApply}
+                        >
+                            {t("tools.terminal.env_apply")}
+                        </Button>
+                    </div>
+                </div>
+            }
+        >
+            <div className="flex flex-col gap-5 text-sm">
+                {/* 1. Scope Selector */}
+                <div className="flex flex-col gap-2 p-4 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-100/70 dark:bg-slate-800/60 shadow-2xs">
+                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
+                        {t("tools.terminal.scope_title")}
+                    </span>
+                    <div className="grid grid-cols-2 gap-2">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setScope("current");
+                                setProfile(currentProfile);
+                            }}
+                            className={`px-3 py-2.5 rounded-lg text-xs font-medium flex items-center justify-center gap-2 border transition-all cursor-pointer ${
+                                scope === "current"
+                                    ? "bg-primary text-white border-primary shadow-xs"
+                                    : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-slate-300"
+                            }`}
+                        >
+                            <span className="material-symbols-outlined text-[16px]">tab</span>
+                            <span className="truncate">
+                                {activeSessionTitle
+                                    ? `${t("tools.terminal.scope_current_tab")} (${activeSessionTitle})`
+                                    : t("tools.terminal.scope_current_tab")}
+                            </span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setScope("global");
+                                setProfile(defaultProfile);
+                            }}
+                            className={`px-3 py-2.5 rounded-lg text-xs font-medium flex items-center justify-center gap-2 border transition-all cursor-pointer ${
+                                scope === "global"
+                                    ? "bg-primary text-white border-primary shadow-xs"
+                                    : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-slate-300"
+                            }`}
+                        >
+                            <span className="material-symbols-outlined text-[16px]">public</span>
+                            <span className="truncate">{t("tools.terminal.scope_global_default")}</span>
+                        </button>
+                    </div>
+                    <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed mt-0.5">
+                        {scope === "current"
+                            ? t("tools.terminal.scope_current_desc")
+                            : t("tools.terminal.scope_global_desc")}
+                    </p>
+                </div>
+
+                {/* 2. Preset quick buttons */}
                 <div className="flex items-center gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
-                    <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                    <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                         Presets:
                     </span>
                     <button
@@ -109,13 +196,13 @@ export default function TerminalEnvModal({
                     </button>
                 </div>
 
-                {/* Engine list */}
+                {/* 3. Engine list */}
                 {isLoading ? (
                     <div className="py-8 text-center text-slate-500">
                         <span className="material-symbols-outlined animate-spin text-[24px]">progress_activity</span>
                     </div>
                 ) : (
-                    <div className="flex flex-col gap-3 max-h-[380px] overflow-y-auto pr-1">
+                    <div className="flex flex-col gap-3 max-h-[360px] overflow-y-auto pr-1">
                         {Object.entries(matrix).map(([engineKey, item]) => {
                             const rawVal = profile[engineKey] || item.default_mode;
                             const isUsingOS = rawVal === "os";
@@ -138,9 +225,12 @@ export default function TerminalEnvModal({
                                 >
                                     <div className="flex items-center justify-between gap-3">
                                         <div className="flex items-center gap-2 min-w-0">
-                                            <span className="font-semibold text-slate-800 dark:text-slate-200 text-sm">
+                                            <label
+                                                htmlFor={`term-env-select-${engineKey}`}
+                                                className="font-semibold text-slate-800 dark:text-slate-200 text-sm cursor-pointer"
+                                            >
                                                 {item.name}
-                                            </span>
+                                            </label>
                                             {item.has_vyloserve && (
                                                 <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-mono font-medium shrink-0">
                                                     {item.versions && item.versions.length > 1
@@ -158,6 +248,7 @@ export default function TerminalEnvModal({
                                         {/* Mode Selector */}
                                         <div className="flex items-center gap-2 shrink-0">
                                             <select
+                                                id={`term-env-select-${engineKey}`}
                                                 aria-label={item.name}
                                                 value={selectedValue}
                                                 onChange={(e) => {

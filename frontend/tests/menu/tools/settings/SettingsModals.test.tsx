@@ -244,13 +244,12 @@ describe('SettingsModals', () => {
         expect(onClose).toHaveBeenCalledTimes(1);
     });
 
-    it('navigates between Updates, About, and AI Assistant tabs', async () => {
+    it('navigates between Updates and About tabs', async () => {
         const user = userEvent.setup();
         mockPywebviewApi({
             get_app_settings: vi.fn().mockResolvedValue({ status: 'success', data: {} }),
             updater_check_for_updates: vi.fn().mockResolvedValue({ status: 'success', data: { has_update: false } }),
             get_update_status: vi.fn().mockResolvedValue({ result: null, is_downloading: false, percent: 0 }),
-            ai_detect_account_tier: vi.fn().mockResolvedValue({ status: 'success', tier: 'free', is_pro: false }),
         });
 
         render(
@@ -274,12 +273,6 @@ describe('SettingsModals', () => {
         await user.click(screen.getByRole('button', { name: /settings\.updates/i }));
         await waitFor(() => {
             expect(screen.getByText('Check for Updates')).toBeInTheDocument();
-        });
-
-        // Switch to AI tab
-        await user.click(screen.getByRole('button', { name: /settings\.tab_ai/i }));
-        await waitFor(() => {
-            expect(screen.getByText('AI Assistant Configuration')).toBeInTheDocument();
         });
     });
 
@@ -467,5 +460,18 @@ describe('SettingsModals', () => {
         await waitFor(() => {
             expect(screen.getByText('Network timeout')).toBeInTheDocument();
         });
+    });
+
+    it('applies proper non-clipping modal width and min-w-0 on tab content container', async () => {
+        render(<SettingsModals activeModal="settings" onClose={vi.fn()} />);
+
+        const dialog = screen.getByRole('dialog');
+        const modalBox = dialog.querySelector('.relative.w-full');
+        expect(modalBox).toHaveClass('sm:w-[720px]', 'md:w-[820px]', 'lg:w-[880px]', 'max-w-[calc(100vw-2rem)]');
+
+        // Tab content container must have min-w-0 to prevent horizontal clipping
+        const tabContentContainer = modalBox?.querySelector('.flex-1.min-w-0.overflow-y-auto');
+        expect(tabContentContainer).toBeInTheDocument();
+        expect(tabContentContainer).toHaveClass('min-w-0');
     });
 });

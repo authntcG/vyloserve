@@ -1,10 +1,16 @@
 import os
 import sys
+import re
 import uuid
+import time
 import shutil
 import threading
 from typing import Dict, Any, List, Optional
 from core.utils.system_utils import get_project_root
+from core.utils.file_utils import read_json, write_json
+
+CMD_DIR_COMMANDS = ("cd", "chdir", "pushd", "dir", "md", "mkdir", "rd", "rmdir", "tree")
+ANSI_ESCAPE_RE = re.compile(r'\x1b(?:\[[0-9;?]*[a-zA-Z~]|\][^\x07\x1b]*(\x07|\x1b\\)|[PX^_].*?\x1b\\|.)')
 
 class TerminalManager:
     """
@@ -519,7 +525,10 @@ class TerminalManager:
             "pty": pty,
             "thread": reader_thread,
             "stop_event": stop_event,
-            "pid": getattr(pty, "pid", None)
+            "pid": getattr(pty, "pid", None),
+            "cmd_line": "",
+            "pending_char": "",
+            "last_input_char": ""
         }
 
         with self._lock:
@@ -536,9 +545,166 @@ class TerminalManager:
             }
         }
 
-    def send_input(self, session_id: str, data: str) -> Dict[str, Any]:
+    def _translate_cmd_input(self, session: dict, data: str) -> str:
+        """
+        Di Command Prompt (cmd.exe) Windows, ReadConsole tidak otomatis menambahkan prefix
+        relative path ('.\\') dan trailing backslash ('\\') pada proses Tab-autocomplete.
+        Selain itu, karakter '/' pada path tidak dikenali oleh mesin Tab-autocompletion CMD.
+
+        Fungsi ini menormalkan input untuk sesi CMD:
+        1. Menambahkan prefix '.\\' pada input path relatif awal untuk perintah direktori (cd, dir, dll)
+        2. Memastikan setiap path autocomplete berakhir dengan '\\' (mengirim '\\t\\' pada Tab)
+        3. Menghapus trailing slash ganda ('//' atau '/\\')
+        4. Menerjemahkan '/' menjadi '\\' pada konteks path dengan tetap mempertahankan switch flag ('dir /w', 'cd /d')
+        5. Mengabaikan escape sequence kontrol terminal (seperti \\x1b[I focus-in atau arrow keys) dari pencatatan baris
+        6. Mendukung reactive fallback penggantian last_arg menjadi .\\last_arg\\t\\ jika input belum ber-prefix
+        """
+        cmd_line = session.get("cmd_line", "")
+        pending_char = session.get("pending_char", "")
+        last_char = session.get("last_input_char", "")
+        out = []
+        i = 0
+        n = len(data)
+
+        while i < n:
+            # 1. Deteksi escape sequence kontrol terminal (Focus In \x1b[I, Focus Out \x1b[O, arrow keys, dll)
+            # Teruskan langsung ke PTY tanpa mengotori buffer baris perintah pengguna
+            if data[i] == "\x1b":
+                match = ANSI_ESCAPE_RE.match(data, i)
+                if match:
+                    seq = match.group(0)
+                    out.append(seq)
+                    i += len(seq)
+                    continue
+
+            ch = data[i]
+
+            # 2. Reset baris pada Enter, Newline, Ctrl+C, Ctrl+U
+            if ch in ("\r", "\n", "\x03", "\x15"):
+                if pending_char:
+                    out.append(pending_char)
+                    pending_char = ""
+                cmd_line = ""
+                out.append(ch)
+                last_char = ch
+                i += 1
+                continue
+
+            # 3. Backspace
+            if ch in ("\x08", "\x7f"):
+                if pending_char:
+                    pending_char = ""
+                    i += 1
+                    continue
+                if cmd_line:
+                    cmd_line = cmd_line[:-1]
+                out.append(ch)
+                last_char = ch
+                i += 1
+                continue
+
+            # 4. Jika ada pending_char tertahan dari awal argumen perintah direktori
+            if pending_char:
+                if ch == ":":
+                    # Drive letter Windows (mis. "D:") -> jangan beri prefix ".\"
+                    out.append(pending_char + ":")
+                    cmd_line += pending_char + ":"
+                    last_char = ":"
+                    pending_char = ""
+                    i += 1
+                    continue
+                elif ch == "\t":
+                    # Tab langsung setelah 1 karakter -> prefix ".\" dan akhiri "\"
+                    out.append(".\\" + pending_char + "\t\\")
+                    cmd_line += ".\\" + pending_char + "\\"
+                    last_char = "\\"
+                    pending_char = ""
+                    i += 1
+                    continue
+                else:
+                    # Karakter alfanumerik biasa -> lepaskan prefix ".\" beserta pending_char
+                    out.append(".\\" + pending_char)
+                    cmd_line += ".\\" + pending_char
+                    last_char = pending_char
+                    pending_char = ""
+
+            # 5. Tab Autocomplete
+            if ch == "\t":
+                words = cmd_line.split()
+                is_dir_cmd = bool(words and words[0].lower() in CMD_DIR_COMMANDS)
+
+                # Jika pengguna menekan Tab tepat setelah perintah direktori (mis. 'cd ' + Tab)
+                if is_dir_cmd and cmd_line.endswith(" "):
+                    out.append(".\\\t\\")
+                    cmd_line += ".\\"
+                    last_char = "\\"
+                    i += 1
+                    continue
+
+                # Jika autocompleting path pada perintah direktori atau konteks path
+                # Mengirim '\t\' memastikan path direktori yang dilengkapi berakhiran '\'
+                if is_dir_cmd or "\\" in cmd_line or "/" in cmd_line:
+                    # Reactive fallback: jika kata target belum memiliki prefix .\ dan bukan drive letter / flag
+                    if is_dir_cmd and len(words) >= 2:
+                        last_arg = words[-1]
+                        if not last_arg.startswith((".", "\\", "/", "-")) and ":" not in last_arg:
+                            erase_seq = "\x08" * len(last_arg)
+                            out.append(f"{erase_seq}.\\{last_arg}\t\\")
+                            cmd_line = cmd_line[:-len(last_arg)] + f".\\{last_arg}\\"
+                            last_char = "\\"
+                            i += 1
+                            continue
+
+                    out.append("\t\\")
+                    cmd_line += "\\"
+                    last_char = "\\"
+                    i += 1
+                    continue
+
+                out.append("\t")
+                last_char = "\t"
+                i += 1
+                continue
+
+            # 6. Mencegah duplikasi slash jika karakter sebelumnya sudah berupa slash/backslash
+            if ch in ("/", "\\") and last_char in ("\\", "/"):
+                i += 1
+                continue
+
+            # 7. Menerjemahkan '/' menjadi '\' pada konteks path
+            if ch == "/":
+                if last_char in (".", ":", "/", "\\", "\t") or last_char.isalnum() or last_char in ("_", "-"):
+                    ch = "\\"
+
+            # 8. Deteksi awal argumen direktori relatif untuk perintah navigasi (cd, dir, dll)
+            words = cmd_line.split()
+            if len(words) == 1 and words[0].lower() in CMD_DIR_COMMANDS and cmd_line.endswith(" "):
+                if ch.isalnum() or ch in ("_", "-"):
+                    if i + 1 < n:
+                        if data[i + 1] == ":":
+                            pass
+                        else:
+                            out.append(".\\")
+                            cmd_line += ".\\"
+                    else:
+                        pending_char = ch
+                        i += 1
+                        continue
+
+            out.append(ch)
+            cmd_line += ch
+            last_char = ch
+            i += 1
+
+        session["cmd_line"] = cmd_line
+        session["pending_char"] = pending_char
+        session["last_input_char"] = last_char
+        return "".join(out)
+
+    def send_input(self, session_id: str, data: str, line_context: str = "") -> Dict[str, Any]:
         """
         Mengirim input karakter/ANSI dari UI ke PTY stdin.
+        Menerima line_context opsional dari active buffer terminal untuk sinkronisasi state.
         """
         with self._lock:
             session = self._sessions.get(session_id)
@@ -547,6 +713,19 @@ class TerminalManager:
             return {"status": "error", "message": "backend.terminal.session_not_found"}
 
         try:
+            # Sinkronisasi baris perintah aktual dari xterm jika dikirim saat Tab autocomplete
+            if line_context and data == "\t":
+                cmd_after_prompt = line_context
+                for prompt_char in (">", "$", "#"):
+                    if prompt_char in cmd_after_prompt:
+                        cmd_after_prompt = cmd_after_prompt[cmd_after_prompt.rfind(prompt_char) + 1:]
+                cmd_after_prompt = cmd_after_prompt.strip()
+                if cmd_after_prompt:
+                    session["cmd_line"] = cmd_after_prompt
+
+            if session.get("shell_id") == "cmd" and data:
+                data = self._translate_cmd_input(session, data)
+
             session["pty"].write(data)
             return {"status": "success", "message": "backend.terminal.input_sent"}
         except Exception as e:
@@ -618,3 +797,317 @@ class TerminalManager:
                 s["pty"].close()
             except Exception:
                 pass
+
+    @property
+    def config_file(self) -> str:
+        return os.path.join(self.root_dir, "data", "terminal_config.json")
+
+    @property
+    def sessions_file(self) -> str:
+        return os.path.join(self.root_dir, "data", "terminal_sessions.json")
+
+    DEFAULT_SETTINGS: Dict[str, Any] = {
+        "fontFamily": "Consolas, 'Fira Code', Monaco, monospace",
+        "fontSize": 13,
+        "lineHeight": 1.2,
+        "theme": "vyloserve-dark",
+        "cursorStyle": "block",
+        "cursorBlink": True,
+        "cursorBlinkStyle": "classic",
+        "defaultCwd": "",
+        "defaultShell": "powershell",
+        "scrollback": 5000,
+        "copyOnSelect": False
+    }
+
+    def _sanitize_history_buffer(self, raw_buffer: Any) -> str:
+        """
+        Membersihkan dan membatasi kuota buffer riwayat log (maksimal 1.000 baris atau ~150KB)
+        untuk mencegah konsumsi memori dan disk yang berlebihan.
+        """
+        if not isinstance(raw_buffer, str):
+            return ""
+        if len(raw_buffer) > 150000:
+            raw_buffer = raw_buffer[-150000:]
+        lines = raw_buffer.splitlines()
+        if len(lines) > 1000:
+            lines = lines[-1000:]
+        return "\n".join(lines)
+
+    def get_session_cwd(self, session_id: str) -> Dict[str, Any]:
+        """
+        Mendeteksi direktori kerja terkini (last CWD) dari sesi terminal yang sedang berjalan.
+        Menginspeksi proses PTY dan sub-proses aktif (mis. saat menjalankan dev server/tooling)
+        via psutil, dengan fallback ke direktori awal sesi jika proses telah keluar.
+        """
+        with self._lock:
+            session = self._sessions.get(session_id)
+
+        if not session:
+            return {"status": "error", "message": "backend.terminal.session_not_found"}
+
+        detected_cwd = None
+        pid = session.get("pid")
+        if pid:
+            try:
+                import psutil
+                if psutil.pid_exists(pid):
+                    proc = psutil.Process(pid)
+                    children = proc.children(recursive=True)
+                    for child in reversed(children):
+                        try:
+                            child_cwd = child.cwd()
+                            if child_cwd and os.path.isdir(child_cwd):
+                                detected_cwd = child_cwd
+                                break
+                        except Exception:
+                            pass
+                    if not detected_cwd:
+                        proc_cwd = proc.cwd()
+                        if proc_cwd and os.path.isdir(proc_cwd):
+                            detected_cwd = proc_cwd
+            except Exception:
+                pass
+
+        if not detected_cwd:
+            detected_cwd = session.get("cwd", "")
+
+        safe_cwd = self._resolve_cwd(detected_cwd)
+        return {"status": "success", "cwd": safe_cwd}
+
+    def get_terminal_config(self) -> Dict[str, Any]:
+        """
+        Mengambil konfigurasi terminal tersimpan (misal default environment profile dan preferensi).
+        """
+        data = read_json(self.config_file, dict)
+        if not isinstance(data.get("default_profile"), dict):
+            data["default_profile"] = {}
+        saved_settings = data.get("settings")
+        if not isinstance(saved_settings, dict):
+            data["settings"] = self.DEFAULT_SETTINGS.copy()
+        else:
+            data["settings"] = {**self.DEFAULT_SETTINGS, **saved_settings}
+        return {"status": "success", "config": data}
+
+    def save_terminal_default_profile(self, profile: dict) -> Dict[str, Any]:
+        """
+        Menyimpan profil environment default untuk semua tab terminal baru.
+        """
+        if not isinstance(profile, dict):
+            return {"status": "error", "message": "backend.terminal.invalid_profile"}
+
+        cfg = read_json(self.config_file, dict)
+        cfg["default_profile"] = profile
+        write_json(self.config_file, cfg)
+        return {"status": "success", "message": "backend.terminal.config_saved", "config": cfg}
+
+    def save_terminal_settings(self, settings: dict) -> Dict[str, Any]:
+        """
+        Menyimpan preferensi kustomisasi terminal (font, tema, kursor, dll).
+        """
+        if not isinstance(settings, dict):
+            return {"status": "error", "message": "backend.terminal.invalid_settings"}
+
+        cfg = read_json(self.config_file, dict)
+        current_settings = cfg.get("settings", {})
+        if not isinstance(current_settings, dict):
+            current_settings = self.DEFAULT_SETTINGS.copy()
+
+        merged_settings = {**self.DEFAULT_SETTINGS, **current_settings}
+        for k, v in settings.items():
+            if k in self.DEFAULT_SETTINGS:
+                if k == "defaultCwd" and v:
+                    merged_settings[k] = self._resolve_cwd(str(v))
+                elif k == "fontSize" and isinstance(v, (int, float)):
+                    merged_settings[k] = max(9, min(24, int(v)))
+                elif k == "scrollback" and isinstance(v, int):
+                    merged_settings[k] = max(500, min(20000, v))
+                elif k == "cursorStyle" and v in ("block", "underline", "bar"):
+                    merged_settings[k] = v
+                elif k == "cursorBlinkStyle" and v in ("classic", "smooth", "gradient", "none"):
+                    merged_settings[k] = v
+                elif k == "cursorBlink" and isinstance(v, bool):
+                    merged_settings[k] = v
+                elif k == "copyOnSelect" and isinstance(v, bool):
+                    merged_settings[k] = v
+                else:
+                    merged_settings[k] = v
+
+        cfg["settings"] = merged_settings
+        write_json(self.config_file, cfg)
+        return {"status": "success", "message": "backend.terminal.settings_saved", "settings": merged_settings}
+
+    def get_saved_sessions(self) -> Dict[str, Any]:
+        """
+        Mengambil seluruh preset sesi dan multi-tab workspace yang tersimpan.
+        """
+        data = read_json(self.sessions_file, dict)
+        presets = data.get("presets", []) if isinstance(data.get("presets"), list) else []
+        workspaces = data.get("workspaces", []) if isinstance(data.get("workspaces"), list) else []
+        return {
+            "status": "success",
+            "presets": presets,
+            "workspaces": workspaces
+        }
+
+    def save_preset(self, preset_data: dict) -> Dict[str, Any]:
+        """
+        Menyimpan atau memperbarui preset sesi terminal tunggal.
+        """
+        if not isinstance(preset_data, dict):
+            return {"status": "error", "message": "backend.terminal.invalid_preset"}
+
+        name = str(preset_data.get("name", "")).strip()
+        if not name:
+            return {"status": "error", "message": "backend.terminal.preset_name_required"}
+
+        preset_id = str(preset_data.get("id") or uuid.uuid4())
+        shell_id = str(preset_data.get("shell_id", "powershell"))
+        safe_cwd = self._resolve_cwd(preset_data.get("cwd", ""))
+        last_cwd = self._resolve_cwd(preset_data.get("lastCwd") or safe_cwd)
+        history_buffer = self._sanitize_history_buffer(preset_data.get("historyBuffer", ""))
+        env_profile = preset_data.get("envProfile", {})
+        if not isinstance(env_profile, dict):
+            env_profile = {}
+
+        color = str(preset_data.get("color", "emerald"))
+        icon = str(preset_data.get("icon", "terminal"))
+
+        preset_record = {
+            "id": preset_id,
+            "name": name,
+            "shell_id": shell_id,
+            "cwd": safe_cwd,
+            "lastCwd": last_cwd,
+            "historyBuffer": history_buffer,
+            "envProfile": env_profile,
+            "color": color,
+            "icon": icon,
+            "createdAt": preset_data.get("createdAt") or int(time.time() * 1000)
+        }
+
+        data = read_json(self.sessions_file, dict)
+        presets = data.get("presets", []) if isinstance(data.get("presets"), list) else []
+        workspaces = data.get("workspaces", []) if isinstance(data.get("workspaces"), list) else []
+
+        idx = next((i for i, p in enumerate(presets) if p.get("id") == preset_id), -1)
+        if idx >= 0:
+            presets[idx] = preset_record
+        else:
+            presets.append(preset_record)
+
+        data["presets"] = presets
+        data["workspaces"] = workspaces
+        write_json(self.sessions_file, data)
+
+        return {
+            "status": "success",
+            "message": "backend.terminal.preset_saved",
+            "preset": preset_record
+        }
+
+    def delete_preset(self, preset_id: str) -> Dict[str, Any]:
+        """
+        Menghapus preset sesi berdasarkan ID.
+        """
+        if not preset_id:
+            return {"status": "error", "message": "backend.terminal.preset_not_found"}
+
+        data = read_json(self.sessions_file, dict)
+        presets = data.get("presets", []) if isinstance(data.get("presets"), list) else []
+        workspaces = data.get("workspaces", []) if isinstance(data.get("workspaces"), list) else []
+
+        new_presets = [p for p in presets if p.get("id") != preset_id]
+        if len(new_presets) == len(presets):
+            return {"status": "error", "message": "backend.terminal.preset_not_found"}
+
+        data["presets"] = new_presets
+        data["workspaces"] = workspaces
+        write_json(self.sessions_file, data)
+
+        return {"status": "success", "message": "backend.terminal.preset_deleted"}
+
+    def save_workspace(self, workspace_data: dict) -> Dict[str, Any]:
+        """
+        Menyimpan atau memperbarui preset multi-tab workspace.
+        """
+        if not isinstance(workspace_data, dict):
+            return {"status": "error", "message": "backend.terminal.invalid_workspace"}
+
+        name = str(workspace_data.get("name", "")).strip()
+        if not name:
+            return {"status": "error", "message": "backend.terminal.workspace_name_required"}
+
+        workspace_id = str(workspace_data.get("id") or uuid.uuid4())
+        raw_tabs = workspace_data.get("tabs", [])
+        if not isinstance(raw_tabs, list) or len(raw_tabs) == 0:
+            return {"status": "error", "message": "backend.terminal.workspace_tabs_required"}
+
+        cleaned_tabs = []
+        for tab in raw_tabs:
+            if not isinstance(tab, dict):
+                continue
+            tab_cwd = self._resolve_cwd(tab.get("cwd", ""))
+            tab_last_cwd = self._resolve_cwd(tab.get("lastCwd") or tab_cwd)
+            tab_history = self._sanitize_history_buffer(tab.get("historyBuffer", ""))
+            cleaned_tabs.append({
+                "title": str(tab.get("title") or tab.get("name") or "Terminal"),
+                "shell_id": str(tab.get("shell_id", "powershell")),
+                "cwd": tab_cwd,
+                "lastCwd": tab_last_cwd,
+                "historyBuffer": tab_history,
+                "envProfile": tab.get("envProfile", {}) if isinstance(tab.get("envProfile"), dict) else {},
+                "color": str(tab.get("color", "emerald")),
+                "icon": str(tab.get("icon", "terminal"))
+            })
+
+        if len(cleaned_tabs) == 0:
+            return {"status": "error", "message": "backend.terminal.workspace_tabs_required"}
+
+        workspace_record = {
+            "id": workspace_id,
+            "name": name,
+            "tabs": cleaned_tabs,
+            "createdAt": workspace_data.get("createdAt") or int(time.time() * 1000)
+        }
+
+        data = read_json(self.sessions_file, dict)
+        presets = data.get("presets", []) if isinstance(data.get("presets"), list) else []
+        workspaces = data.get("workspaces", []) if isinstance(data.get("workspaces"), list) else []
+
+        idx = next((i for i, w in enumerate(workspaces) if w.get("id") == workspace_id), -1)
+        if idx >= 0:
+            workspaces[idx] = workspace_record
+        else:
+            workspaces.append(workspace_record)
+
+        data["presets"] = presets
+        data["workspaces"] = workspaces
+        write_json(self.sessions_file, data)
+
+        return {
+            "status": "success",
+            "message": "backend.terminal.workspace_saved",
+            "workspace": workspace_record
+        }
+
+    def delete_workspace(self, workspace_id: str) -> Dict[str, Any]:
+        """
+        Menghapus workspace berdasarkan ID.
+        """
+        if not workspace_id:
+            return {"status": "error", "message": "backend.terminal.workspace_not_found"}
+
+        data = read_json(self.sessions_file, dict)
+        presets = data.get("presets", []) if isinstance(data.get("presets"), list) else []
+        workspaces = data.get("workspaces", []) if isinstance(data.get("workspaces"), list) else []
+
+        new_workspaces = [w for w in workspaces if w.get("id") != workspace_id]
+        if len(new_workspaces) == len(workspaces):
+            return {"status": "error", "message": "backend.terminal.workspace_not_found"}
+
+        data["presets"] = presets
+        data["workspaces"] = new_workspaces
+        write_json(self.sessions_file, data)
+
+        return {"status": "success", "message": "backend.terminal.workspace_deleted"}

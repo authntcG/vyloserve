@@ -1,6 +1,8 @@
+import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import Card from '../../components/Card';
 import Button from '../../components/Button';
+import ViewModeToggle, { type ViewMode } from '../../components/ViewModeToggle';
 import ServiceToggleButton from '../../components/ServiceToggleButton';
 import BackgroundProgressWidget from '../../components/BackgroundProgressWidget';
 import PageHeader from '../../components/PageHeader';
@@ -11,6 +13,7 @@ import { compareVersions } from '../../utils/version';
 import { PhpProvider, usePhp } from '../../context/PhpContext';
 import PhpNewInstanceModal from './PhpNewInstanceModal';
 import PhpSettingsModal from './PhpSettingsModal';
+import PhpTable from './PhpTable';
 
 export type { PhpInstance } from '../../context/PhpContext';
 
@@ -34,6 +37,18 @@ function PhpMainView() {
         progressText,
     } = usePhp();
 
+    const [viewMode, setViewMode] = useState<ViewMode>('card');
+
+    const updateMap = useMemo(() => {
+        const map: Record<string, { version: string; filename: string } | null> = {};
+        for (const php of instances) {
+            const majorMinor = php.version.split('.').slice(0, 2).join('.');
+            const updateVer = availableVersions.find(v => v.version.split('.').slice(0, 2).join('.') === majorMinor && compareVersions(v.version, php.version) > 0);
+            map[php.id] = updateVer ? { version: updateVer.version, filename: updateVer.filename } : null;
+        }
+        return map;
+    }, [instances, availableVersions]);
+
     return (
         <>
             <div className="flex flex-col w-full">
@@ -47,9 +62,14 @@ function PhpMainView() {
                         </>
                     }
                     actions={
-                        <Button variant="primary" icon="add" onClick={openNewInstanceModal} className="shadow-sm">
-                            {t('php.add_version')}
-                        </Button>
+                        <div className="flex items-center gap-2">
+                            {instances.length > 0 && (
+                                <ViewModeToggle mode={viewMode} onChange={setViewMode} />
+                            )}
+                            <Button variant="primary" icon="add" onClick={openNewInstanceModal} className="shadow-sm">
+                                {t('php.add_version')}
+                            </Button>
+                        </div>
                     }
                 />
 
@@ -57,7 +77,7 @@ function PhpMainView() {
                     {(() => {
                         if (isLoading) {
                             return (
-                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-4.5 pb-8">
                                     {[1, 2].map((item) => <SkeletonCard key={item} />)}
                                 </div>
                             );
@@ -73,12 +93,26 @@ function PhpMainView() {
                                 />
                             );
                         }
+                        if (viewMode === 'table') {
+                            return (
+                                <PhpTable
+                                    phpInstances={instances}
+                                    togglingInstanceId={togglingInstanceId}
+                                    updateMap={updateMap}
+                                    onToggleStatus={handleToggleStatus}
+                                    onOpenSettings={handleOpenSettings}
+                                    onOpenPhpIni={openPhpIni}
+                                    onOpenPhpDir={openPhpDir}
+                                    onUpdatePhp={handleUpdatePhp}
+                                    onUninstallPhp={handleConfirmUninstall}
+                                />
+                            );
+                        }
                         return (
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-4.5 pb-8">
                                 {instances.map(php => {
                                     const isRunning = php.status === 'running';
-                                    const majorMinor = php.version.split('.').slice(0, 2).join('.');
-                                    const updateVer = availableVersions.find(v => v.version.split('.').slice(0, 2).join('.') === majorMinor && compareVersions(v.version, php.version) > 0);
+                                    const updateVer = updateMap[php.id];
                                     return (
                                         <Card
                                             key={php.id}

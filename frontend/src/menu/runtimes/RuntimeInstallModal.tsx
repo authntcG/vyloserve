@@ -11,7 +11,6 @@ import { useRuntimes } from '../../context/RuntimesContext';
 export default function RuntimeInstallModal() {
     const { t } = useTranslation();
     const {
-        runtimeData,
         isProcessing,
         installingEngine,
         updatingVersion,
@@ -37,15 +36,17 @@ export default function RuntimeInstallModal() {
         handleInstallGoSubmit
     } = useRuntimes();
 
-    const getApplyButtonText = (isInstalled: boolean) => {
+    const isUpdateFlow = Boolean(updatingVersion);
+
+    const getApplyButtonText = () => {
         if (isProcessing) {
-            return isInstalled ? t('runtimes.updating_btn') : t('runtimes.installing_btn');
+            return isUpdateFlow ? t('runtimes.updating_btn') : t('runtimes.installing_btn');
         }
-        return isInstalled ? t('runtimes.update_engine_btn') : t('runtimes.install_engine_btn');
+        return isUpdateFlow ? t('runtimes.update_engine_btn') : t('runtimes.install_engine_btn');
     };
 
-    const getModalTitle = (isInstalled: boolean, name: string) => {
-        const prefix = isInstalled ? t('runtimes.update_title') : t('runtimes.install_title');
+    const getModalTitle = (name: string) => {
+        const prefix = isUpdateFlow ? t('runtimes.update_title') : t('runtimes.install_title');
         return `${prefix}${name}`;
     };
 
@@ -84,10 +85,10 @@ export default function RuntimeInstallModal() {
                 isOpen={isNodeModalOpen && !isMinimized}
                 keepMounted={isProcessing}
                 onClose={() => (isProcessing ? setIsMinimized(true) : setIsNodeModalOpen(false))}
-                title={getModalTitle(runtimeData.node.installed, 'Node.js')}
+                title={getModalTitle('Node.js')}
                 icon="javascript"
                 onApply={updatingVersion ? undefined : handleInstallNodeSubmit}
-                applyText={getApplyButtonText(runtimeData.node.installed)}
+                applyText={getApplyButtonText()}
                 isApplyDisabled={isProcessing}
             >
                 <div className={isProcessing ? 'opacity-40 pointer-events-none transition-opacity' : ''}>
@@ -100,10 +101,10 @@ export default function RuntimeInstallModal() {
                 isOpen={isPythonModalOpen && !isMinimized}
                 keepMounted={isProcessing}
                 onClose={() => (isProcessing ? setIsMinimized(true) : setIsPythonModalOpen(false))}
-                title={getModalTitle(runtimeData.python.installed, 'Python')}
+                title={getModalTitle('Python')}
                 icon="data_object"
                 onApply={updatingVersion ? undefined : handleInstallPythonSubmit}
-                applyText={getApplyButtonText(runtimeData.python.installed)}
+                applyText={getApplyButtonText()}
                 isApplyDisabled={isProcessing}
             >
                 <div className={isProcessing ? 'opacity-40 pointer-events-none transition-opacity' : ''}>
@@ -116,10 +117,10 @@ export default function RuntimeInstallModal() {
                 isOpen={isJavaModalOpen && !isMinimized}
                 keepMounted={isProcessing}
                 onClose={() => (isProcessing ? setIsMinimized(true) : setIsJavaModalOpen(false))}
-                title={getModalTitle(runtimeData.java.installed, 'Java (JDK)')}
+                title={getModalTitle('Java (JDK)')}
                 icon="coffee"
                 onApply={updatingVersion ? undefined : handleInstallJavaSubmit}
-                applyText={getApplyButtonText(runtimeData.java.installed)}
+                applyText={getApplyButtonText()}
                 isApplyDisabled={isProcessing}
             >
                 <div className={isProcessing ? 'opacity-40 pointer-events-none transition-opacity' : ''}>
@@ -132,10 +133,10 @@ export default function RuntimeInstallModal() {
                 isOpen={isGoModalOpen && !isMinimized}
                 keepMounted={isProcessing}
                 onClose={() => (isProcessing ? setIsMinimized(true) : setIsGoModalOpen(false))}
-                title={getModalTitle(runtimeData.go.installed, 'Go Compiler')}
+                title={getModalTitle('Go Compiler')}
                 icon="rocket_launch"
                 onApply={updatingVersion ? undefined : handleInstallGoSubmit}
-                applyText={getApplyButtonText(runtimeData.go.installed)}
+                applyText={getApplyButtonText()}
                 isApplyDisabled={isProcessing}
             >
                 <div className={isProcessing ? 'opacity-40 pointer-events-none transition-opacity' : ''}>

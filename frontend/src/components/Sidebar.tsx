@@ -30,7 +30,8 @@ interface ServiceConfig extends NavItemConfig {
 }
 
 const MAIN_MENU: NavItemConfig[] = [
-    { id: 'dashboard', name: 'Dashboard', icon: 'space_dashboard' }
+    { id: 'dashboard', name: 'Dashboard', icon: 'space_dashboard' },
+    { id: 'projects', name: 'Projects', icon: 'folder_open' }
 ];
 
 // Services = punya status running/stopped + toggle switch nyata di backend
@@ -240,7 +241,7 @@ export default function Sidebar({
     const [searchQuery, setSearchQuery] = useState('');
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [activeSettingsModal, setActiveSettingsModal] = useState<SettingsModalType>(null);
-    const [activeSettingsTab, setActiveSettingsTab] = useState<'general' | 'logs' | 'updates' | 'ai' | 'about'>('general');
+    const [activeSettingsTab, setActiveSettingsTab] = useState<'general' | 'logs' | 'updates' | 'about'>('general');
     const settingsRef = useRef<HTMLDivElement>(null);
     const [systemLoad, setSystemLoad] = useState<number>(0);
     const [serviceStatus, setServiceStatus] = useState<Record<string, boolean>>({
@@ -279,11 +280,13 @@ export default function Sidebar({
         const customEvent = e as CustomEvent;
         if (customEvent.detail?.modal) {
             const m = customEvent.detail.modal;
-            if (m === 'updates' || m === 'about' || m === 'logs' || m === 'general' || m === 'ai') {
+            if (m === 'ai' || customEvent.detail.tab === 'ai') {
+                window.dispatchEvent(new CustomEvent('vylo_open_ai_settings'));
+            } else if (m === 'updates' || m === 'about' || m === 'logs' || m === 'general') {
                 setActiveSettingsTab(m);
                 setActiveSettingsModal('settings');
-            } else if (customEvent.detail.tab) {
-                setActiveSettingsTab(customEvent.detail.tab);
+            } else if (customEvent.detail.tab && ['general', 'logs', 'updates', 'about'].includes(customEvent.detail.tab)) {
+                setActiveSettingsTab(customEvent.detail.tab as 'general' | 'logs' | 'updates' | 'about');
                 setActiveSettingsModal(m);
             } else {
                 setActiveSettingsModal(m);

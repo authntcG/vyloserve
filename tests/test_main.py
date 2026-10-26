@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import main as main_module
 from main import (
     AppLifecycle, resource_path, get_entrypoint, setup_systray, get_theme_bg_color,
+    get_saved_theme,
     get_mutex_name, get_ipc_pipe_name, get_window_title, setup_app_user_model_id,
     check_single_instance, bring_existing_instance_to_front, start_ipc_server
 )
@@ -350,6 +351,9 @@ def test_main_wires_api_window_and_quit_callback(mock_api_class, mock_webview, m
     mock_api_instance.start_log_watcher.assert_called_once()
     assert mock_api_instance.quit_callback is not None
     mock_webview.start.assert_called_once()
+    start_kwargs = mock_webview.start.call_args[1]
+    assert start_kwargs.get('private_mode') is False
+    assert 'webview' in start_kwargs.get('storage_path', '')
 
     # Regresi: ikon notifikasi native (win11toast) sebelumnya tidak pernah di-wire ke Api
     # sama sekali, sehingga notifikasi tampil tanpa ikon aplikasi -- lihat docs/known_bugs.md.
@@ -441,6 +445,23 @@ def test_main_catches_keyboard_interrupt_and_exits(mock_api_class, mock_webview,
         main_module.main()
 
     mock_os_exit.assert_called_once_with(0)
+
+
+def test_get_saved_theme_reads_from_settings(tmp_path):
+    """get_saved_theme harus membaca tema dari data/settings.json jika file ada."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    settings_file = data_dir / "settings.json"
+    settings_file.write_text('{"theme": "tokyo-night-dark"}', encoding='utf-8')
+
+    with patch('main.get_project_root', return_value=str(tmp_path)):
+        assert get_saved_theme() == "tokyo-night-dark"
+
+
+def test_get_saved_theme_fallback_when_missing(tmp_path):
+    """Jika settings.json tidak ditemukan atau korup, fallback ke vyloserve-dark."""
+    with patch('main.get_project_root', return_value=str(tmp_path)):
+        assert get_saved_theme() == "vyloserve-dark"
 
 
 def test_get_theme_bg_color_reads_from_settings(tmp_path):

@@ -2,8 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { act, screen, waitFor } from '../../test-utils';
 import { mockPywebviewApi, renderWithToast } from '../../test-utils';
-import { ApacheProvider, useApache } from '../../../src/context/ApacheContext';
-import ApacheCliInstallModal from '../../../src/menu/apache/ApacheCliInstallModal';
+import { ProjectProvider, useProject } from '../../../src/context/ProjectContext';
+import ProjectCliInstallModal from '../../../src/menu/projects/ProjectCliInstallModal';
 
 function mockApacheApi(overrides: Record<string, any> = {}) {
     return {
@@ -18,19 +18,19 @@ function mockApacheApi(overrides: Record<string, any> = {}) {
     };
 }
 
-function Harness({ onMount }: { onMount?: (ctx: ReturnType<typeof useApache>) => void }) {
-    const ctx = useApache();
+function Harness({ onMount }: { onMount?: (ctx: ReturnType<typeof useProject>) => void }) {
+    const ctx = useProject();
     if (onMount) onMount(ctx);
-    return <ApacheCliInstallModal />;
+    return <ProjectCliInstallModal />;
 }
 
-describe('ApacheCliInstallModal', () => {
+describe('ProjectCliInstallModal', () => {
     it('does not display when isCreatingProject is false', () => {
         mockPywebviewApi(mockApacheApi());
         renderWithToast(
-            <ApacheProvider>
+            <ProjectProvider>
                 <Harness />
-            </ApacheProvider>
+            </ProjectProvider>
         );
 
         expect(screen.queryByText('apache.cli_modal_title')).not.toBeInTheDocument();
@@ -40,9 +40,9 @@ describe('ApacheCliInstallModal', () => {
         mockPywebviewApi(mockApacheApi());
 
         renderWithToast(
-            <ApacheProvider>
+            <ProjectProvider>
                 <Harness />
-            </ApacheProvider>
+            </ProjectProvider>
         );
 
         // Progress starts
@@ -91,9 +91,9 @@ describe('ApacheCliInstallModal', () => {
         mockPywebviewApi(mockApacheApi({ cancel_project_install: cancelProjectInstall }));
 
         renderWithToast(
-            <ApacheProvider>
+            <ProjectProvider>
                 <Harness />
-            </ApacheProvider>
+            </ProjectProvider>
         );
 
         act(() => {
@@ -127,9 +127,9 @@ describe('ApacheCliInstallModal', () => {
         mockPywebviewApi(mockApacheApi({ cancel_project_install: cancelProjectInstall }));
 
         renderWithToast(
-            <ApacheProvider>
+            <ProjectProvider>
                 <Harness />
-            </ApacheProvider>
+            </ProjectProvider>
         );
 
         act(() => {

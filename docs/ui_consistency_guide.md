@@ -41,6 +41,33 @@ Ini juga berarti kamu **tidak perlu nambah CSS variable baru** tiap kali butuh s
 
 Semua ada di `frontend/src/components/`. Test masing-masing ada di `frontend/tests/components/`.
 
+### `<Card>` (`Card.tsx`) & Geometri Desktop Card-Table Harmonization
+```tsx
+import Card from '../../components/Card';
+
+<Card
+    title={serverName}
+    status={statusText}
+    updateVersion={updateVer}
+    gridCols="grid-cols-2 md:grid-cols-3"
+    dropdownActions={<>...</>}
+    footerActions={<>...</>}
+>
+    <div>...konten metadata...</div>
+</Card>
+```
+Komponen kartu utama untuk inventaris modul (Apache, PHP, Database, Runtimes, Projects):
+- **Geometri Standar Desktop Terkalibrasi (Harmonisasi dengan Table View):**
+  - **Outer Padding:** `p-5` (dikalibrasi dari sebelumnya `p-6` yang terlalu renggang). Menghilangkan fatik visual saat berpindah dari Card View ke Table View.
+  - **Flex Gap:** `gap-4` vertikal antar header, body, dan footer.
+  - **Body Grid Gap:** `gap-3.5 sm:gap-4` (sebelumnya `gap-6`).
+  - **Footer:** `pt-3.5 sm:pt-4 border-t border-slate-100 dark:border-slate-800/50 flex gap-2.5` (sebelumnya `pt-6 mt-2`).
+  - **Options Burger Button Hit Target (Fitts's Law):** `h-8 w-8 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800` dengan `aria-label={t('common.options', 'Options')}` (dikalibrasi dari sebelumnya `p-1` ~24px yang terlalu kecil untuk kursor desktop).
+- **Zero Cumulative Layout Shift (CLS):** Geometri `p-5 gap-4 pt-4` identik 1:1 dengan `<SkeletonCard variant="service" />`, mencegah layout berkedip/bergeser saat data selesai dimuat dari backend.
+- **Konsolidasi Aksi Cepat (Eliminasi Redundansi):**
+  - Pada modul server seperti Apache, seluruh shortcut konfigurasi/direktori (open htdocs, open httpd.conf, open vhosts.conf, open conf dir, open logs dir, open root dir) diintegrasikan langsung ke dalam `dropdownActions` kartu alih-alih meletakkan grid alat bantu terpisah (`ApacheQuickLinks` telah dihapus).
+  - Ketika server sedang berjalan (`isRunning`), aksi utama cepat seperti "Open Browser" disematkan langsung di `footerActions` berdampingan dengan `<ServiceToggleButton>`.
+
 ### `<Button>` (`Button.tsx`)
 ```tsx
 import Button from '../../components/Button';
@@ -77,7 +104,23 @@ import Button from '../../components/Button';
 ```
 Satu komponen untuk pola "tombol yang warnanya+ikon+labelnya berganti antara Start (emerald) dan Stop (amber)". `labels` WAJIB string sudah di-translate oleh caller (tiap modul punya i18n key sendiri). Kalau modul tidak punya label transisi "Starting.../Stopping..." terpisah (mis. Database), reuse label start/stop yang sama untuk keempat slot — jangan mengarang key baru hanya demi mengisi prop.
 
-**Pola "tombol status install" (bukan `<ServiceToggleButton>`, bukan `<Button>`):** Tunnels (`InstallHeaderButton`), Runtimes (`RuntimesHeaderActions`), dan Git (`GitInstallButton`) masing-masing punya komponen presentational LOKAL (sengaja tidak diekstrak jadi komponen bersama — lihat `docs/known_bugs.md` #43) untuk tombol header yang SELALU dirender, warna/ikon/label berganti antara "Install" (`bg-primary`) dan "Installed" (`bg-emerald-500 hover:bg-emerald-600 disabled:opacity-100 disabled:cursor-default border-transparent`, ikon `check_circle`, `disabled`). Kalau modul kelima butuh pola sama, pertimbangkan ekstraksi ke komponen bersama alih-alih komponen lokal keempat yang nyaris identik.
+**Mode `iconOnly`:** Mendukung prop `iconOnly?: boolean` (default `false`). Dalam mode `iconOnly=true` (dipakai untuk tabel baris di `PhpTable` dan `DatabaseTable`), tombol hanya merender ikon dengan ukuran ringkas `p-2 rounded-lg` serta otomatis memasang `title` dan `aria-label` dengan teks label aktif untuk aksesibilitas hover tooltip tanpa memakan lebar kolom aksi.
+
+### `<InstalledBadge>` (`InstalledBadge.tsx`)
+```tsx
+import InstalledBadge from '../../components/InstalledBadge';
+
+actions={
+    isInstalled ? (
+        <InstalledBadge />
+    ) : (
+        <Button variant="primary" icon="download" onClick={handleInstall}>
+            {t('common.install')}
+        </Button>
+    )
+}
+```
+Komponen standar terpadu untuk pola "lencana status terinstal" di PageHeader (dipakai konsisten di Apache, Runtimes, Git, dan Tunnels). Menggunakan `bg-emerald-500` yang sepenuhnya theme-aware, ikon `check_circle`, disabled state terstandarisasi, dan teks bawaan dari `t('common.installed')` (atau label kustom via prop `label`). Menggantikan implementasi manual berulang di 4 modul tersebut.
 
 ### `<ToggleSwitch>` (`ToggleSwitch.tsx`)
 ```tsx
@@ -261,6 +304,92 @@ import { Skeleton, SkeletonCard, SkeletonForm, SkeletonDocument, SkeletonChatMes
 
 **Aturan:** Jangan membuat `<div className="animate-pulse bg-slate-200 ...">` manual di halaman modul — gunakan salah satu komponen di atas agar warna shimmer selalu mengikuti tema aktif secara seragam.
 
+### `<ViewModeToggle>` (`ViewModeToggle.tsx`)
+```tsx
+<ViewModeToggle
+    mode={viewMode}
+    onChange={setViewMode}
+    cardsLabel={t('common.view_cards')}
+    tableLabel={t('common.view_table')}
+    ariaLabel={t('common.view_mode')}
+/>
+```
+Segmented toggle switch accessible (`role="group"` dengan 2 button `aria-pressed`) untuk beralih antara tampilan visual `card` dan tampilan tabular `table`.
+- **Ikon:** `grid_view` (cards) dan `table_rows` (table) dengan styling seragam desktop (`text-[18px]`).
+- **Accessibility:** Menyediakan `aria-pressed="true|false"` pada masing-masing tombol, keyboard navigation, dan title tooltip bawaan.
+- **Dipakai di:** Projects Hub (`menu/projects/Main.tsx`), PHP (`menu/php/Main.tsx`), Database (`menu/database/Main.tsx`), Runtimes (`menu/runtimes/Main.tsx`).
+
+### `<DataTable>` (`DataTable.tsx`)
+```tsx
+<DataTable<MyItem>
+    columns={[
+        { id: 'name', header: t('mod.name'), render: (item) => item.name },
+        { id: 'status', header: t('mod.status'), render: (item) => <StatusBadge ... /> },
+        { id: 'actions', header: t('mod.actions'), align: 'right', render: (item) => <ActionButtons ... /> },
+    ]}
+    data={items}
+    keyExtractor={(item) => item.id}
+    density="normal" // 'compact' | 'normal' | 'relaxed'
+    filters={<FilterChips ... />}
+    search={{
+        value: searchQuery,
+        onChange: setSearchQuery,
+        placeholder: t('common.search'),
+    }}
+    headerActions={<button ... />}
+    emptyState={<EmptyState ... />}
+    isLoading={isLoading}
+/>
+```
+Komponen tabel data desktop modern yang dirancang untuk efisiensi inventaris dan kepadatan informasi:
+- **Integrated Controls Toolbar:** Menyediakan slot opsional `filters` (di sisi kiri berdampingan dengan title/subtitle) dan `search` (di sisi kanan berdampingan dengan density controls dan headerActions). Mengintegrasikan kontrol penyaringan dan pencarian langsung ke dalam kontainer tabel sehingga antarmuka lebih bersih tanpa floating bar eksternal terpisah.
+- **Search Input Responsif:** Prop `search` mendukung input real-time dengan ikon search otomatis, tombol clear ("close"), focus ring aksen `primary`, dan ARIA label untuk aksesibilitas keyboard/screen reader.
+- **No Vertical Overflow on Table:** Tabel sengaja **TIDAK** menerapkan `overflow-y-auto` internal agar tidak terjadi double vertical scrollbar di desktop layout (mengikuti scroll layout induk). Kontainer tabel hanya memiliki `overflow-x-auto overflow-y-hidden` untuk responsivitas horizontal murni.
+- **Density Setting & Persistence:** Mendukung 3 tingkat kerapatan padding baris:
+  - `compact`: `py-1.5 px-3 text-xs` (optimal untuk data teknis padat seperti port, path, versi).
+  - `normal`: `py-3 px-4 text-sm` (default, seimbang untuk dashboard & inventaris server).
+  - `relaxed`: `py-4 px-5 text-sm` (nyaman untuk entri berjarak longgar).
+  Dilengkapi kontrol interaktif di toolbar kanan (`showDensityControl`, default `true`) yang tersimpan persisten di `localStorage` (`vyloserve_table_density`) sehingga preferensi developer berlaku konsisten di semua modul (Projects, PHP, Database, Runtimes).
+- **Dynamic Header:** Kolom header dinamis via `ColumnDef<T>` dengan dukungan perataan teks (`align: 'left' | 'center' | 'right'`), class kustom per-kolom (`className`, `headerClassName`), dan render prop kustom.
+- **Empty & Loading States:** Mendukung slot kustom `emptyState` (yang tetap mempertahankan toolbar pencarian/filter tetap terpasang saat hasil pencarian 0 baris) serta skeleton loading terintegrasi saat `isLoading=true`.
+
+### `<FilterChips>` (`FilterChips.tsx`)
+```tsx
+<FilterChips
+    items={[
+        { id: 'all', label: t('common.all'), count: totalCount },
+        { id: 'mysql', label: 'MySQL', count: mysqlCount, icon: 'database' },
+        { id: 'postgres', label: 'PostgreSQL', count: pgCount },
+    ]}
+    selectedId={selectedFilter}
+    onChange={setSelectedFilter}
+    ariaLabel="Filter database engine"
+/>
+```
+Komponen kapsul filter interaktif serbaguna (`role="group"` dengan masing-masing tombol `aria-pressed="true|false"`):
+- **Badge Hitungan Numerik:** Menampilkan jumlah entri data per kategori secara real-time pada tiap pil filter.
+- **Aksesibilitas & Theming:** Menggunakan warna `bg-primary text-white shadow-xs` untuk state aktif dan warna netral border-subtle untuk state non-aktif, serta responsif horizontal scroll (`no-scrollbar`).
+- **Dipakai di:** Projects Hub (`menu/projects/Main.tsx`) untuk filter runtime, dan Database (`menu/database/Main.tsx`) untuk filter engine (MySQL vs PostgreSQL).
+
+### `<CompactFileDropzone>` (`CompactFileDropzone.tsx`)
+```tsx
+<CompactFileDropzone
+    id="base64_file_input"
+    accept="*/*"
+    currentFileName={fileMeta?.name}
+    currentFileSize={fileMeta?.size}
+    currentFileType={fileMeta?.type}
+    onFileSelected={(file, dataUrl) => handleFile(file, dataUrl)}
+    onClearFile={handleClear}
+    promptText={t('tools.base64.universal_prompt')}
+/>
+```
+Komponen zona seret-lepas berkas (*drag-and-drop*) universal dan ringkas:
+- **Dua Mode Presentasi:** Mode standar (vertikal dengan padding lega untuk dual-input Base64) dan mode kompak (`compact={true}` dengan layout horizontal satu baris untuk penyisipan Logo QR).
+- **Attached File State:** Secara otomatis berubah menjadi badge file terlampir saat berkas terpilih, menampilkan ikon jenis berkas (gambar vs dokumen), nama file, ukuran, tipe MIME, dan tombol hapus silang (X).
+- **Asosiasi Form Aksesibel:** Mendukung prop `id` yang terhubung langsung dengan `<FieldLabel htmlFor="...">` (memenuhi Aturan 6).
+- **Dipakai di:** Base64 Encode/Decode (`menu/tools/base64-encode-decode/Main.tsx`) dan Custom QR Generator (`menu/tools/qr-generator/Main.tsx`).
+
 ## 3. Status Migrasi & Fase 2/3/4
 
 **Fase 1** migrasi ke komponen bersama di atas untuk: `Modal`/`AlertContext`/`LogFileViewerModal`, tombol primary per-halaman (Apache/PHP/Database/Git/QR Generator), 2 tombol Tunnels yang full-hardcoded, 6 lokasi `ToggleSwitch`, dan 3 combobox custom (Database/Tunnels×2).
@@ -289,5 +418,41 @@ import { Skeleton, SkeletonCard, SkeletonForm, SkeletonDocument, SkeletonChatMes
 - **Tombol status install Git diseragamkan** dengan pola Tunnels/Runtimes (`GitInstallButton`, lihat §2 di atas) — lihat `docs/known_bugs.md` #43.
 - **`ToggleSwitch` diperluas** dengan prop `size`/`interactive`, dipakai untuk memigrasikan toggle ekstensi `php/Settings.tsx` yang sebelumnya menulis ulang markup manual — lihat `docs/known_bugs.md` #44. **1 pengecualian tersisa** (`SettingsModals.tsx` toggle pre-release, pakai `role="switch"` native, dicatat di §2 di atas).
 - **`php/Settings.tsx`'s mismatch ukuran form** (identik dengan temuan `database/Settings.tsx` di #41) ikut diperbaiki sekalian — lihat `docs/known_bugs.md` #44.
+
+**Harmonisasi Densitas Card-Table & Audit UI/UX Menyeluruh (Oktober 2026) — sudah dikerjakan:**
+- **Standardisasi Card Geometry:** Mengalibrasi padding kartu `Card.tsx` menjadi `p-5`, inner gap `gap-4`, body grid `gap-3.5 sm:gap-4`, footer `pt-3.5 sm:pt-4`, dan hit target burger options menu menjadi `h-8 w-8`. Menghilangkan ketimpangan kerapatan visual (gap fatik) antara Card View dan Table View, serta mengeliminasi CLS terhadap `SkeletonCard`.
+- **Eliminasi Redundansi Modul Apache:** Menghapus `ApacheQuickLinks` (grid 6-tombol redundan di bawah status card yang memakan ~130px ruang visual). Mengintegrasikan seluruh 7 shortcut direktori/file konfigurasi langsung ke `dropdownActions` kartu, dan menambahkan tombol akses cepat "Open Browser" di footer kartu saat Apache aktif.
+- **Harmonisasi Grid Gap Lintas Modul:** Menyeragamkan seluruh kontainer grid kartu di Apache, PHP, Database, Runtimes, dan Projects menjadi `gap-4 sm:gap-4.5 pb-8` (sebelumnya `gap-6`), dan margin kontainer filter/search bar menjadi `mb-4` (sebelumnya `mb-6`).
+- **Standardisasi Toolbar Tinggi Kontrol:** Mengunci tinggi kontrol filter chips, density switch, dan search bar pada `h-8` seragam dengan align center.
+
+**Penyelarasan Orkestrasi Level 1 & Level 2 Runtimes & Git (Oktober 2026) — sudah dikerjakan:**
+- **Centralized `RuntimePathHub` (`runtimes/RuntimePathHub.tsx`):** Mengonsolidasi kontrol pendaftaran Windows System PATH (`ToggleSwitch`) dan pemilihan versi aktif (`Select`) ke dalam satu kartu kendali terpusat di bagian atas modul Runtimes. Menghilangkan asimetri tombol dan toggle antar kartu versi lokal.
+- **100% Symmetric Binary Inventory Cards:** Setiap kartu versi terinstal pada modul Runtimes kini memiliki tata letak 100% seragam dengan dua tombol primer standar (*Open Folder* dan *Open in Terminal*) serta aksi mutasi terisolasi di menu burger tiga titik.
+- **In-Card Contextual Alert Box (Anti-Warning Fatigue):** Menghapus banner peringatan eksternal terpisah (`ExternalWarningBanner`) yang menumpuk di atas konten. Peringatan deteksi instalasi native OS kini diintegrasikan langsung di dalam kartu kendali terkait (`data-testid="path-hub-external-alert"` pada Runtimes dan `data-testid="git-external-alert"` pada Git Core System), menampilkan nomor versi native, direktori biner, serta penjelasan penguncian toggle secara ringkas dan elegan.
+- **Penyelarasan Status Badge & Kunci Toggle Git:** Kartu Git Core System menyelaraskan status badge (`Native OS` ber-nuansa amber, `PATH Active` ber-nuansa emerald, dan `Isolated` ber-nuansa primary) dan menonaktifkan toggle pendaftaran PATH secara visual dan fungsional saat Git native sistem terdeteksi.
+- **Harmonisasi Modul Tunnels & Developer Terminal:** Menerapkan `<ViewModeToggle>` (Card & Table View) dengan dropdown proyek yang dapat dicari (*searchable project selector*) pada Tunnels, serta menyelaraskan toolbar, tabs geometry, cursor style, dan preset environment scoping modal pada Developer Terminal.
+
+**Standarisasi Unified Utility Workspace (Oktober 2026) — sudah dikerjakan:**
+- **Standardisasi Layout Utilitas (12-Column Responsive Grid):** Seluruh utilitas pengembang (`qr-generator`, `base64-encode-decode`, `url-encode-decode`, `markdown-viewer`) kini mengadopsi standar tata letak seragam:
+  - Header halaman konsisten dengan `<PageHeader>`.
+  - Mode navigasi atas menggunakan `<Tabs>` dengan underline track standar aplikasi (URL, Teks, Wi-Fi, Email, vCard, SMS di QR; Encode & Decode di Base64 dan URL).
+  - Grid 12 kolom responsif: split `xl:col-span-7` untuk kartu konfigurasi/input di sebelah kiri dan `xl:col-span-5` untuk kartu output/live-preview di sebelah kanan (atau sticky pane 3:9 di Markdown Viewer).
+- **Toolbar Input Terpadu (Action Parity):** Kartu input di setiap modul utilitas dilengkapi toolbar aksi terstandarisasi di bagian atas:
+  - *Sample* (`auto_fix_high`): Memuat contoh data siap pakai yang realistis.
+  - *Paste* (`content_paste`): Mengambil teks instan dari clipboard sistem.
+  - *Clear* (`clear`): Membersihkan form input dengan sekali klik.
+- **Kartu Output & Pratinjau Interaktif:**
+  - Menampilkan penghitung karakter/byte dinamis secara konsisten.
+  - Tombol aksi output standar (*Copy*, *Copy Image*, *Download*).
+  - Integrasi editor interaktif dua arah (Interactive Query Table pada URL Encode/Decode, Image Preview dan Binary Download pada Base64, Live Canvas pada QR, dan Markdown Outline / TOC pada Markdown Viewer).
+- **Aksesibilitas & Kepatuhan Kontrak Form (Aturan 6):** Seluruh input, textarea, slider, dan dropdown di keempat utilitas dipasangkan 100% menggunakan `<FieldLabel htmlFor="id_unik">` dan `id="id_unik"`, menjamin keterbacaan sempurna oleh screen reader dan test automation.
+
+**Simplifikasi Modul Utilitas (QR Code & Base64) (Oktober 2026) — sudah dikerjakan:**
+- **Konsolidasi Kategori QR Code (Hick's Law):** Menyederhanakan 6 tab terfragmentasi (URL, Teks, Wi-Fi, Email, vCard, SMS) menjadi 3 kategori tingkat atas yang intuitif:
+  1. `Teks / URL` (`text_url`): Menggabungkan input teks bebas dan link web dalam satu textarea pintar dengan deteksi otomatis format URL (`tools.qr.url_detected`).
+  2. `Wi-Fi` (`wifi`): Form koneksi jaringan nirkabel (SSID, Password, Security).
+  3. `Kontak & Pesan` (`contact`): Form terpadu dengan pemilih sub-pill (*vCard*, *Email*, *SMS*).
+- **Penyatuan Kartu Desain & Logo QR Code:** Menggabungkan Card 2 (*Visual Design*) dan Card 3 (*Insert Logo*) menjadi satu kartu seimbang 2 kolom (*Appearance & Logo*). Kolom kiri menangani level koreksi error (ECC), dot pattern, dan sudut; kolom kanan menangani slider resolusi, slider margin, `CompactFileDropzone` untuk logo kustom, dan slider skala logo. Mengurangi ~40% ruang gulir vertikal dan menghilangkan fatik visual.
+- **Universal Dual-Input Area pada Base64:** Menghilangkan toggle buatan antara mode `Text Input` dan `File Input`. Mengintegrasikan input teks langsung dengan `CompactFileDropzone` di kedua mode (Encode & Decode). Opsi URL-safe dan pemotongan baris (line wrap) dipindahkan langsung ke toolbar kartu input.
 
 Kalau mengerjakan salah satu area ini di masa depan, perbarui dokumen ini (termasuk §1 kalau ternyata ada token warna statis baru yang seharusnya theme-aware, atau sebaliknya).

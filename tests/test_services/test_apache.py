@@ -805,3 +805,60 @@ def test_stop_server_uses_pkill_on_non_windows(apache_manager):
             res = apache_manager.stop_server()
     assert res['status'] == 'success'
     mock_run.assert_called_once_with(['pkill', '-', 'httpd'])
+
+# ==========================================
+# Pintasan Direktori & Status Port
+# ==========================================
+
+def test_apache_open_htdocs(apache_manager):
+    with patch.object(apache_manager, '_ensure_default_htdocs', return_value="C:\\test\\www"), \
+         patch.object(apache_manager, '_open_path_os', return_value={"status": "success"}) as mock_open:
+        res = apache_manager.open_htdocs()
+        assert res['status'] == 'success'
+        mock_open.assert_called_once_with("C:\\test\\www")
+
+def test_apache_open_conf_dir(apache_manager):
+    with patch.object(apache_manager, 'get_status', return_value={"installed": True, "path": "C:\\apache"}), \
+         patch.object(apache_manager, '_open_path_os', return_value={"status": "success"}) as mock_open, \
+         patch('os.makedirs'):
+        res = apache_manager.open_conf_dir()
+        assert res['status'] == 'success'
+        mock_open.assert_called_once_with(os.path.join("C:\\apache", "conf"))
+
+def test_apache_open_conf_dir_not_installed(apache_manager):
+    with patch.object(apache_manager, 'get_status', return_value={"installed": False}):
+        res = apache_manager.open_conf_dir()
+        assert res['status'] == 'error'
+        assert res['message'] == 'backend.apache.not_installed'
+
+def test_apache_open_logs_dir(apache_manager):
+    with patch.object(apache_manager, 'get_status', return_value={"installed": True, "path": "C:\\apache"}), \
+         patch.object(apache_manager, '_open_path_os', return_value={"status": "success"}) as mock_open, \
+         patch('os.makedirs'):
+        res = apache_manager.open_logs_dir()
+        assert res['status'] == 'success'
+        mock_open.assert_called_once_with(os.path.join("C:\\apache", "logs"))
+
+def test_apache_open_logs_dir_not_installed(apache_manager):
+    with patch.object(apache_manager, 'get_status', return_value={"installed": False}):
+        res = apache_manager.open_logs_dir()
+        assert res['status'] == 'error'
+        assert res['message'] == 'backend.apache.not_installed'
+
+def test_apache_get_ports_status(apache_manager):
+    with patch.object(apache_manager, 'get_http_port', return_value=80), \
+         patch.object(apache_manager, 'check_is_running', return_value=True), \
+         patch('core.services.apache.check_port_in_use', side_effect=lambda p: True if p in (80, 443) else False):
+        res = apache_manager.get_ports_status()
+        assert res['status'] == 'success'
+        assert res['data']['http']['status'] == 'listening'
+        assert res['data']['https']['status'] == 'listening'
+
+    # When Apache not running but port in use -> conflict
+    with patch.object(apache_manager, 'get_http_port', return_value=80), \
+         patch.object(apache_manager, 'check_is_running', return_value=False), \
+         patch('core.services.apache.check_port_in_use', side_effect=lambda p: True if p == 80 else False):
+        res = apache_manager.get_ports_status()
+        assert res['status'] == 'success'
+        assert res['data']['http']['status'] == 'conflict'
+        assert res['data']['https']['status'] == 'ready'

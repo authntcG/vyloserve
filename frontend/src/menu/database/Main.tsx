@@ -1,7 +1,9 @@
+import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import Card from '../../components/Card';
 import Button from '../../components/Button';
-import Tabs from '../../components/Tabs';
+import ViewModeToggle, { type ViewMode } from '../../components/ViewModeToggle';
+import FilterChips from '../../components/FilterChips';
 import ServiceToggleButton from '../../components/ServiceToggleButton';
 import BackgroundProgressWidget from '../../components/BackgroundProgressWidget';
 import LogFileViewerModal from '../../components/LogFileViewerModal';
@@ -12,10 +14,12 @@ import EmptyState from '../../components/EmptyState';
 import {
     DatabaseProvider,
     useDatabase,
+    type DbEngineType,
 } from '../../context/DatabaseContext';
 import DatabaseNewInstanceModal from './DatabaseNewInstanceModal';
 import DatabasePasswordModal from './DatabasePasswordModal';
 import DatabaseSettingsModal from './DatabaseSettingsModal';
+import DatabaseTable from './DatabaseTable';
 
 export type { DbInstance, DbEngineType, AvailableUpdate } from '../../context/DatabaseContext';
 
@@ -44,6 +48,20 @@ function DatabaseMainView() {
         handleConfirmUninstall,
     } = useDatabase();
 
+    const [viewMode, setViewMode] = useState<ViewMode>('card');
+
+    const engineCounts = useMemo(() => ({
+        all: dbInstances.length,
+        mysql: dbInstances.filter((db) => db.engine === 'mysql').length,
+        postgres: dbInstances.filter((db) => db.engine === 'postgres').length,
+    }), [dbInstances]);
+
+    const filterItems = [
+        { id: 'all' as const, label: t('database.all_instances'), count: engineCounts.all },
+        { id: 'mysql' as const, label: t('database.mysql_mariadb'), count: engineCounts.mysql },
+        { id: 'postgres' as const, label: t('database.postgres'), count: engineCounts.postgres },
+    ];
+
     return (
         <>
             <div className="flex flex-col w-full">
@@ -57,31 +75,26 @@ function DatabaseMainView() {
                         </>
                     }
                     actions={
-                        <Button variant="primary" icon="add" onClick={openNewInstanceModal} className="shadow-sm">
-                            {t('database.add_engine')}
-                        </Button>
+                        <div className="flex items-center gap-2">
+                            {dbInstances.length > 0 && (
+                                <ViewModeToggle mode={viewMode} onChange={setViewMode} />
+                            )}
+                            <Button variant="primary" icon="add" onClick={openNewInstanceModal} className="shadow-sm">
+                                {t('database.add_engine')}
+                            </Button>
+                        </div>
                     }
-                />
-
-                <Tabs
-                    tabs={[
-                        { value: 'all', label: t('database.all_instances') },
-                        { value: 'mysql', label: t('database.mysql_mariadb') },
-                        { value: 'postgres', label: t('database.postgres') },
-                    ]}
-                    value={activeTab}
-                    onChange={setActiveTab}
                 />
 
                 {(() => {
                     if (isLoading) {
                         return (
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-4.5 pb-8">
                                 {[1, 2].map((item) => <SkeletonCard key={item} />)}
                             </div>
                         );
                     }
-                    if (filteredInstances.length === 0) {
+                    if (dbInstances.length === 0) {
                         return (
                             <EmptyState
                                 icon="database"
@@ -92,14 +105,60 @@ function DatabaseMainView() {
                             />
                         );
                     }
+
+                    const filterChipsElement = (
+                        <FilterChips
+                            items={filterItems}
+                            selectedId={activeTab}
+                            onChange={(val) => setActiveTab(val as DbEngineType | 'all')}
+                            ariaLabel={t('database.all_instances')}
+                        />
+                    );
+
+                    const noMatchingEmptyState = (
+                        <EmptyState
+                            icon="database"
+                            title={t('database.no_instances_found')}
+                            description={t('database.no_instances_desc')}
+                            actionText={activeTab !== 'all' ? t('projects.clear_filters', 'Clear Filters') : t('database.download_db_now')}
+                            onAction={activeTab !== 'all' ? () => setActiveTab('all') : openNewInstanceModal}
+                        />
+                    );
+
+                    if (viewMode === 'table') {
+                        return (
+                            <DatabaseTable
+                                dbInstances={filteredInstances}
+                                togglingDbId={togglingDbId}
+                                availableUpdates={availableUpdates}
+                                filters={filterChipsElement}
+                                emptyState={noMatchingEmptyState}
+                                onToggleStatus={handleToggleDB}
+                                onOpenSettings={openSettingsModal}
+                                onOpenPasswordModal={openPasswordModal}
+                                onOpenConfigFile={(db) => window.pywebview?.api?.open_db_config_file(db.id)}
+                                onOpenDataDir={(db) => window.pywebview?.api?.open_db_dir(db.id)}
+                                onOpenLogs={(db, type) => setLogViewer({ dbId: db.id, type })}
+                                onUpdateDatabase={handleUpdateDatabase}
+                                onUninstallDatabase={handleConfirmUninstall}
+                            />
+                        );
+                    }
                     return (
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
-                            {filteredInstances.map(db => {
-                                const isRunning = db.status === 'running';
-                                const update = availableUpdates[db.id];
-                                return (
-                                    <Card
-                                        key={db.id}
+                        <>
+                            <div className="mb-4">
+                                {filterChipsElement}
+                            </div>
+                            {filteredInstances.length === 0 ? (
+                                noMatchingEmptyState
+                            ) : (
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-4.5 pb-8">
+                                    {filteredInstances.map(db => {
+                                        const isRunning = db.status === 'running';
+                                        const update = availableUpdates[db.id];
+                                        return (
+                                            <Card
+                                                key={db.id}
                                         title={db.name}
                                         status={db.status}
                                         updateVersion={update?.version || null}
@@ -218,8 +277,10 @@ function DatabaseMainView() {
                                 );
                             })}
                         </div>
-                    );
-                })()}
+                    )}
+                </>
+            );
+        })()}
             </div>
 
             <LogFileViewerModal

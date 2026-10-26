@@ -91,6 +91,9 @@ interface AiContextValue {
     streamingText: string;
     isFloatingOpen: boolean;
     floatingPosition: { x: number; y: number };
+    isAiSettingsOpen: boolean;
+    openAiSettings: () => void;
+    closeAiSettings: () => void;
     enableAi: boolean;
     enableFloating: boolean;
     activeProvider: string;
@@ -131,6 +134,9 @@ export function AiProvider({ children }: { readonly children: React.ReactNode })
     const streamingTextRef = useRef('');
 
     const [isFloatingOpen, setIsFloatingOpen] = useState(false);
+    const [isAiSettingsOpen, setIsAiSettingsOpen] = useState(false);
+    const openAiSettings = useCallback(() => setIsAiSettingsOpen(true), []);
+    const closeAiSettings = useCallback(() => setIsAiSettingsOpen(false), []);
     const [floatingPosition, setFloatingPosition] = useState<{ x: number; y: number }>(() => {
         try {
             const saved = localStorage.getItem('vylo_ai_floating_pos');
@@ -476,10 +482,16 @@ export function AiProvider({ children }: { readonly children: React.ReactNode })
             }
         };
 
+        const handleOpenAiSettings = () => {
+            setIsAiSettingsOpen(true);
+        };
+
         window.addEventListener('vylo_ai_chunk', handleChunk);
+        window.addEventListener('vylo_open_ai_settings', handleOpenAiSettings);
 
         return () => {
             window.removeEventListener('vylo_ai_chunk', handleChunk);
+            window.removeEventListener('vylo_open_ai_settings', handleOpenAiSettings);
             window.removeEventListener('vylo_ai_settings_changed', handleAiSettings);
             window.removeEventListener('vylo_ai_history_cleared', handleHistoryCleared);
         };
@@ -539,50 +551,79 @@ export function AiProvider({ children }: { readonly children: React.ReactNode })
     };
 
     const sendMessage = async (prompt: string, activeScreen: string = 'dashboard') => {
-        if (!prompt.trim() || isGenerating) return;
+        const cleanPrompt = prompt.trim();
+        if (!cleanPrompt || isGenerating) return;
 
         const api = (window as any).pywebview?.api;
         if (!api?.ai_send_message) return;
 
-        // Ambil konteks server jika diaktifkan
+        // 1. Optimistic Immediate Dispatch (0ms latency):
+        // Langsung masukkan pesan pengguna ke state agar bubble pertanyaan muncul seketika!
+        const userMsgId = `usr_${Date.now()}`;
+        const userMsg: AiMessage = {
+            id: userMsgId,
+            role: 'user',
+            content: cleanPrompt,
+            timestamp: Date.now(),
+            context: '',
+        };
+
+        setMessages((prev) => [...prev, userMsg]);
+
+        // 2. Aktifkan status loading respons AI sehingga bubble loading skeleton muncul menyusul di bawah pertanyaan pengguna
+        setStreamingText('');
+        streamingTextRef.current = '';
+        setIsGenerating(true);
+
+        // 3. Ambil konteks server di background jika diaktifkan (non-blocking)
         let contextText = '';
         if (attachedContext.includeScreen && api.ai_get_server_context) {
             try {
                 const ctxRes = await api.ai_get_server_context(activeScreen, attachedContext.includeLogs);
-                if (ctxRes?.status === 'success') {
-                    contextText = ctxRes.data || '';
+                if (ctxRes?.status === 'success' && ctxRes.data) {
+                    contextText = ctxRes.data;
+                    setMessages((prev) =>
+                        prev.map((m) => (m.id === userMsgId ? { ...m, context: contextText } : m))
+                    );
                 }
             } catch {
                 // Server context retrieval is optional; fallback to empty context on failure
             }
         }
 
-        const userMsgId = `usr_${Date.now()}`;
-        const userMsg: AiMessage = {
-            id: userMsgId,
-            role: 'user',
-            content: prompt,
-            timestamp: Date.now(),
-            context: contextText,
-        };
-
-        setMessages((prev) => [...prev, userMsg]);
-        setIsGenerating(true);
-        setStreamingText('');
-        streamingTextRef.current = '';
-
         try {
-            const res = await api.ai_send_message(prompt, contextText, currentModel, activeProvider);
+            const res = await api.ai_send_message(cleanPrompt, contextText, currentModel, activeProvider);
             if (res?.status === 'success') {
                 activeMsgIdRef.current = res.message_id;
             } else {
                 setIsGenerating(false);
                 const errMsg = t(res?.message || 'backend.ai.connection_failed', res?.args || {}) as string;
                 showToast(errMsg, 'error');
+                setMessages((prev) => [
+                    ...prev,
+                    {
+                        id: `err_${Date.now()}`,
+                        role: 'assistant',
+                        content: '',
+                        timestamp: Date.now(),
+                        error: errMsg,
+                    },
+                ]);
             }
         } catch (err: any) {
             setIsGenerating(false);
-            showToast(String(err), 'error');
+            const errMsg = String(err);
+            showToast(errMsg, 'error');
+            setMessages((prev) => [
+                ...prev,
+                {
+                    id: `err_${Date.now()}`,
+                    role: 'assistant',
+                    content: '',
+                    timestamp: Date.now(),
+                    error: errMsg,
+                },
+            ]);
         }
     };
 
@@ -594,6 +635,9 @@ export function AiProvider({ children }: { readonly children: React.ReactNode })
         streamingText,
         isFloatingOpen,
         floatingPosition,
+        isAiSettingsOpen,
+        openAiSettings,
+        closeAiSettings,
         enableAi,
         enableFloating,
         activeProvider,
@@ -625,6 +669,9 @@ export function AiProvider({ children }: { readonly children: React.ReactNode })
         streamingText,
         isFloatingOpen,
         floatingPosition,
+        isAiSettingsOpen,
+        openAiSettings,
+        closeAiSettings,
         enableAi,
         enableFloating,
         activeProvider,

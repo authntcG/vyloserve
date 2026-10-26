@@ -6,8 +6,8 @@ import ProgressBar from '../../../components/ProgressBar';
 import Select from '../../../components/Select';
 import ToggleSwitch from '../../../components/ToggleSwitch';
 import appIcon from '../../../assets/icons-nobg.png';
-import { applyTheme } from '../../../utils/theme';
-import AiTabContent from './AiTabContent';
+import { applyTheme, getCachedTheme } from '../../../utils/theme';
+
 
 export type SettingsModalType = 'settings' | 'quit' | null;
 
@@ -36,7 +36,7 @@ const ALL_LOG_SOURCE_KEYS = LOG_SOURCE_GROUPS.flatMap(g => g.fileKey ? [g.system
 
 interface SettingsModalsProps {
     readonly activeModal: SettingsModalType;
-    readonly defaultTab?: 'general' | 'logs' | 'updates' | 'ai' | 'about';
+    readonly defaultTab?: 'general' | 'logs' | 'updates' | 'about';
     readonly onClose: () => void;
 }
 
@@ -217,7 +217,7 @@ function UpdatesTabContent() {
     }
 
     return (
-        <div className="flex flex-col gap-6 w-full max-w-2xl p-8">
+        <div className="flex flex-col gap-6 w-full max-w-2xl p-6 md:p-8 min-w-0">
             <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-100 dark:border-slate-800">
                 <div className="flex flex-col">
                     <span className="text-xs text-slate-500 uppercase tracking-wider font-semibold">{t('ui.update.current_version', 'Current Version')}</span>
@@ -297,7 +297,7 @@ function UpdatesTabContent() {
 
 export default function SettingsModals({ activeModal, defaultTab = 'general', onClose }: SettingsModalsProps) {
     const { t, i18n } = useTranslation();
-    const [activeTab, setActiveTab] = useState<'general' | 'logs' | 'updates' | 'ai' | 'about'>(defaultTab);
+    const [activeTab, setActiveTab] = useState<'general' | 'logs' | 'updates' | 'about'>(defaultTab);
 
     useEffect(() => {
         if (activeModal === 'settings') {
@@ -307,7 +307,7 @@ export default function SettingsModals({ activeModal, defaultTab = 'general', on
     
     // General Settings
     const [selectedLang, setSelectedLang] = useState(i18n.language);
-    const [selectedTheme, setSelectedTheme] = useState('vyloserve-dark');
+    const [selectedTheme, setSelectedTheme] = useState(() => getCachedTheme());
     const [enableDesktopNotifications, setEnableDesktopNotifications] = useState(true);
     
     // Logs Settings
@@ -326,7 +326,7 @@ export default function SettingsModals({ activeModal, defaultTab = 'general', on
                 api.get_app_version().then((ver: string) => setAppVersion(ver));
                 api.get_app_settings().then((res: any) => {
                     if (res?.status === 'success') {
-                        setSelectedTheme(res.data?.theme || 'vyloserve-dark');
+                        setSelectedTheme(res.data?.theme || getCachedTheme());
                         setEnableDesktopNotifications(res.data?.enable_desktop_notifications ?? true);
                         setLogLevels(res.data?.system_log_levels ?? ALL_LOG_LEVEL_KEYS);
                         setLogSources(res.data?.system_log_sources ?? ALL_LOG_SOURCE_KEYS);
@@ -397,7 +397,7 @@ export default function SettingsModals({ activeModal, defaultTab = 'general', on
                 onClose={onClose}
                 title={t('settings.settings')}
                 icon="settings"
-                maxWidthClass="md:w-[760px] lg:w-[860px] max-w-full"
+                maxWidthClass="sm:w-[720px] md:w-[820px] lg:w-[880px] max-w-[calc(100vw-2rem)]"
                 bodyPaddingClass="p-0"
             >
                 <div className="flex flex-row h-[70vh] min-h-[450px] max-h-[600px] bg-white dark:bg-slate-900 rounded-b-xl overflow-hidden">
@@ -429,14 +429,6 @@ export default function SettingsModals({ activeModal, defaultTab = 'general', on
                         </button>
                         <button 
                             type="button" 
-                            onClick={() => setActiveTab('ai')}
-                            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeTab === 'ai' ? 'bg-primary/10 text-primary dark:bg-primary/20' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-800'}`}
-                        >
-                            <span className="material-symbols-outlined text-[20px]">smart_toy</span>
-                            {t('settings.tab_ai')}
-                        </button>
-                        <button 
-                            type="button" 
                             onClick={() => setActiveTab('about')}
                             className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeTab === 'about' ? 'bg-primary/10 text-primary dark:bg-primary/20' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-800'}`}
                         >
@@ -446,11 +438,11 @@ export default function SettingsModals({ activeModal, defaultTab = 'general', on
                     </div>
 
                     {/* TAB CONTENT */}
-                    <div className="flex-1 overflow-y-auto relative flex flex-col">
+                    <div className="flex-1 min-w-0 overflow-y-auto relative flex flex-col">
                         
                         {/* GENERAL TAB */}
                         {activeTab === 'general' && (
-                            <div className="flex flex-col gap-8 w-full max-w-2xl p-8">
+                            <div className="flex flex-col gap-8 w-full max-w-2xl p-6 md:p-8 min-w-0">
                                 <div className="flex flex-col gap-4">
                                     <div>
                                         <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">{t('settings.change_language')}</h3>
@@ -526,7 +518,7 @@ export default function SettingsModals({ activeModal, defaultTab = 'general', on
 
                         {/* LOGS TAB */}
                         {activeTab === 'logs' && (
-                            <div className="flex flex-col gap-8 w-full max-w-2xl p-8">
+                            <div className="flex flex-col gap-8 w-full max-w-2xl p-6 md:p-8 min-w-0">
                                 <div>
                                     <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">{t('settings.system_logs')}</h3>
                                     <p className="text-sm text-slate-600 dark:text-slate-400">
@@ -618,8 +610,6 @@ export default function SettingsModals({ activeModal, defaultTab = 'general', on
                         {/* UPDATES TAB */}
                         {activeTab === 'updates' && <UpdatesTabContent />}
 
-                        {/* AI ASSISTANT TAB */}
-                        {activeTab === 'ai' && <AiTabContent />}
 
                         {/* ABOUT TAB */}
                         {activeTab === 'about' && (

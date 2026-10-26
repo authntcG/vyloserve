@@ -16,12 +16,23 @@ export interface EngineExternalInfo {
     version: string;
 }
 
+export interface RuntimeVersionItem {
+    version: string;
+    path: string;
+    subtool: string;
+    is_active: boolean;
+    in_path: boolean;
+}
+
 export interface EngineData {
     installed: boolean;
     version: string;
+    subtool?: string;
     updateAvailable?: string;
     in_path: boolean;
     external: EngineExternalInfo;
+    active_version?: string;
+    installed_versions?: RuntimeVersionItem[];
 }
 
 export type RuntimeDataMap = Record<RuntimeEngine, EngineData>;
@@ -58,18 +69,25 @@ interface RuntimesContextType {
     javaRef: React.RefObject<InstallJavaRef | null>;
     goRef: React.RefObject<InstallGoRef | null>;
     activeEnginesCount: number;
+    viewMode: 'table' | 'card';
+    setViewMode: (mode: 'table' | 'card') => void;
     fetchStatuses: () => Promise<void>;
-    handleUpdateClick: (engine: RuntimeEngine, version: string) => Promise<void>;
+    handleUpdateClick: (engine: RuntimeEngine, version: string, oldVersion?: string) => Promise<void>;
     handleTogglePath: (engine: RuntimeEngine, enable: boolean) => Promise<void>;
     executeUninstall: (engine: RuntimeEngine) => Promise<void>;
+    handleSetActiveVersion: (engine: RuntimeEngine, version: string) => Promise<void>;
+    handleDeactivateVersion: (engine: RuntimeEngine) => Promise<void>;
+    handleUninstallVersion: (engine: RuntimeEngine, version: string) => Promise<void>;
     handleOpenInstall: () => void;
     handleInstallNodeSubmit: () => Promise<void>;
     handleInstallPythonSubmit: () => Promise<void>;
     handleInstallJavaSubmit: () => Promise<void>;
     handleInstallGoSubmit: () => Promise<void>;
+    handleOpenFolder: (engine: RuntimeEngine, version?: string) => void;
+    handleOpenTerminal: (engine: RuntimeEngine, version?: string) => void;
 }
 
-const RuntimesContext = createContext<RuntimesContextType | undefined>(undefined);
+export const RuntimesContext = createContext<RuntimesContextType | undefined>(undefined);
 
 export function RuntimesProvider({ children }: { readonly children: ReactNode }) {
     const { t } = useTranslation();
@@ -77,6 +95,7 @@ export function RuntimesProvider({ children }: { readonly children: ReactNode })
     const { confirm } = useAlert();
 
     const [activeTab, setActiveTab] = useState<RuntimeEngine>('node');
+    const [viewMode, setViewMode] = useState<'table' | 'card'>('card');
     const [runtimeData, setRuntimeData] = useState<RuntimeDataMap>(INITIAL_RUNTIME_DATA);
     const [isLoading, setIsLoading] = useState(true);
 
@@ -254,7 +273,7 @@ export function RuntimesProvider({ children }: { readonly children: ReactNode })
         }
     };
 
-    const handleUpdateClick = async (engine: RuntimeEngine, version: string) => {
+    const handleUpdateClick = async (engine: RuntimeEngine, version: string, oldVersion?: string) => {
         if (!await confirm({
             title: t('runtimes.update_title') + engine.toUpperCase(),
             message: t('runtimes.confirm_update_msg', { version }),
@@ -274,6 +293,14 @@ export function RuntimesProvider({ children }: { readonly children: ReactNode })
         try {
             const res = await callEngineInstall(engine, version);
             if (res?.status === 'success') {
+                const targetOldVersion = oldVersion || runtimeData[engine].active_version || runtimeData[engine].version;
+                if (targetOldVersion && targetOldVersion !== version) {
+                    try {
+                        await window.pywebview?.api?.uninstall_runtime_version(engine, targetOldVersion);
+                    } catch (e) {
+                        console.warn('Failed to clean up old runtime version:', e);
+                    }
+                }
                 showToast(res.message ? t(res.message, res.args || {}) as string : t('runtimes.update_success', { engine: engine.toUpperCase() }), 'success');
             } else {
                 showToast(res?.message ? t(res.message, res.args || {}) as string : t('backend.error.unexpected'), 'error');
@@ -358,6 +385,70 @@ export function RuntimesProvider({ children }: { readonly children: ReactNode })
         }
     };
 
+    const handleSetActiveVersion = async (engine: RuntimeEngine, version: string) => {
+        setIsProcessing(true);
+        try {
+            const res = await window.pywebview?.api?.set_active_runtime_version(engine, version);
+            if (res?.status === 'success') {
+                showToast((res.message ? t(res.message, res.args || {}) : t('runtimes.set_active_success', { engine: engine.toUpperCase(), version })) as string, 'success');
+                fetchStatuses();
+            } else {
+                showToast((res?.message ? t(res.message, res.args || {}) : t('backend.error.unexpected')) as string, 'error');
+            }
+        } catch (error) {
+            console.error(error);
+            showToast(t('runtimes.sys_error'), 'error');
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    const handleDeactivateVersion = async (engine: RuntimeEngine) => {
+        setIsProcessing(true);
+        try {
+            const api = window.pywebview?.api;
+            const res = await (api?.deactivate_runtime_version
+                ? api.deactivate_runtime_version(engine)
+                : api?.toggle_global_path(engine, false));
+            if (res?.status === 'success') {
+                showToast((res.message ? t(res.message, res.args || {}) : t('runtimes.deactivate_success', { engine: engine.toUpperCase() })) as string, 'success');
+                fetchStatuses();
+            } else {
+                showToast((res?.message ? t(res.message, res.args || {}) : t('backend.error.unexpected')) as string, 'error');
+            }
+        } catch (error) {
+            console.error(error);
+            showToast(t('runtimes.sys_error'), 'error');
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    const handleUninstallVersion = async (engine: RuntimeEngine, version: string) => {
+        if (!await confirm({
+            title: `${t('runtimes.uninstall_version_title')} ${version} (${engine.toUpperCase()})`,
+            message: t('runtimes.uninstall_version_confirm', { version, engine: engine.toUpperCase() }),
+            type: 'danger',
+            confirmText: t('runtimes.yes_uninstall')
+        })) return;
+
+        setIsProcessing(true);
+        try {
+            const res = await window.pywebview?.api?.uninstall_runtime_version(engine, version);
+            if (res?.status === 'success') {
+                showToast((res.message ? t(res.message, res.args || {}) : t('runtimes.uninstall_version_success', { version })) as string, 'success');
+                fetchStatuses();
+            } else {
+                showToast((res?.message ? t(res.message, res.args || {}) : t('runtimes.uninstall_error', { engine })) as string, 'error');
+            }
+        } catch (error) {
+            console.error(error);
+            showToast(t('runtimes.uninstall_sys_error'), 'error');
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
     const handleOpenInstall = () => {
         if (activeTab === 'node') setIsNodeModalOpen(true);
         else if (activeTab === 'python') setIsPythonModalOpen(true);
@@ -390,9 +481,25 @@ export function RuntimesProvider({ children }: { readonly children: ReactNode })
     const handleInstallJavaSubmit = async () => executeInstallation('Java (JDK)', javaRef, setIsJavaModalOpen);
     const handleInstallGoSubmit = async () => executeInstallation('Go Compiler', goRef, setIsGoModalOpen);
 
+    const handleOpenFolder = (engine: RuntimeEngine, version?: string) => {
+        if (version) {
+            window.pywebview?.api?.open_runtime_dir?.(engine, version);
+        } else {
+            window.pywebview?.api?.open_runtime_dir?.(engine);
+        }
+    };
+
+    const handleOpenTerminal = (engine: RuntimeEngine, version?: string) => {
+        window.dispatchEvent(new CustomEvent('vylo_open_terminal_project', {
+            detail: { title: `${engine.toUpperCase()} ${version || ''} Terminal`.trim() }
+        }));
+    };
+
     const value = useMemo<RuntimesContextType>(() => ({
         activeTab,
         setActiveTab,
+        viewMode,
+        setViewMode,
         runtimeData,
         isLoading,
         isProcessing,
@@ -419,13 +526,19 @@ export function RuntimesProvider({ children }: { readonly children: ReactNode })
         handleUpdateClick,
         handleTogglePath,
         executeUninstall,
+        handleSetActiveVersion,
+        handleDeactivateVersion,
+        handleUninstallVersion,
         handleOpenInstall,
         handleInstallNodeSubmit,
         handleInstallPythonSubmit,
         handleInstallJavaSubmit,
-        handleInstallGoSubmit
+        handleInstallGoSubmit,
+        handleOpenFolder,
+        handleOpenTerminal
     }), [
         activeTab,
+        viewMode,
         runtimeData,
         isLoading,
         isProcessing,

@@ -513,6 +513,33 @@ def get_theme_titlebar_palette(theme_name: Optional[str]) -> Dict[str, Any]:
         "dark_mode": True,
     }
 
+def sync_theme_bootstrap_file(theme_name: Optional[str]) -> bool:
+    """
+    Menuliskan variabel __VYLO_INITIAL_THEME__ ke file JavaScript statis (vylo-theme.js)
+    di folder public dan dist frontend. File ini dimuat secara sinkron di <head> index.html
+    sehingga tema terpilih langsung aktif pada First Contentful Paint (FCP) dan skeleton loading,
+    mencegah Flash of Incorrect Theme (FOIT) saat aplikasi dibuka kembali.
+    """
+    if not theme_name or not isinstance(theme_name, str):
+        theme_name = "vyloserve-dark"
+    root = get_project_root()
+    content = f'window.__VYLO_INITIAL_THEME__ = "{theme_name}";\n'
+    targets = [
+        os.path.join(root, 'frontend', 'public', 'vylo-theme.js'),
+        os.path.join(root, 'frontend', 'dist', 'vylo-theme.js'),
+    ]
+    updated = False
+    for target in targets:
+        try:
+            parent = os.path.dirname(target)
+            if os.path.exists(parent):
+                with open(target, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                updated = True
+        except Exception:
+            pass
+    return updated
+
 def _get_hwnd_native(window: Any) -> Optional[int]:
     if window and hasattr(window, 'native') and window.native:
         handle = getattr(window.native, 'Handle', None)

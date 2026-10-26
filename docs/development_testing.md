@@ -50,14 +50,16 @@ Setiap test suite untuk sebuah fungsi *setidaknya* harus mencakup:
 ### Struktur & Penamaan Test
 ```
 tests/
-├── conftest.py                           # Fixture global (mock_api, dll)
+├── conftest.py                           # Fixture global (mock_api, dll) & autouse guard_registry_and_env
+│                                          #   (intersepsi winreg.SetValueEx/DeleteValue/DeleteKey agar 
+│                                          #   tidak ada test yang mencemari registry fisik pengembang)
 ├── test_i18n_keys.py                     # Regresi: setiap key "backend.*" di core/ WAJIB
 │                                          #   terdaftar di locales/en DAN locales/id (lihat
 │                                          #   docs/known_bugs.md #19) — jalankan sebelum
 │                                          #   serah terima fitur apa pun yang menambah/
 │                                          #   mengubah pesan backend (message/log/progress)
 ├── test_main.py                          # Unit test untuk main.py (class AppLifecycle,
-│                                          #   setup_systray, IPC single-instance) — lihat docs/backend_services.md §15.3
+│                                          #   setup_systray, IPC single-instance) — lihat docs/backend_services.md §17.3
 ├── test_services/
 │   ├── test_apache.py                    # Unit test untuk core/services/apache.py
 │   ├── test_api.py                       # Unit test untuk core/api.py (Facade/Router)
@@ -66,6 +68,7 @@ tests/
 │   ├── test_php.py                       # Unit test untuk core/services/php.py
 │   ├── test_php_parser.py                # Unit test parsing php.ini
 │   ├── test_project_logic.py             # Unit test untuk core/services/project.py
+│   ├── test_project_dev_server.py        # Unit test manajemen siklus hidup dev server proyek
 │   ├── test_project_uac.py               # Unit test UAC hosts injection
 │   ├── test_git_manager.py               # Unit test untuk core/services/git_manager.py
 │   ├── test_ssl_manager.py               # Unit test untuk core/services/ssl_manager.py
@@ -75,7 +78,9 @@ tests/
 │   ├── test_tunnels.py                   # Unit test untuk core/services/tunnels.py (Zrok & Cloudflare tunnel)
 │   ├── test_markdown_viewer.py           # Unit test untuk core/services/markdown_viewer.py
 │   ├── test_ai_assistant.py              # Unit test untuk core/services/ai_assistant.py (DocRetriever, SSE, Tier Probing, Usage Stats)
-│   ├── test_runtimes_manager.py          # Unit test untuk core/services/runtimes_manager.py
+│   ├── test_terminal.py                  # Unit test Developer Terminal session & environment scoping
+│   ├── test_terminal_persistence.py      # Unit test persistensi config, preset & workspace terminal
+│   ├── test_runtimes_manager.py          # Unit test untuk core/services/runtimes_manager.py (multi-version & PATH Hub)
 │   ├── test_service_lifecycles.py        # Unit test orkestrasi start/stop antar service
 │   └── test_<nama_service>.py            # Pola: test_<nama_file_source>.py
 └── test_utils/
@@ -205,7 +210,7 @@ Pola: `tests/<mirror-struktur-src>/<NamaKomponen>.test.tsx`.
 
 Helper bersama ada di `tests/test-utils.tsx` (re-export semua dari `@testing-library/react` ditambah `mockPywebviewApi()` dan `renderWithToast()`) — **selalu pakai helper ini, jangan tulis ulang boilerplate mock `window.pywebview.api` atau `<ToastProvider>` wrapper di tiap file test**. Untuk sekelompok komponen yang bentuknya identik (mis. empat form `InstallGo/Java/Node/Python.tsx` yang sama-sama forwardRef + `submit()` + fetch-versions-on-mount), buat SATU factory function bersama (lihat `tests/menu/runtimes/installRuntimeTestKit.tsx`) lalu panggil dari tiap file test dengan config berbeda, dan gunakan `it.each`/`describe.each` untuk variasi data (lihat `tests/menu/database/Settings.test.tsx` untuk field MySQL/PostgreSQL, atau `tests/menu/runtimes/Main.test.tsx` untuk keempat engine). Pola ini WAJIB diikuti untuk suite test baru — proyek ini menjaga *new code duplication* SonarQube di bawah 3%, dan test suite yang tidak DRY adalah kontributor terbesar untuk duplication findings.
 
-Per audit test coverage (Oktober 2026), seluruh `src/**/*.{ts,tsx}` frontend punya coverage statement **>95%** (**818 test case di 78 file test** frontend serta **712 test case di 20 file test** backend Python, dengan 0 Bugs, 0 Vulnerabilities, dan 0 Code Smells di SonarQube — angka ini bergerak seiring fitur baru ditambahkan; jalankan `npm run test:coverage` untuk laporan terbaru per file, jangan andalkan angka statis di dokumen ini). Beberapa baris tetap sengaja tidak dicover karena secara nyata *unreachable* lewat UI (mis. validasi `if (!x) return` di dalam handler yang tombol pemicunya sendiri sudah `disabled` oleh kondisi yang sama — pola berulang yang ditemukan di banyak form Modal proyek ini; lihat commit history test untuk contoh).
+Per audit test coverage terbaru (Oktober 2026), seluruh `src/**/*.{ts,tsx}` frontend punya coverage statement **>95%** (**895 test case di 90 file test** frontend serta **791 test case di 24 file test** backend Python, dengan 0 Bugs, 0 Vulnerabilities, dan 0 Code Smells di SonarQube — angka ini bergerak seiring fitur baru ditambahkan; jalankan `npm run test:coverage` untuk laporan terbaru per file, jangan andalkan angka statis di dokumen ini). Cakupan pengujian frontend mencakup komponen bersama tabel (`DataTable.test.tsx`, `FilterChips.test.tsx`, `ViewModeToggle.test.tsx`, `InstalledBadge.test.tsx`), pengujian orkestrasi `RuntimePathHub.test.tsx` dan `RuntimeTable.test.tsx`, pengujian Projects Hub (`projects.test.tsx`, `NewProjectModal.test.tsx`, dll.), serta modul Terminal (`terminal_settings.test.tsx`, `terminal_presets.test.tsx`, `terminal_config.test.tsx`). Beberapa baris tetap sengaja tidak dicover karena secara nyata *unreachable* lewat UI (mis. validasi `if (!x) return` di dalam handler yang tombol pemicunya sendiri sudah `disabled` oleh kondisi yang sama — pola berulang yang ditemukan di banyak form Modal proyek ini; lihat commit history test untuk contoh).
 
 > ✅ **Sudah diperbaiki:** Test `tests/components/Sidebar.test.tsx` ("opens the Tools dropdown and shows tool items when clicked...") sempat gagal deterministik — menguji interaksi dropdown "Tools" (klik untuk expand) yang ternyata sudah dihapus dari UI (menu Tools sekarang selalu tampil flat, tidak perlu diklik untuk dibuka). Test ditulis ulang untuk mencerminkan perilaku sebenarnya, plus satu test lain dengan pola `.closest('button')` serupa yang ternyata "lulus diam-diam tanpa menguji apa-apa" (`user.click(null!)` jadi no-op) juga dibersihkan. Diverifikasi 3x run `vitest run` berturut-turut tanpa kegagalan — indikasi *flakiness* yang sempat dilaporkan tidak muncul lagi setelah fix. Detail lengkap: `docs/known_bugs.md` #33.
 

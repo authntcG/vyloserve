@@ -144,4 +144,32 @@ describe('GlobalAppInterceptor', () => {
 
         expect(event.defaultPrevented).toBe(false);
     });
+
+    it('shows the copy selection menu when right-clicking after blocking a sentence in any document area', async () => {
+        const user = userEvent.setup();
+        vi.spyOn(window, 'getSelection').mockReturnValue({
+            toString: () => 'VyloServe adalah aplikasi server lokal'
+        } as unknown as Selection);
+
+        const writeText = vi.fn().mockResolvedValue(undefined);
+        Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+
+        renderWithToast(
+            <>
+                <GlobalAppInterceptor />
+                <div data-testid="doc-content">VyloServe adalah aplikasi server lokal modern</div>
+            </>
+        );
+
+        fireEvent.contextMenu(screen.getByTestId('doc-content'), { clientX: 100, clientY: 150 });
+
+        const copyBtn = screen.getByText('components.interceptor.copy_selection_btn');
+        expect(copyBtn).toBeInTheDocument();
+
+        await user.click(copyBtn);
+
+        expect(writeText).toHaveBeenCalledWith('VyloServe adalah aplikasi server lokal');
+        expect(await screen.findByText('components.interceptor.copy_selection_success')).toBeInTheDocument();
+        expect(screen.queryByText('components.interceptor.copy_selection_btn')).not.toBeInTheDocument();
+    });
 });

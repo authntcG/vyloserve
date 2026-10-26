@@ -2,7 +2,8 @@ import { useTranslation } from 'react-i18next';
 import Card from '../../../components/Card';
 import ToggleSwitch from '../../../components/ToggleSwitch';
 import FieldLabel from '../../../components/FieldLabel';
-import InfoBox from '../../../components/InfoBox';
+import Button from '../../../components/Button';
+import InstalledBadge from '../../../components/InstalledBadge';
 import { useGit } from '../../../context/GitContext';
 
 export function GitInstallButton({
@@ -19,27 +20,18 @@ export function GitInstallButton({
     readonly t: any;
 }) {
     if (installed) {
-        return (
-            <button
-                type="button"
-                disabled
-                className="bg-emerald-500 hover:bg-emerald-600 disabled:opacity-100 disabled:cursor-default border-transparent text-white text-sm font-medium py-2 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-sm shrink-0 whitespace-nowrap"
-            >
-                <span className="material-symbols-outlined text-[18px]">check_circle</span>
-                {t('common.installed')}
-            </button>
-        );
+        return <InstalledBadge />;
     }
     return (
-        <button
-            type="button"
+        <Button
+            variant="primary"
+            icon="download"
             onClick={onClick}
             disabled={isLoading}
-            className="bg-primary hover:bg-primary/90 border border-transparent disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium py-2 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-sm shrink-0 whitespace-nowrap"
+            className="whitespace-nowrap shrink-0 shadow-sm"
         >
-            <span className="material-symbols-outlined text-[18px]">download</span>
             {t('tools.git.install_git')}
-        </button>
+        </Button>
     );
 }
 
@@ -84,6 +76,7 @@ export function GitCoreSystemCard() {
 
     const getCardStatus = () => {
         if (updateAvailable) return null;
+        if (gitData.external?.exists) return t('tools.git.native_os');
         return gitData.in_path ? t('tools.git.path_active') : t('tools.git.isolated');
     };
 
@@ -99,9 +92,9 @@ export function GitCoreSystemCard() {
                         <button
                             type="button"
                             onClick={() => handleUpdateClick(updateAvailable)}
-                            className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                            className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-primary hover:bg-primary/10 transition-colors"
                         >
-                            <span className="material-symbols-outlined text-[16px] text-blue-500 shrink-0">upgrade</span>
+                            <span className="material-symbols-outlined text-[16px] text-primary shrink-0">upgrade</span>
                             <span className="truncate">{t('ui.update.update_to_target', { version: updateAvailable.version_text })}</span>
                         </button>
                     )}
@@ -117,11 +110,6 @@ export function GitCoreSystemCard() {
                 </>
             }
         >
-            {gitData.external?.exists && (
-                <InfoBox tone="warning" icon="warning" className="col-span-1 md:col-span-2 mb-3 w-full min-w-0">
-                    {t('tools.git.external_warning')}
-                </InfoBox>
-            )}
             <div className="flex flex-col gap-1 w-full min-w-0">
                 <span className="text-xs font-medium text-slate-500 uppercase">{t('tools.git.version')}</span>
                 <span className="font-mono text-sm text-slate-900 dark:text-slate-200 truncate">{gitData.version}</span>
@@ -137,7 +125,7 @@ export function GitCoreSystemCard() {
                         {t('tools.git.register_path')}
                     </span>
                     <span className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 break-words leading-relaxed">
-                        {t('tools.git.register_path_desc')}
+                        {gitData.external?.exists ? t('tools.git.external_locked') : t('tools.git.register_path_desc')}
                     </span>
                 </div>
                 <div className="shrink-0 ml-4">
@@ -149,6 +137,33 @@ export function GitCoreSystemCard() {
                     />
                 </div>
             </div>
+
+            {gitData.external?.exists && (
+                <div
+                    data-testid="git-external-alert"
+                    className="col-span-1 md:col-span-2 flex items-start gap-3 p-3.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs mt-1"
+                >
+                    <span className="material-symbols-outlined text-[20px] text-amber-600 dark:text-amber-400 shrink-0 mt-0.5">
+                        warning
+                    </span>
+                    <div className="flex flex-col gap-1 min-w-0">
+                        <span className="font-semibold text-amber-900 dark:text-amber-300">
+                            {t('tools.git.external_overview_title')} (v{gitData.external.version})
+                        </span>
+                        {gitData.external.path && (
+                            <span
+                                className="font-mono text-[11px] text-slate-700 dark:text-slate-300 bg-white/70 dark:bg-slate-950/50 px-2 py-0.5 rounded border border-amber-500/20 truncate"
+                                title={gitData.external.path}
+                            >
+                                {gitData.external.path}
+                            </span>
+                        )}
+                        <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
+                            {t('tools.git.external_overview_desc', { version: gitData.external.version, path: gitData.external.path })}
+                        </p>
+                    </div>
+                </div>
+            )}
         </Card>
     );
 }

@@ -4,16 +4,16 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import Modal from '../../components/Modal';
 import Button from '../../components/Button';
-import { useApache } from '../../context/ApacheContext';
+import { useProject } from '../../context/ProjectContext';
 
-export default function ApacheCliInstallModal() {
+export default function ProjectCliInstallModal() {
     const { t } = useTranslation();
     const {
         isCreatingProject,
         isCliModalOpen,
         cliPromptText,
         confirmCancelProjectInstall,
-    } = useApache();
+    } = useProject();
 
     const containerRef = useRef<HTMLDivElement>(null);
     const termRef = useRef<Terminal | null>(null);

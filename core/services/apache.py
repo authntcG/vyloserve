@@ -10,7 +10,7 @@ import subprocess
 HTTPD_CONF_NAME = "httpd.conf"
 
 # ---> IMPORT UTILITIES (DRY PRINCIPLE) <---
-from core.utils.system_utils import get_project_root, run_silent_command, start_silent_process
+from core.utils.system_utils import get_project_root, run_silent_command, start_silent_process, check_port_in_use
 from core.utils.file_utils import read_json, write_json, download_advanced, extract_archive, read_log_tail, read_new_lines
 INC_VHOSTS = "Include conf/extra/vyloserve-vhosts.conf"
 INC_PHP = "Include conf/extra/vyloserve-php.conf"
@@ -433,15 +433,77 @@ class ApacheManager:
         except Exception as e:
             return {"status": "error", "message": "backend.apache.uninstall_failed", "args": {"e": str(e)}}
 
+    def _open_path_os(self, target: str):
+        if sys.platform == 'win32':
+            os.startfile(target)
+        elif sys.platform == 'darwin':
+            subprocess.Popen(['open', target])
+        else:
+            subprocess.Popen(['xdg-open', target])
+        return {"status": "success"}
+
     def open_directory(self):
         try:
             target = self.get_status().get("path") if self.get_status().get("installed") else self.base_dir
             os.makedirs(target, exist_ok=True)
-            if sys.platform == 'win32': os.startfile(target)
-            elif sys.platform == 'darwin': subprocess.Popen(['open', target])
-            else: subprocess.Popen(['xdg-open', target])
-            return {"status": "success"}
+            return self._open_path_os(target)
         except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def open_htdocs(self):
+        try:
+            www_dir = self._ensure_default_htdocs()
+            return self._open_path_os(www_dir)
+        except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def open_conf_dir(self):
+        try:
+            status = self.get_status()
+            if not status.get("installed"): return {"status": "error", "message": ERR_NOT_INSTALLED}
+            conf_dir = os.path.join(status["path"], "conf")
+            os.makedirs(conf_dir, exist_ok=True)
+            return self._open_path_os(conf_dir)
+        except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def open_logs_dir(self):
+        try:
+            status = self.get_status()
+            if not status.get("installed"): return {"status": "error", "message": ERR_NOT_INSTALLED}
+            logs_dir = os.path.join(status["path"], "logs")
+            os.makedirs(logs_dir, exist_ok=True)
+            return self._open_path_os(logs_dir)
+        except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def get_ports_status(self):
+        try:
+            http_port = self.get_http_port()
+            https_port = 443
+            is_running = self.check_is_running()
+
+            port_http_in_use = check_port_in_use(http_port)
+            port_https_in_use = check_port_in_use(https_port)
+
+            def resolve_status(in_use: bool):
+                if in_use and is_running:
+                    return "listening"
+                elif in_use and not is_running:
+                    return "conflict"
+                return "ready"
+
+            return {
+                "status": "success",
+                "data": {
+                    "http": {
+                        "port": http_port,
+                        "status": resolve_status(port_http_in_use)
+                    },
+                    "https": {
+                        "port": https_port,
+                        "status": resolve_status(port_https_in_use)
+                    }
+                }
+            }
+        except Exception as e:
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
     def open_config(self):
         try:

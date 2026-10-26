@@ -23,8 +23,9 @@
 13. [`TunnelsManager` (`tunnels.py`) — Akses Publik via Zrok & Cloudflare Tunnel](#13-tunnelsmanager-tunnelspy--akses-publik-via-zrok--cloudflare-tunnel)
 14. [`MarkdownViewerManager` (`markdown_viewer.py`) — Penampil Dokumentasi Markdown Lokal](#14-markdownviewermanager-markdown_viewerpy--penampil-dokumentasi-markdown-lokal)
 15. [`AIAssistantManager` (`ai_assistant.py`) & `DocRetriever` — AI Server Copilot](#15-aiassistantmanager-ai_assistantpy--docretriever--ai-server-copilot)
-16. [`main.py` — App Bootstrap & `AppLifecycle`](#16-mainpy--app-bootstrap--applifecycle)
-17. [Known Issues — Temuan Audit Backend](#17-known-issues--temuan-audit-backend)
+16. [`TerminalManager` (`terminal.py`) — Developer Terminal & Environment Scoping](#16-terminalmanager-terminalpy--developer-terminal--environment-scoping)
+17. [`main.py` — App Bootstrap & `AppLifecycle`](#17-mainpy--app-bootstrap--applifecycle)
+18. [Known Issues — Temuan Audit Backend](#18-known-issues--temuan-audit-backend)
 
 ---
 
@@ -49,6 +50,7 @@ graph TD
     API -->|owns| Tunnels[TunnelsManager]
     API -->|owns| Markdown[MarkdownViewerManager]
     API -->|owns| AIAssistant[AIAssistantManager]
+    API -->|owns| Terminal[TerminalManager]
 
     Php -.->|"update_global_php_proxy(port)<br/>saat start_php/save_config/uninstall"| Apache
     Project -.->|"sync_apache_vhosts()<br/>saat create/update/delete project"| Apache
@@ -57,18 +59,23 @@ graph TD
     Apache -.->|"generate_domain_cert('localhost')<br/>saat update_global_php_proxy"| Ssl
     Ssl -.->|"get_status() — butuh openssl.exe<br/>&amp; openssl.cnf dari instalasi Apache"| Apache
 
+    Terminal -.->|"get_runtimes_matrix() — deteksi status/versi<br/>Node, Python, Java, Go, PHP, Git"| Runtimes
+    Terminal -.->|"get_installed_php()"| Php
+    Terminal -.->|"get_git_status()"| Git
+
     Database -.->|"TIDAK ada dependency ke service lain"| Database
     Runtimes -.->|"TIDAK ada dependency ke service lain"| Runtimes
     Git -.->|"TIDAK ada dependency ke service lain"| Git
     Markdown -.->|"TIDAK ada dependency ke service lain"| Markdown
     Tunnels -.->|"update_project(tunnel_url)<br/>_read_projects() -- resolusi project"| Project
-    Tunnels -.->|"get_http_port() -- resolusi port HTTP aktif<br/>(dulu salah baca dari Settings, lihat §15 poin 18)"| Apache
+    Tunnels -.->|"get_http_port() -- resolusi port HTTP aktif"| Apache
     Updater -.->|"get_settings() -- baca receive_prerelease_updates"| Settings
 
     style Database fill:#1a3,color:#fff
     style Runtimes fill:#1a3,color:#fff
     style Git fill:#1a3,color:#fff
     style Markdown fill:#1a3,color:#fff
+    style Terminal fill:#1a3,color:#fff
 ```
 
 **Poin penting:**
@@ -83,22 +90,27 @@ graph TD
 `Api` adalah satu-satunya class yang diekspos ke `window.pywebview.api` di frontend. Semua fungsi JS masuk lewat sini, lalu didelegasikan ke manager yang sesuai.
 
 ### 2.1 Constructor
-Menginisialisasi seluruh manager (`self.apache`, `self.php`, `self.database`, `self.project`, `self.runtimes`, `self.git`, `self.ssl`, `self.dashboard`, `self.settings`, `self.updater`, `self.tunnels`, `self.markdown_viewer`), masing-masing menerima `self` (instance `Api`) sebagai referensi balik. `self._window = None` (di-set belakangan oleh `main.py` via `set_window()`). `self.quit_callback = None` (di-set oleh `main.py` agar `close_app()` bisa memicu pembersihan sebelum keluar).
+Menginisialisasi seluruh manager (`self.apache`, `self.php`, `self.database`, `self.project`, `self.runtimes`, `self.git`, `self.ssl`, `self.dashboard`, `self.settings`, `self.updater`, `self.tunnels`, `self.markdown_viewer`, `self.ai_assistant`, `self.terminal`), masing-masing menerima `self` (instance `Api`) sebagai referensi balik. `self._window = None` (di-set belakangan oleh `main.py` via `set_window()`). `self.quit_callback = None` (di-set oleh `main.py` agar `close_app()` bisa memicu pembersihan sebelum keluar).
 
 ### 2.2 Event Emitter — Mekanisme Inti Komunikasi Real-Time
 
-```python
-def emit_log(self, message: str, level: str = "info", args: dict = None):
-    if self._window:
-        source = self._resolve_event_source()
-        detail = json.dumps({"message": message, "level": level, "args": args or {}, "source": source})
-        self._window.evaluate_js(f"window.dispatchEvent(new CustomEvent('vylo_log', {{detail: {detail} }}));")
+Selain `emit_log` dan `emit_progress`, `core/api.py` mengelola ragam event emitter real-time:
+- **`emit_log(message, level, args, source_override)`**: Menerbitkan log real-time ke jendela UI (`vylo_log`).
+- **`emit_progress(percent, text, args)`**: Menerbitkan kemajuan alur asinkron (`vylo_progress`).
+- **`emit_cli_output(data)`**: Menerbitkan chunk output proses instalasi framework CLI ke terminal modal (`vylo_cli_output`).
+- **`emit_cli_state(waiting_input, prompt_text, cancelled)`**: Memberi tahu frontend apakah CLI sedang menunggu input pengguna (`vylo_cli_state`).
+- **`emit_terminal_output(session_id, data)`**: Menerbitkan stream data stdout/stderr sesi Developer Terminal (`vylo_terminal_output`).
+- **`emit_terminal_exit(session_id, exit_code)`**: Memberi tahu bahwa shell terminal telah ditutup (`vylo_terminal_exit`).
+- **`emit_project_server_state(detail)`**: Menerbitkan transisi status server dev proyek (`vylo_project_server_state`).
+- **`emit_window_state(minimized, hidden)`**: Menerbitkan state visibilitas jendela OS ke frontend untuk gate notifikasi native (`vylo_window_state`).
+- **`emit_ai_chunk(chunk, is_done, sources)`**: Menerbitkan token SSE streaming chat AI (`vylo_ai_chunk`).
 
-def emit_progress(self, percent: int, text: str = "", args: dict = None):
-    if self._window:
-        source = self._resolve_event_source()
-        detail = json.dumps({"percent": percent, "text": text, "args": args or {}, "source": source})
-        self._window.evaluate_js(f"window.dispatchEvent(new CustomEvent('vylo_progress', {{detail: {detail} }}));")
+```python
+def emit_log(self, message: str, level: str = "info", args: dict = None, source_override: str = None):
+    if self._is_shutting_down or not self._window: return
+    source = source_override or self._resolve_event_source()
+    detail = json.dumps({"message": message, "level": level, "args": args or {}, "source": source})
+    self._window.evaluate_js(f"window.dispatchEvent(new CustomEvent('vylo_log', {{detail: {detail} }}));")
 ```
 
 - `json.dumps()` dipakai untuk membangun payload event → ini yang mencegah XSS/JS-injection saat men-embed string dinamis ke `evaluate_js()` (lihat standar security di `docs/development_testing.md`).
@@ -445,7 +457,60 @@ flowchart TD
     K --> L([return document_root])
 ```
 
-### 7.3 ✅ Bug Kritis (Sudah Diperbaiki): `sync_apache_vhosts()` Sempat Menulis ke Folder yang Salah
+### 7.3 Scaffolding Multi-Runtime Framework (Node, Python, Go, Java)
+
+`ProjectManager` mendukung otomasi pembuatan starter project lintas runtime melalui eksekusi toolchain lokal:
+- **Node.js (`_install_node_project`)**:
+  - `Next.js`: Menjalankan CLI interaktif `_run_nextjs_interactive_cli` (`npx --yes create-next-app@...`) via PTY/Subprocess pipe.
+  - `React (Vite)`: Menjalankan `_run_react_interactive_cli` (`npx --yes create-vite@...`) dan otomatis mem-patch `vite.config` agar mendengarkan port proxy teralokasi.
+  - `Express.js`: Men-generate `package.json` dan `server.js` starter template dengan port reverse proxy yang telah ditentukan.
+- **Python (`_install_python_project`)**:
+  - Mendukung `FastAPI` (starter `main.py` dengan Uvicorn runner), `Flask` (`app.py`), dan `Django` (`django-admin startproject`).
+  - Opsi isolasi Virtual Environment (`use_venv=True`) membuat lingkungan `.venv` terisolasi dan menginstal dependensi via pip lokal.
+- **Go (`_install_go_project`)**:
+  - Menginisialisasi `go mod init <project_name>` dan men-generate starter `main.go` untuk `Gin`, `Fiber`, atau standard library `net/http`.
+- **Java (`_install_java_project`)**:
+  - Men-scaffold starter web Maven/Gradle untuk framework `Spring Boot` dan men-generate script peluncuran dev server.
+
+### 7.4 Interactive CLI Streaming & PTY Bridge
+
+Untuk framework yang membutuhkan input tanya-jawab CLI pada instalasi:
+- `_spawn_pty_process(cmd_list, cwd, env)`: Meluncurkan proses anak dengan `stdin=PIPE, stdout=PIPE, stderr=STDOUT`.
+- `_is_cli_prompt_waiting(raw_buffer)`: Mendeteksi pola regex prompt (seperti `? Would you like to use TypeScript?`, `(y/N)`, dll.) dan menembakkan `emit_cli_state(waiting_input=True)`.
+- `send_project_cli_input(data)`: Mengalirkan ketukan karakter/jawaban pengguna dari UI ke `process.stdin`.
+- `resize_project_cli(cols, rows)`: Menyesuaikan dimensi buffer terminal virtual.
+- `cancel_project_install()`: Menghentikan seluruh *process tree* seketika dan membersihkan direktori target jika dibatalkan pengguna.
+
+### 7.5 Manajemen Siklus Hidup Dev Server Proyek
+
+- **`start_project_server(project_id)`**:
+  - Membaca metadata proyek dari `data/projects.json`.
+  - Meluncurkan server pengembangan berbasis file `start-dev.bat` pada direktori proyek dengan subprocess detached.
+  - Mengalirkan log dev server ke `data/logs/projects/<project_id>.log`.
+  - Menembakkan event `vylo_project_server_state` ke UI.
+- **`stop_project_server(project_id)`**:
+  - Menemukan PID dan membunuh pohon proses anak menggunakan `taskkill /F /T /PID <pid>`.
+- **`get_project_server_status(project_id)`**:
+  - Memeriksa keaktifan proses via `psutil.pid_exists(pid)` dan port binding.
+- **`get_project_server_logs(project_id)`**:
+  - Membaca baris ekor (*tail*) dari file log dev server proyek untuk ditampilkan di antarmuka.
+
+### 7.6 Reverse Proxy VHost Generation (`_generate_proxy_vhost_block`)
+
+Untuk proyek non-PHP, konfigurasi Apache Virtual Host di-generate secara otomatis sebagai *reverse proxy*:
+```apache
+<VirtualHost *:80>
+    ServerName toko.local
+    ProxyPreserveHost On
+    ProxyPass /ws ws://127.0.0.1:3000/
+    ProxyPassReverse /ws ws://127.0.0.1:3000/
+    ProxyPass / http://127.0.0.1:3000/
+    ProxyPassReverse / http://127.0.0.1:3000/
+</VirtualHost>
+```
+Mendukung tunneling WebSocket secara otomatis untuk fitur Hot Module Replacement (HMR) pada Vite dan Next.js.
+
+### 7.7 ✅ Bug Kritis (Sudah Diperbaiki): `sync_apache_vhosts()` Sempat Menulis ke Folder yang Salah
 
 ```python
 # project.py — sync_apache_vhosts() — SEBELUM diperbaiki
@@ -885,11 +950,59 @@ AI Assistant memiliki system prompt khusus yang menginstruksikannya untuk tidak 
 
 ---
 
-## 16. `main.py` — App Bootstrap & `AppLifecycle`
+## 16. `TerminalManager` (`terminal.py`) — Developer Terminal & Environment Scoping
+
+`TerminalManager` mengelola sesi terminal interaktif multi-tab, integrasi shell Windows, dan penyuntikan variabel lingkungan (*environment scoping*) per sesi.
+
+### 16.1 Arsitektur Sesi Shell & Pembaca Asinkron
+
+Setiap sesi terminal diidentifikasi oleh UUID unik (`session_id`) yang dipetakan ke dalam dictionary `self.sessions`:
+- **`create_session(shell_id, cwd, runtime_scope)`**:
+  1. Meresolusi executable shell (`powershell.exe`, `cmd.exe`, atau `bash.exe` Git Bash) via `_resolve_shell_command()`.
+  2. Meresolusi direktori kerja awal (`cwd`) atau fallback ke folder `www/` aplikasi.
+  3. Membangun dictionary environment khusus (`_build_session_env`) yang menyuntikkan biner runtime yang dipilih ke awal variabel `PATH` sesi tersebut.
+  4. Meluncurkan child process (`subprocess.Popen`) dengan parameter `stdin=PIPE, stdout=PIPE, stderr=STDOUT, bufsize=0`.
+  5. Memulai background thread daemon `_reader_thread_func()` yang membaca `process.stdout` secara non-blocking dan mengalirkan chunk data ke frontend melalui `api.emit_terminal_output(session_id, data)`.
+- **`send_input(session_id, data, line_context)`**:
+  - Mengirim ketukan keyboard / escape sequence xterm dari UI ke `process.stdin.write()`.
+  - Menerjemahkan enter sequence (`\r` → `\r\n`) dan memelihara buffer riwayat baris untuk kebutuhan deteksi CWD.
+- **`resize(session_id, cols, rows)`**:
+  - Menyesuaikan dimensi konsol terminal virtual.
+- **`close_session(session_id)`**:
+  - Mematikan child process tree secara bersih dan membebaskan resource.
+- **`cleanup_all()`**:
+  - Dipanggil saat penutupan aplikasi untuk menjamin tidak ada proses shell tertinggal (*zero orphan processes*).
+
+### 16.2 Environment Scoping & Matrix Runtimes
+
+Metode `get_runtimes_matrix()` mengagregasi seluruh versi runtime terpasang dari `RuntimesManager`, `PhpManager`, dan `GitManager`.
+Saat sesi dibuka dengan `runtime_scope`:
+```python
+# _build_session_env(runtime_scope)
+# Contoh runtime_scope = {"php": "8.3.16", "node": "20.11.0", "git": "internal"}
+# Path biner yang bersangkutan disuntikkan ke variabel PATH lokal sesi:
+scoped_path = ";".join([php_bin, node_bin, git_bin, original_os_path])
+session_env["PATH"] = scoped_path
+```
+Ini memungkinkan developer menjalankan sesi terminal dengan versi PHP/Node/Go tertentu secara terisolasi tanpa pernah mengubah Windows User PATH global.
+
+### 16.3 Pelacakan CWD Real-Time (`get_session_cwd`)
+
+Metode `get_session_cwd(session_id)` mengekstrak direktori kerja aktif proses anak di Windows menggunakan kombinasi pemeriksaan handle Win32 (`GetProcessImageFileName` / handle inspect) dan parsing baris prompt konsol terakhir, mengembalikan `{status: "success", cwd: "..."}` sehingga tab UI dapat memperbarui label judulnya secara dinamis mengikuti perintah `cd <folder>`.
+
+### 16.4 Konfigurasi, Saved Presets & Workspace Persistence
+
+- **File Konfigurasi (`data/terminal_config.json`)**: Menyimpan preferensi default shell dan kustomisasi tampilan (font family, font size, cursor style: `block` | `underline` | `bar`, cursor blink, scrollback lines, copy on select).
+- **File Presets (`data/terminal_presets.json`)**: Menyimpan konfigurasi scoping favorit pengguna (misal: "Laravel Stack" berisi PHP 8.3 + Node 20 + Git, atau "AI Stack" berisi Python 3.11 + Go) yang dapat dibuka kembali kapan saja via `save_preset` dan `delete_preset`.
+- **File Workspace (`data/terminal_sessions.json`)**: Menyimpan snapshot sesi terminal untuk pemulihan layout saat aplikasi di-restart.
+
+---
+
+## 17. `main.py` — App Bootstrap & `AppLifecycle`
 
 > ✅ **Update:** `main.py` menerapkan class `AppLifecycle` yang dapat diuji secara mandiri, isolasi Single-Instance Dev vs Prod via Windows Named Pipe IPC, deteksi otomatis lingkungan produksi, serta pewarnaan titlebar native via Windows DWM.
 
-### 15.1 Alur Bootstrap
+### 17.1 Alur Bootstrap
 0. **Deteksi Lingkungan & Isolasi Single-Instance:**
    - `IS_PRODUCTION = getattr(sys, "frozen", False)` — otomatis bernilai `True` saat dijalankan sebagai executable hasil build PyInstaller, dan `False` saat dijalankan via interpreter Python.
    - Variabel lingkungan, Mutex (`VyloServe_App_Mutex_v1` di production vs `VyloServe_Dev_App_Mutex_v1` di dev), Named Pipe IPC (`\\.\pipe\VyloServe_IPC_v1` vs `\\.\pipe\VyloServe_Dev_IPC_v1`), Judul Window (`"VyloServe"` vs `"VyloServe (Development)"`), dan Windows AppUserModelID (`VyloServe.App.Production` vs `VyloServe.App.Development`) diisolasi secara ketat per mode.
@@ -905,13 +1018,15 @@ AI Assistant memiliki system prompt khusus yang menginstruksikannya untuk tidak 
 8. Jika `ENABLE_TRAY` bernilai `True`, `setup_systray(lifecycle, icon_path)` dipanggil.
 9. `webview.start(...)` dijalankan.
 
-### 15.2 `AppLifecycle` — Satu Sumber Kebenaran untuk Exit/Hide
+### 17.2 `AppLifecycle` — Satu Sumber Kebenaran untuk Exit/Hide
 
 ```mermaid
 flowchart TD
     A["Trigger exit:<br/>Tombol Quit UI (api.close_app)<br/>ATAU Tray 'Exit Engine'"] --> B["lifecycle.perform_exit()"]
     B --> B2[api.stop_log_watcher try/except]
     B2 --> C[apache.stop_server try/except]
+    B2 --> C2[terminal.cleanup_all try/except]
+    B2 --> C3[project.stop_all_project_servers try/except]
     C --> D[php.stop_all try/except]
     D --> E[database.stop_all try/except]
     E --> F{tray_icon di-set?}
@@ -934,14 +1049,14 @@ flowchart TD
 
 > ⚠️ **`on_closing()` cabang hide-vs-exit digerakkan `enable_tray`, BUKAN `is_production`** (sejak fitur histori toast + notifikasi native, lihat `docs/known_bugs.md` #45) — keduanya SENGAJA dipisah jadi dua parameter independen di `AppLifecycle.__init__`. `is_production` sendiri tetap murni mengontrol `get_entrypoint()` (dist vs dev server) dan flag `debug` di `webview.start()`, TIDAK lagi punya pengaruh apa pun ke `on_closing()`. Default `enable_tray=False` di constructor (backward-compatible) — caller yang ingin hide-to-tray WAJIB mengoper eksplisit `enable_tray=True`.
 
-### 15.3 Kenapa Diekstrak Jadi Class
+### 17.3 Kenapa Diekstrak Jadi Class
 `AppLifecycle` menyimpan `api`, `window`, `tray_icon`, `is_real_exit` sebagai atribut instance (bukan variabel global `is_real_exit`/`global_tray_icon` + closure seperti sebelumnya). Ini membuatnya bisa diinstansiasi langsung di unit test dengan `MagicMock()` sebagai pengganti `api`/`window`/`tray_icon`, tanpa perlu menjalankan `pywebview`/`webview.start()` sungguhan. Lihat `tests/test_main.py` untuk cakupan penuh (bootstrap, exit, hide-to-tray, system tray).
 
-### 15.4 Window-State Bridge & Notifikasi Native Windows (`Api.emit_window_state`/`show_native_notification`)
+### 17.4 Window-State Bridge & Notifikasi Native Windows (`Api.emit_window_state`/`show_native_notification`)
 
 Ditambahkan bersama fitur histori toast (lihat `docs/known_bugs.md` #45) — frontend (`useWindowPresence.ts`) perlu tahu kapan window di-minimize/di-hide ke tray untuk memutuskan kapan toast perlu diteruskan sebagai notifikasi native Windows, alih-alih di-poll dari frontend (DOM tidak tahu state OS-level ini sama sekali).
 
-- **`Api.emit_window_state(minimized=None, hidden=None)`** — pola identik `emit_log`/`emit_progress` (`evaluate_js` + `CustomEvent('vylo_window_state', ...)`, lihat §5.1 di `docs/frontend_ui.md`), tapi hanya field yang DIBERI (bukan `None`) yang dikirim ke payload, supaya listener frontend bisa membedakan "tidak berubah" dari "eksplisit jadi false". Dipanggil dari 3 tempat: `window.events.minimized`/`restored` (hook langsung di `main()`, lihat §15.1), `AppLifecycle.on_closing()` saat hide-to-tray (`hidden=True`), dan tray menu "Show VyloServe" / `Api._restore_window_from_notification` (`hidden=False, minimized=False`).
+- **`Api.emit_window_state(minimized=None, hidden=None)`** — pola identik `emit_log`/`emit_progress` (`evaluate_js` + `CustomEvent('vylo_window_state', ...)`, lihat §5.1 di `docs/frontend_ui.md`), tapi hanya field yang DIBERI (bukan `None`) yang dikirim ke payload, supaya listener frontend bisa membedakan "tidak berubah" dari "eksplisit jadi false". Dipanggil dari 3 tempat: `window.events.minimized`/`restored` (hook langsung di `main()`, lihat §17.1), `AppLifecycle.on_closing()` saat hide-to-tray (`hidden=True`), dan tray menu "Show VyloServe" / `Api._restore_window_from_notification` (`hidden=False, minimized=False`).
 - **Reliabilitas `window.events.minimized`/`restored` untuk backend `edgechromium`**: dikonfirmasi langsung dari source `pywebview` (`webview/platforms/winforms.py`'s `on_resize` — backend `edgechromium` di Windows berjalan di atas WinForms) — event ini di-set dari `FormWindowState` transition WinForms standar (`Minimized`/`Normal`/`Maximized`), BUKAN polling, dan reliable untuk konfigurasi app ini (`gui='edgechromium'`). Tidak perlu fallback polling.
 - **`Api.show_native_notification(message, type)`** — memanggil `win11toast.toast(...)` di **thread daemon terpisah** (pola sama `pystray`'s `run_tray()`, karena `win11toast`/WinRT butuh event loop `asyncio` sendiri yang tidak boleh memblokir UI thread pywebview). `type` menentukan `duration` (`'long'` untuk error/warning, `'short'` untuk lainnya — supaya notifikasi penting tidak auto-dismiss secepat notifikasi biasa). `on_click` di-set ke `Api._restore_window_from_notification` (show+restore window, lalu `emit_window_state(hidden=False, minimized=False)`).
 - **`Api.set_notification_icon(icon_path)`** — di-set dari `main()` tepat setelah `api.set_window(window)`, menyimpan `self._notification_icon_path` yang diteruskan sebagai `icon=` ke `win11toast.toast(...)`. **Path PNG terpisah dari ikon window/tray** (`icons-nobg.png`, BUKAN `.ico` yang dipakai `webview.start(icon=...)`/`setup_systray`) — WinRT toast XML `<image>` butuh format yang reliable didekode WIC image pipeline, `.ico` sebagai container format tidak konsisten didukung di sana (lihat `docs/known_bugs.md` #46, ditemukan dari smoke test manual: notifikasi tampil tanpa ikon aplikasi sebelum fix ini). `icon=None` (default sebelum `set_notification_icon` dipanggil) ditangani win11toast dengan baik — notifikasi tetap tampil, cuma tanpa ikon, tidak crash.
@@ -950,7 +1065,7 @@ Ditambahkan bersama fitur histori toast (lihat `docs/known_bugs.md` #45) — fro
 
 ---
 
-## 17. Known Issues — Temuan Audit Backend
+## 18. Known Issues — Temuan Audit Backend
 
 Tabel ini adalah hasil audit langsung terhadap kode per tanggal dokumen ini ditulis. Status diperbarui secara jujur — beberapa klaim "sudah fixed" di dokumentasi sebelumnya **terbukti salah** saat kode benar-benar dibaca ulang.
 

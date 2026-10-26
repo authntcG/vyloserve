@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { useDashboard, type ProjectData } from '../../../context/DashboardContext';
 import SkeletonCard from '../../../components/skeleton/SkeletonCard';
+import EmptyState from '../../../components/EmptyState';
 
 export interface RecentProjectsSectionProps {
     readonly isLoading?: boolean;
@@ -32,10 +33,10 @@ export default function RecentProjectsSection(props: RecentProjectsSectionProps)
 
     if (projects.length === 0) {
         return (
-            <div className="flex flex-col items-center justify-center py-10 bg-slate-50/50 dark:bg-slate-900/20 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
-                <span className="material-symbols-outlined text-slate-400 text-4xl mb-2">folder_open</span>
-                <span className="text-sm font-medium text-slate-600 dark:text-slate-400">{t('dashboard.no_projects_found')}</span>
-            </div>
+            <EmptyState
+                icon="folder_open"
+                title={t('dashboard.no_projects_found')}
+            />
         );
     }
 

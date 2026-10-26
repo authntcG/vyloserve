@@ -7,7 +7,12 @@ import pystray
 import ssl
 import certifi
 import ctypes
-from core.utils.system_utils import get_project_root, get_resource_path, get_theme_titlebar_palette
+from core.utils.system_utils import (
+    get_project_root,
+    get_resource_path,
+    get_theme_titlebar_palette,
+    sync_theme_bootstrap_file,
+)
 from PIL import Image
 from pystray import MenuItem as item
 import webview.window
@@ -34,17 +39,22 @@ ERROR_ALREADY_EXISTS = 183
 
 # --- SINGLE INSTANCE & WINDOW MANAGEMENT ---
 
-def get_theme_bg_color():
+def get_saved_theme() -> str:
     settings_path = os.path.join(get_project_root(), 'data', 'settings.json')
-    theme = "vyloserve-dark"
     if os.path.exists(settings_path):
         try:
             import json
             with open(settings_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                theme = data.get("theme", "vyloserve-dark")
+                return data.get("theme", "vyloserve-dark")
         except Exception:
             pass
+    return "vyloserve-dark"
+
+def get_theme_bg_color():
+    theme = get_saved_theme()
+    if theme == "xp-luna-light":
+        return "#f4f2e8"
     return get_theme_titlebar_palette(theme)["bg"]
 
 # --- KONFIGURASI ENVIRONMENT ---
@@ -213,6 +223,7 @@ class AppLifecycle:
             lambda: self.api.php.stop_all(),
             lambda: self.api.database.stop_all(),
             lambda: getattr(self.api, 'terminal', None) and self.api.terminal.cleanup_all(),
+            lambda: getattr(self.api, 'project', None) and self.api.project.stop_all_project_servers(),
         ):
             try:
                 stop_func()
@@ -456,6 +467,10 @@ def main():
         # persis sudah ada di folder yang sama (lihat frontend/src/assets).
         notification_icon_path = resource_path(os.path.join('frontend', 'src', 'assets', 'icons-nobg.png'))
 
+        # Sinkronkan tema yang tersimpan ke file bootstrap vylo-theme.js sebelum window dimuat
+        saved_theme = get_saved_theme()
+        sync_theme_bootstrap_file(saved_theme)
+
         print("[DEBUG] Membangun jendela UI (Window)...")
         window = webview.create_window(
             title=get_window_title(IS_PRODUCTION),
@@ -503,8 +518,19 @@ def main():
 
         print("[DEBUG] Menjalankan WebView (Aplikasi mulai render)...")
 
-        # Parameter debug akan otomatis menyesuaikan dengan status IS_PRODUCTION
-        webview.start(debug=not IS_PRODUCTION, gui='edgechromium', icon=icon_path)
+        webview_storage_path = os.path.join(get_project_root(), 'data', 'webview')
+        os.makedirs(webview_storage_path, exist_ok=True)
+
+        # Parameter debug akan otomatis menyesuaikan dengan status IS_PRODUCTION.
+        # private_mode=False & storage_path memastikan localStorage dan IndexedDB
+        # tetap tersimpan persisten di WebView2, tidak terhapus saat aplikasi ditutup.
+        webview.start(
+            debug=not IS_PRODUCTION,
+            gui='edgechromium',
+            icon=icon_path,
+            private_mode=False,
+            storage_path=webview_storage_path
+        )
 
         print("[DEBUG] Aplikasi ditutup dengan normal.")
         lifecycle.perform_exit()

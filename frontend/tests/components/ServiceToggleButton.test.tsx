@@ -47,4 +47,15 @@ describe('ServiceToggleButton', () => {
 
         expect(onClick).toHaveBeenCalledTimes(1);
     });
+
+    it('renders in iconOnly mode with accessible title and aria-label', () => {
+        render(<ServiceToggleButton isRunning={false} isToggling={false} onClick={vi.fn()} labels={labels} iconOnly />);
+
+        const btn = screen.getByRole('button', { name: 'Start Apache' });
+        expect(btn).toHaveAttribute('title', 'Start Apache');
+        expect(btn).toHaveAttribute('aria-label', 'Start Apache');
+        expect(btn).toHaveClass('p-2');
+        // Does not render plain text outside the icon
+        expect(btn.textContent).toBe('play_arrow');
+    });
 });

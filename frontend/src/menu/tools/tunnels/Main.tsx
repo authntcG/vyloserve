@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import PageHeader from '../../../components/PageHeader';
 import BackgroundProgressWidget from '../../../components/BackgroundProgressWidget';
+import Tabs from '../../../components/Tabs';
 import {
     TunnelsProvider,
     useTunnels,
@@ -8,7 +9,6 @@ import {
 } from '../../../context/TunnelsContext';
 import {
     InstallHeaderButton,
-    TabButton,
     TunnelsBody
 } from './TunnelsComponents';
 import TunnelsInstallModal from './TunnelsInstallModal';
@@ -102,11 +102,15 @@ export function TunnelsMainView() {
                 }
             />
 
-            <div className="flex gap-4 border-b dark:border-slate-800 mb-6 px-1">
-                <TabButton active={activeTab === 'all'} label={t('tools.zrok.tab_all')} onClick={() => setActiveTab('all')} />
-                <TabButton active={activeTab === 'zrok'} label={t('tools.zrok.tab_zrok')} onClick={() => setActiveTab('zrok')} />
-                <TabButton active={activeTab === 'cloudflare'} label={t('tools.cloudflare.tab')} onClick={() => setActiveTab('cloudflare')} />
-            </div>
+            <Tabs<ActiveTab>
+                tabs={[
+                    { value: 'all', label: t('tools.zrok.tab_all') },
+                    { value: 'zrok', label: t('tools.zrok.tab_zrok'), badgeColorClass: zrokStatus?.installed ? 'bg-emerald-500' : undefined },
+                    { value: 'cloudflare', label: t('tools.cloudflare.tab'), badgeColorClass: cfStatus?.installed ? 'bg-emerald-500' : undefined },
+                ]}
+                value={activeTab}
+                onChange={setActiveTab}
+            />
 
             <TunnelsBody
                 activeTab={activeTab}

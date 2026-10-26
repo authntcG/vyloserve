@@ -1,6 +1,7 @@
-﻿import { useState, forwardRef, useImperativeHandle, useEffect } from 'react';
+import { useState, forwardRef, useImperativeHandle, useEffect, useContext } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useToast } from '../../context/ToastContext';
+import { RuntimesContext } from '../../context/RuntimesContext';
 import FieldLabel from '../../components/FieldLabel';
 import RuntimeVersionSelect from './RuntimeVersionSelect';
 
@@ -10,7 +11,11 @@ interface InstallJavaProps { targetVersion?: string | null; }
 const InstallJava = forwardRef<InstallJavaRef, InstallJavaProps>(({ targetVersion }, ref) => {
     const { t } = useTranslation();
     const { showToast } = useToast();
+    const runtimes = useContext(RuntimesContext);
+    const isExternal = Boolean(runtimes?.runtimeData?.java?.external?.exists);
+
     const [version, setVersion] = useState(targetVersion || '');
+    const [setAsActive, setSetAsActive] = useState(!isExternal);
     const [versionsList, setVersionsList] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
@@ -39,7 +44,9 @@ const InstallJava = forwardRef<InstallJavaRef, InstallJavaProps>(({ targetVersio
         submit: async () => {
             if (!version) return false;
             try {
-                const res = await window.pywebview?.api?.install_java(version);
+                const res = setAsActive === false
+                    ? await window.pywebview?.api?.install_java(version, false)
+                    : await window.pywebview?.api?.install_java(version);
                 if (res?.status === 'success') {
                     showToast((res.message ? t(res.message, res.args || {}) : t('runtimes.java_install_success')) as string, 'success');
                     return true;
@@ -64,6 +71,41 @@ const InstallJava = forwardRef<InstallJavaRef, InstallJavaProps>(({ targetVersio
                 <span className="text-xs text-slate-500">
                     {t('runtimes.java_api_desc')}
                 </span>
+            </div>
+
+            <div className="flex flex-col gap-1">
+                <label
+                    htmlFor="set-as-active-java-checkbox"
+                    className={`flex items-start gap-3 p-3 border rounded-lg transition-colors ${
+                        isExternal
+                            ? 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30 opacity-60 cursor-not-allowed'
+                            : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer'
+                    }`}
+                >
+                    <input
+                        id="set-as-active-java-checkbox"
+                        type="checkbox"
+                        checked={isExternal ? false : setAsActive}
+                        disabled={isExternal}
+                        onChange={(e) => setSetAsActive(e.target.checked)}
+                        aria-label={t('runtimes.set_as_active_checkbox')}
+                        className="mt-1 w-4 h-4 text-primary bg-slate-100 border-slate-300 rounded focus:ring-primary dark:ring-offset-slate-800 dark:bg-slate-700 dark:border-slate-600 disabled:opacity-50"
+                    />
+                    <div className="flex flex-col">
+                        <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                            {t('runtimes.set_as_active_checkbox')}
+                        </span>
+                        <span className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                            {t('runtimes.set_as_active_tooltip')}
+                        </span>
+                    </div>
+                </label>
+                {isExternal && (
+                    <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-500 mt-1 pl-1">
+                        <span className="material-symbols-outlined text-[14px] shrink-0">lock</span>
+                        <span>{t('runtimes.set_as_active_locked_desc', { engine: 'Java' })}</span>
+                    </div>
+                )}
             </div>
 
             <div className="border-t border-slate-200 dark:border-slate-800 pt-2">

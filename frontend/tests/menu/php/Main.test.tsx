@@ -363,4 +363,32 @@ describe('PhpMain', () => {
 
         expect(await screen.findByText('php.installing')).toBeInTheDocument();
     });
+
+    it('toggles between card view and table view', async () => {
+        const user = userEvent.setup();
+        mockPywebviewApi({
+            get_installed_php: vi.fn().mockResolvedValue([instance]),
+        });
+        renderWithToast(<PhpMain />);
+        await screen.findByText('PHP 8.2');
+
+        const tableBtn = screen.getByRole('button', { name: /Table View/i });
+        const cardBtn = screen.getByRole('button', { name: /Card View/i });
+
+        expect(cardBtn).toHaveAttribute('aria-pressed', 'true');
+        expect(tableBtn).toHaveAttribute('aria-pressed', 'false');
+        expect(screen.queryByRole('table')).not.toBeInTheDocument();
+
+        // Switch to Table View
+        await user.click(tableBtn);
+        expect(tableBtn).toHaveAttribute('aria-pressed', 'true');
+        expect(cardBtn).toHaveAttribute('aria-pressed', 'false');
+        expect(screen.getByRole('table')).toBeInTheDocument();
+        expect(screen.getByText('9000')).toBeInTheDocument();
+
+        // Switch back to Card View
+        await user.click(cardBtn);
+        expect(cardBtn).toHaveAttribute('aria-pressed', 'true');
+        expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    });
 });

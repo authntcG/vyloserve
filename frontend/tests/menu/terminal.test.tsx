@@ -30,6 +30,14 @@ vi.mock("@xterm/xterm", () => {
             options = { fontSize: 13 };
             cols = 120;
             rows = 30;
+            buffer = {
+                active: {
+                    cursorY: 0,
+                    getLine: vi.fn().mockReturnValue({
+                        translateToString: vi.fn().mockReturnValue("D:\\Projects>cd Proj")
+                    })
+                }
+            };
 
             constructor() {
                 mockTerminalInstance = this;
@@ -167,6 +175,40 @@ describe("Terminal Components & Main View", () => {
         expect(onSelectTab).toHaveBeenCalledWith("s2");
     });
 
+    it("renders shell selector popup list via portal when split-button dropdown is clicked", () => {
+        const mockSessions: TerminalSession[] = [
+            { id: "s1", title: "PowerShell", shell_id: "powershell", cwd: "C:\\Users" }
+        ];
+
+        const onNewTab = vi.fn();
+
+        render(
+            <TerminalTabBar
+                sessions={mockSessions}
+                activeSessionId="s1"
+                availableShells={mockShells}
+                onSelectTab={vi.fn()}
+                onCloseTab={vi.fn()}
+                onNewTab={onNewTab}
+            />
+        );
+
+        // Click shell selector expand_more button
+        const selectorBtn = screen.getByTitle("tools.terminal.shell_selector");
+        fireEvent.click(selectorBtn);
+
+        // Shell options are rendered in portal popup list
+        expect(screen.getByText("tools.terminal.shell_selector")).toBeInTheDocument();
+        expect(screen.getByText("Command Prompt")).toBeInTheDocument();
+
+        // Click Command Prompt option
+        fireEvent.click(screen.getByText("Command Prompt"));
+        expect(onNewTab).toHaveBeenCalledWith("cmd");
+
+        // Popup is closed after selection
+        expect(screen.queryByText("tools.terminal.shell_selector")).not.toBeInTheDocument();
+    });
+
     it("renders TerminalToolbar with cwd, shell details and env badge", () => {
         const session: TerminalSession = {
             id: "s1",
@@ -174,12 +216,12 @@ describe("Terminal Components & Main View", () => {
             shell_id: "powershell",
             cwd: "D:\\Projects\\vyloserve"
         };
-        const onOpenEnvModal = vi.fn();
+        const onOpenConfigModal = vi.fn();
 
         render(
             <TerminalToolbar
                 activeSession={session}
-                onOpenEnvModal={onOpenEnvModal}
+                onOpenConfigModal={onOpenConfigModal}
                 envProfileSummary="VyloStack"
             />
         );
@@ -187,10 +229,11 @@ describe("Terminal Components & Main View", () => {
         expect(screen.getByText("POWERSHELL")).toBeInTheDocument();
         expect(screen.getByText(/D:\\Projects\\vyloserve/)).toBeInTheDocument();
         expect(screen.getByText("VyloStack")).toBeInTheDocument();
+        expect(screen.getByText("settings")).toBeInTheDocument();
         expect(screen.getByText("Ctrl + `")).toBeInTheDocument();
 
         fireEvent.click(screen.getByText("VyloStack"));
-        expect(onOpenEnvModal).toHaveBeenCalledTimes(1);
+        expect(onOpenConfigModal).toHaveBeenCalledWith("env");
     });
 
     it("responds to vylo_open_terminal_project event and creates project tab", async () => {
@@ -239,8 +282,17 @@ describe("Terminal Components & Main View", () => {
         expect(preventSpy).toHaveBeenCalled();
         expect((window as any).pywebview.api.send_terminal_input).toHaveBeenCalledWith(
             expect.any(String),
-            "\t"
+            "\t",
+            "D:\\Projects>cd Proj"
         );
+
+        // Keyup for Tab must return true and NOT prevent default so xterm can refocus & sync state
+        const tabKeyUpEvent = new KeyboardEvent("keyup", { key: "Tab", cancelable: true });
+        const keyUpPreventSpy = vi.spyOn(tabKeyUpEvent, "preventDefault");
+        const keyUpHandled = lastCustomKeyHandler!(tabKeyUpEvent);
+
+        expect(keyUpHandled).toBe(true);
+        expect(keyUpPreventSpy).not.toHaveBeenCalled();
     });
 
     it("handles Ctrl+C copying selection when text is selected vs passing SIGINT when not selected", async () => {
@@ -331,7 +383,8 @@ describe("Terminal Components & Main View", () => {
         expect(onApplyProfile).toHaveBeenCalledWith(
             expect.objectContaining({
                 php: "os"
-            })
+            }),
+            "current"
         );
         expect(onClose).toHaveBeenCalled();
     });
@@ -348,7 +401,7 @@ describe("Terminal Components & Main View", () => {
         fireEvent.click(envBadge);
 
         await waitFor(() => {
-            expect(screen.getByText("tools.terminal.env_title")).toBeInTheDocument();
+            expect(screen.getByText("tools.terminal.config_title")).toBeInTheDocument();
         });
 
         // Click preset 'OS Native Only'
@@ -392,7 +445,7 @@ describe("Terminal Components & Main View", () => {
         fireEvent.click(screen.getByText("VyloServe Stack"));
 
         await waitFor(() => {
-            expect(screen.getByText("tools.terminal.env_title")).toBeInTheDocument();
+            expect(screen.getByText("tools.terminal.config_title")).toBeInTheDocument();
         });
 
         // Click preset 'OS Native Only'

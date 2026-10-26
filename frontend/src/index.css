@@ -395,3 +395,38 @@
     background-image: linear-gradient(180deg, #ff8833 0%, #f56600 55%, #d95300 100%);
   }
 }
+
+/* Terminal Custom Cursor Animations */
+@keyframes vylo-cursor-smooth {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.15;
+  }
+}
+
+@keyframes vylo-cursor-gradient {
+  0%, 100% {
+    filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.95)) drop-shadow(0 0 10px rgba(168, 85, 247, 0.75));
+    opacity: 1;
+  }
+  50% {
+    filter: drop-shadow(0 0 2px rgba(168, 85, 247, 0.4));
+    opacity: 0.25;
+  }
+}
+
+.vylo-cursor-smooth .xterm .xterm-cursor,
+.vylo-cursor-smooth canvas.xterm-cursor-layer,
+.vylo-cursor-smooth .xterm-cursor-layer,
+.vylo-cursor-smooth .xterm-cursor {
+  animation: vylo-cursor-smooth 1.2s ease-in-out infinite !important;
+}
+
+.vylo-cursor-gradient .xterm .xterm-cursor,
+.vylo-cursor-gradient canvas.xterm-cursor-layer,
+.vylo-cursor-gradient .xterm-cursor-layer,
+.vylo-cursor-gradient .xterm-cursor {
+  animation: vylo-cursor-gradient 1.4s ease-in-out infinite !important;
+}
