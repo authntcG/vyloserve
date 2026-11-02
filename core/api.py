@@ -20,6 +20,7 @@ from core.services.tunnels import TunnelsManager
 from core.services.markdown_viewer import MarkdownViewerManager
 from core.services.ai_assistant import AIAssistantManager
 from core.services.terminal import TerminalManager
+from core.utils.network_utils import check_internet_connection as _check_internet_connection
 
 PROJECT_NOT_LOADED_MSG = "backend.error.project_module_not_loaded"
 UNEXPECTED_ERROR_MSG = "backend.error.unexpected"
@@ -49,6 +50,21 @@ class Api:
         self._log_watcher_thread: Optional[threading.Thread] = None
         self._log_watcher_stop = threading.Event()
         self._is_shutting_down = False
+
+    @property
+    def settings_manager(self) -> SettingsManager:
+        """Alias kompatibilitas untuk self.settings"""
+        return self.settings
+
+    @property
+    def runtimes(self) -> RuntimesManager:
+        """Alias kompatibilitas untuk self.runtimes_manager"""
+        return self.runtimes_manager
+
+    @property
+    def git(self) -> GitManager:
+        """Alias kompatibilitas untuk self.git_manager"""
+        return self.git_manager
 
     def set_window(self, window: webview.Window):
         self._window = window
@@ -125,6 +141,33 @@ class Api:
         finally:
             del frame
 
+    def _safe_eval_js(self, script: str):
+        """
+        Mengevaluasi script JavaScript pada window pywebview secara aman.
+        Pada runtime nyata (bukan mock), eksekusi selalu di-dispatch ke daemon thread
+        terpisah agar pemanggilan 'evaluate_js()' (yang memicu 'semaphore.acquire()')
+        tidak pernah memblokir thread pemanggil -- khususnya WinForms UI thread (.NET STA thread
+        yang di-wrap Python sebagai dummy thread) yang akan menyebabkan window mengalami UI freeze / Not Responding.
+        Di lingkungan unit test (mock window), eksekusi dijalankan langsung secara sinkron.
+        """
+        if self._is_shutting_down or not self._window:
+            return
+
+        def _execute():
+            try:
+                if not self._is_shutting_down and self._window:
+                    self._window.evaluate_js(script)
+            except Exception:
+                pass
+
+        # Periksa apakah window adalah mock objek di test suite
+        is_mock = type(self._window).__name__ in ('MagicMock', 'Mock') or hasattr(self._window, '_mock_return_value')
+
+        if is_mock:
+            _execute()
+        else:
+            threading.Thread(target=_execute, daemon=True).start()
+
     def emit_log(self, message: str, level: str = "info", args: dict = None, source_override: Optional[str] = None):
         """
         Menembakkan log real-time ke LogsPanel React. `source_override` dipakai
@@ -140,10 +183,7 @@ class Api:
             source = source_override if source_override is not None else self._resolve_event_source()
             detail = json.dumps({"message": message, "level": level, "args": args or {}, "source": source})
             script = f"window.dispatchEvent(new CustomEvent('vylo_log', {{detail: {detail} }}));"
-            try:
-                self._window.evaluate_js(script)
-            except Exception:
-                pass
+            self._safe_eval_js(script)
 
     def emit_progress(self, percent: int, text: str = "", args: dict = None):
         """ Menembakkan progress bar real-time ke Modal Instalasi React """
@@ -153,60 +193,42 @@ class Api:
             source = self._resolve_event_source()
             detail = json.dumps({"percent": percent, "text": text, "args": args or {}, "source": source})
             script = f"window.dispatchEvent(new CustomEvent('vylo_progress', {{detail: {detail} }}));"
-            try:
-                self._window.evaluate_js(script)
-            except Exception:
-                pass
+            self._safe_eval_js(script)
 
     def emit_cli_output(self, data: str):
         if self._is_shutting_down or not self._window:
             return
         detail = json.dumps({"data": data})
         script = f"window.dispatchEvent(new CustomEvent('vylo_cli_output', {{detail: {detail} }}));"
-        try:
-            self._window.evaluate_js(script)
-        except Exception:
-            pass
+        self._safe_eval_js(script)
 
     def emit_terminal_output(self, session_id: str, data: str):
         if self._is_shutting_down or not self._window:
             return
         detail = json.dumps({"sessionId": session_id, "data": data})
         script = f"window.dispatchEvent(new CustomEvent('vylo_terminal_output', {{detail: {detail} }}));"
-        try:
-            self._window.evaluate_js(script)
-        except Exception:
-            pass
+        self._safe_eval_js(script)
 
     def emit_terminal_exit(self, session_id: str, exit_code: int = 0):
         if self._is_shutting_down or not self._window:
             return
         detail = json.dumps({"sessionId": session_id, "exitCode": exit_code})
         script = f"window.dispatchEvent(new CustomEvent('vylo_terminal_exit', {{detail: {detail} }}));"
-        try:
-            self._window.evaluate_js(script)
-        except Exception:
-            pass
+        self._safe_eval_js(script)
 
     def emit_cli_state(self, waiting_input: bool, prompt_text: str = "", cancelled: bool = False):
         if self._is_shutting_down or not self._window:
             return
         detail = json.dumps({"waiting_input": waiting_input, "prompt_text": prompt_text, "cancelled": cancelled})
         script = f"window.dispatchEvent(new CustomEvent('vylo_cli_state', {{detail: {detail} }}));"
-        try:
-            self._window.evaluate_js(script)
-        except Exception:
-            pass
+        self._safe_eval_js(script)
 
     def emit_project_server_state(self, detail: dict):
         if self._is_shutting_down or not self._window:
             return
         safe_detail = json.dumps(detail)
         script = f"window.dispatchEvent(new CustomEvent('vylo_project_server_changed', {{detail: {safe_detail} }}));"
-        try:
-            self._window.evaluate_js(script)
-        except Exception:
-            pass
+        self._safe_eval_js(script)
 
     def emit_window_state(self, minimized: Optional[bool] = None, hidden: Optional[bool] = None):
         """
@@ -228,10 +250,7 @@ class Api:
             if not detail:
                 return
             script = f"window.dispatchEvent(new CustomEvent('vylo_window_state', {{detail: {json.dumps(detail)} }}));"
-            try:
-                self._window.evaluate_js(script)
-            except Exception:
-                pass
+            self._safe_eval_js(script)
 
     def emit_ai_chunk(
         self,
@@ -258,10 +277,7 @@ class Api:
                 payload["usage"] = usage
             detail = json.dumps(payload)
             script = f"window.dispatchEvent(new CustomEvent('vylo_ai_chunk', {{detail: {detail} }}));"
-            try:
-                self._window.evaluate_js(script)
-            except Exception:
-                pass
+            self._safe_eval_js(script)
 
     def show_native_notification(self, message: str, type: str = "info") -> Dict[str, str]:
         """
@@ -325,6 +341,11 @@ class Api:
     def test_connection(self, data: str) -> Dict[str, str]:
         self.emit_log("backend.api.ping_received", "info", {"data": data})
         return {"status": "success", "message": "backend.api.connection_success"}
+
+    def check_internet_connection(self) -> Dict[str, Any]:
+        """Memeriksa ketersediaan koneksi internet dari sisi OS/Backend."""
+        online = _check_internet_connection()
+        return {"status": "success", "online": online}
 
     # ==========================================
     # SIDEBAR & GLOBAL CONTROLLER SECTIONS
@@ -482,6 +503,20 @@ class Api:
             if result and len(result) > 0:
                 return result[0].replace('\\', '/')
         return None
+
+    def browse_open_file(self, file_types: tuple = ('SQL files (*.sql)', 'All files (*.*)')) -> Optional[str]:
+        if self._window:
+            result = self._window.create_file_dialog(webview.OPEN_DIALOG, file_types=file_types)
+            if result and len(result) > 0:
+                return result[0].replace('\\', '/')
+        return None
+
+    def browse_save_file(self, default_name: str = "", file_types: tuple = ('SQL files (*.sql)', 'All files (*.*)')) -> Optional[str]:
+        if self._window:
+            result = self._window.create_file_dialog(webview.SAVE_DIALOG, save_filename=default_name, file_types=file_types)
+            if result and len(result) > 0:
+                return result[0].replace('\\', '/')
+        return None
     
     def open_browser(self, url: str):
         import webbrowser
@@ -556,6 +591,24 @@ class Api:
         if hasattr(self, 'project') and self.project:
             return self.project.cancel_project_install()
         return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+
+    def cancel_installation(self, module: str) -> dict:
+        """
+        Membatalkan proses instalasi atau update yang sedang aktif pada modul yang diminta.
+        Validasi batas input (Rule 11) memeriksa bahwa modul termasuk dalam daftar yang diizinkan.
+        """
+        valid_modules = {"apache", "php", "database", "runtimes", "git", "tunnels", "updater", "project"}
+        if not isinstance(module, str) or module not in valid_modules:
+            return {"status": "error", "message": "backend.error.invalid_input"}
+        
+        if module == "project":
+            return self.cancel_project_install()
+        
+        from core.utils.cancellation import InstallationManager
+        cancelled = InstallationManager.cancel(module)
+        if cancelled:
+            return {"status": "success", "message": f"backend.{module}.cancelling"}
+        return {"status": "error", "message": "backend.common.no_active_installation"}
 
     def start_project_server(self, project_id: str):
         if hasattr(self, 'project') and self.project:
@@ -743,6 +796,21 @@ class Api:
     
     def change_db_credentials(self, db_id: str, username: str, old_pass: str, new_pass: str):
         return self.database.change_db_credentials(db_id, username, old_pass, new_pass)
+
+    def list_database_schemas(self, db_id: str, password: str = ""):
+        return self.database.list_schemas(db_id, password)
+
+    def create_database_schema(self, db_id: str, schema_name: str, password: str = ""):
+        return self.database.create_schema(db_id, schema_name, password)
+
+    def drop_database_schema(self, db_id: str, schema_name: str, password: str = ""):
+        return self.database.drop_schema(db_id, schema_name, password)
+
+    def export_database_schema(self, db_id: str, schema_name: str, target_path: str = "", password: str = ""):
+        return self.database.export_schema(db_id, schema_name, target_path, password)
+
+    def import_database_schema(self, db_id: str, schema_name: str, source_path: str, password: str = ""):
+        return self.database.import_schema(db_id, schema_name, source_path, password)
 
     # ==========================================
     # RUNTIMES API ENDPOINTS

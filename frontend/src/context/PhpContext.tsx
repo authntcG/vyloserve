@@ -29,6 +29,7 @@ interface PhpContextValue {
     installFilename: string;
     installPort: number;
     isInstalling: boolean;
+    isCancelling: boolean;
     isFetchingVersions: boolean;
     isSettingsOpen: boolean;
     selectedInstance: PhpInstance | null;
@@ -60,6 +61,7 @@ interface PhpContextValue {
     fetchAvailableVersions: () => Promise<void>;
     handleToggleStatus: (php: PhpInstance) => Promise<void>;
     handleInstallPhp: () => Promise<void>;
+    handleCancelInstall: () => Promise<void>;
     handleUpdatePhp: (php: PhpInstance, newVersion: string, filename: string) => Promise<void>;
     handleConfirmUninstall: (php: PhpInstance) => Promise<void>;
     handleOpenSettings: (php: PhpInstance) => Promise<void>;
@@ -87,6 +89,7 @@ export function PhpProvider({ children }: { readonly children: React.ReactNode }
     const [installFilename, setInstallFilename] = useState('');
     const [installPort, setInstallPort] = useState(9000);
     const [isInstalling, setIsInstalling] = useState(false);
+    const [isCancelling, setIsCancelling] = useState(false);
     const [isFetchingVersions, setIsFetchingVersions] = useState(true);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [selectedInstance, setSelectedInstance] = useState<PhpInstance | null>(null);
@@ -188,11 +191,16 @@ export function PhpProvider({ children }: { readonly children: React.ReactNode }
         setInstallPort(php.port);
         setInstallFilename(filename);
         setIsInstalling(true);
+        setIsCancelling(false);
         setUpdatingInstance({ php, newVersion });
         setProgressText(tRef.current('php.updating'));
         try {
             const res = await window.pywebview?.api?.update_php(php.version, newVersion, filename);
-            showToast(tRef.current(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
+            if (res?.status === 'cancelled') {
+                showToast(tRef.current(res?.message || '', res?.args || {}) as string, 'info');
+            } else {
+                showToast(tRef.current(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
+            }
             if (res?.status === 'success') {
                 fetchInstalledInstances();
                 fetchAvailableVersions();
@@ -202,6 +210,7 @@ export function PhpProvider({ children }: { readonly children: React.ReactNode }
             showToast(tRef.current('php.system_error'), 'error');
         } finally {
             setIsInstalling(false);
+            setIsCancelling(false);
             setProgress(0);
             setUpdatingInstance(null);
             setIsNewInstanceOpen(false);
@@ -212,9 +221,14 @@ export function PhpProvider({ children }: { readonly children: React.ReactNode }
         if (!installVersion) return showToast(tRef.current('php.select_php_version_warning'), 'warning');
         if (usedPorts.includes(installPort)) return showToast(tRef.current('php.port_in_use_error'), 'error');
         setIsInstalling(true);
+        setIsCancelling(false);
         try {
             const res = await window.pywebview?.api?.install_php(installVersion, installFilename, installPort);
-            showToast(tRef.current(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
+            if (res?.status === 'cancelled') {
+                showToast(tRef.current(res?.message || '', res?.args || {}) as string, 'info');
+            } else {
+                showToast(tRef.current(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
+            }
             if (res?.status === 'success') {
                 setIsNewInstanceOpen(false);
                 fetchInstalledInstances();
@@ -224,8 +238,28 @@ export function PhpProvider({ children }: { readonly children: React.ReactNode }
             showToast(tRef.current('php.system_error'), 'error');
         } finally {
             setIsInstalling(false);
+            setIsCancelling(false);
         }
     }, [installVersion, usedPorts, installPort, installFilename, showToast, fetchInstalledInstances]);
+
+    const handleCancelInstall = useCallback(async () => {
+        const ok = await confirm({
+            title: tRef.current('common.cancel_install_title'),
+            message: tRef.current('common.cancel_install_confirm'),
+            type: 'danger',
+            confirmText: tRef.current('common.cancel_install'),
+            cancelText: tRef.current('common.continue_install')
+        });
+        if (!ok) return;
+
+        setIsCancelling(true);
+        try {
+            await window.pywebview?.api?.cancel_installation('php');
+        } catch (e) {
+            console.error(e);
+            setIsCancelling(false);
+        }
+    }, [confirm]);
 
     const handleOpenSettings = useCallback(async (php: PhpInstance) => {
         setSelectedInstance(php);
@@ -334,6 +368,7 @@ export function PhpProvider({ children }: { readonly children: React.ReactNode }
         installFilename,
         installPort,
         isInstalling,
+        isCancelling,
         isFetchingVersions,
         isSettingsOpen,
         selectedInstance,
@@ -359,6 +394,7 @@ export function PhpProvider({ children }: { readonly children: React.ReactNode }
         fetchAvailableVersions,
         handleToggleStatus,
         handleInstallPhp,
+        handleCancelInstall,
         handleUpdatePhp,
         handleConfirmUninstall,
         handleOpenSettings,
@@ -374,6 +410,7 @@ export function PhpProvider({ children }: { readonly children: React.ReactNode }
         installFilename,
         installPort,
         isInstalling,
+        isCancelling,
         isFetchingVersions,
         isSettingsOpen,
         selectedInstance,
@@ -393,6 +430,7 @@ export function PhpProvider({ children }: { readonly children: React.ReactNode }
         fetchAvailableVersions,
         handleToggleStatus,
         handleInstallPhp,
+        handleCancelInstall,
         handleUpdatePhp,
         handleConfirmUninstall,
         handleOpenSettings,

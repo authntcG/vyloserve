@@ -13,6 +13,7 @@ export interface DatabaseTableProps {
     readonly onToggleStatus: (db: DbInstance) => void;
     readonly onOpenSettings: (db: DbInstance) => void;
     readonly onOpenPasswordModal: (db: DbInstance) => void;
+    readonly onOpenSchemas?: (db: DbInstance) => void;
     readonly onOpenConfigFile: (db: DbInstance) => void;
     readonly onOpenDataDir: (db: DbInstance) => void;
     readonly onOpenLogs: (db: DbInstance, type: 'startup' | 'native') => void;
@@ -29,6 +30,7 @@ export default function DatabaseTable({
     onToggleStatus,
     onOpenSettings,
     onOpenPasswordModal,
+    onOpenSchemas,
     onOpenConfigFile,
     onOpenDataDir,
     onOpenLogs,
@@ -148,21 +150,36 @@ export default function DatabaseTable({
                             <span className="material-symbols-outlined text-[18px]">tune</span>
                         </button>
 
-                        <button
-                            type="button"
-                            onClick={() => onOpenPasswordModal(db)}
-                            title={t('database.change_password')}
-                            aria-label={t('database.change_password')}
-                            className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors flex items-center justify-center"
-                        >
-                            <span className="material-symbols-outlined text-[18px]">key</span>
-                        </button>
+                        {db.engine !== 'redis' && (
+                            <button
+                                type="button"
+                                disabled={!isRunning}
+                                onClick={() => onOpenSchemas?.(db)}
+                                title={t('database.manage_schemas')}
+                                aria-label={t('database.manage_schemas')}
+                                className="p-2 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                                <span className="material-symbols-outlined text-[18px]">database</span>
+                            </button>
+                        )}
+
+                        {db.engine !== 'redis' && (
+                            <button
+                                type="button"
+                                onClick={() => onOpenPasswordModal(db)}
+                                title={t('database.change_password')}
+                                aria-label={t('database.change_password')}
+                                className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors flex items-center justify-center"
+                            >
+                                <span className="material-symbols-outlined text-[18px]">key</span>
+                            </button>
+                        )}
 
                         <button
                             type="button"
                             onClick={() => onOpenConfigFile(db)}
-                            title={db.engine === 'postgres' ? t('database.open_postgres_conf') : t('database.open_my_ini')}
-                            aria-label={db.engine === 'postgres' ? t('database.open_postgres_conf') : t('database.open_my_ini')}
+                            title={db.engine === 'postgres' ? t('database.open_postgres_conf') : (db.engine === 'redis' ? 'redis.conf' : t('database.open_my_ini'))}
+                            aria-label={db.engine === 'postgres' ? t('database.open_postgres_conf') : (db.engine === 'redis' ? 'redis.conf' : t('database.open_my_ini'))}
                             className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors flex items-center justify-center"
                         >
                             <span className="material-symbols-outlined text-[18px]">description</span>

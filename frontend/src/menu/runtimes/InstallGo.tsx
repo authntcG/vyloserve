@@ -19,24 +19,27 @@ const InstallGo = forwardRef<InstallGoRef, InstallGoProps>(({ targetVersion }, r
     const [versionsList, setVersionsList] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
-    useEffect(() => {
-        const fetchVersions = async () => {
-            try {
-                const res = await window.pywebview?.api?.get_available_go_versions();
-                if (res?.status === 'success' && res.data.length > 0) {
-                    setVersionsList(res.data);
-                    if (!targetVersion) setVersion(res.data[0].value);
-                } else {
-                    setVersionsList([]);
-                }
-            } catch {
+    const fetchVersions = async () => {
+        setIsLoading(true);
+        try {
+            const res = await window.pywebview?.api?.get_available_go_versions();
+            if (res?.status === 'success' && res.data.length > 0) {
+                setVersionsList(res.data);
+                if (!targetVersion) setVersion(res.data[0].value);
+            } else {
                 setVersionsList([]);
-                showToast(t('runtimes.fetch_version_error'), "error");
-            } finally {
-                setIsLoading(false);
             }
-        };
+        } catch {
+            setVersionsList([]);
+            showToast(t('runtimes.fetch_version_error'), "error");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
         fetchVersions();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     useImperativeHandle(ref, () => ({
@@ -48,6 +51,9 @@ const InstallGo = forwardRef<InstallGoRef, InstallGoProps>(({ targetVersion }, r
                 if (res?.status === 'success') {
                     showToast((res.message ? t(res.message, res.args || {}) : t('runtimes.go_install_success')) as string, 'success');
                     return true;
+                } else if (res?.status === 'cancelled') {
+                    showToast((res.message ? t(res.message, res.args || {}) : t('backend.runtimes.install_cancelled')) as string, 'info');
+                    return false;
                 } else {
                     showToast((res?.message ? t(res.message, res.args || {}) : t('runtimes.go_install_error')) as string, 'error');
                     return false;
@@ -64,7 +70,7 @@ const InstallGo = forwardRef<InstallGoRef, InstallGoProps>(({ targetVersion }, r
             <div className="flex flex-col gap-2">
                 <FieldLabel>{t('runtimes.go_version')}</FieldLabel>
 
-                <RuntimeVersionSelect isLoading={isLoading} versionsList={versionsList} version={version} setVersion={setVersion} />
+                <RuntimeVersionSelect isLoading={isLoading} versionsList={versionsList} version={version} setVersion={setVersion} onRetry={fetchVersions} />
 
                 <span className="text-xs text-slate-500">
                     {t('runtimes.go_arch_desc_1')}<strong>windows/amd64</strong>{t('runtimes.go_arch_desc_2')}

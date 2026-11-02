@@ -390,7 +390,7 @@ export default function QrMain() {
                                         <button
                                             type="button"
                                             onClick={() => setContactSub('vcard')}
-                                            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all flex items-center gap-1.5 cursor-pointer ${
+                                            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer ${
                                                 contactSub === 'vcard'
                                                     ? 'bg-white dark:bg-slate-800 text-primary shadow-sm font-semibold'
                                                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -402,7 +402,7 @@ export default function QrMain() {
                                         <button
                                             type="button"
                                             onClick={() => setContactSub('email')}
-                                            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all flex items-center gap-1.5 cursor-pointer ${
+                                            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer ${
                                                 contactSub === 'email'
                                                     ? 'bg-white dark:bg-slate-800 text-primary shadow-sm font-semibold'
                                                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -414,7 +414,7 @@ export default function QrMain() {
                                         <button
                                             type="button"
                                             onClick={() => setContactSub('sms')}
-                                            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all flex items-center gap-1.5 cursor-pointer ${
+                                            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer ${
                                                 contactSub === 'sms'
                                                     ? 'bg-white dark:bg-slate-800 text-primary shadow-sm font-semibold'
                                                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'

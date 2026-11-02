@@ -248,6 +248,19 @@ def test_php_install_version_exception(php_mgr):
                         mock_remove.assert_called_once()
                         mock_rmtree.assert_called_once()
 
+def test_php_install_version_cancelled(php_mgr):
+    from core.utils.cancellation import OperationCancelledError
+    with patch('core.services.php.os.path.exists', side_effect=[False, True, True]), \
+         patch('core.services.php.os.makedirs'), \
+         patch.object(php_mgr, '_download_php_archive', side_effect=OperationCancelledError("dl cancelled")), \
+         patch('core.services.php.os.remove') as mock_remove, \
+         patch('core.services.php.shutil.rmtree') as mock_rmtree:
+        res = php_mgr.install_version("8.2", "php.zip", 9000)
+        assert res['status'] == 'cancelled'
+        assert res['message'] == 'backend.php.install_cancelled'
+        mock_remove.assert_called_once()
+        mock_rmtree.assert_called_once()
+
 @patch('urllib.request.urlopen')
 def test_php_get_available_versions(mock_urlopen, php_mgr):
     mock_response = MagicMock()

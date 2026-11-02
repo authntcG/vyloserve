@@ -63,16 +63,22 @@ export default function RecentProjectsSection(props: RecentProjectsSectionProps)
                         <button
                             type="button"
                             onClick={() => onOpenBrowser(proj.domain)}
-                            className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-xs font-medium py-1.5 px-3 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm outline-none"
+                            title={t('dashboard.open')}
+                            aria-label={t('dashboard.open')}
+                            className="flex-1 min-w-0 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-xs font-medium py-1.5 px-3 rounded-lg transition-[transform,colors] active:scale-95 flex items-center justify-center gap-1.5 shadow-sm outline-none"
                         >
-                            <span className="material-symbols-outlined text-[16px]">public</span> {t('dashboard.open')}
+                            <span className="material-symbols-outlined text-[16px] shrink-0">public</span>
+                            <span className="truncate">{t('dashboard.open')}</span>
                         </button>
                         <button
                             type="button"
                             onClick={() => onOpenDir(proj.path)}
-                            className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-xs font-medium py-1.5 px-3 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm outline-none"
+                            title={t('dashboard.folder')}
+                            aria-label={t('dashboard.folder')}
+                            className="flex-1 min-w-0 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-xs font-medium py-1.5 px-3 rounded-lg transition-[transform,colors] active:scale-95 flex items-center justify-center gap-1.5 shadow-sm outline-none"
                         >
-                            <span className="material-symbols-outlined text-[16px]">folder</span> {t('dashboard.folder')}
+                            <span className="material-symbols-outlined text-[16px] shrink-0">folder</span>
+                            <span className="truncate">{t('dashboard.folder')}</span>
                         </button>
                     </div>
                 </div>

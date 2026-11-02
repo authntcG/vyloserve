@@ -309,6 +309,24 @@ def test_download_thread_network_failure_resets_state_and_logs_error(mock_urlope
     )
     updater.api.emit_progress.assert_called_with(100, "backend.updater.download_failed", {})
 
+@patch('core.services.updater.os.makedirs')
+@patch('core.services.updater.os.path.exists', return_value=True)
+@patch('core.services.updater.os.remove')
+@patch('core.services.updater.urllib.request.urlopen')
+def test_download_thread_cancelled_cleans_up(mock_urlopen, mock_remove, mock_exists, mock_makedirs, updater):
+    from core.utils.cancellation import InstallationManager
+    token = InstallationManager.get_token("updater")
+    token.cancel()
+
+    updater._download_thread("http://url/setup.exe", "setup.exe")
+
+    assert updater.state["is_downloading"] is False
+    assert updater.state["progress_percent"] == 0
+    assert updater.state["progress_text"] == "backend.updater.download_cancelled"
+    mock_remove.assert_called_once()
+    updater.api.emit_log.assert_called_with("backend.updater.download_cancelled", "warn")
+    updater.api.emit_progress.assert_called_with(0, "backend.updater.download_cancelled", {})
+
 def test_install_update_not_ready_returns_error(updater):
     updater.state["is_ready"] = False
     res = updater.install_update()

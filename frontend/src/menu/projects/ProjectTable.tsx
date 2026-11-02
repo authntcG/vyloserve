@@ -233,7 +233,7 @@ export default function ProjectTable({
                             >
                                 <span className="material-symbols-outlined text-[18px]">more_vert</span>
                             </button>
-                            <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-20 opacity-0 invisible group-hover/menu:opacity-100 group-hover/menu:visible transition-all duration-150">
+                            <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-20 opacity-0 invisible group-hover/menu:opacity-100 group-hover/menu:visible transition-[opacity,visibility] duration-150">
                                 <button
                                     type="button"
                                     onClick={() => onOpenDocumentRoot(project.path)}

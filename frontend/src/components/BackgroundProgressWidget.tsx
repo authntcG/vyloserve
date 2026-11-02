@@ -7,6 +7,8 @@ interface BackgroundProgressWidgetProps {
     readonly progressText: string;       // Teks deskripsi saat ini
     readonly title?: string;             // Judul widget (default: "Installing...")
     readonly onRestore: () => void;      // Fungsi saat widget diklik untuk membuka kembali modal
+    readonly onCancel?: () => void;      // Fungsi pembatalan proses instalasi
+    readonly isCancelling?: boolean;     // Status apakah sedang dalam proses pembatalan
 }
 
 export default function BackgroundProgressWidget({
@@ -14,7 +16,9 @@ export default function BackgroundProgressWidget({
     progress,
     progressText,
     title,
-    onRestore
+    onRestore,
+    onCancel,
+    isCancelling = false
 }: BackgroundProgressWidgetProps) {
     const { t } = useTranslation();
     
@@ -24,9 +28,16 @@ export default function BackgroundProgressWidget({
     const displayTitle = title || t('components.progress.installing');
 
     return (
-        <button
-            type="button"
+        <div
+            role="button"
+            tabIndex={0}
             onClick={onRestore}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onRestore();
+                }
+            }}
             aria-label={displayTitle}
             className="fixed bottom-6 right-6 w-80 text-left bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl rounded-xl p-4 z-50 flex flex-col gap-2 animate-in slide-in-from-bottom-5 fade-in duration-300 cursor-pointer hover:border-primary/50 transition-colors group"
         >
@@ -35,7 +46,28 @@ export default function BackgroundProgressWidget({
                     <span className="material-symbols-outlined text-[14px] text-primary animate-spin">sync</span>
                     {displayTitle}
                 </span>
-                <span className="material-symbols-outlined text-[16px] text-slate-400 group-hover:text-primary transition-colors">open_in_full</span>
+                <div className="flex items-center gap-1">
+                    {onCancel && (
+                        <button
+                            type="button"
+                            disabled={isCancelling}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onCancel();
+                            }}
+                            title={t('common.cancel_install')}
+                            aria-label={t('common.cancel_install')}
+                            className="w-6 h-6 flex items-center justify-center rounded-md text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none cursor-pointer"
+                        >
+                            <span className={`material-symbols-outlined text-[16px] leading-none ${isCancelling ? 'animate-spin' : ''}`}>
+                                {isCancelling ? 'progress_activity' : 'cancel'}
+                            </span>
+                        </button>
+                    )}
+                    <span className="w-6 h-6 flex items-center justify-center text-slate-400 group-hover:text-primary transition-colors">
+                        <span className="material-symbols-outlined text-[16px] leading-none">open_in_full</span>
+                    </span>
+                </div>
             </div>
 
             <div className="flex justify-between items-center">
@@ -44,6 +76,6 @@ export default function BackgroundProgressWidget({
             </div>
 
             <ProgressBar percent={progress} />
-        </button>
+        </div>
     );
 }

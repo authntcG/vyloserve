@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import Card from '../../components/Card';
 import Button from '../../components/Button';
-import ViewModeToggle, { type ViewMode } from '../../components/ViewModeToggle';
+import ViewModeToggle from '../../components/ViewModeToggle';
+import { usePersistedViewMode } from '../../hooks/usePersistedViewMode';
 import ServiceToggleButton from '../../components/ServiceToggleButton';
 import BackgroundProgressWidget from '../../components/BackgroundProgressWidget';
 import PageHeader from '../../components/PageHeader';
@@ -32,12 +33,14 @@ function PhpMainView() {
         handleToggleStatus,
         handleOpenSettings,
         isInstalling,
+        isCancelling,
+        handleCancelInstall,
         isNewInstanceOpen,
         progress,
         progressText,
     } = usePhp();
 
-    const [viewMode, setViewMode] = useState<ViewMode>('card');
+    const [viewMode, setViewMode] = usePersistedViewMode('php', 'card');
 
     const updateMap = useMemo(() => {
         const map: Record<string, { version: string; filename: string } | null> = {};
@@ -157,8 +160,15 @@ function PhpMainView() {
                                                             stopping: t('php.stopping'),
                                                         }}
                                                     />
-                                                    <button type="button" onClick={() => handleOpenSettings(php)} className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
-                                                        <span className="material-symbols-outlined text-[18px]">tune</span> {t('php.config')}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleOpenSettings(php)}
+                                                        title={t('php.config')}
+                                                        aria-label={t('php.config')}
+                                                        className="flex-1 min-w-0 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-3 rounded-lg transition-[transform,colors] active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
+                                                    >
+                                                        <span className="material-symbols-outlined text-[18px] shrink-0">tune</span>
+                                                        <span className="truncate">{t('php.config')}</span>
                                                     </button>
                                                 </>
                                             }
@@ -191,6 +201,8 @@ function PhpMainView() {
                 progressText={progressText}
                 title={t('php.processing')}
                 onRestore={openNewInstanceModal}
+                onCancel={handleCancelInstall}
+                isCancelling={isCancelling}
             />
 
             <PhpNewInstanceModal />

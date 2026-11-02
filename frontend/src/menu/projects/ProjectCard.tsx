@@ -30,6 +30,9 @@ export default function ProjectCard({
 }: ProjectCardProps) {
     const { t } = useTranslation();
 
+    const secondaryBtnClass =
+        'flex-1 min-w-0 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-3 rounded-lg transition-[transform,colors] active:scale-95 flex items-center justify-center gap-1.5 shadow-sm';
+
     const getRuntimeBadge = () => {
         if (project.project_type && project.project_type !== 'php') {
             return (
@@ -120,9 +123,11 @@ export default function ProjectCard({
                             <button
                                 type="button"
                                 onClick={() => onStopServer?.(project.id)}
-                                className="flex-1 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-sm font-medium py-2 px-3 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
+                                title={t('projects.stop_server')}
+                                aria-label={t('projects.stop_server')}
+                                className="flex-1 min-w-0 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-sm font-medium py-2 px-3 rounded-lg transition-[transform,colors] active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
                             >
-                                <span className="material-symbols-outlined text-[18px] text-rose-600 dark:text-rose-400">stop_circle</span>
+                                <span className="material-symbols-outlined text-[18px] text-rose-600 dark:text-rose-400 shrink-0">stop_circle</span>
                                 <span className="truncate">{t('projects.stop_server')}</span>
                             </button>
                         ) : (
@@ -130,9 +135,11 @@ export default function ProjectCard({
                                 type="button"
                                 disabled={serverInfo?.starting}
                                 onClick={() => onStartServer?.(project.id)}
-                                className="flex-1 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 disabled:opacity-60 text-sm font-medium py-2 px-3 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
+                                title={serverInfo?.starting ? t('projects.server_starting') : t('projects.start_server')}
+                                aria-label={serverInfo?.starting ? t('projects.server_starting') : t('projects.start_server')}
+                                className="flex-1 min-w-0 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 disabled:opacity-60 text-sm font-medium py-2 px-3 rounded-lg transition-[transform,colors] active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
                             >
-                                <span className={`material-symbols-outlined text-[18px] text-emerald-600 dark:text-emerald-400 ${serverInfo?.starting ? 'animate-spin' : ''}`}>
+                                <span className={`material-symbols-outlined text-[18px] text-emerald-600 dark:text-emerald-400 shrink-0 ${serverInfo?.starting ? 'animate-spin' : ''}`}>
                                     {serverInfo?.starting ? 'progress_activity' : 'play_circle'}
                                 </span>
                                 <span className="truncate">{serverInfo?.starting ? t('projects.server_starting') : t('projects.start_server')}</span>
@@ -141,9 +148,11 @@ export default function ProjectCard({
                         <button
                             type="button"
                             onClick={() => onOpenBrowser(project.domain)}
-                            className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-3 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
+                            title={t('apache.open_in_browser')}
+                            aria-label={t('apache.open_in_browser')}
+                            className={secondaryBtnClass}
                         >
-                            <span className="material-symbols-outlined text-[18px]">open_in_browser</span>
+                            <span className="material-symbols-outlined text-[18px] shrink-0">open_in_browser</span>
                             <span className="truncate">{t('apache.open_in_browser')}</span>
                         </button>
                     </>
@@ -152,16 +161,22 @@ export default function ProjectCard({
                         <button
                             type="button"
                             onClick={() => onOpenBrowser(project.domain)}
-                            className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm"
+                            title={t('apache.open_in_browser')}
+                            aria-label={t('apache.open_in_browser')}
+                            className={secondaryBtnClass}
                         >
-                            <span className="material-symbols-outlined text-[18px]">open_in_browser</span> {t('apache.open_in_browser')}
+                            <span className="material-symbols-outlined text-[18px] shrink-0">open_in_browser</span>
+                            <span className="truncate">{t('apache.open_in_browser')}</span>
                         </button>
                         <button
                             type="button"
                             onClick={() => onOpenSettings(project.id)}
-                            className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm"
+                            title={t('apache.setup')}
+                            aria-label={t('apache.setup')}
+                            className={secondaryBtnClass}
                         >
-                            <span className="material-symbols-outlined text-[18px]">settings</span> {t('apache.setup')}
+                            <span className="material-symbols-outlined text-[18px] shrink-0">settings</span>
+                            <span className="truncate">{t('apache.setup')}</span>
                         </button>
                     </>
                 )

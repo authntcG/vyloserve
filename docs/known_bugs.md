@@ -1015,5 +1015,279 @@ Google telah menghentikan akses (*deprecated / sunset*) ke model `gemini-2.0-fla
   5. *Kartu Blok Kode dengan Tombol Salin Mandiri (`MarkdownPre`):* Menggantikan tag `<pre>` standar dengan kontainer kartu kode interaktif (`MarkdownPre`). Kontainer ini menyajikan header gelap elegan dengan lencana bahasa (misal `JAVASCRIPT`, `PYTHON`, `BASH`, `CODE`) dan tombol salin snippet kode (`tools.docs_reader.copy_code`) dengan status feedback visual instan (`tools.docs_reader.copied`).
   6. *Pengujian Menyeluruh & Paritas i18n:* Menambahkan unit test di `AppInterceptor.test.tsx` (menu konteks untuk seleksi teks pada dokumen), `MarkdownRenderer.test.tsx` (pembersihan komentar RAG dan tombol copy code), serta `Main.test.tsx` (verifikasi breakpoint responsif < 1233px, alignment gap, dan tombol copy markdown). Seluruh 252 tes unit komponen, 25 tes vitest markdown viewer, tes paritas i18n, 20 tes pytest backend, dan build produksi TypeScript lulus 100%.
 
+## 80. Optimasi Performa Window Resize: Eliminasi Layout Thrashing CSS (`transition-all`), ConPTY IPC Throttling, W3C CSS Containment & Native WinForms Frame Throttling Tanpa Mematikan Animasi CSS — SELESAI
+- **Lokasi:**
+  - `frontend/src/components/Card.tsx`
+  - `frontend/src/components/Sidebar.tsx`
+  - `frontend/src/components/Modal.tsx`
+  - `frontend/src/components/ProgressBar.tsx`
+  - `frontend/src/components/ToggleSwitch.tsx`
+  - `frontend/src/components/DataTable.tsx`
+  - `frontend/src/components/FilterChips.tsx`
+  - `frontend/src/components/ViewModeToggle.tsx`
+  - `frontend/src/components/ServiceToggleButton.tsx`
+  - `frontend/src/components/CompactFileDropzone.tsx`
+  - `frontend/src/components/NotificationBell.tsx`
+  - `frontend/src/components/Select.tsx`
+  - `frontend/src/menu/dashboard/components/GlobalControlPanel.tsx`
+  - `frontend/src/menu/dashboard/components/RecentProjectsSection.tsx`
+  - `frontend/src/menu/apache/Main.tsx`
+  - `frontend/src/menu/php/Main.tsx`
+  - `frontend/src/menu/php/Settings.tsx`
+  - `frontend/src/menu/projects/Main.tsx`
+  - `frontend/src/menu/projects/NewProject.tsx`
+  - `frontend/src/menu/projects/ProjectCard.tsx`
+  - `frontend/src/menu/projects/ProjectTable.tsx`
+  - `frontend/src/menu/runtimes/InstallJava.tsx`
+  - `frontend/src/menu/runtimes/InstallNode.tsx`
+  - `frontend/src/menu/runtimes/InstallPython.tsx`
+  - `frontend/src/menu/runtimes/RuntimeEnginePanel.tsx`
+  - `frontend/src/menu/tools/ai-assistant/Main.tsx`
+  - `frontend/src/menu/tools/ai-assistant/components/AiActionCard.tsx`
+  - `frontend/src/menu/tools/ai-assistant/components/AiChatInput.tsx`
+  - `frontend/src/menu/tools/ai-assistant/components/AiFloatingWidget.tsx`
+  - `frontend/src/menu/tools/ai-assistant/components/AiSuggestionChips.tsx`
+  - `frontend/src/menu/tools/git/GitComponents.tsx`
+  - `frontend/src/menu/tools/qr-generator/Main.tsx`
+  - `frontend/src/menu/tools/settings/SettingsModals.tsx`
+  - `frontend/src/menu/tools/terminal/components/TerminalConfigModal.tsx`
+  - `frontend/src/menu/tools/terminal/components/TerminalEnvModal.tsx`
+  - `frontend/src/menu/tools/terminal/components/TerminalSettingsModal.tsx`
+  - `frontend/src/menu/tools/terminal/components/TerminalPresetsMenu.tsx`
+  - `frontend/src/menu/tools/terminal/components/TerminalTabBar.tsx`
+  - `frontend/src/menu/tools/terminal/components/TerminalInstance.tsx`
+  - `frontend/src/menu/tools/tunnels/TunnelsComponents.tsx`
+  - `frontend/src/menu/tools/tunnels/TunnelsInstallModal.tsx`
+  - `frontend/src/index.css`
+  - `frontend/src/App.tsx`
+  - `main.py`
+  - `tests/test_main.py`
+- **Masalah:**
+  1. *Forced Reflow & Layout Thrashing akibat `transition-all` Global:* Pada seluruh aplikasi, utility Tailwind CSS `transition-all` diterapkan secara bebas pada kontainer struktural utama (seperti `Card`, `Sidebar`, modal overlay/dialog, `GlobalControlPanel`, form input collapse, dan tombol-tombol modul). Saat pengguna melakukan drag resize pada jendela aplikasi, engine Chromium WebView2 memicu kalkulasi ulang style (*forced reflow/layout*) pada setiap perubahan ukuran piksel untuk semua properti geometris (`width`, `height`, `padding`, `margin`, `box-shadow`, dll). Pada layout lebar dan kompleks dengan puluhan elemen bersarang, hal ini menyebabkan CPU spike dan visual stuttering/lag yang sangat terasa saat memperbesar atau memperkecil jendela.
+  2. *ConPTY Pseudoconsole IPC Flooding saat Window Resizing:* Pada modul Terminal, callback `ResizeObserver` memanggil `fitAddon.fit()` dan langsung mengeksekusi panggilan IPC `api.resize_terminal(sessionId, cols, rows)` secara sinkron tanpa jeda/debounce pada setiap perubahan fraksi dimensi container. Selama drag window resize (yang dapat menembakkan puluhan event per detik), antrean IPC backend Python ke Windows ConPTY pseudoconsole (`ptyprocess` / `winpty`) mengalami saturasi thread lock contention (`TerminalManager._lock`), menyebabkan bottleneck berat di proses Python dan UI freeze sekilas pada xterm.js.
+  3. *Unthrottled `window.addEventListener('resize')` pada Pop-up & Dropdown Floating:* Sejumlah komponen portal dan pop-up mengambang (`NotificationBell`, `Select`, `TerminalTabBar`, `TerminalPresetsMenu`) memasang listener event `resize` pada `window` untuk memperbarui koordinat posisi (`updatePosition`). Panggilan `getBoundingClientRect()` yang dieksekusi terus-menerus tanpa pembatas frame menyebabkan style recalculation berulang-ulang di tengah proses rendering browser.
+  4. *Saturasi Message Pump Win32 & Synchronous COM IPC `put_Bounds` saat Drag Frame Jendela:* Ketika pengguna melakukan drag resize pada border native jendela Windows, Windows masuk ke modal sizing loop (`WM_ENTERSIZEMOVE` / `WM_SIZING`). Kontrol WebView2 di WinForms terpasang dengan `Dock = DockStyle.Fill`, memicu panggilan COM sinkron `ICoreWebView2Controller::put_Bounds()` di setiap piksel pergeseran mouse (100-200 kali per detik). Panggilan COM sinkron ini memblokir main UI thread Windows, sehingga kursor mouse bergerak mendahului border jendela dan menimbulkan delay/stutter fisik yang berat.
+- **Solusi:**
+  1. *Eliminasi Total `transition-all` & Pergantian ke Transisi Bertarget:* Menghapus 100% kemunculan utility `transition-all` di seluruh source code frontend (`frontend/src/`). Menggantikannya dengan transisi spesifik yang GPU-friendly dan tidak memicu layout reflow:
+     - Efek warna/tema: `transition-colors` (atau `transition-[colors,border-color]`).
+     - Efek interaksi hover/press: `transition-[transform,colors]` atau `transition-transform`.
+     - Efek shadow: `transition-shadow`.
+     - Efek modal/overlay dan visibility: `transition-[opacity,visibility]`.
+     - Indikator progress bar: `transition-[width] ease-out`.
+     - Accordion/collapse expand: `transition-[max-height,opacity]` atau `transition-[max-width,opacity]`.
+     - Sidebar container width: `transition-[width,transform]`.
+  2. *Pemisahan Render Fit & ConPTY Debouncing pada `TerminalInstance.tsx`:*
+     - Membungkus kalkulasi visual `fitAddon.fit()` di dalam `requestAnimationFrame` dengan guard status frame (`isRafScheduledRef`), membatasi eksekusi layout xterm.js maksimal 1 kali per vsync frame (60/120 Hz).
+     - Menerapkan debouncing 100ms dengan trailing edge untuk IPC backend `api.resize_terminal()`, sehingga ConPTY Windows pseudoconsole hanya menerima pembaruan ukuran baris/kolom ketika gerakan resize pengguna telah stabil atau selesai, menghapus thread contention sepenuhnya.
+     - Membersihkan seluruh timer rAF dan timeout secara aman saat unmount komponen (`cleanup`).
+  3. *Throttling Event Listener Viewport via `requestAnimationFrame`:* Membungkus fungsi `updatePosition` pada event listener `resize` di `NotificationBell`, `Select`, `TerminalTabBar`, dan `TerminalPresetsMenu` dengan rAF throttling. Hal ini memastikan pembacaan `getBoundingClientRect()` dan penyesuaian posisi floating dropdown hanya berjalan satu kali per animation frame.
+  4. *Direct GPU Painting, Eliminasi GDI+ DoubleBuffering & Pemeliharaan Animasi CSS Live (`main.py`):*
+     - Menghapus penggunaan `self.SuspendLayout()` dan throttling layout form pada saat resizing. Penangguhan layout (`SuspendLayout`) sebelumnya menyebabkan WinForms menghentikan *paint dispatching* ke kontrol anak, yang memicu Chromium menahan (*pause*) loop `requestAnimationFrame` dan timer animasi CSS selama mouse bergerak. Tanpa `SuspendLayout`, seluruh animasi CSS, keyframe spinner, dan transisi UI tetap hidup dan berputar 100% *live* saat jendela di-drag.
+     - Mematikan `self.DoubleBuffered = False` pada `BrowserForm`. Pada WinForms, `DoubleBuffered = True` memaksa Form mengalokasikan bitmap GDI+ CPU berukuran penuh yang berbenturan dengan DirectX DirectComposition swapchain milik WebView2 dan memicu lonjakan penggunaan CPU.
+     - Menyetel style WinForms host secara selektif:
+       ```python
+       self.SetStyle(cs.AllPaintingInWmPaint, True)
+       ```
+       Hal ini mengabaikan `WM_ERASEBKGND` dan mengurangi flicker tanpa mematikan `UserPaint` bawaan WinForms (`UserPaint=True`). CATATAN PENTING: `UserPaint=False` atau `Opaque=True` dilarang disetel di sini karena membatalkan lukisan `self.BackColor` tema gelap WinForms dan memicu Windows `DefWindowProc` melukis kuas `COLOR_WINDOW` (putih polos), yang sempat menimbulkan regresi *Flash of White* (FOIT) selama 100–300ms saat startup.
+     - Untuk evaluasi masa depan bila antarmuka bertambah kompleks dan limitasi jembatan COM WinForms membutuhkan fluiditas 144Hz selevel aplikasi native/VS Code, roadmap migrasi shell desktop ke **Electron + Python Sidecar Architecture** telah didokumentasikan di `docs/architecture_and_flow.md` §13.
+  5. *Akselerasi Grafis Chromium & Eliminasi Occlusion Stall Tanpa Mematikan Animasi CSS:*
+     - Mengabaikan pendekatan penonaktifan CSS (`transition: none !important` / `html.is-resizing`) agar seluruh animasi antarmuka, hover button, badge, dan transisi UI tetap hidup dan interaktif 100% setiap saat.
+     - Menyetel flag hardware acceleration Chromium via `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`:
+       `--enable-gpu-rasterization --ignore-gpu-blocklist --enable-zero-copy --disable-features=CalculateNativeWinOcclusion`.
+       Flag `--disable-features=CalculateNativeWinOcclusion` secara khusus menghentikan algoritma kalkulasi oklusi native Windows di Chromium yang sering menyebabkan render stall dan stutter ketika jendela di-drag/di-resize pada wrapper desktop.
+  6. *Pengujian & Verifikasi Menyeluruh:* Seluruh 252 tes unit komponen (`tests/components/`), 15 tes terminal vitest, 569 tes modul menu (`tests/menu/`), tes paritas i18n (`tests/i18n.test.ts`), 67 tes backend pytest (`test_main.py`, `test_terminal.py`, `test_i18n_keys.py`), serta build produksi TypeScript (`tsc -b && vite build`) lulus 100% tanpa error maupun regresi.
+
+## 81. Modal Viewport Trapping Akibat CSS Containment & Diskoneksi Warna Header/Startup Tema Baru — SELESAI
+- **Lokasi:**
+  - `frontend/src/App.tsx`
+  - `frontend/src/index.css`
+  - `core/utils/system_utils.py`
+  - `tests/test_utils/test_system_utils.py`
+- **Masalah:**
+  1. *Modal Terperangkap di Area Konten (`fixed inset-0` Viewport Clipping):* Pada pengujian sebelumnya, utility `.contain-content { contain: content; }` diterapkan pada kontainer scrollable utama di `App.tsx`. Sesuai spesifikasi W3C CSS Containment, `contain: content` (yang mencakup `contain: paint`) menciptakan *containing block* baru bagi seluruh elemen turunan berposisi `position: fixed`. Akibatnya, seluruh modal aplikasi (`<Modal>` di `Modal.tsx`, modal settings, form wizard, alert dialog, dsb.) yang menggunakan `fixed inset-0 z-[100]` terperangkap di dalam area konten utama (terjepit di antara sidebar navigasi dan panel log) dan gagal menutupi seluruh layar viewport.
+  2. *Inkonsistensi Warna Header (Titlebar DWM) & Background Startup pada 4 Tema Baru:* Pada 4 preset tema baru (`tokyo-night-dark`, `gruvbox-dark`, `xp-zune-dark`, `catppuccin-dark`), nilai `"bg"` pada `THEME_TITLEBAR_CONFIGS` di `system_utils.py` menggunakan warna `slate-950` yang lebih gelap daripada warna latar kanvas aplikasi (`slate-900`). Hal ini menciptakan diskoneksi kontras visual: titlebar jendela native Windows dan warna kanvas awal saat aplikasi dibuka lebih gelap dibanding warna antarmuka aplikasi, berbeda dari tema-tema sebelumnya (`vyloserve-dark`, `darcula-dark`, `solarized-dark`, `monokai-dark`, `dracula-dark`, `nord-dark`) yang selalu 100% identik dengan warna latar aplikasi.
+- **Solusi:**
+  1. *Eliminasi `contain-content` dari Layout App & CSS:* Menghapus kelas `contain-content` dari elemen pembungkus utama di `App.tsx` dan menghapus definisinya dari `index.css`. Seluruh modal aplikasi kini kembali menutupi seluruh viewport jendela secara penuh di atas Sidebar, HeaderMobile, dan LogsPanel.
+  2. *Penyelarasan Palet Header & Startup Tema Baru:*
+     - Di `core/utils/system_utils.py`, menyelaraskan nilai `"bg"` pada `THEME_TITLEBAR_CONFIGS` agar identik dengan warna kanvas aplikasi (`slate-900`):
+       - `tokyo-night-dark`: `"bg": "#1a1b26"` (sebelumnya `#16161e`)
+       - `gruvbox-dark`: `"bg": "#282828"` (sebelumnya `#1d2021`)
+       - `xp-zune-dark`: `"bg": "#1e1e21"` (sebelumnya `#1b1b1d`)
+       - `catppuccin-dark`: `"bg": "#1e1e2e"` (sebelumnya `#181825`)
+     - Di `frontend/src/index.css`, menyelaraskan `--theme-slate-900` pada `catppuccin-dark` ke `#1e1e2e` (Catppuccin Mocha Base, sesuai dengan swatch di pengaturan) dan `--theme-slate-800` ke `#313244` (Surface0 untuk border).
+  3. *Pembaruan Unit Test & Verifikasi:* Memperbarui nilai ekspektasi pada `test_get_theme_titlebar_palette_presets` di `tests/test_utils/test_system_utils.py`. Seluruh 93 tes pytest backend, 38 tes vitest Modal/Sidebar, tes paritas i18n, serta build produksi TypeScript/Vite lulus 100% tanpa error. Format baris LF murni (`\n`) terjaga pada semua berkas.
+## 82. Glitch Animasi Fade-In Modal Pertama Kali, Visibilitas Floating AI, & Persistensi Status Maximized/View Mode — SELESAI
+- **Lokasi:**
+  - `frontend/src/components/Modal.tsx`
+  - `frontend/src/menu/tools/ai-assistant/components/AiFloatingWidget.tsx`
+  - `frontend/src/context/AiContext.tsx`
+  - `frontend/src/menu/tools/settings/SettingsModals.tsx`
+  - `frontend/src/hooks/usePersistedViewMode.ts`
+  - `frontend/src/menu/projects/Main.tsx`
+  - `frontend/src/menu/database/Main.tsx`
+  - `frontend/src/menu/php/Main.tsx`
+  - `frontend/src/context/RuntimesContext.tsx`
+  - `core/services/settings.py`
+  - `main.py`
+  - `tests/test_services/test_settings.py`
+  - `frontend/tests/hooks/usePersistedViewMode.test.ts`
+  - `frontend/tests/menu/tools/settings/SettingsModals.test.tsx`
+- **Masalah:**
+  1. *Modal Fade-In Glitch pada Pembukaan Pertama Kali:* Ketika modal dibuka untuk pertama kali pada setiap modul, animasi fade-in & scale-up terlewati (modal muncul kaku/abrupt). Pada penutupan dan pembukaan berikutnya, animasi berjalan normal. Hal ini terjadi akibat commit DOM React 18 yang baru memasang elemen ke render tree dan memproses `requestAnimationFrame` tanpa layout reflow paksa (`offsetHeight`), sehingga Chromium/WebView2 tidak memiliki computed style awal (`opacity: 0`) dan langsung melompat ke style akhir. Selain itu, kotak dialog modal sebelumnya hanya memiliki `transition-transform` tanpa `opacity`.
+  2. *Floating AI Widget Tidak Muncul Saat Diaktifkan:* Pengguna menyalakan opsi "Enable Floating Assistant" (`enable_floating_ai`) di modal pengaturan AI, namun widget tidak muncul di layar. Masalah ini disebabkan oleh:
+     - Guard `activeScreen === 'ai-assistant'` di `AiFloatingWidget.tsx` yang secara sengaja menyembunyikan widget saat berada di layar penuh AI Assistant (tempat modal pengaturan AI dibuka).
+     - Koordinat default saat inisialisasi belum di-clamp terhadap viewport, dan widget tidak memiliki window `resize` listener sehingga koordinat lama di `localStorage` dapat berada di luar batas layar (misal setelah jendela diperkecil dari maximized) dan terpotong oleh `overflow: hidden`.
+     - Ketiadaan kontrol pengaturan Floating AI di modal Pengaturan Utama (`SettingsModals.tsx`).
+  3. *Tidak Ada Persistensi Status Maximized:* Jendela desktop selalu terbuka dalam ukuran normal (1200x800) setiap kali restart aplikasi, meskipun pengguna sebelumnya meninggalkannya dalam mode Maximized.
+  4. *Tidak Ada Persistensi Pilihan View Mode (Table vs Card):* Pilihan tampilan Table vs Card di Projects Hub, Database, PHP, dan Runtimes selalu kembali ke default saat navigasi menu atau restart.
+- **Solusi:**
+  1. *Forced Reflow & Transisi Opacity Modal:* Menambahkan `containerRef` dan `void dialogRef.current.offsetHeight` di dalam `requestAnimationFrame` pada `Modal.tsx` sebelum kelas `isVisible` diaktifkan, serta menambahkan transisi `opacity` pada kotak modal (`transition-[transform,opacity] duration-250 ease-out`).
+  2. *Viewport Clamping & Sinkronisasi Pengaturan Floating AI:*
+     - Membuat fungsi `clampFloatingPosition` yang menjamin koordinat FAB selalu berada dalam rentang aman (`[16, innerWidth - 64]`, `[16, innerHeight - 64]`) baik saat inisialisasi, perubahan state, maupun event window `resize`.
+     - Memvalidasi pembacaan posisi dari `localStorage` agar kebal terhadap data korup atau non-finite.
+     - Menambahkan kontrol toggle "Enable Floating Assistant" pada tab `General` di modal Pengaturan Utama (`SettingsModals.tsx`) yang tersinkronisasi instan via event `vylo_ai_settings_changed`.
+  3. *Persistensi Mode Jendela Maximized Native WinForms:*
+     - Menambahkan konfigurasi default `"window_maximized": False` di `core/services/settings.py`.
+     - Di `main.py`, membaca preferensi `get_saved_window_maximized()` dan meneruskannya ke parameter `maximized` pada `webview.create_window(...)`.
+     - Mendengarkan event WinForms `window.events.maximized` dan `window.events.restored` untuk memperbarui `window_maximized` ke `settings.json` secara real-time.
+  4. *Hook `usePersistedViewMode` Terdedikasi:*
+     - Membuat custom hook `frontend/src/hooks/usePersistedViewMode.ts` dengan validasi whitelist ketat (`'card' | 'table'`).
+     - Mengintegrasikan hook ini ke modul Projects (`'projects'`, default `'table'`), Database (`'database'`, default `'card'`), PHP (`'php'`, default `'card'`), dan Runtimes (`'runtimes'`, default `'card'`).
+  5. *Pengujian & Verifikasi Menyeluruh:*
+     - Menambahkan unit test baru `frontend/tests/hooks/usePersistedViewMode.test.ts` (6 tes lulus).
+     - Menambahkan unit test toggle Floating AI di `frontend/tests/menu/tools/settings/SettingsModals.test.tsx` (23 tes lulus).
+     - Memperbarui `tests/test_services/test_settings.py` di backend pytest (5 tes lulus).
+     - Seluruh 923 tes unit Vitest frontend dan 93 tes pytest backend lulus 100%. Build produksi TypeScript/Vite sukses tanpa error. Seluruh berkas mempertahankan format baris LF (`\n`).
+
+### 83. WinForms UI Thread Deadlock pada Window Close, Edge WebView2 Watchdog Crash, dan Terbentuknya Python/WebView2 Zombie Processes
+- **Lokasi:**
+  - `core/api.py`
+  - `main.py`
+  - `tests/test_main.py`
+  - `tests/test_services/test_api.py`
+- **Masalah:**
+  1. *WinForms UI Thread Deadlock:* Di `main.py`, event penutupan jendela `window.events.closing` (`on_closing()`) berjalan secara sinkron langsung di WinForms UI thread (`should_lock=True`). Ketika jendela ditutup, `on_closing()` memanggil `self.api.emit_window_state(hidden=True)` yang mengeksekusi `evaluate_js()`. Di pywebview backend `edgechromium`, `evaluate_js()` memanggil `semaphore.acquire()` pada thread pemanggil (WinForms STA UI thread, yang di Python terdeteksi sebagai `_DummyThread` / `Dummy-X`, BUKAN `threading.main_thread()`) sambil menunggu kelanjutan skrip (`ContinueWith`) yang dijadwalkan pada `self.syncContextTaskScheduler` (yang juga WinForms UI thread). Karena UI thread terblokir menunggu semaphore, message pump terhenti, continuation tidak pernah dieksekusi, dan aplikasi mengalami deadlock total permanen sehingga jendela menjadi "Not Responding".
+  2. *Edge WebView2 Watchdog Crash:* Karena proses host UI thread membeku dan tidak memompa pesan Windows, watchdog internal IPC Chromium menganggap host macet dan menerminasi proses pembantu WebView2 (`msedgewebview2.exe`). Selain itu, flag `--disable-features=CalculateNativeWinOcclusion` melarang Chromium mendeteksi oklusi native secara wajar, sehingga unmapping HWND saat `window.hide()` memicu crash DXGI swapchain / DirectComposition.
+  3. *Zombie Processes (Python & WebView2):* Karena Python terhenti di `semaphore.acquire()`, aplikasi tidak pernah mencapai alur shutdown bersih di `lifecycle.perform_exit()` atau `os._exit(0)`. Saat jendela disembunyikan (`window.hide()`), visual jendela dan ikon taskbar hilang dari pandangan, tetapi proses `python.exe` dan proses anak `msedgewebview2.exe` tetap hidup di latar belakang Windows Task Manager sebagai proses zombie.
+- **Solusi:**
+  1. *Helper Evaluasi JS Asinkron & Non-Blocking (`_safe_eval_js`):* Menambahkan metode `_safe_eval_js(self, script: str)` di `core/api.py`. Pada runtime pywebview nyata (bukan mock), seluruh evaluasi skrip selalu dialihkan ke background daemon thread (`threading.Thread(target=_execute, daemon=True).start()`) tanpa mempedulikan thread pemanggil (karena WinForms STA UI thread adalah .NET dummy thread dan pemanggilan sinkron dari thread mana pun yang memegang kaitan UI berisiko deadlock). Untuk lingkungan pengujian (`MagicMock`), evaluasi tetap berjalan sinkron agar asersi unit test terpenuhi tanpa race condition.
+  2. *Penghapusan Flag `--disable-features=CalculateNativeWinOcclusion`:* Menghapus flag ini dari argumen browser WebView2 di `main.py` dan tetap mempertahankan flag akselerasi GPU (`--enable-gpu-rasterization --ignore-gpu-blocklist --enable-zero-copy`). Hal ini memungkinkan Chromium mendeteksi status oklusi dan unmapping HWND secara native tanpa memicu crash swapchain GPU.
+  3. *Urutan Non-Blocking pada `AppLifecycle.on_closing()`:* Memanggil `self.api.emit_window_state(hidden=True)` sebelum `self.window.hide()` secara non-blocking sehingga event terkirim selagi kontrol WebView2 masih aktif.
+  4. *Reaping Child Processes pada `AppLifecycle.perform_exit()`:* Menambahkan metode `_cleanup_child_processes(self)` yang mencari dan mematikan seluruh proses anak yang di-spawn oleh PID saat ini menggunakan `psutil.Process(os.getpid()).children(recursive=True)` dengan timeout dan kill paksa sebelum `os._exit(0)`.
+  5. *Pengujian Unit & Verifikasi:*
+     - Menambahkan test di `tests/test_main.py` untuk `_cleanup_child_processes()` dan pemanggilan pada `perform_exit()`.
+     - Memperbarui `test_setup_windows_performance_optimizations_sets_chromium_flags` untuk memastikan flag disable occlusion tidak lagi digunakan.
+     - Menambahkan test di `tests/test_services/test_api.py` untuk memverifikasi `_safe_eval_js` mendispatch daemon thread pada window nyata.
+     - Seluruh 804 tes pytest backend dan 930 tes vitest frontend lulus 100%. Build produksi TypeScript/Vite sukses tanpa error. Seluruh berkas mempertahankan format baris LF (`\n`).
+
+### 84. AttributeError: 'Api' object has no attribute 'settings_manager' saat Window Maximize/Restore, dan Kemunculan Native Edge Context Menu di Seluruh Jendela Aplikasi
+- **Lokasi:**
+  - core/api.py
+  - main.py
+  - rontend/src/components/AppInterceptor.tsx
+  - rontend/tests/components/AppInterceptor.test.tsx
+  - 	ests/test_main.py
+  - 	ests/test_services/test_api.py
+- **Masalah:**
+  1. *AttributeError 'settings_manager':* Ketika window dimaksimalkan atau dikembalikan ke ukuran normal, event listener on_window_maximized dan on_window_restored di main.py memanggil pi.settings_manager.save_settings(...). Objek Api di core/api.py menyimpan instance sebagai self.settings, bukan self.settings_manager. Hal ini menyebabkan AttributeError: 'Api' object has no attribute 'settings_manager' tercetak ke stderr dan preferensi window maximized gagal tersimpan.
+  2. *Kemunculan Menu Konteks Default Edge:* Pengguna dapat memicu klik kanan browser Edge WebView2 bawaan (berisi Refresh, Inspect element, Back, Forward, Print, dll.) di area kosong jendela aplikasi. Karena VyloServe telah menyediakan menu klik kanan kustom pada komponen yang membutuhkan (seperti copy selection pada AppInterceptor dan menu terminal di TerminalInstance), menu bawaan browser menjadi anomali visual dan melanggar prinsip desktop app UI/UX, serta memaparkan opsi inspect/refresh yang tidak diinginkan pada runtime.
+- **Solusi:**
+  1. *Property Alias di Api dan Perbaikan Pemanggilan di main.py:*
+     - Di main.py, mengoreksi pemanggilan langsung menjadi pi.settings.save_settings(...).
+     - Di core/api.py, menambahkan property alias @property def settings_manager(self) (serta 
+untimes dan git) yang merujuk ke instance terkait untuk mencegah regresi jika modul lain memanggil nama tersebut.
+  2. *Supresi Native Context Menu Lintas Layer (Frontend DOM + Backend Engine):*
+     - *Frontend Interception:* Pada rontend/src/components/AppInterceptor.tsx, memanggil e.preventDefault() di baris paling awal handleContextMenu. Hal ini secara universal mencegah kemunculan context menu browser default di seluruh DOM, sambil tetap mempertahankan custom copy context menu jika ada teks yang dipilih/area log, serta tidak mengganggu komponen yang menangani context menu sendiri via e.stopPropagation().
+     - *Backend Engine Level Patch:* Pada main.py di dalam setup_windows_performance_optimizations(), mem-patch webview.platforms.edgechromium.EdgeChrome.on_webview_ready agar mengatur sender.CoreWebView2.Settings.AreDefaultContextMenusEnabled = False. Ini mematikan menu konteks bawaan Edge langsung di level engine WebView2 bahkan ketika pywebview berjalan dalam development mode (_state['debug'] = True).
+  3. *Unit Testing & Verifikasi:*
+     - Menambahkan unit test di rontend/tests/components/AppInterceptor.test.tsx untuk memastikan preventDefault selalu dipanggil pada setiap event contextmenu.
+     - Menambahkan unit test di 	ests/test_main.py (	est_setup_windows_performance_optimizations_disables_edge_default_context_menus) untuk memvalidasi patching WebView2 settings AreDefaultContextMenusEnabled = False.
+     - Menambahkan unit test di 	ests/test_services/test_api.py untuk menguji alias settings_manager, 
+untimes, dan git.
+     - Seluruh 808 tes pytest backend dan 931 tes vitest frontend lulus 100%. Build produksi TypeScript/Vite sukses tanpa error.
+
+### 85. Inkonsistensi Pembungkusan Teks Tombol 'Open in Browser' pada ProjectCard (PHP Card Wrapping ke 2 Baris)
+- **Lokasi:**
+  - `frontend/src/menu/projects/ProjectCard.tsx`
+  - `frontend/tests/menu/projects/ProjectCard.test.tsx`
+  - `frontend/src/menu/apache/Main.tsx`
+  - `frontend/src/menu/database/Main.tsx`
+  - `frontend/src/menu/php/Main.tsx`
+  - `frontend/src/menu/runtimes/RuntimeEnginePanel.tsx`
+  - `frontend/src/menu/dashboard/components/RecentProjectsSection.tsx`
+  - `frontend/src/components/ServiceToggleButton.tsx`
+- **Masalah:**
+  Pada card projek PHP di menu Projects (`ProjectCard.tsx`), tombol "Buka di Peramban" (`apache.open_in_browser`) dan "Pengaturan" (`apache.setup`) tidak dibungkus dalam `<span className="truncate">`, menggunakan padding `px-4` (lebih lebar), dan gap `gap-2`, tanpa `min-w-0`. Akibatnya, pada breakpoint resolusi layar tertentu atau saat grid card menyempit (misalnya resolusi laptop dengan scaling DPI Windows 125%), teks string multi-kata yang memiliki spasi ("Buka di Peramban" / "Open in Browser") terpecah menjadi 2 baris (line wrap), menyebabkan tinggi tombol membesar secara vertikal (~54px dibanding normal ~38px). Sebaliknya, pada card projek non-PHP (Node.js, Python, Go, Java), tombol "Open in Browser" telah dibungkus dalam `<span className="truncate">` dengan padding `px-3` dan `gap-1.5`, sehingga teks terpotong rapi dengan ellipsis dan tombol mempertahankan ukuran tinggi 1 baris normal. Anomali serupa juga ditemukan di tombol aksi footer pada modul Apache, Database, PHP, Runtimes, dan Dashboard.
+- **Solusi:**
+  1. *Standardisasi Tombol Aksi di `ProjectCard.tsx`:*
+     - Mengekstrak kelas tombol sekunder bersama `secondaryBtnClass` (`flex-1 min-w-0 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-3 rounded-lg transition-[transform,colors] active:scale-95 flex items-center justify-center gap-1.5 shadow-sm`).
+     - Membungkus seluruh teks label tombol footer pada projek PHP maupun non-PHP di dalam `<span className="truncate">` dan menambahkan `shrink-0` pada ikon.
+     - Menambahkan atribut `title` dan `aria-label` yang sesuai agar pengguna tetap dapat melihat teks lengkap saat terjadi truncation via tooltip native/screen reader.
+  2. *Standardisasi Pencegahan Line-Wrap di Komponen Terkait:*
+     - Menerapkan pola `min-w-0`, `px-3`, `gap-1.5`, `shrink-0` pada ikon, dan `<span className="truncate">` pada tombol footer di `apache/Main.tsx`, `database/Main.tsx`, `php/Main.tsx`, `runtimes/RuntimeEnginePanel.tsx`, `RecentProjectsSection.tsx`, dan `ServiceToggleButton.tsx`.
+  3. *Unit Testing & Verifikasi:*
+     - Membuat berkas unit test baru `frontend/tests/menu/projects/ProjectCard.test.tsx` (6 tes lulus) yang menguji kedua jenis card (PHP & Node) dalam kondisi stopped, starting, running, un-synced domain, dan memastikan keberadaan kelas `min-w-0` serta elemen `.truncate`.
+     - Seluruh 937 tes unit Vitest frontend (93 file) dan seluruh tes pytest backend lulus 100%. Build produksi TypeScript/Vite sukses tanpa error.
+
+### 86. Kemunculan Popup Konfirmasi Izin Edge WebView2 (Clipboard Paste) dan Dialog Skrip Browser Native
+- **Lokasi:**
+  - `main.py`
+  - `tests/test_main.py`
+- **Masalah:**
+  Pada eksekusi aksi di antarmuka pengguna seperti tombol Paste (`navigator.clipboard.readText()`) di modul Base64, QR Generator, URL Encoder/Decoder, atau Terminal, Microsoft Edge WebView2 secara default menerapkan model keamanan peramban web dan menampilkan popup konfirmasi izin native: *"localhost wants to see text and images copied to the clipboard [Allow] [Block]"*. Selain itu, jika terdapat dialog skrip browser (`window.confirm`, `window.alert`, autofill), Edge memunculkan modal dialog bawaan peramban yang merusak pengalaman desktop app native.
+- **Solusi:**
+  1. *Hooking CoreWebView2.PermissionRequested (Auto-Accept Permissions):*
+     - Di `main.py` pada hook `_clean_on_webview_ready`, mengikat event listener `sender.CoreWebView2.PermissionRequested`.
+     - Handler secara otomatis menyetel `args.State = CoreWebView2PermissionState.Allow` (1), `args.Handled = True`, dan `args.SavesInProfile = True`. Hal ini mengizinkan seluruh permintaan izin webview (terutama pembacaan clipboard secara asinkron) secara otomatis tanpa pernah menampilkan popup izin browser ke pengguna.
+  2. *Supresi Dialog Skrip Native Browser (`ScriptDialogOpening` & Settings):*
+     - Mengatur `sender.CoreWebView2.Settings.AreDefaultScriptDialogsEnabled = False`, `IsGeneralAutofillEnabled = False`, dan `IsPasswordAutosaveEnabled = False`.
+     - Mengikat listener `sender.CoreWebView2.ScriptDialogOpening` yang secara otomatis memanggil `args.Accept()`, mencegah dialog browser memblokir jalannya aplikasi.
+     - Seluruh alur konfirmasi pengguna di VyloServe tetap aman dan terkontrol penuh melalui custom React modal dialog (`useAlert().confirm(...)` dan `Modal.tsx`).
+  3. *Unit Testing & Verifikasi:*
+     - Memperbarui pengujian unit di `tests/test_main.py` (`test_setup_windows_performance_optimizations_configures_edge_webview2`) untuk memverifikasi pengaturan settings, event listener `PermissionRequested` (Allow & SavesInProfile), dan auto-accept pada `ScriptDialogOpening`.
+     - Seluruh 808 tes pytest backend dan 937 tes vitest frontend lulus 100%. Format baris terjaga strict LF (`\n`).
 
 
+### 87. Inkonsistensi Penanganan Kondisi Offline (No Internet Connection) Lintas Modul & Anomali Fallback Apache/PHP
+- **Lokasi:**
+  - `core/utils/network_utils.py`, `core/api.py`
+  - `core/services/apache.py`, `core/services/php.py`, `core/services/database.py`, `core/services/runtimes_manager.py`, `core/services/git_manager.py`, `core/services/tunnels.py`, `core/services/updater.py`
+  - `frontend/src/context/NetworkContext.tsx`, `frontend/src/components/OfflineBanner.tsx`
+  - `frontend/src/menu/apache/InstallWizard.tsx`, `ApacheInstallModal.tsx`
+  - `frontend/src/menu/php/NewInstance.tsx`
+  - `frontend/src/menu/database/NewInstance.tsx`, `DatabaseNewInstanceModal.tsx`
+  - `frontend/src/menu/runtimes/RuntimeVersionSelect.tsx`, `RuntimeInstallModal.tsx`, `InstallNode.tsx`, `InstallPython.tsx`, `InstallJava.tsx`, `InstallGo.tsx`
+  - `frontend/src/menu/tools/git/InstallGitModal.tsx`
+  - `frontend/src/menu/tools/tunnels/InstallTunnel.tsx`, `TunnelsInstallModal.tsx`, `Main.tsx`, `TunnelsComponents.tsx`
+  - `frontend/src/menu/projects/NewProject.tsx`
+  - `frontend/src/menu/tools/ai-assistant/Main.tsx`, `components/AiFloatingWidget.tsx`, `components/AiChatInput.tsx`
+  - `frontend/src/menu/tools/settings/SettingsModals.tsx`
+  - `tests/test_utils/test_network_utils.py`, `frontend/tests/context/NetworkContext.test.tsx`
+- **Masalah:**
+  Ketika VyloServe dijalankan tanpa koneksi internet (offline), sejumlah modul mengalami anomali UI/UX dan pelanggaran prinsip HCI:
+  1. *Apache Fake Success Fallback:* `ApacheManager.get_available_versions()` menangkap semua exception `urlopen` dan mengembalikan `"status": "success"` berisi versi hardcode `2.4.68`, sehingga pengguna tetap bisa menekan Install lalu gagal di tengah proses download.
+  2. *PHP Misleading Placeholder:* `php/NewInstance.tsx` menampilkan placeholder `"All PHP versions are already installed!"` (`php.all_versions_installed`) saat `availableVersions.length === 0`, padahal daftar versi kosong karena gagal mengambil data dari internet.
+  3. *Tidak Ada Barrier Proaktif (Error Prevention) & Recovery Terkontekstualisasi:* Modul Projects (`NewProject.tsx`), Tunnels (`Zrok` & `Cloudflare`), AI Assistant (Cloud Providers vs Local Ollama), dan Settings > Updates belum membedakan fitur yang 100% lokal dari fitur yang wajib internet, serta belum menyediakan aksi pemulihan 1-klik (`Retry`, `Use Raw Template (Offline)`, `Switch to Ollama (Local)`).
+- **Solusi:**
+  1. *Backend Network Probe & Klasifikasi Error (`core/utils/network_utils.py`):* Membuat helper `check_internet_connection()`, `is_network_error(exc)`, dan `build_offline_error_response()`, mengekspos `api.check_internet_connection()`, menghapus fallback palsu `2.4.68` saat `urlopen` melempar network error di `apache.py`, serta menyematkan flag `"is_offline": True` pada respons error jaringan di seluruh service terkait.
+  2. *Frontend `<NetworkProvider>` & Komponen `<OfflineBanner>`:* Menggabungkan event browser `online`/`offline` dengan verifikasi backend `api.check_internet_connection()` dan membuat komponen `<OfflineBanner>` reusable dengan tombol Retry dan slot `actionButton` kontekstual.
+  3. *Contextual Smart Barrier di 9 Modul:* Menerapkan barrier proaktif di seluruh modal instalasi, *Smart Partial Barrier* di `NewProject.tsx` (mengizinkan Link Existing & Raw Template saat offline + tombol 1-klik beralih ke Raw Template), membedakan Cloud AI vs Local Ollama di AI Assistant, serta menonaktifkan aksi jaringan di Tunnels dan App Updater saat offline.
+  4. *Unit Testing & Verifikasi:* Menambahkan `tests/test_utils/test_network_utils.py` dan `frontend/tests/context/NetworkContext.test.tsx`. Seluruh unit test (`pytest` & `vitest`) dan build produksi (`npm run build`) lulus tanpa error dengan format baris strict LF (`\n`).
+
+### 88. TypeError 'Cannot read properties of undefined' (`split` pada `compareVersions` dan `replaceAll` pada `GlobalControlPanel`) akibat Entri Database Kosong/Legacy
+- **Lokasi:**
+  - `core/services/database.py` (`_enrich_db_status`)
+  - `frontend/src/utils/version.ts` (`compareVersions`)
+  - `frontend/src/context/DatabaseContext.tsx` (`checkForUpdates`)
+  - `frontend/src/menu/dashboard/components/GlobalControlPanel.tsx` (`DbChips`)
+- **Masalah:**
+  Ketika pengguna membuka aplikasi dengan file `data/databases.json` yang berisi entri sparse/legacy (misalnya hasil instalasi manual atau struktur lawas yang hanya menyimpan `id`, `engine`, dan `port` tanpa field `name`, `version`, atau `dataDir`), aplikasi mengalami crash frontend:
+  1. `compareVersions` di `version.ts` langsung memanggil `.split('.')` pada kedua argumen tanpa guard `undefined`/`null`, menyebabkan `TypeError: Cannot read properties of undefined (reading 'split')` saat `DatabaseContext.tsx` membandingkan versi database terhadap rilis terbaru.
+  2. `GlobalControlPanel.tsx` memanggil `db.name.replaceAll(...)` secara langsung tanpa memeriksa apakah `db.name` terdefinisi, sehingga melempar `Uncaught TypeError: Cannot read properties of undefined (reading 'replaceAll')`.
+  3. `_enrich_db_status` di Python backend tidak menetapkan default yang lengkap untuk `name`, `version`, `dataDir`, dan sanitasi `port` saat entri database tidak memiliki atribut-atribut tersebut.
+- **Solusi:**
+  1. *Backend Normalization (`_enrich_db_status`):* Menjamin setiap entri database yang dikembalikan oleh `get_installed()` selalu memiliki nilai default aman: `engine` (lowercase string), `version` (string kosong jika tidak ada), `name` (fallback nama engine yang diformat rapi, mis. "PostgreSQL" / "MySQL" / "Redis"), `id` (string valid), `dataDir` (path default ke `bin/database/<id>`), dan `port` (integer valid dengan fallback port default per engine).
+  2. *Defensive `compareVersions` (`version.ts`):* Menambahkan validasi `undefined`, `null`, dan string kosong pada `compareVersions` sehingga aman dipanggil dengan nilai falsy tanpa melempar exception (mengembalikan `0` jika keduanya kosong, `-1` jika `v1` kosong, `1` jika `v2` kosong).
+  3. *Safe Update Check (`DatabaseContext.tsx`):* Menambahkan guard `Boolean(db.version)` pada filter `checkForUpdates` agar tidak memicu pengecekan update pada instance yang versinya tidak tercatat.
+  4. *Defensive `DbChips` (`GlobalControlPanel.tsx`):* Menggunakan fallback `const dbName = String(db.name || db.engine || 'Database')` sebelum memanggil `.replaceAll()`, memastikan chip database di dashboard tidak pernah crash.
+  5. *Unit Testing:* Menambahkan test regresi backend `test_db_get_installed_handles_sparse_legacy_entry_with_missing_name_and_version` di `tests/test_services/test_database.py` dan memperluas test case di `frontend/tests/utils/version.test.ts`. Seluruh 840 tes pytest dan seluruh tes vitest lulus 100%.

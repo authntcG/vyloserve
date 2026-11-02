@@ -220,3 +220,22 @@ Modul Runtimes menerapkan pemisahan dua tingkat (*Two-Tier UX Pattern*):
    - Seluruh kartu versi memiliki struktur visual simetris yang bersih, hanya menyajikan informasi biner dan tombol aksi primer (*Open Folder*, *Open in Terminal*).
    - Aksi mutasi (*Set as Active*, *Deactivate*, *Update*, *Uninstall*) diakses secara rapi melalui menu `...` di pojok kanan atas kartu, menciptakan konsistensi antarmuka yang setara di Card View maupun Table View.
 
+## 13. Catatan Arsitektur & Roadmap Masa Depan: Opsi Migrasi Desktop Shell (Electron + Python Sidecar)
+
+Sebagai referensi arsitektur jangka panjang (*future development note*), jika di masa mendatang aplikasi VyloServe berkembang dengan antarmuka yang semakin kompleks, beban grafis/canvas semakin tinggi, dan batasan fluiditas *window resizing* pada wrapper WinForms + WebView2 dirasa memerlukan peningkatan performa yang drastis, tim dapat mempertimbangkan opsi migrasi desktop shell ke **Electron + Python Sidecar Architecture**.
+
+### 13.1 Analisa Limitasi Arsitektur Saat Ini (PyWebView + WinForms + WebView2)
+- Di Windows, PyWebView membungkus WebView2 di atas Windows Forms (`System.Windows.Forms.Form`).
+- Perubahan ukuran jendela native memicu panggilan COM lintas proses `ICoreWebView2Controller::put_Bounds(RECT)` dari proses Python host ke proses `msedgewebview2.exe`.
+- Panggilan COM ini bersifat sinkron (*blocking*) di tengah modal sizing loop Win32 (`WM_SIZING`), sehingga pada monitor DPI tinggi atau GPU terintegrasi, dragging border jendela dapat mengalami sedikit *frame-drop* bila dibandingkan dengan aplikasi desktop native murni.
+
+### 13.2 Pola Arsitektur Rekomendasi: Electron UI Shell + Python Sidecar
+Bila migrasi diputuskan di masa depan, **seluruh kode backend Python (`core/services/*`) TIDAK PERLU ditulis ulang ke Node.js**. Pola yang direkomendasikan adalah:
+1. **Electron Shell:** Murni bertindak sebagai desktop wrapper untuk merender UI React + Vite. Jendela Electron (`BrowserWindow`) adalah native Chromium top-level C++ window, sehingga *window resizing*, rendering GPU, dan animasi CSS berjalan 100% mulus pada 60–144 FPS tanpa hambatan COM bridge.
+2. **Python Sidecar Process:** Seluruh folder `core/` dibundel sebagai proses latar belakang (*child process sidecar*) yang dijalankan otomatis oleh Electron saat aplikasi dimulai (`child_process.spawn('python', ['-m', 'core.api'])`).
+3. **Komunikasi IPC:** Jembatan `pywebview.api` digantikan oleh antarmuka IPC lokal (misal: JSON-RPC via Windows Named Pipe, Local WebSocket, atau Electron `contextBridge` + stdio IPC). Pola ini telah terbukti stabil pada aplikasi kelas dunia seperti *JupyterLab Desktop* dan *Anaconda Navigator*.
+
+### 13.3 Matriks Trade-Off untuk Evaluasi Masa Depan
+- **Keuntungan:** Window resizing sehalus aplikasi native/VS Code, animasi CSS dan micro-interaction 100% fluid tanpa frame-drop, dukungan custom frameless titlebar yang sangat stabil.
+- **Konsekuensi:** Ukuran biner installer meningkat dari ~25 MB menjadi ~150–200 MB (karena membundel Chromium & Node.js mandiri), dan baseline konsumsi memori (RAM) meningkat dari ~150 MB menjadi ~350 MB.
+

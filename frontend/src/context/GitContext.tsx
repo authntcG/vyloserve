@@ -46,6 +46,7 @@ interface GitContextType {
     isLoading: boolean;
     updateAvailable: GitUpdateInfo | null;
     isProcessing: boolean;
+    isCancelling: boolean;
     isInstallModalOpen: boolean;
     setIsInstallModalOpen: (v: boolean) => void;
     isUninstallModalOpen: boolean;
@@ -60,6 +61,7 @@ interface GitContextType {
     handleTogglePath: (enable: boolean) => Promise<void>;
     handleSaveConfig: () => Promise<void>;
     handleInstallSubmit: () => Promise<void>;
+    handleCancelInstall: () => Promise<void>;
     executeUninstall: () => Promise<void>;
 }
 
@@ -76,6 +78,7 @@ export function GitProvider({ children }: { readonly children: ReactNode }) {
     const [updateAvailable, setUpdateAvailable] = useState<GitUpdateInfo | null>(null);
 
     const [isProcessing, setIsProcessing] = useState(false);
+    const [isCancelling, setIsCancelling] = useState(false);
     const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
     const [isUninstallModalOpen, setIsUninstallModalOpen] = useState(false);
     const [progress, setProgress] = useState(0);
@@ -206,16 +209,40 @@ export function GitProvider({ children }: { readonly children: ReactNode }) {
     const handleInstallSubmit = async () => {
         if (!gitRef.current) return;
         setIsProcessing(true);
+        setIsCancelling(false);
         setProgress(0);
         setProgressText(t('tools.git.starting_install'));
 
-        const success = await gitRef.current.submit();
-        if (success) {
-            setIsInstallModalOpen(false);
-            fetchStatus();
+        try {
+            const success = await gitRef.current.submit();
+            if (success) {
+                setIsInstallModalOpen(false);
+                fetchStatus();
+            }
+        } finally {
+            setIsProcessing(false);
+            setIsCancelling(false);
+            setIsMinimized(false);
         }
-        setIsProcessing(false);
-        setIsMinimized(false);
+    };
+
+    const handleCancelInstall = async () => {
+        const ok = await confirm({
+            title: t('common.cancel_install_title'),
+            message: t('common.cancel_install_confirm'),
+            type: 'danger',
+            confirmText: t('common.cancel_install'),
+            cancelText: t('common.continue_install')
+        });
+        if (!ok) return;
+
+        setIsCancelling(true);
+        try {
+            await window.pywebview?.api?.cancel_installation('git');
+        } catch (e) {
+            console.error(e);
+            setIsCancelling(false);
+        }
     };
 
     const executeUninstall = async () => {
@@ -245,6 +272,7 @@ export function GitProvider({ children }: { readonly children: ReactNode }) {
         isLoading,
         updateAvailable,
         isProcessing,
+        isCancelling,
         isInstallModalOpen,
         setIsInstallModalOpen,
         isUninstallModalOpen,
@@ -259,6 +287,7 @@ export function GitProvider({ children }: { readonly children: ReactNode }) {
         handleTogglePath,
         handleSaveConfig,
         handleInstallSubmit,
+        handleCancelInstall,
         executeUninstall
     }), [
         gitData,
@@ -266,6 +295,7 @@ export function GitProvider({ children }: { readonly children: ReactNode }) {
         isLoading,
         updateAvailable,
         isProcessing,
+        isCancelling,
         isInstallModalOpen,
         isUninstallModalOpen,
         progress,

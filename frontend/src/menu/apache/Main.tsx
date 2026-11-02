@@ -165,7 +165,7 @@ function ApacheStatusSection({
                             <button
                                 type="button"
                                 onClick={onOpenLocalhost}
-                                className="bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-xs sm:text-sm font-medium py-2 px-3.5 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-xs"
+                                className="bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-xs sm:text-sm font-medium py-2 px-3.5 rounded-lg transition-[transform,colors] active:scale-95 flex items-center justify-center gap-1.5 shadow-xs"
                                 title={t('apache.quick_open_localhost')}
                             >
                                 <span className="material-symbols-outlined text-[18px] text-primary">open_in_browser</span>
@@ -175,9 +175,12 @@ function ApacheStatusSection({
                         <button
                             type="button"
                             onClick={onOpenOptions}
-                            className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm"
+                            title={t('apache.config')}
+                            aria-label={t('apache.config')}
+                            className="flex-1 min-w-0 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-3 rounded-lg transition-[transform,colors] active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
                         >
-                            <span className="material-symbols-outlined text-[18px]">tune</span> {t('apache.config')}
+                            <span className="material-symbols-outlined text-[18px] shrink-0">tune</span>
+                            <span className="truncate">{t('apache.config')}</span>
                         </button>
                     </>
                 }
@@ -227,6 +230,8 @@ function ApacheMainView() {
         openInstallModal,
         handleUpdateApacheClick,
         isInstalling,
+        isCancelling,
+        handleCancelInstall,
         isInstallServerOpen,
         progress,
         progressText,
@@ -293,6 +298,8 @@ function ApacheMainView() {
                 progressText={progressText}
                 title={getProgressTitle()}
                 onRestore={restoreProgressWidget}
+                onCancel={handleCancelInstall}
+                isCancelling={isCancelling}
             />
 
             <ApacheInstallModal />

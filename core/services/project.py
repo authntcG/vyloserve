@@ -1237,6 +1237,103 @@ public class Main {{
             self._active_target_dir = None
             self._active_install_location = None
 
+    def _sync_env_database(self, env_file: str, db_obj: dict, db_name: str):
+        try:
+            with open(env_file, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+
+            engine = db_obj.get('engine', 'mysql')
+            connection_name = 'pgsql' if engine == 'postgres' else ('redis' if engine == 'redis' else 'mysql')
+            db_user = 'postgres' if engine == 'postgres' else 'root'
+            db_pass = db_obj.get('rootPassword', '')
+            db_port = str(db_obj.get('port', 3306 if engine == 'mysql' else (6379 if engine == 'redis' else 5432)))
+
+            updates = {
+                'DB_CONNECTION': connection_name,
+                'DB_HOST': '127.0.0.1',
+                'DB_PORT': db_port,
+                'DB_DATABASE': db_name,
+                'DB_USERNAME': db_user,
+                'DB_PASSWORD': db_pass
+            }
+
+            new_lines = []
+            found = set()
+            for line in lines:
+                matched = False
+                for k, v in updates.items():
+                    if line.strip().startswith(f"{k}="):
+                        new_lines.append(f"{k}={v}\n")
+                        found.add(k)
+                        matched = True
+                        break
+                if not matched:
+                    new_lines.append(line)
+
+            for k, v in updates.items():
+                if k not in found:
+                    new_lines.append(f"{k}={v}\n")
+
+            with open(env_file, 'w', encoding='utf-8') as f:
+                f.writelines(new_lines)
+        except Exception:
+            pass
+
+    def _handle_auto_create_db(self, payload: dict, doc_root: str):
+        if not payload.get('auto_create_db'):
+            return
+        db_id = payload.get('db_instance_id')
+        if not db_id:
+            return
+        db_name = (payload.get('target_db_name') or payload.get('domain', '')).strip().replace('-', '_').replace('.', '_')
+        if not db_name:
+            return
+
+        db_manager = getattr(self.api, 'database', None)
+        if not db_manager:
+            return
+
+        try:
+            data = read_json(db_manager.config_path)
+            db_obj = next((db for db in data if db['id'] == db_id), None)
+            if not db_obj:
+                self._log("backend.project.auto_create_db_failed", "warn", {"name": db_name, "err": "Database instance not found"})
+                return
+
+            if not check_port_in_use(db_obj['port']):
+                start_res = db_manager.start_database(db_id)
+                if start_res.get('status') != 'success':
+                    self._log("backend.project.auto_create_db_failed", "warn", {"name": db_name, "err": "Could not start database"})
+                    return
+
+            create_res = db_manager.create_schema(db_id, db_name)
+            if create_res.get('status') != 'success' and create_res.get('message') != "backend.database.schema_already_exists":
+                self._log("backend.project.auto_create_db_failed", "warn", {"name": db_name, "err": create_res.get('message', '')})
+                return
+
+            candidates = [doc_root, os.path.dirname(doc_root)]
+            env_file = None
+            for d in candidates:
+                p = os.path.join(d, '.env')
+                if os.path.exists(p):
+                    env_file = p
+                    break
+            if not env_file:
+                for d in candidates:
+                    example_p = os.path.join(d, '.env.example')
+                    if os.path.exists(example_p):
+                        env_file = os.path.join(d, '.env')
+                        shutil.copyfile(example_p, env_file)
+                        break
+
+            if env_file and os.path.exists(env_file):
+                self._sync_env_database(env_file, db_obj, db_name)
+
+            self._log("backend.project.auto_create_db_success", "success", {"name": db_name})
+
+        except Exception as e:
+            self._log("backend.project.auto_create_db_failed", "warn", {"name": db_name, "err": str(e)})
+
     def create_project(self, payload: dict):
         try:
             domain_full = f"{payload.get('domain')}{payload.get('domain_extension')}"
@@ -1260,6 +1357,9 @@ public class Main {{
                 install_result = self._execute_new_framework_install(payload)
                 if install_result['status'] == 'error': return install_result
                 final_doc_root = install_result['document_root']
+
+            if payload.get('auto_create_db'):
+                self._handle_auto_create_db(payload, final_doc_root)
                 
             php_port = payload.get('php_port') or self._get_php_port_from_system(payload.get('php_version'))
             project_id = f"proj_{int(time.time())}_{payload.get('domain').replace('.', '_')}"

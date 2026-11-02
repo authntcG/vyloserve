@@ -41,7 +41,7 @@ export default function ViewModeToggle({
                 title={tableLabel}
                 aria-label={tableLabel}
                 aria-pressed={mode === 'table'}
-                className={`p-1.5 rounded-md text-xs font-medium transition-all flex items-center justify-center ${
+                className={`p-1.5 rounded-md text-xs font-medium transition-colors flex items-center justify-center ${
                     mode === 'table'
                         ? 'bg-white dark:bg-slate-900 text-primary shadow-xs font-semibold'
                         : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
@@ -55,7 +55,7 @@ export default function ViewModeToggle({
                 title={cardLabel}
                 aria-label={cardLabel}
                 aria-pressed={mode === 'card'}
-                className={`p-1.5 rounded-md text-xs font-medium transition-all flex items-center justify-center ${
+                className={`p-1.5 rounded-md text-xs font-medium transition-colors flex items-center justify-center ${
                     mode === 'card'
                         ? 'bg-white dark:bg-slate-900 text-primary shadow-xs font-semibold'
                         : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'

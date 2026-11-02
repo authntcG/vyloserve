@@ -39,13 +39,14 @@ export const DbChips = ({ dbInstances, selectedDb, toggleDbSelection, t }: any) 
         <>
             {dbInstances.map((db: any) => {
                 const isSelected = selectedDb.includes(db.id);
-                const shortName = db.name.replaceAll('MariaDB', 'MDB').replaceAll('PostgreSQL', 'PG');
+                const dbName = String(db.name || db.engine || 'Database');
+                const shortName = dbName.replaceAll('MariaDB', 'MDB').replaceAll('PostgreSQL', 'PG');
                 return (
                     <button
                         type="button"
                         key={db.id}
                         onClick={() => toggleDbSelection(db.id)}
-                        title={db.name}
+                        title={dbName}
                         className={`text-[11px] font-medium px-2 py-1 rounded transition-colors border ${
                             isSelected
                                 ? 'bg-primary/10 dark:bg-primary/20 border-primary/50 text-primary shadow-sm'
@@ -83,7 +84,7 @@ export function ApacheServiceCard({
         <div
             className={`flex flex-col gap-3 p-4 bg-slate-50 dark:bg-slate-950 border ${
                 included ? 'border-primary/30 shadow-sm' : 'border-slate-200 dark:border-slate-800/60 opacity-60'
-            } rounded-lg transition-all`}
+            } rounded-lg transition-[border-color,box-shadow,opacity]`}
         >
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
@@ -103,7 +104,7 @@ export function ApacheServiceCard({
                 </div>
             </div>
 
-            <div className={`flex flex-col gap-1 mt-1 transition-all ${included ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+            <div className={`flex flex-col gap-1 mt-1 transition-opacity ${included ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
                 <div className="flex justify-between items-center">
                     <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
                         {t('dashboard.default_version')}
@@ -146,7 +147,7 @@ export function PhpServiceCard({
         <div
             className={`flex flex-col gap-3 p-4 bg-slate-50 dark:bg-slate-950 border ${
                 included ? 'border-primary/30 shadow-sm' : 'border-slate-200 dark:border-slate-800/60 opacity-60'
-            } rounded-lg transition-all`}
+            } rounded-lg transition-[border-color,box-shadow,opacity]`}
         >
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
@@ -166,7 +167,7 @@ export function PhpServiceCard({
                 </div>
             </div>
 
-            <div className={`flex flex-col gap-1 mt-1 transition-all ${included ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+            <div className={`flex flex-col gap-1 mt-1 transition-opacity ${included ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
                 <div className="flex justify-between items-center">
                     <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
                         {t('dashboard.select_versions')}
@@ -206,7 +207,7 @@ export function DatabaseServiceCard({
         <div
             className={`flex flex-col gap-3 p-4 bg-slate-50 dark:bg-slate-950 border ${
                 included ? 'border-primary/30 shadow-sm' : 'border-slate-200 dark:border-slate-800/60 opacity-60'
-            } rounded-lg transition-all`}
+            } rounded-lg transition-[border-color,box-shadow,opacity]`}
         >
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
@@ -226,7 +227,7 @@ export function DatabaseServiceCard({
                 </div>
             </div>
 
-            <div className={`flex flex-col gap-1 mt-1 transition-all ${included ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+            <div className={`flex flex-col gap-1 mt-1 transition-opacity ${included ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
                 <div className="flex justify-between items-center">
                     <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
                         {t('dashboard.select_engines')}
@@ -286,7 +287,7 @@ export default function GlobalControlPanel() {
                         type="button"
                         onClick={() => handleToggleAll('start')}
                         disabled={isGlobalLoading || isTogglingAll !== null || !canStart}
-                        className="bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-300 dark:disabled:bg-slate-800 disabled:text-slate-500 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm flex-1 sm:flex-none"
+                        className="bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-300 dark:disabled:bg-slate-800 disabled:text-slate-500 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 shadow-sm flex-1 sm:flex-none"
                     >
                         {isTogglingAll === 'start' ? (
                             <>
@@ -303,7 +304,7 @@ export default function GlobalControlPanel() {
                         type="button"
                         onClick={() => handleToggleAll('stop')}
                         disabled={isGlobalLoading || isTogglingAll !== null || !canStop}
-                        className="bg-amber-500 hover:bg-amber-600 disabled:bg-slate-300 dark:disabled:bg-slate-800 disabled:text-slate-500 text-white text-sm font-medium py-2 px-4 rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm flex-1 sm:flex-none"
+                        className="bg-amber-500 hover:bg-amber-600 disabled:bg-slate-300 dark:disabled:bg-slate-800 disabled:text-slate-500 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 shadow-sm flex-1 sm:flex-none"
                     >
                         {isTogglingAll === 'stop' ? (
                             <>

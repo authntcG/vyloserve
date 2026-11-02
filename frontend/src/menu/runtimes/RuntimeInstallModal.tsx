@@ -1,17 +1,20 @@
 import { useTranslation } from 'react-i18next';
 import Modal from '../../components/Modal';
-import ProgressBar from '../../components/ProgressBar';
+import ProgressStatusBlock from '../../components/ProgressStatusBlock';
 import BackgroundProgressWidget from '../../components/BackgroundProgressWidget';
 import InstallNode from './InstallNode';
 import InstallPython from './InstallPython';
 import InstallJava from './InstallJava';
 import InstallGo from './InstallGo';
 import { useRuntimes } from '../../context/RuntimesContext';
+import { useNetworkStatus } from '../../context/NetworkContext';
 
 export default function RuntimeInstallModal() {
     const { t } = useTranslation();
+    const { isOnline } = useNetworkStatus();
     const {
         isProcessing,
+        isCancelling,
         installingEngine,
         updatingVersion,
         progress,
@@ -33,7 +36,8 @@ export default function RuntimeInstallModal() {
         handleInstallNodeSubmit,
         handleInstallPythonSubmit,
         handleInstallJavaSubmit,
-        handleInstallGoSubmit
+        handleInstallGoSubmit,
+        handleCancelInstall,
     } = useRuntimes();
 
     const isUpdateFlow = Boolean(updatingVersion);
@@ -53,15 +57,13 @@ export default function RuntimeInstallModal() {
     const renderProgressBar = () => {
         if (!isProcessing) return null;
         return (
-            <div className="mt-5 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700/50">
-                <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">{t('runtimes.process_running')}</span>
-                </div>
-                <div className="flex justify-between text-[11px] mb-1.5">
-                    <span className="text-slate-500 truncate w-3/4">{progressText || t('runtimes.preparing')}</span>
-                    <span className="font-bold text-primary">{progress}%</span>
-                </div>
-                <ProgressBar percent={progress} />
+            <div className="mt-5">
+                <ProgressStatusBlock
+                    progressText={progressText || t('runtimes.preparing')}
+                    progress={progress}
+                    onCancel={handleCancelInstall}
+                    isCancelling={isCancelling}
+                />
             </div>
         );
     };
@@ -78,6 +80,8 @@ export default function RuntimeInstallModal() {
                         : `${t('runtimes.install_title')}${installingEngine?.toUpperCase()}`
                 }
                 onRestore={() => setIsMinimized(false)}
+                onCancel={handleCancelInstall}
+                isCancelling={isCancelling}
             />
 
             {/* Modal order: node, python, java, go (Preserved for tests & accessibility) */}
@@ -89,7 +93,7 @@ export default function RuntimeInstallModal() {
                 icon="javascript"
                 onApply={updatingVersion ? undefined : handleInstallNodeSubmit}
                 applyText={getApplyButtonText()}
-                isApplyDisabled={isProcessing}
+                isApplyDisabled={isProcessing || !isOnline}
             >
                 <div className={isProcessing ? 'opacity-40 pointer-events-none transition-opacity' : ''}>
                     <InstallNode targetVersion={updatingVersion} ref={nodeRef} />
@@ -105,7 +109,7 @@ export default function RuntimeInstallModal() {
                 icon="data_object"
                 onApply={updatingVersion ? undefined : handleInstallPythonSubmit}
                 applyText={getApplyButtonText()}
-                isApplyDisabled={isProcessing}
+                isApplyDisabled={isProcessing || !isOnline}
             >
                 <div className={isProcessing ? 'opacity-40 pointer-events-none transition-opacity' : ''}>
                     <InstallPython targetVersion={updatingVersion} ref={pythonRef} />
@@ -121,7 +125,7 @@ export default function RuntimeInstallModal() {
                 icon="coffee"
                 onApply={updatingVersion ? undefined : handleInstallJavaSubmit}
                 applyText={getApplyButtonText()}
-                isApplyDisabled={isProcessing}
+                isApplyDisabled={isProcessing || !isOnline}
             >
                 <div className={isProcessing ? 'opacity-40 pointer-events-none transition-opacity' : ''}>
                     <InstallJava targetVersion={updatingVersion} ref={javaRef} />
@@ -137,7 +141,7 @@ export default function RuntimeInstallModal() {
                 icon="rocket_launch"
                 onApply={updatingVersion ? undefined : handleInstallGoSubmit}
                 applyText={getApplyButtonText()}
-                isApplyDisabled={isProcessing}
+                isApplyDisabled={isProcessing || !isOnline}
             >
                 <div className={isProcessing ? 'opacity-40 pointer-events-none transition-opacity' : ''}>
                     <InstallGo targetVersion={updatingVersion} ref={goRef} />

@@ -61,7 +61,7 @@ export default function ToggleSwitch({ checked, onChange, disabled = false, labe
                 className={`${sizeClasses.track} bg-slate-300 dark:bg-slate-700 rounded-full peer
                     peer-checked:after:translate-x-full after:content-[''] after:absolute
                     after:top-[2px] after:start-[2px] after:bg-white after:rounded-full
-                    ${sizeClasses.thumb} after:transition-all
+                    ${sizeClasses.thumb} after:transition-transform
                     peer-disabled:opacity-40 peer-disabled:grayscale
                     peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-primary
                     ${checkedColorClass}`}

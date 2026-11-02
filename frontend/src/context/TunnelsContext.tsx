@@ -76,6 +76,7 @@ interface TunnelsContextType {
     customTarget: string;
     setCustomTarget: (v: string) => void;
     isInstalling: boolean;
+    isCancelling: boolean;
     progress: number;
     progressText: string;
     zrokInstallRef: React.RefObject<InstallTunnelRef | null>;
@@ -93,6 +94,7 @@ interface TunnelsContextType {
     handleZrokUninstall: () => Promise<void>;
     handleCfUninstall: () => Promise<void>;
     handleInstallSubmit: () => Promise<void>;
+    handleCancelInstall: () => Promise<void>;
     handleEnable: () => Promise<void>;
     handleDisable: () => Promise<void>;
     handleStartShare: () => Promise<void>;
@@ -158,6 +160,7 @@ export function TunnelsProvider({ children, initialTab = 'all' }: { readonly chi
 
     // Progress state
     const [isInstalling, setIsInstalling] = useState(false);
+    const [isCancelling, setIsCancelling] = useState(false);
     const [progress, setProgress] = useState(0);
     const [progressText, setProgressText] = useState('');
     const hideProgressTimeoutRef = useRef<number | null>(null);
@@ -355,21 +358,44 @@ export function TunnelsProvider({ children, initialTab = 'all' }: { readonly chi
 
     const handleInstallSubmit = async () => {
         setIsInstalling(true);
+        setIsCancelling(false);
         setProgress(0);
         setProgressText(t('common.preparing'));
 
         let success = false;
-        if (activeTab === 'cloudflare' && cfInstallRef.current) {
-            success = await cfInstallRef.current.submit();
-        } else if (activeTab === 'zrok' && zrokInstallRef.current) {
-            success = await zrokInstallRef.current.submit();
-        }
+        try {
+            if (activeTab === 'cloudflare' && cfInstallRef.current) {
+                success = await cfInstallRef.current.submit();
+            } else if (activeTab === 'zrok' && zrokInstallRef.current) {
+                success = await zrokInstallRef.current.submit();
+            }
 
-        if (success) {
-            setIsInstallModalOpen(false);
-            fetchData();
-        } else {
+            if (success) {
+                setIsInstallModalOpen(false);
+                fetchData();
+            }
+        } finally {
             setIsInstalling(false);
+            setIsCancelling(false);
+        }
+    };
+
+    const handleCancelInstall = async () => {
+        const ok = await confirm({
+            title: t('common.cancel_install_title'),
+            message: t('common.cancel_install_confirm'),
+            type: 'danger',
+            confirmText: t('common.cancel_install'),
+            cancelText: t('common.continue_install')
+        });
+        if (!ok) return;
+
+        setIsCancelling(true);
+        try {
+            await window.pywebview?.api?.cancel_installation('tunnels');
+        } catch (e) {
+            console.error(e);
+            setIsCancelling(false);
         }
     };
 
@@ -432,6 +458,7 @@ export function TunnelsProvider({ children, initialTab = 'all' }: { readonly chi
         customTarget,
         setCustomTarget,
         isInstalling,
+        isCancelling,
         progress,
         progressText,
         zrokInstallRef,
@@ -449,6 +476,7 @@ export function TunnelsProvider({ children, initialTab = 'all' }: { readonly chi
         handleZrokUninstall,
         handleCfUninstall,
         handleInstallSubmit,
+        handleCancelInstall,
         handleEnable,
         handleDisable,
         handleStartShare,
@@ -473,6 +501,7 @@ export function TunnelsProvider({ children, initialTab = 'all' }: { readonly chi
         shareMode,
         customTarget,
         isInstalling,
+        isCancelling,
         progress,
         progressText,
         isDropdownOpen,

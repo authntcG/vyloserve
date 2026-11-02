@@ -24,6 +24,7 @@ export interface AiChatInputProps {
     readonly onToggleContext: (key: 'includeScreen' | 'includeLogs') => void;
     readonly suggestions?: readonly string[];
     readonly onSelectSuggestion?: (suggestion: string) => void;
+    readonly disabled?: boolean;
     readonly className?: string;
 }
 
@@ -143,6 +144,7 @@ const AiChatInput = forwardRef<AiChatInputHandle, AiChatInputProps>(function AiC
         onToggleContext,
         suggestions = [],
         onSelectSuggestion,
+        disabled = false,
         className = '',
     },
     ref
@@ -172,7 +174,7 @@ const AiChatInput = forwardRef<AiChatInputHandle, AiChatInputProps>(function AiC
 
     const handleSend = () => {
         const text = prompt.trim();
-        if (!text || isGenerating) return;
+        if (!text || isGenerating || disabled) return;
 
         setPrompt('');
         if (textareaRef.current) {
@@ -232,8 +234,8 @@ const AiChatInput = forwardRef<AiChatInputHandle, AiChatInputProps>(function AiC
             <div
                 className={
                     variant === 'full'
-                        ? 'relative flex items-center gap-2 bg-white dark:bg-slate-800/90 rounded-xl border border-slate-200 dark:border-slate-700/80 p-2 shadow-inner focus-within:border-primary focus-within:ring-1 focus-within:ring-primary transition-all'
-                        : 'flex items-center gap-2 bg-slate-50 dark:bg-slate-800/80 rounded-xl p-1.5 border border-slate-200 dark:border-slate-700/80 focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20 transition-all'
+                        ? 'relative flex items-center gap-2 bg-white dark:bg-slate-800/90 rounded-xl border border-slate-200 dark:border-slate-700/80 p-2 shadow-inner focus-within:border-primary focus-within:ring-1 focus-within:ring-primary transition-colors'
+                        : 'flex items-center gap-2 bg-slate-50 dark:bg-slate-800/80 rounded-xl p-1.5 border border-slate-200 dark:border-slate-700/80 focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20 transition-colors'
                 }
             >
                 <label htmlFor={inputId} className="sr-only">
@@ -246,11 +248,12 @@ const AiChatInput = forwardRef<AiChatInputHandle, AiChatInputProps>(function AiC
                     value={prompt}
                     onChange={handleTextareaChange}
                     onKeyDown={handleKeyDown}
+                    disabled={disabled}
                     placeholder={t('ai.input_placeholder', 'Ask anything about server configs, errors, or code...')}
                     className={
                         variant === 'full'
-                            ? 'flex-1 bg-transparent border-none outline-none resize-none text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 max-h-44 py-1.5 px-2 leading-normal m-0'
-                            : 'flex-1 bg-transparent border-none outline-none text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 resize-none max-h-24 px-2 py-1 leading-normal m-0'
+                            ? 'flex-1 bg-transparent border-none outline-none resize-none text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 max-h-44 py-1.5 px-2 leading-normal m-0 disabled:opacity-50'
+                            : 'flex-1 bg-transparent border-none outline-none text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 resize-none max-h-24 px-2 py-1 leading-normal m-0 disabled:opacity-50'
                     }
                 />
 
@@ -272,7 +275,7 @@ const AiChatInput = forwardRef<AiChatInputHandle, AiChatInputProps>(function AiC
                         size="icon"
                         icon="send"
                         onClick={handleSend}
-                        disabled={!prompt.trim()}
+                        disabled={!prompt.trim() || disabled}
                         title={t('ai.send', 'Send')}
                         aria-label={t('ai.send', 'Send')}
                         className={variant === 'full' ? 'h-9 w-9 shrink-0 shadow-xs' : 'p-1.5 rounded-lg shrink-0'}

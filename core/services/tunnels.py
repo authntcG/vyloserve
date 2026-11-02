@@ -16,6 +16,8 @@ from core.utils.system_utils import (
     get_silent_flags,
 )
 from core.utils.file_utils import download_advanced, extract_archive
+from core.utils.network_utils import is_network_error
+from core.utils.cancellation import InstallationManager, OperationCancelledError
 
 MSG_UNEXPECTED_ERROR = "backend.error.unexpected"
 ANSI_ESCAPE_REGEX = r'\x1b\[[0-9;]*m'
@@ -215,7 +217,10 @@ class TunnelsManager:
             return {"status": "success", "data": versions}
         except Exception as e:
             self._log(MSG_UNEXPECTED_ERROR, "error", {"e": str(e)})
-            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+            res = {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+            if is_network_error(e):
+                res["is_offline"] = True
+            return res
 
     def get_available_zrok_versions(self) -> dict:
         return self._fetch_release_versions(
@@ -307,7 +312,7 @@ class TunnelsManager:
                 return None, actual_version
         return None, actual_version
 
-    def _download_zrok_archive(self, download_url: str, archive_path: str) -> None:
+    def _download_zrok_archive(self, download_url: str, archive_path: str, cancel_check=None) -> None:
         """Unduh arsip zrok sambil melaporkan progress 0-80%."""
         req = urllib.request.Request(download_url, headers=GITHUB_API_HEADERS)
         with urllib.request.urlopen(req, timeout=15) as response, open(archive_path, 'wb') as out_file:
@@ -315,6 +320,8 @@ class TunnelsManager:
             downloaded = 0
             block_size = 8192
             while True:
+                if cancel_check and cancel_check():
+                    raise OperationCancelledError("Zrok download cancelled")
                 buffer = response.read(block_size)
                 if not buffer:
                     break
@@ -345,6 +352,9 @@ class TunnelsManager:
         self._log(MSG_UNEXPECTED_ERROR, "error", {"e": f"Failed to rename after retries: {exe_files[0]} to {target_exe}"})
 
     def install_zrok(self, version: str = "latest") -> dict:
+        token = InstallationManager.get_token("tunnels")
+        archive_path = None
+        target_dir = None
         try:
             self._log("backend.zrok.fetching_latest", "info")
             self._progress(10, "backend.zrok.fetching_latest")
@@ -363,19 +373,15 @@ class TunnelsManager:
             archive_path = os.path.join(target_dir, filename)
 
             self._log("backend.zrok.downloading", "info", {"url": download_url})
-            self._download_zrok_archive(download_url, archive_path)
+            self._download_zrok_archive(download_url, archive_path, cancel_check=token.is_cancelled)
             
             self._log(MSG_ZROK_EXTRACTING, "info")
             self._progress(80, MSG_ZROK_EXTRACTING)
             
-            # extract_archive already sends progress (though usually it expects 0-100, but we just let it run)
-            # Actually extract_archive takes (archive_path, dest_dir, progress_cb).
-            # The progress_cb receives 0-100.
-            # To map it properly to 80-99, we'd wrap it. But let's just let it run or use our own cb.
             def ext_cb(p, msg, args=None):
                 self._progress(80 + int(p * 0.19), MSG_ZROK_EXTRACTING)
             
-            extract_archive(archive_path, target_dir, ext_cb)
+            extract_archive(archive_path, target_dir, ext_cb, cancel_check=token.is_cancelled)
             os.remove(archive_path)
 
             self._normalize_zrok_exe_name(target_dir)
@@ -387,10 +393,21 @@ class TunnelsManager:
             self._progress(100, MSG_ZROK_INSTALL_SUCCESS)
             self._log(MSG_ZROK_INSTALL_SUCCESS, "success")
             return {"status": "success", "message": MSG_ZROK_INSTALL_SUCCESS}
+        except OperationCancelledError:
+            if archive_path and os.path.exists(archive_path):
+                try: os.remove(archive_path)
+                except OSError: pass
+            if target_dir and os.path.exists(target_dir):
+                shutil.rmtree(target_dir, ignore_errors=True)
+            self._progress(0, "backend.tunnels.install_cancelled")
+            self._log("backend.tunnels.install_cancelled", "warn")
+            return {"status": "cancelled", "message": "backend.tunnels.install_cancelled"}
         except Exception as e:
             self._progress(100, MSG_UNEXPECTED_ERROR)
             self._log(MSG_UNEXPECTED_ERROR, "error", {"e": str(e)})
             return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+        finally:
+            InstallationManager.reset("tunnels")
 
     def enable_zrok(self, token: str) -> dict:
         try:
@@ -415,7 +432,10 @@ class TunnelsManager:
                 return {"status": "error", "message": "backend.zrok.enable_failed", "args": {"err": clean_err}}
         except Exception as e:
             self._log(MSG_UNEXPECTED_ERROR, "error", {"e": str(e)})
-            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+            res = {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+            if is_network_error(e):
+                res["is_offline"] = True
+            return res
 
     def disable_zrok(self) -> dict:
         try:
@@ -438,7 +458,10 @@ class TunnelsManager:
             return {"status": "error", "message": "backend.zrok.disable_failed", "args": {"err": clean_err}}
         except Exception as e:
             self._log(MSG_UNEXPECTED_ERROR, "error", {"e": str(e)})
-            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+            res = {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+            if is_network_error(e):
+                res["is_offline"] = True
+            return res
 
     def uninstall_zrok(self) -> dict:
         """Menghentikan semua share aktif, lalu menghapus binari Zrok yang terunduh."""
@@ -456,7 +479,10 @@ class TunnelsManager:
             return {"status": "success", "message": "backend.zrok.uninstalled"}
         except Exception as e:
             self._log(MSG_UNEXPECTED_ERROR, "error", {"e": str(e)})
-            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+            res = {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+            if is_network_error(e):
+                res["is_offline"] = True
+            return res
 
     def _spawn_zrok_process(self, zrok_target: str) -> subprocess.Popen:
         cmd = [self.zrok_exe, "share", "public", zrok_target, "--headless"]
@@ -548,7 +574,10 @@ class TunnelsManager:
             }
         except Exception as e:
             self._log(MSG_UNEXPECTED_ERROR, "error", {"e": str(e)})
-            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+            res = {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+            if is_network_error(e):
+                res["is_offline"] = True
+            return res
 
     def stop_zrok_share(self, share_id: str) -> dict:
         try:
@@ -580,7 +609,10 @@ class TunnelsManager:
             return {"status": "success", "message": "backend.zrok.share_stopped"}
         except Exception as e:
             self._log(MSG_UNEXPECTED_ERROR, "error", {"e": str(e)})
-            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+            res = {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+            if is_network_error(e):
+                res["is_offline"] = True
+            return res
 
     def _resolve_share_target(self, target: str) -> str:
         if not self._is_localhost_target(target):
@@ -689,6 +721,9 @@ class TunnelsManager:
         return None, actual_version
 
     def install_cloudflare(self, version: str = "latest") -> dict:
+        token = InstallationManager.get_token("tunnels")
+        target_dir = None
+        target_exe = None
         try:
             self._log("backend.cloudflare.fetching_latest", "info")
             self._progress(10, "backend.cloudflare.fetching_latest")
@@ -697,6 +732,9 @@ class TunnelsManager:
             if not download_url:
                 self._log("backend.cloudflare.release_not_found", "error")
                 return {"status": "error", "message": "backend.cloudflare.release_not_found"}
+
+            if token.is_cancelled():
+                raise OperationCancelledError("Cloudflare download cancelled")
 
             self._clear_engine('cloudflared')
             target_dir = os.path.join(self._get_tunnel_parent_dir('cloudflared'), actual_version)
@@ -711,6 +749,8 @@ class TunnelsManager:
                 downloaded = 0
                 block_size = 8192
                 while True:
+                    if token.is_cancelled():
+                        raise OperationCancelledError("Cloudflare download cancelled")
                     buffer = response.read(block_size)
                     if not buffer:
                         break
@@ -723,10 +763,21 @@ class TunnelsManager:
             self._progress(100, MSG_CF_INSTALL_SUCCESS)
             self._log(MSG_CF_INSTALL_SUCCESS, "success")
             return {"status": "success", "message": MSG_CF_INSTALL_SUCCESS}
+        except OperationCancelledError:
+            if target_exe and os.path.exists(target_exe):
+                try: os.remove(target_exe)
+                except OSError: pass
+            if target_dir and os.path.exists(target_dir):
+                shutil.rmtree(target_dir, ignore_errors=True)
+            self._progress(0, "backend.tunnels.install_cancelled")
+            self._log("backend.tunnels.install_cancelled", "warn")
+            return {"status": "cancelled", "message": "backend.tunnels.install_cancelled"}
         except Exception as e:
             self._progress(100, MSG_UNEXPECTED_ERROR)
             self._log(MSG_UNEXPECTED_ERROR, "error", {"e": str(e)})
             return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+        finally:
+            InstallationManager.reset("tunnels")
 
     def uninstall_cloudflare(self) -> dict:
         try:
@@ -740,7 +791,10 @@ class TunnelsManager:
             return {"status": "success", "message": "backend.cloudflare.uninstalled"}
         except Exception as e:
             self._log(MSG_UNEXPECTED_ERROR, "error", {"e": str(e)})
-            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+            res = {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+            if is_network_error(e):
+                res["is_offline"] = True
+            return res
 
     def _extract_cloudflare_public_url(self, line: str) -> Optional[str]:
         url_match = re.search(r"(https?://[a-z0-9.-]+\.trycloudflare\.com)", line, re.IGNORECASE)
@@ -845,7 +899,10 @@ class TunnelsManager:
             }
         except Exception as e:
             self._log(MSG_UNEXPECTED_ERROR, "error", {"e": str(e)})
-            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+            res = {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+            if is_network_error(e):
+                res["is_offline"] = True
+            return res
 
     def stop_cloudflare_share(self, share_id: str) -> dict:
         try:
@@ -876,4 +933,7 @@ class TunnelsManager:
             return {"status": "success", "message": "backend.cloudflare.share_stopped"}
         except Exception as e:
             self._log(MSG_UNEXPECTED_ERROR, "error", {"e": str(e)})
-            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+            res = {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+            if is_network_error(e):
+                res["is_offline"] = True
+            return res

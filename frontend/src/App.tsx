@@ -23,6 +23,7 @@ import TerminalMain from './menu/tools/terminal/Main';
 import AiFloatingWidget from './menu/tools/ai-assistant/components/AiFloatingWidget';
 import AiSettingsModal from './menu/tools/ai-assistant/components/AiSettingsModal';
 import { AiProvider, useAiAssistant } from './context/AiContext';
+import { NetworkProvider } from './context/NetworkContext';
 import { applyTheme, getCachedTheme } from './utils/theme';
 import AppSkeletonLayout from './components/skeleton/AppSkeletonLayout';
 import i18n from './i18n';
@@ -234,13 +235,15 @@ function AppContent() {
 
 export default function App() {
   return (
-    <ToastProvider>
-      <AlertProvider>
-        <AiProvider>
-          <GlobalAppInterceptor />
-          <AppContent />
-        </AiProvider>
-      </AlertProvider>
-    </ToastProvider>
+    <NetworkProvider>
+      <ToastProvider>
+        <AlertProvider>
+          <AiProvider>
+            <GlobalAppInterceptor />
+            <AppContent />
+          </AiProvider>
+        </AlertProvider>
+      </ToastProvider>
+    </NetworkProvider>
   );
 }

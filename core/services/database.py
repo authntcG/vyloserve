@@ -7,25 +7,32 @@ import shutil
 import concurrent.futures
 import time
 import subprocess
+import json
 from typing import Optional
 
 # ---> IMPORT UTILITIES (DRY PRINCIPLE) <---
-from core.utils.system_utils import get_project_root, check_port_in_use, start_silent_process, run_silent_command
+from core.utils.system_utils import get_project_root, check_port_in_use, start_silent_process, run_silent_command, get_silent_flags
 from core.utils.file_utils import (
     read_json, write_json, download_advanced, extract_archive,
     read_log_tail, read_new_lines, parse_ini_key_values
 )
+from core.utils.network_utils import is_network_error
+from core.utils.cancellation import InstallationManager, OperationCancelledError
 
 DB_NOT_FOUND_MSG = "backend.database.not_found"
 MSG_UNEXPECTED_ERROR = "backend.error.unexpected"
 USER_AGENT_MOZILLA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
 MY_INI = "my.ini"
 POSTGRESQL_CON = "postgresql.conf"
+REDIS_CONF = "redis.conf"
 MYSQLD_SECTION = "[mysqld]"
 DB_STARTUP_LOG = "db_startup.log"
+SCHEMA_NAME_PATTERN = re.compile(r'^[a-zA-Z0-9_]{1,64}$')
+SYSTEM_SCHEMAS = {'information_schema', 'performance_schema', 'mysql', 'sys', 'postgres', 'template0', 'template1'}
+MARIADB_CACHE_TTL_SECONDS = 43200  # 12 jam
 
 class DatabaseManager:
-    """Manager untuk siklus hidup Engine Database (MySQL, MariaDB, PostgreSQL)"""
+    """Manager untuk siklus hidup Engine Database (MySQL, MariaDB, PostgreSQL, Redis)"""
     def __init__(self, api_ref):
         self.api = api_ref
         self.root_dir = get_project_root()
@@ -34,6 +41,11 @@ class DatabaseManager:
         self.config_path = os.path.join(self.data_dir, 'databases.json')
         self.processes = {}
         self._log_offsets: dict = {}
+        self._mariadb_cache = None
+        self._mariadb_cache_time = 0.0
+        self._resolved_urls_cache = {}
+        self._cache_dir = os.path.join(self.data_dir, 'cache')
+        self._mariadb_cache_file = os.path.join(self._cache_dir, 'mariadb_versions.json')
 
         os.makedirs(self.data_dir, exist_ok=True)
         os.makedirs(self.bin_dir, exist_ok=True)
@@ -51,14 +63,45 @@ class DatabaseManager:
         return check_port_in_use(port)
 
     def _enrich_db_status(self, db: dict) -> dict:
-        if db.get('id') in self.processes and self.processes[db['id']].poll() is None:
-            db['status'] = 'running'
+        if not isinstance(db, dict):
             return db
+
+        engine = str(db.get('engine') or 'mysql').lower()
+        db['engine'] = engine
+
+        if not db.get('version'):
+            db['version'] = ''
+
+        if not db.get('name'):
+            capitalized_engine = 'PostgreSQL' if engine == 'postgres' else ('MySQL' if engine == 'mysql' else ('Redis' if engine == 'redis' else engine.capitalize()))
+            db['name'] = f"{capitalized_engine} {db['version']}".strip() or capitalized_engine
+
+        db_id = str(db.get('id') or 'db_instance')
+        db['id'] = db_id
+
+        if not db.get('dataDir'):
+            db['dataDir'] = os.path.join(self.bin_dir, db_id)
 
         port = db.get('port')
         if not port:
-            port = 3306 if db.get('engine') == 'mysql' else 5432
-        db['status'] = 'running' if check_port_in_use(port) else 'stopped'
+            if engine == 'mysql':
+                port = 3306
+            elif engine == 'redis':
+                port = 6379
+            else:
+                port = 5432
+            db['port'] = port
+        else:
+            try:
+                db['port'] = int(port)
+            except (ValueError, TypeError):
+                db['port'] = 3306
+
+        if db_id in self.processes and self.processes[db_id].poll() is None:
+            db['status'] = 'running'
+            return db
+
+        db['status'] = 'running' if check_port_in_use(db['port']) else 'stopped'
         return db
 
     def get_installed(self):
@@ -133,6 +176,26 @@ class DatabaseManager:
             except Exception: pass
             return {"status": "error", "message": "backend.database.start_failed", "args": {"e": str(e)}}
 
+    def _resolve_db_cli(self, db_obj: dict, name: str) -> Optional[str]:
+        install_dir = db_obj.get('installDir', '')
+        if not install_dir or not os.path.exists(install_dir):
+            return None
+        candidates = [
+            os.path.join(install_dir, 'bin', name),
+            os.path.join(install_dir, 'bin', f"{name}.exe"),
+            os.path.join(install_dir, name),
+            os.path.join(install_dir, f"{name}.exe")
+        ]
+        for c in candidates:
+            if os.path.exists(c) and os.path.isfile(c):
+                return c
+        return None
+
+    def _resolve_password(self, db_obj: dict, password: str = "") -> str:
+        if password:
+            return password
+        return db_obj.get('rootPassword', '')
+
     def _build_startup_cmd(self, db_obj: dict) -> tuple:
         engine = db_obj['engine']
         install_dir = db_obj['installDir']
@@ -141,6 +204,13 @@ class DatabaseManager:
         if engine == 'mysql':
             exe = os.path.join(install_dir, 'bin', 'mysqld.exe' if sys.platform == 'win32' else 'mysqld')
             cmd = [exe, f"--datadir={data_dir}", f"--port={db_obj['port']}"]
+        elif engine == 'redis':
+            exe_name = 'redis-server.exe' if sys.platform == 'win32' else 'redis-server'
+            exe = self._resolve_db_cli(db_obj, exe_name) or os.path.join(install_dir, exe_name)
+            conf_file = os.path.join(data_dir, REDIS_CONF)
+            if not os.path.exists(conf_file):
+                self._init_redis(install_dir, data_dir)
+            cmd = [exe, conf_file, "--port", str(db_obj['port']), "--dir", data_dir]
         else:
             exe = os.path.join(install_dir, 'bin', 'postgres.exe' if sys.platform == 'win32' else 'postgres')
             cmd = [exe, "-D", data_dir, "-p", str(db_obj['port'])]
@@ -165,6 +235,11 @@ class DatabaseManager:
             elif db_obj['engine'] == 'mysql':
                 exe = os.path.join(install_dir, 'bin', 'mysqladmin.exe' if sys.platform == 'win32' else 'mysqladmin')
                 run_silent_command([exe, "-u", "root", f"--port={db_obj['port']}", "shutdown"])
+            elif db_obj['engine'] == 'redis':
+                cli_name = 'redis-cli.exe' if sys.platform == 'win32' else 'redis-cli'
+                exe = self._resolve_db_cli(db_obj, cli_name) or os.path.join(install_dir, cli_name)
+                if os.path.exists(exe):
+                    run_silent_command([exe, "-p", str(db_obj['port']), "shutdown", "nosave"])
         except Exception: pass
 
     def stop_database(self, db_id: str):
@@ -188,11 +263,48 @@ class DatabaseManager:
             self._log("backend.database.checking_releases", "info", {"engine": engine})
             if engine == 'mysql': return self._fetch_mariadb_versions()
             elif engine == 'postgres': return self._fetch_postgres_versions()
+            elif engine == 'redis': return self._fetch_redis_versions()
             return {"status": "error", "message": "backend.database.engine_unsupported"}
         except Exception as e:
             return {"status": "error", "message": "backend.database.fetch_versions_failed", "args": {"e": str(e)}}
 
+    def _get_cached_mariadb_versions(self, allow_stale: bool = False):
+        now = time.time()
+        if self._mariadb_cache and (allow_stale or (now - self._mariadb_cache_time < MARIADB_CACHE_TTL_SECONDS)):
+            return list(self._mariadb_cache)
+
+        try:
+            if os.path.exists(self._mariadb_cache_file):
+                cached_data = read_json(self._mariadb_cache_file, dict)
+                if isinstance(cached_data, dict):
+                    saved_time = cached_data.get("timestamp", 0)
+                    versions = cached_data.get("data", [])
+                    if isinstance(versions, list) and versions:
+                        if allow_stale or (now - saved_time < MARIADB_CACHE_TTL_SECONDS):
+                            self._mariadb_cache = versions
+                            self._mariadb_cache_time = saved_time
+                            return list(versions)
+        except Exception:
+            pass
+        return None
+
+    def _save_cached_mariadb_versions(self, versions: list):
+        try:
+            now = time.time()
+            self._mariadb_cache = list(versions)
+            self._mariadb_cache_time = now
+            os.makedirs(self._cache_dir, exist_ok=True)
+            write_json(self._mariadb_cache_file, {
+                "timestamp": now,
+                "data": versions
+            })
+        except Exception:
+            pass
+
     def _resolve_mariadb_url(self, version: str) -> str:
+        if hasattr(self, '_resolved_urls_cache') and version in self._resolved_urls_cache:
+            return self._resolved_urls_cache[version]
+
         base_url = f"https://archive.mariadb.org/mariadb-{version}/"
         try:
             req = urllib.request.Request(base_url, headers={'User-Agent': USER_AGENT_MOZILLA})
@@ -215,13 +327,30 @@ class DatabaseManager:
             
         for f in re.findall(ext_pattern, target_html, re.IGNORECASE):
             if 'debugsymbols' not in f.lower() and 'test' not in f.lower():
-                return folder_url + f
+                resolved = folder_url + f
+                if hasattr(self, '_resolved_urls_cache'):
+                    self._resolved_urls_cache[version] = resolved
+                return resolved
         raise RuntimeError("Binary untuk OS ini belum tersedia.")
 
-    def _fetch_mariadb_versions(self):
+    def _fetch_mariadb_versions(self, force_refresh: bool = False):
+        if not force_refresh:
+            cached = self._get_cached_mariadb_versions(allow_stale=False)
+            if cached:
+                return {"status": "success", "data": cached}
+
         req = urllib.request.Request("https://archive.mariadb.org/", headers={'User-Agent': USER_AGENT_MOZILLA})
-        try: html = urllib.request.urlopen(req, timeout=10).read().decode('utf-8')
-        except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+        try:
+            html = urllib.request.urlopen(req, timeout=10).read().decode('utf-8')
+        except Exception as e:
+            # Fallback ke cache kadaluarsa (stale) jika jaringan bermasalah
+            stale = self._get_cached_mariadb_versions(allow_stale=True)
+            if stale:
+                return {"status": "success", "data": stale}
+            res = {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+            if is_network_error(e):
+                res["is_offline"] = True
+            return res
 
         raw_versions = list(set(re.findall(r'href="mariadb-(\d+\.\d+\.\d+)/"', html)))
         latest_versions_dict = {}
@@ -233,6 +362,11 @@ class DatabaseManager:
                     latest_versions_dict[major_minor] = {'patch': patch, 'full_version': v}
                     
         sorted_mm = sorted(latest_versions_dict.keys(), key=lambda x: [int(i) for i in x.split('.')], reverse=True)
+
+        # Filter rilis modern (>= 10.4) dan batasi ke 12 cabang teratas untuk menghindari N+1 crawl cabang purba
+        filtered_mm = [mm for mm in sorted_mm if [int(i) for i in mm.split('.')] >= [10, 4]]
+        target_mm = (filtered_mm if filtered_mm else sorted_mm)[:12]
+
         results = []
 
         def check_resolve(v):
@@ -240,11 +374,13 @@ class DatabaseManager:
             except Exception: return None
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            futures = [executor.submit(check_resolve, latest_versions_dict[mm]['full_version']) for mm in sorted_mm]
+            futures = [executor.submit(check_resolve, latest_versions_dict[mm]['full_version']) for mm in target_mm]
             for f in concurrent.futures.as_completed(futures):
                 if f.result(): results.append(f.result())
                     
         results.sort(key=lambda x: [int(i) for i in x['version'].split('.')], reverse=True)
+        if results:
+            self._save_cached_mariadb_versions(results)
         return {"status": "success", "data": results}
 
     def _parse_postgres_block(self, block: str, os_target: str, seen: set, results: list):
@@ -267,7 +403,11 @@ class DatabaseManager:
     def _fetch_postgres_versions(self):
         req = urllib.request.Request("https://www.enterprisedb.com/download-postgresql-binaries", headers={'User-Agent': USER_AGENT_MOZILLA})
         try: html = urllib.request.urlopen(req, timeout=10).read().decode('utf-8')
-        except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+        except Exception as e:
+            res = {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+            if is_network_error(e):
+                res["is_offline"] = True
+            return res
 
         if sys.platform == 'win32': os_target = "Windows x86-64"
         elif sys.platform == 'darwin': os_target = "Mac OS X"
@@ -280,6 +420,34 @@ class DatabaseManager:
         results.sort(key=lambda x: [int(i) for i in re.findall(r'\d+', x['version'])], reverse=True)
         return {"status": "success", "data": results}
 
+    def _fetch_redis_versions(self):
+        req = urllib.request.Request("https://api.github.com/repos/tporadowski/redis/releases", headers={'User-Agent': USER_AGENT_MOZILLA})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+        except Exception as e:
+            res = {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+            if is_network_error(e):
+                res["is_offline"] = True
+            return res
+
+        results = []
+        if isinstance(data, list):
+            for rel in data:
+                if rel.get('prerelease') or rel.get('draft'):
+                    continue
+                tag = rel.get('tag_name', '').lstrip('v').lstrip('V')
+                for asset in rel.get('assets', []):
+                    name = asset.get('name', '')
+                    if name.endswith('.zip') and ('x64' in name.lower() or 'win' in name.lower() or 'redis' in name.lower()):
+                        results.append({
+                            "version": tag,
+                            "url": asset.get('browser_download_url'),
+                            "name": f"Redis {tag}"
+                        })
+                        break
+        return {"status": "success", "data": results}
+
     def _init_mariadb(self, install_dir: str, db_data_dir: str):
         exe_name = 'mysql_install_db.exe' if sys.platform == 'win32' else 'mysql_install_db'
         installer = os.path.join(install_dir, 'bin', exe_name)
@@ -288,6 +456,25 @@ class DatabaseManager:
         res = run_silent_command([installer, f"--datadir={db_data_dir}"])
         if res.returncode != 0:
             raise RuntimeError(f"MariaDB Init Error: {res.stderr}")
+
+    def _init_redis(self, install_dir: str, db_data_dir: str):
+        os.makedirs(db_data_dir, exist_ok=True)
+        conf_path = os.path.join(db_data_dir, REDIS_CONF)
+        if not os.path.exists(conf_path):
+            default_conf = (
+                "bind 127.0.0.1\n"
+                "protected-mode yes\n"
+                "port 6379\n"
+                "timeout 0\n"
+                "tcp-keepalive 300\n"
+                "maxmemory 256mb\n"
+                "maxmemory-policy noeviction\n"
+                "databases 16\n"
+                "appendonly no\n"
+                "dir .\n"
+            )
+            with open(conf_path, 'w', encoding='utf-8') as f:
+                f.write(default_conf)
 
     def _init_postgres(self, install_dir: str, db_data_dir: str, root_pass: str):
         exe_name = 'initdb.exe' if sys.platform == 'win32' else 'initdb'
@@ -309,6 +496,8 @@ class DatabaseManager:
         os.makedirs(db_data_dir, exist_ok=True)
         if engine == 'mysql':
             self._init_mariadb(install_dir, db_data_dir)
+        elif engine == 'redis':
+            self._init_redis(install_dir, db_data_dir)
         else:
             self._init_postgres(install_dir, db_data_dir, root_pass)
 
@@ -319,14 +508,23 @@ class DatabaseManager:
             for item in os.listdir(inner): shutil.move(os.path.join(inner, item), install_dir)
             os.rmdir(inner)
 
-    def _register_database(self, db_id, engine, version, port, db_data_dir, install_dir):
+    def _register_database(self, db_id, engine, version, port, db_data_dir, install_dir, root_pass: str = ""):
         data = read_json(self.config_path)
         data = [d for d in data if d["id"] != db_id]
-        data.append({
-            "id": db_id, "name": f"{'MariaDB' if engine == 'mysql' else 'PostgreSQL'} {version}",
+        if engine == 'mysql':
+            engine_name = 'MariaDB'
+        elif engine == 'redis':
+            engine_name = 'Redis'
+        else:
+            engine_name = 'PostgreSQL'
+        entry = {
+            "id": db_id, "name": f"{engine_name} {version}",
             "engine": engine, "version": version, "port": int(port),
             "dataDir": db_data_dir, "installDir": install_dir
-        })
+        }
+        if root_pass:
+            entry["rootPassword"] = root_pass
+        data.append(entry)
         write_json(self.config_path, data)
 
     def _cleanup_install_failure(self, zip_path, install_dir, is_existing_data, db_data_dir):
@@ -346,6 +544,7 @@ class DatabaseManager:
         zip_path = os.path.join(self.bin_dir, f"{db_id}.zip")
 
         is_existing_data = os.path.exists(db_data_dir) and len(os.listdir(db_data_dir)) > 0
+        token = InstallationManager.get_token("database")
 
         try:
             self._log("backend.database.initiating_install", "info", {"engine": engine, "version": version, "port": port})
@@ -361,13 +560,14 @@ class DatabaseManager:
             def prog_cb(pct, msg, args=None):
                 if hasattr(self, 'api') and self.api: self.api.emit_progress(pct, msg, args)
 
-            download_advanced(url, zip_path, log_cb=log_cb, progress_cb=prog_cb)
+            download_advanced(url, zip_path, log_cb=log_cb, progress_cb=prog_cb, cancel_check=token.is_cancelled)
 
             self._log("backend.database.download_complete_extracting", "info")
             self._progress(65, "backend.database.extracting_zip")
             
-            extract_archive(zip_path, install_dir, progress_cb=prog_cb)
-            os.remove(zip_path)
+            extract_archive(zip_path, install_dir, progress_cb=prog_cb, cancel_check=token.is_cancelled)
+            if os.path.exists(zip_path):
+                os.remove(zip_path)
 
             self._unwrap_single_subdir(install_dir)
 
@@ -377,11 +577,17 @@ class DatabaseManager:
                 self._log("backend.database.preparing_raw_schema", "info")
                 self._init_database(engine, install_dir, db_data_dir, root_pass)
 
-            self._register_database(db_id, engine, version, port, db_data_dir, install_dir)
+            self._register_database(db_id, engine, version, port, db_data_dir, install_dir, root_pass=root_pass)
 
             self._progress(100, "backend.database.installation_complete")
             self._log("backend.database.ready_to_use", "success", {"engine": engine, "version": version})
             return {"status": "success", "message": "backend.database.install_success", "args": {"engine": engine, "version": version}}
+
+        except OperationCancelledError:
+            self._cleanup_install_failure(zip_path, install_dir, is_existing_data, db_data_dir)
+            self._progress(0, "backend.database.install_cancelled")
+            self._log("backend.database.install_cancelled", "warn")
+            return {"status": "cancelled", "message": "backend.database.install_cancelled"}
 
         except Exception as e:
             self._cleanup_install_failure(zip_path, install_dir, is_existing_data, db_data_dir)
@@ -389,6 +595,8 @@ class DatabaseManager:
             self._progress(-1, str(e))
             self._log("backend.database.install_failed_log", "error", {"e": str(e)})
             return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+        finally:
+            InstallationManager.reset("database")
 
 
     @staticmethod
@@ -423,12 +631,13 @@ class DatabaseManager:
         
         install_dir_backup = install_dir + "_backup"
         db_data_dir_backup = db_data_dir + "_backup"
+        token = InstallationManager.get_token("database")
+        zip_path = os.path.join(self.bin_dir, "update.zip")
         
         try:
             self._backup_install_and_data_dirs(install_dir, install_dir_backup, db_data_dir, db_data_dir_backup, backup_data)
                 
             os.makedirs(install_dir, exist_ok=True)
-            zip_path = os.path.join(self.bin_dir, "update.zip")
             
             def log_cb(msg, lvl): 
                 self._log(msg, lvl)
@@ -439,17 +648,21 @@ class DatabaseManager:
             if db_obj['engine'] == 'mysql' and not url.startswith('http'):
                 url = self._resolve_mariadb_url(new_version)
             
-            download_advanced(url, zip_path, log_cb=log_cb, progress_cb=prog_cb)
+            download_advanced(url, zip_path, log_cb=log_cb, progress_cb=prog_cb, cancel_check=token.is_cancelled)
             
             self._log("backend.database.extracting_update", "info")
             self._progress(65, "backend.database.extracting_zip")
-            extract_archive(zip_path, install_dir, progress_cb=prog_cb)
-            if os.path.exists(zip_path): os.remove(zip_path)
+            extract_archive(zip_path, install_dir, progress_cb=prog_cb, cancel_check=token.is_cancelled)
+            if os.path.exists(zip_path):
+                try:
+                    os.remove(zip_path)
+                except OSError:
+                    pass
             
             self._unwrap_single_subdir(install_dir)
             
             db_obj['version'] = new_version
-            db_obj['name'] = f"{'MariaDB' if db_obj['engine'] == 'mysql' else 'PostgreSQL'} {new_version}"
+            db_obj['name'] = f"{'MariaDB' if db_obj['engine'] == 'mysql' else ('Redis' if db_obj['engine'] == 'redis' else 'PostgreSQL')} {new_version}"
             write_json(self.config_path, data)
             
             shutil.rmtree(install_dir_backup, ignore_errors=True)
@@ -457,12 +670,28 @@ class DatabaseManager:
             self._log("backend.database.update_success", "success")
             self._progress(100, "backend.database.update_complete")
             return {"status": "success", "message": "backend.database.update_success"}
+
+        except OperationCancelledError:
+            self._rollback_directories(install_dir, install_dir_backup)
+            if backup_data and os.path.exists(db_data_dir_backup):
+                shutil.rmtree(db_data_dir, ignore_errors=True)
+                shutil.move(db_data_dir_backup, db_data_dir)
+            if os.path.exists(zip_path):
+                try:
+                    os.remove(zip_path)
+                except OSError:
+                    pass
+            self._log("backend.database.update_cancelled", "warn")
+            self._progress(0, "backend.database.update_cancelled")
+            return {"status": "cancelled", "message": "backend.database.update_cancelled"}
             
         except Exception as e:
             self._rollback_directories(install_dir, install_dir_backup)
             self._log("backend.database.update_failed_rollback", "error", {"e": str(e)})
             self._progress(0, "backend.database.update_failed")
             return {"status": "error", "message": "backend.database.update_failed_rollback", "args": {"e": str(e)}}
+        finally:
+            InstallationManager.reset("database")
 
     def uninstall_database(self, db_id: str, delete_data: bool = False):
         try:
@@ -493,11 +722,18 @@ class DatabaseManager:
         if not db_obj: return {"status": "error", "message": DB_NOT_FOUND_MSG}
 
         if is_file:
-            target = os.path.join(db_obj['dataDir'], MY_INI if db_obj['engine'] == 'mysql' else POSTGRESQL_CON)
+            if db_obj['engine'] == 'mysql':
+                target = os.path.join(db_obj['dataDir'], MY_INI)
+            elif db_obj['engine'] == 'redis':
+                target = os.path.join(db_obj['dataDir'], REDIS_CONF)
+            else:
+                target = os.path.join(db_obj['dataDir'], POSTGRESQL_CON)
         else:
             target = db_obj['dataDir']
         if is_file and db_obj['engine'] == 'mysql' and not os.path.exists(target):
             with open(target, 'w', encoding='utf-8') as f: f.write(MYSQLD_SECTION)
+        elif is_file and db_obj['engine'] == 'redis' and not os.path.exists(target):
+            self._init_redis(db_obj['installDir'], db_obj['dataDir'])
 
         if not os.path.exists(target): return {"status": "error", "message": "backend.database.target_not_created"}
 
@@ -603,6 +839,28 @@ class DatabaseManager:
         }
         config.update(parse_ini_key_values(conf_file, keys_map, comment_chars=('#',)))
 
+    def _parse_redis_config(self, conf_file: str, config: dict):
+        if not os.path.exists(conf_file):
+            return
+        keys_map = {
+            'bind': 'bind',
+            'maxmemory': 'maxmemory',
+            'maxmemory-policy': 'maxmemory_policy',
+            'databases': 'databases',
+            'appendonly': 'appendonly'
+        }
+        try:
+            with open(conf_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    stripped = line.strip()
+                    if not stripped or stripped.startswith('#'):
+                        continue
+                    parts = stripped.split(None, 1)
+                    if len(parts) == 2 and parts[0] in keys_map:
+                        config[keys_map[parts[0]]] = parts[1].strip()
+        except Exception:
+            pass
+
     def get_db_config(self, db_id: str):
         db_obj = next((db for db in read_json(self.config_path) if db['id'] == db_id), None)
         if not db_obj: return {"status": "error", "message": DB_NOT_FOUND_MSG}
@@ -613,6 +871,9 @@ class DatabaseManager:
         if engine == 'mysql':
             config.update({"bind_address": "127.0.0.1", "innodb_buffer_pool_size": "256M", "max_allowed_packet": "64M", "max_connections": "151", "character_set_server": "utf8mb4", "collation_server": "utf8mb4_unicode_ci", "default_storage_engine": "InnoDB"})
             self._parse_mysql_config(os.path.join(data_dir, MY_INI), config)
+        elif engine == 'redis':
+            config.update({"bind": "127.0.0.1", "maxmemory": "256mb", "maxmemory_policy": "noeviction", "databases": "16", "appendonly": "no"})
+            self._parse_redis_config(os.path.join(data_dir, REDIS_CONF), config)
         else:
             config.update({"listen_addresses": "*", "shared_buffers": "128MB", "work_mem": "4MB", "maintenance_work_mem": "64MB", "effective_cache_size": "256MB", "max_connections": "100", "timezone": "UTC"})
             self._parse_postgres_config(os.path.join(data_dir, POSTGRESQL_CON), config)
@@ -645,6 +906,31 @@ class DatabaseManager:
                 
         return new_lines
 
+    def _update_redis_config_lines(self, lines: list, keys: dict) -> list:
+        new_lines = []
+        found_keys = set()
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith('#'):
+                new_lines.append(line)
+                continue
+            parts = stripped.split(None, 1)
+            matched_key = None
+            for k in keys:
+                if parts[0] == k:
+                    matched_key = k
+                    break
+            if matched_key:
+                found_keys.add(matched_key)
+                new_lines.append(f"{matched_key} {keys[matched_key]}\n")
+            else:
+                new_lines.append(line)
+
+        for k, v in keys.items():
+            if k not in found_keys and v is not None:
+                new_lines.append(f"{k} {v}\n")
+        return new_lines
+
     def save_db_config(self, db_id: str, new_config: dict):
         data = read_json(self.config_path)
         db_obj = next((db for db in data if db['id'] == db_id), None)
@@ -655,17 +941,28 @@ class DatabaseManager:
         write_json(self.config_path, data)
 
         is_mysql = db_obj['engine'] == 'mysql'
-        conf_file = os.path.join(db_obj['dataDir'], MY_INI if is_mysql else POSTGRESQL_CON)
+        is_redis = db_obj['engine'] == 'redis'
+        conf_file = os.path.join(db_obj['dataDir'], MY_INI if is_mysql else (REDIS_CONF if is_redis else POSTGRESQL_CON))
         lines = [MYSQLD_SECTION] if is_mysql else []
         if os.path.exists(conf_file):
             with open(conf_file, 'r', encoding='utf-8') as f: lines = f.readlines()
 
         if is_mysql:
             keys = {"port": str(new_config.get("port")), "bind-address": new_config.get("bind_address"), "innodb_buffer_pool_size": new_config.get("innodb_buffer_pool_size"), "max_allowed_packet": new_config.get("max_allowed_packet"), "max_connections": str(new_config.get("max_connections")), "character-set-server": new_config.get("character_set_server"), "collation-server": new_config.get("collation_server"), "default-storage-engine": new_config.get("default_storage_engine")}
+            new_lines = self._update_config_lines(lines, keys, is_mysql=True)
+        elif is_redis:
+            keys = {
+                "port": str(new_config.get("port", db_obj['port'])),
+                "bind": str(new_config.get("bind", "127.0.0.1")),
+                "maxmemory": str(new_config.get("maxmemory", "256mb")),
+                "maxmemory-policy": str(new_config.get("maxmemory_policy", "noeviction")),
+                "databases": str(new_config.get("databases", "16")),
+                "appendonly": str(new_config.get("appendonly", "no"))
+            }
+            new_lines = self._update_redis_config_lines(lines, keys)
         else:
             keys = {"port": str(new_config.get("port")), "listen_addresses": f"'{new_config.get('listen_addresses')}'", "shared_buffers": f"{new_config.get('shared_buffers')}", "work_mem": f"{new_config.get('work_mem')}", "maintenance_work_mem": f"{new_config.get('maintenance_work_mem')}", "effective_cache_size": f"{new_config.get('effective_cache_size')}", "max_connections": str(new_config.get("max_connections")), "timezone": f"'{new_config.get('timezone')}'"}
-            
-        new_lines = self._update_config_lines(lines, keys, is_mysql)
+            new_lines = self._update_config_lines(lines, keys, is_mysql=False)
 
         with open(conf_file, 'w', encoding='utf-8') as f: f.writelines(new_lines)
 
@@ -714,6 +1011,13 @@ class DatabaseManager:
             elif db_obj['engine'] == 'postgres':
                 self._change_postgres_credentials(db_obj, username, old_pass, new_pass)
 
+            if username in ('root', 'postgres'):
+                all_data = read_json(self.config_path)
+                for item in all_data:
+                    if item.get('id') == db_id:
+                        item['rootPassword'] = new_pass
+                write_json(self.config_path, all_data)
+
             self._log("backend.database.credentials_updated_log", "success")
             return {"status": "success", "message": "backend.database.password_updated_success"}
         except RuntimeError as e:
@@ -721,6 +1025,297 @@ class DatabaseManager:
             return {"status": "error", "message": err_parts[0], "args": {"err": err_parts[1] if len(err_parts) > 1 else ""}}
         except Exception as e:
             return {"status": "error", "message": "backend.database.system_error", "args": {"e": str(e)}}
+
+    # ==========================================
+    # SCHEMA MANAGEMENT (MYSQL & POSTGRESQL)
+    # ==========================================
+    def list_schemas(self, db_id: str, password: str = "") -> dict:
+        try:
+            data = read_json(self.config_path)
+            db_obj = next((db for db in data if db['id'] == db_id), None)
+            if not db_obj:
+                return {"status": "error", "message": DB_NOT_FOUND_MSG}
+
+            engine = db_obj.get('engine')
+            if engine == 'redis':
+                return {"status": "error", "message": "backend.database.redis_not_supported_for_schemas"}
+
+            if not check_port_in_use(db_obj['port']):
+                return {"status": "error", "message": "backend.database.must_be_running"}
+
+            pw = self._resolve_password(db_obj, password)
+
+            if engine == 'mysql':
+                cli = self._resolve_db_cli(db_obj, 'mysql')
+                if not cli:
+                    return {"status": "error", "message": "backend.database.schema_cli_not_found", "args": {"cli": "mysql"}}
+                cmd = [cli, "-u", "root", f"-P{db_obj['port']}", "-h", "127.0.0.1", "--batch", "--skip-column-names", "-e", "SHOW DATABASES;"]
+                if pw:
+                    cmd.insert(2, f"-p{pw}")
+                res = run_silent_command(cmd)
+                if res.returncode != 0:
+                    return {"status": "error", "message": "backend.database.schema_exec_failed", "args": {"err": res.stderr.strip()}}
+                raw_names = [line.strip() for line in res.stdout.splitlines() if line.strip()]
+
+            else:  # postgres
+                cli = self._resolve_db_cli(db_obj, 'psql')
+                if not cli:
+                    return {"status": "error", "message": "backend.database.schema_cli_not_found", "args": {"cli": "psql"}}
+                cmd = [cli, "-U", "postgres", "-p", str(db_obj['port']), "-h", "127.0.0.1", "-t", "-A", "-c", "SELECT datname FROM pg_database WHERE datistemplate = false;"]
+                env = os.environ.copy()
+                if pw:
+                    env['PGPASSWORD'] = pw
+                res = run_silent_command(cmd, env=env)
+                if res.returncode != 0:
+                    return {"status": "error", "message": "backend.database.schema_exec_failed", "args": {"err": res.stderr.strip()}}
+                raw_names = [line.strip() for line in res.stdout.splitlines() if line.strip()]
+
+            schemas = []
+            for name in raw_names:
+                schemas.append({
+                    "name": name,
+                    "is_system": name.lower() in SYSTEM_SCHEMAS
+                })
+            schemas.sort(key=lambda s: (1 if s["is_system"] else 0, s["name"].lower()))
+            return {"status": "success", "data": schemas}
+
+        except Exception as e:
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def create_schema(self, db_id: str, schema_name: str, password: str = "") -> dict:
+        try:
+            data = read_json(self.config_path)
+            db_obj = next((db for db in data if db['id'] == db_id), None)
+            if not db_obj:
+                return {"status": "error", "message": DB_NOT_FOUND_MSG}
+
+            engine = db_obj.get('engine')
+            if engine == 'redis':
+                return {"status": "error", "message": "backend.database.redis_not_supported_for_schemas"}
+
+            schema_name = (schema_name or "").strip()
+            if not SCHEMA_NAME_PATTERN.match(schema_name):
+                return {"status": "error", "message": "backend.database.schema_name_invalid"}
+
+            if schema_name.lower() in SYSTEM_SCHEMAS:
+                return {"status": "error", "message": "backend.database.schema_already_exists", "args": {"name": schema_name}}
+
+            if not check_port_in_use(db_obj['port']):
+                return {"status": "error", "message": "backend.database.must_be_running"}
+
+            pw = self._resolve_password(db_obj, password)
+
+            if engine == 'mysql':
+                cli = self._resolve_db_cli(db_obj, 'mysql')
+                if not cli:
+                    return {"status": "error", "message": "backend.database.schema_cli_not_found", "args": {"cli": "mysql"}}
+                cmd = [cli, "-u", "root", f"-P{db_obj['port']}", "-h", "127.0.0.1", "-e", f"CREATE DATABASE `{schema_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"]
+                if pw:
+                    cmd.insert(2, f"-p{pw}")
+                res = run_silent_command(cmd)
+                if res.returncode != 0:
+                    err = res.stderr.strip()
+                    if "already exists" in err.lower() or "database exists" in err.lower():
+                        return {"status": "error", "message": "backend.database.schema_already_exists", "args": {"name": schema_name}}
+                    return {"status": "error", "message": "backend.database.schema_exec_failed", "args": {"err": err}}
+
+            else:  # postgres
+                cli = self._resolve_db_cli(db_obj, 'psql')
+                if not cli:
+                    return {"status": "error", "message": "backend.database.schema_cli_not_found", "args": {"cli": "psql"}}
+                cmd = [cli, "-U", "postgres", "-p", str(db_obj['port']), "-h", "127.0.0.1", "-c", f"CREATE DATABASE \"{schema_name}\" ENCODING 'UTF8';"]
+                env = os.environ.copy()
+                if pw:
+                    env['PGPASSWORD'] = pw
+                res = run_silent_command(cmd, env=env)
+                if res.returncode != 0:
+                    err = res.stderr.strip()
+                    if "already exists" in err.lower() or "database exists" in err.lower():
+                        return {"status": "error", "message": "backend.database.schema_already_exists", "args": {"name": schema_name}}
+                    return {"status": "error", "message": "backend.database.schema_exec_failed", "args": {"err": err}}
+
+            self._log("backend.database.schema_created_success", "success", {"name": schema_name})
+            return {"status": "success", "message": "backend.database.schema_created_success", "args": {"name": schema_name}}
+
+        except Exception as e:
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def drop_schema(self, db_id: str, schema_name: str, password: str = "") -> dict:
+        try:
+            data = read_json(self.config_path)
+            db_obj = next((db for db in data if db['id'] == db_id), None)
+            if not db_obj:
+                return {"status": "error", "message": DB_NOT_FOUND_MSG}
+
+            engine = db_obj.get('engine')
+            if engine == 'redis':
+                return {"status": "error", "message": "backend.database.redis_not_supported_for_schemas"}
+
+            schema_name = (schema_name or "").strip()
+            if not SCHEMA_NAME_PATTERN.match(schema_name):
+                return {"status": "error", "message": "backend.database.schema_name_invalid"}
+
+            if schema_name.lower() in SYSTEM_SCHEMAS:
+                return {"status": "error", "message": "backend.database.schema_system_protected", "args": {"name": schema_name}}
+
+            if not check_port_in_use(db_obj['port']):
+                return {"status": "error", "message": "backend.database.must_be_running"}
+
+            pw = self._resolve_password(db_obj, password)
+
+            if engine == 'mysql':
+                cli = self._resolve_db_cli(db_obj, 'mysql')
+                if not cli:
+                    return {"status": "error", "message": "backend.database.schema_cli_not_found", "args": {"cli": "mysql"}}
+                cmd = [cli, "-u", "root", f"-P{db_obj['port']}", "-h", "127.0.0.1", "-e", f"DROP DATABASE `{schema_name}`;"]
+                if pw:
+                    cmd.insert(2, f"-p{pw}")
+                res = run_silent_command(cmd)
+                if res.returncode != 0:
+                    err = res.stderr.strip()
+                    return {"status": "error", "message": "backend.database.schema_exec_failed", "args": {"err": err}}
+
+            else:  # postgres
+                cli = self._resolve_db_cli(db_obj, 'psql')
+                if not cli:
+                    return {"status": "error", "message": "backend.database.schema_cli_not_found", "args": {"cli": "psql"}}
+                cmd = [cli, "-U", "postgres", "-p", str(db_obj['port']), "-h", "127.0.0.1", "-c", f"DROP DATABASE \"{schema_name}\";"]
+                env = os.environ.copy()
+                if pw:
+                    env['PGPASSWORD'] = pw
+                res = run_silent_command(cmd, env=env)
+                if res.returncode != 0:
+                    err = res.stderr.strip()
+                    return {"status": "error", "message": "backend.database.schema_exec_failed", "args": {"err": err}}
+
+            self._log("backend.database.schema_dropped_success", "warn", {"name": schema_name})
+            return {"status": "success", "message": "backend.database.schema_dropped_success", "args": {"name": schema_name}}
+
+        except Exception as e:
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def export_schema(self, db_id: str, schema_name: str, target_path: str = "", password: str = "") -> dict:
+        try:
+            data = read_json(self.config_path)
+            db_obj = next((db for db in data if db['id'] == db_id), None)
+            if not db_obj:
+                return {"status": "error", "message": DB_NOT_FOUND_MSG}
+
+            engine = db_obj.get('engine')
+            if engine == 'redis':
+                return {"status": "error", "message": "backend.database.redis_not_supported_for_schemas"}
+
+            schema_name = (schema_name or "").strip()
+            if not SCHEMA_NAME_PATTERN.match(schema_name):
+                return {"status": "error", "message": "backend.database.schema_name_invalid"}
+
+            if not check_port_in_use(db_obj['port']):
+                return {"status": "error", "message": "backend.database.must_be_running"}
+
+            if not target_path:
+                backups_dir = os.path.join(self.data_dir, "backups")
+                os.makedirs(backups_dir, exist_ok=True)
+                target_path = os.path.join(backups_dir, f"{schema_name}_{int(time.time())}.sql")
+            else:
+                os.makedirs(os.path.dirname(os.path.abspath(target_path)), exist_ok=True)
+
+            pw = self._resolve_password(db_obj, password)
+
+            if engine == 'mysql':
+                cli = self._resolve_db_cli(db_obj, 'mysqldump') or self._resolve_db_cli(db_obj, 'mariadb-dump')
+                if not cli:
+                    return {"status": "error", "message": "backend.database.schema_cli_not_found", "args": {"cli": "mysqldump"}}
+                cmd = [cli, "-u", "root", f"-P{db_obj['port']}", "-h", "127.0.0.1", schema_name]
+                if pw:
+                    cmd.insert(2, f"-p{pw}")
+                with open(target_path, 'wb') as out_f:
+                    res = subprocess.run(cmd, stdout=out_f, stderr=subprocess.PIPE, creationflags=get_silent_flags())
+                if res.returncode != 0:
+                    err = res.stderr.decode('utf-8', errors='replace').strip()
+                    if os.path.exists(target_path):
+                        try: os.remove(target_path)
+                        except Exception: pass
+                    return {"status": "error", "message": "backend.database.schema_exec_failed", "args": {"err": err}}
+
+            else:  # postgres
+                cli = self._resolve_db_cli(db_obj, 'pg_dump')
+                if not cli:
+                    return {"status": "error", "message": "backend.database.schema_cli_not_found", "args": {"cli": "pg_dump"}}
+                cmd = [cli, "-U", "postgres", "-p", str(db_obj['port']), "-h", "127.0.0.1", "-f", target_path, schema_name]
+                env = os.environ.copy()
+                if pw:
+                    env['PGPASSWORD'] = pw
+                res = subprocess.run(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env, creationflags=get_silent_flags())
+                if res.returncode != 0:
+                    err = res.stderr.decode('utf-8', errors='replace').strip()
+                    if os.path.exists(target_path):
+                        try: os.remove(target_path)
+                        except Exception: pass
+                    return {"status": "error", "message": "backend.database.schema_exec_failed", "args": {"err": err}}
+
+            self._log("backend.database.schema_export_success", "success", {"name": schema_name})
+            return {"status": "success", "message": "backend.database.schema_export_success", "args": {"name": schema_name}, "target_path": target_path}
+
+        except Exception as e:
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def import_schema(self, db_id: str, schema_name: str, source_path: str, password: str = "") -> dict:
+        try:
+            data = read_json(self.config_path)
+            db_obj = next((db for db in data if db['id'] == db_id), None)
+            if not db_obj:
+                return {"status": "error", "message": DB_NOT_FOUND_MSG}
+
+            engine = db_obj.get('engine')
+            if engine == 'redis':
+                return {"status": "error", "message": "backend.database.redis_not_supported_for_schemas"}
+
+            schema_name = (schema_name or "").strip()
+            if not SCHEMA_NAME_PATTERN.match(schema_name):
+                return {"status": "error", "message": "backend.database.schema_name_invalid"}
+
+            if not source_path or not os.path.exists(source_path):
+                return {"status": "error", "message": "backend.database.schema_sql_file_invalid"}
+
+            if not check_port_in_use(db_obj['port']):
+                return {"status": "error", "message": "backend.database.must_be_running"}
+
+            pw = self._resolve_password(db_obj, password)
+
+            # Auto-ensure database exists before importing into it
+            self.create_schema(db_id, schema_name, password)
+
+            if engine == 'mysql':
+                cli = self._resolve_db_cli(db_obj, 'mysql')
+                if not cli:
+                    return {"status": "error", "message": "backend.database.schema_cli_not_found", "args": {"cli": "mysql"}}
+                cmd = [cli, "-u", "root", f"-P{db_obj['port']}", "-h", "127.0.0.1", schema_name]
+                if pw:
+                    cmd.insert(2, f"-p{pw}")
+                with open(source_path, 'rb') as in_f:
+                    res = subprocess.run(cmd, stdin=in_f, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=get_silent_flags())
+                if res.returncode != 0:
+                    err = res.stderr.decode('utf-8', errors='replace').strip()
+                    return {"status": "error", "message": "backend.database.schema_exec_failed", "args": {"err": err}}
+
+            else:  # postgres
+                cli = self._resolve_db_cli(db_obj, 'psql')
+                if not cli:
+                    return {"status": "error", "message": "backend.database.schema_cli_not_found", "args": {"cli": "psql"}}
+                cmd = [cli, "-U", "postgres", "-p", str(db_obj['port']), "-h", "127.0.0.1", "-d", schema_name, "-f", source_path]
+                env = os.environ.copy()
+                if pw:
+                    env['PGPASSWORD'] = pw
+                res = subprocess.run(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env, creationflags=get_silent_flags())
+                if res.returncode != 0:
+                    err = res.stderr.decode('utf-8', errors='replace').strip()
+                    return {"status": "error", "message": "backend.database.schema_exec_failed", "args": {"err": err}}
+
+            self._log("backend.database.schema_import_success", "success", {"name": schema_name})
+            return {"status": "success", "message": "backend.database.schema_import_success", "args": {"name": schema_name}}
+
+        except Exception as e:
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
         
     # ==========================================
     # MASTER CONTROLLER (UNIVERSAL SERVICE STANDARD)
@@ -748,6 +1343,9 @@ class DatabaseManager:
             
         pg_dbs = sorted([db for db in dbs if db['engine'] == 'postgres'], key=lambda x: [int(i) for i in re.findall(r'\d+', x['version'])], reverse=True)
         if pg_dbs: fallback.append(pg_dbs[0]['id'])
+            
+        redis_dbs = sorted([db for db in dbs if db['engine'] == 'redis'], key=lambda x: [int(i) for i in re.findall(r'\d+', x['version'])], reverse=True)
+        if redis_dbs: fallback.append(redis_dbs[0]['id'])
         return fallback
 
     def start_all(self):

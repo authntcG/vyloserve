@@ -137,7 +137,7 @@ export default function TerminalEnvModal({
                                 setScope("current");
                                 setProfile(currentProfile);
                             }}
-                            className={`px-3 py-2.5 rounded-lg text-xs font-medium flex items-center justify-center gap-2 border transition-all cursor-pointer ${
+                            className={`px-3 py-2.5 rounded-lg text-xs font-medium flex items-center justify-center gap-2 border transition-colors cursor-pointer ${
                                 scope === "current"
                                     ? "bg-primary text-white border-primary shadow-xs"
                                     : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-slate-300"
@@ -156,7 +156,7 @@ export default function TerminalEnvModal({
                                 setScope("global");
                                 setProfile(defaultProfile);
                             }}
-                            className={`px-3 py-2.5 rounded-lg text-xs font-medium flex items-center justify-center gap-2 border transition-all cursor-pointer ${
+                            className={`px-3 py-2.5 rounded-lg text-xs font-medium flex items-center justify-center gap-2 border transition-colors cursor-pointer ${
                                 scope === "global"
                                     ? "bg-primary text-white border-primary shadow-xs"
                                     : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-slate-300"

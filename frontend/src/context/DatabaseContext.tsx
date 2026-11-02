@@ -7,7 +7,7 @@ import { compareVersions } from '../utils/version';
 import type { NewDbInstanceRef } from '../menu/database/NewInstance';
 import type { ChangePasswordRef } from '../menu/database/ChangePassword';
 
-export type DbEngineType = 'mysql' | 'postgres';
+export type DbEngineType = 'mysql' | 'postgres' | 'redis';
 
 export interface DbInstance {
     id: string;
@@ -24,7 +24,7 @@ export interface AvailableUpdate {
     url: string;
 }
 
-export type DatabaseFilterTab = 'all' | 'mysql' | 'postgres';
+export type DatabaseFilterTab = 'all' | 'mysql' | 'postgres' | 'redis';
 
 interface DatabaseContextValue {
     // State
@@ -41,6 +41,7 @@ interface DatabaseContextValue {
     // Updates & Installation
     availableUpdates: Record<string, AvailableUpdate>;
     isInstalling: boolean;
+    isCancelling: boolean;
     updatingInstance: { db: DbInstance; update: AvailableUpdate } | null;
     progress: number;
     progressText: string;
@@ -58,6 +59,11 @@ interface DatabaseContextValue {
     // Passwords
     isPasswordModalOpen: boolean;
     isUpdatingPassword: boolean;
+
+    // Schemas
+    activeSchemaDb: DbInstance | null;
+    openSchemaModal: (db: DbInstance) => void;
+    closeSchemaModal: () => void;
 
     // Modals
     isNewInstanceOpen: boolean;
@@ -77,6 +83,7 @@ interface DatabaseContextValue {
     checkForUpdates: (instances: DbInstance[]) => Promise<void>;
     handleToggleDB: (db: DbInstance) => Promise<void>;
     handleInstallDatabase: () => Promise<void>;
+    handleCancelInstall: () => Promise<void>;
     handleUpdateDatabase: (db: DbInstance) => Promise<void>;
     handleConfirmUninstall: (db: DbInstance) => Promise<void>;
     handleSaveSettings: () => Promise<void>;
@@ -110,9 +117,12 @@ export function DatabaseProvider({ children }: { readonly children: React.ReactN
     const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
     const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
 
+    const [activeSchemaDb, setActiveSchemaDb] = useState<DbInstance | null>(null);
+
     const [progress, setProgress] = useState(0);
     const [progressText, setProgressText] = useState('');
     const [isInstalling, setIsInstalling] = useState(false);
+    const [isCancelling, setIsCancelling] = useState(false);
     const [updatingInstance, setUpdatingInstance] = useState<{ db: DbInstance; update: AvailableUpdate } | null>(null);
     const hideProgressTimeoutRef = useRef<number | null>(null);
 
@@ -141,8 +151,9 @@ export function DatabaseProvider({ children }: { readonly children: React.ReactN
                 const res = await api.get_available_databases(engine);
                 if (res?.status !== 'success' || !res.data?.length) return;
                 const latest = res.data[0];
+                if (!latest?.version) return;
                 instances
-                    .filter(db => db.engine === engine && compareVersions(latest.version, db.version) > 0)
+                    .filter(db => db.engine === engine && Boolean(db.version) && compareVersions(latest.version, db.version) > 0)
                     .forEach(db => { updates[db.id] = { version: latest.version, url: latest.url }; });
             } catch (e) {
                 console.error(e);
@@ -242,9 +253,12 @@ export function DatabaseProvider({ children }: { readonly children: React.ReactN
             if (isUsed || usedPorts.includes(formData.port)) return showToast(tRef.current('database.port_used'), 'error');
 
             setIsInstalling(true);
+            setIsCancelling(false);
             setProgressText(tRef.current('database.preparing_engine'));
             const res = await window.pywebview?.api?.install_database(formData.engine, formData.version, formData.url, formData.port, formData.rootPass);
-            if (res?.status === 'error') {
+            if (res?.status === 'cancelled') {
+                showToast(tRef.current(res.message || '', res.args || {}) as string, 'info');
+            } else if (res?.status === 'error') {
                 showToast(tRef.current(res.message || '', res.args || {}) as string, 'error');
             } else if (res?.status === 'success') {
                 showToast(tRef.current(res.message || '', res.args || {}) as string, 'success');
@@ -256,6 +270,7 @@ export function DatabaseProvider({ children }: { readonly children: React.ReactN
             showToast(tRef.current('database.install_error'), 'error');
         } finally {
             setIsInstalling(false);
+            setIsCancelling(false);
             setProgress(0);
         }
     }, [usedPorts, showToast, fetchDatabases]);
@@ -318,22 +333,47 @@ export function DatabaseProvider({ children }: { readonly children: React.ReactN
         });
 
         setIsInstalling(true);
+        setIsCancelling(false);
         setUpdatingInstance({ db, update });
         setProgressText(tRef.current('database.updating_engine'));
         try {
             const res = await window.pywebview?.api?.update_database(db.id, update.version, update.url, shouldBackup);
-            showToast(tRef.current(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
+            if (res?.status === 'cancelled') {
+                showToast(tRef.current(res?.message || '', res?.args || {}) as string, 'info');
+            } else {
+                showToast(tRef.current(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
+            }
             if (res?.status === 'success') fetchDatabases();
         } catch (e) {
             console.error(e);
             showToast(tRef.current('database.install_error'), 'error');
         } finally {
             setIsInstalling(false);
+            setIsCancelling(false);
             setProgress(0);
             setUpdatingInstance(null);
             setIsNewInstanceOpen(false);
         }
     }, [availableUpdates, confirm, showToast, fetchDatabases]);
+
+    const handleCancelInstall = useCallback(async () => {
+        const ok = await confirm({
+            title: tRef.current('common.cancel_install_title'),
+            message: tRef.current('common.cancel_install_confirm'),
+            type: 'danger',
+            confirmText: tRef.current('common.cancel_install'),
+            cancelText: tRef.current('common.continue_install')
+        });
+        if (!ok) return;
+
+        setIsCancelling(true);
+        try {
+            await window.pywebview?.api?.cancel_installation('database');
+        } catch (e) {
+            console.error(e);
+            setIsCancelling(false);
+        }
+    }, [confirm]);
 
     const fetchDbLogContent = useCallback(() => {
         if (!logViewer) return Promise.resolve(undefined);
@@ -419,6 +459,14 @@ export function DatabaseProvider({ children }: { readonly children: React.ReactN
         if (!isUpdatingPassword) setIsPasswordModalOpen(false);
     }, [isUpdatingPassword]);
 
+    const openSchemaModal = useCallback((db: DbInstance) => {
+        setActiveSchemaDb(db);
+    }, []);
+
+    const closeSchemaModal = useCallback(() => {
+        setActiveSchemaDb(null);
+    }, []);
+
     const value = useMemo<DatabaseContextValue>(() => ({
         dbInstances,
         isLoading,
@@ -431,6 +479,7 @@ export function DatabaseProvider({ children }: { readonly children: React.ReactN
         usedPorts,
         availableUpdates,
         isInstalling,
+        isCancelling,
         updatingInstance,
         progress,
         progressText,
@@ -444,6 +493,9 @@ export function DatabaseProvider({ children }: { readonly children: React.ReactN
         handleConfigChange,
         isPasswordModalOpen,
         isUpdatingPassword,
+        activeSchemaDb,
+        openSchemaModal,
+        closeSchemaModal,
         isNewInstanceOpen,
         openNewInstanceModal,
         closeNewInstanceModal,
@@ -457,6 +509,7 @@ export function DatabaseProvider({ children }: { readonly children: React.ReactN
         checkForUpdates,
         handleToggleDB,
         handleInstallDatabase,
+        handleCancelInstall,
         handleUpdateDatabase,
         handleConfirmUninstall,
         handleSaveSettings,
@@ -471,6 +524,39 @@ export function DatabaseProvider({ children }: { readonly children: React.ReactN
         filteredInstances,
         usedPorts,
         availableUpdates,
+        isInstalling,
+        isCancelling,
+        updatingInstance,
+        progress,
+        progressText,
+        logViewer,
+        isSettingsOpen,
+        settingsConfig,
+        isLoadingSettings,
+        isSavingSettings,
+        handleConfigChange,
+        isPasswordModalOpen,
+        isUpdatingPassword,
+        activeSchemaDb,
+        openSchemaModal,
+        closeSchemaModal,
+        isNewInstanceOpen,
+        openNewInstanceModal,
+        closeNewInstanceModal,
+        openSettingsModal,
+        closeSettingsModal,
+        openPasswordModal,
+        closePasswordModal,
+        fetchDatabases,
+        checkForUpdates,
+        handleToggleDB,
+        handleInstallDatabase,
+        handleCancelInstall,
+        handleUpdateDatabase,
+        handleConfirmUninstall,
+        handleSaveSettings,
+        handlePasswordSubmit,
+        fetchDbLogContent,
         isInstalling,
         updatingInstance,
         progress,

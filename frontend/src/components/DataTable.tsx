@@ -144,7 +144,7 @@ export default function DataTable<T>({
                                     onChange={(e) => search.onChange(e.target.value)}
                                     placeholder={search.placeholder || t('common.search_placeholder', 'Search...')}
                                     aria-label={search.ariaLabel || search.placeholder || t('common.search', 'Search')}
-                                    className={`h-8 w-52 sm:w-64 md:w-72 pl-9 pr-8 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all ${
+                                    className={`h-8 w-52 sm:w-64 md:w-72 pl-9 pr-8 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-colors ${
                                         search.className || ''
                                     }`}
                                 />

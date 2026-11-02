@@ -474,4 +474,39 @@ describe('SettingsModals', () => {
         expect(tabContentContainer).toBeInTheDocument();
         expect(tabContentContainer).toHaveClass('min-w-0');
     });
+
+    it('toggles floating AI assistant setting and broadcasts vylo_ai_settings_changed', async () => {
+        const user = userEvent.setup();
+        const saveMock = vi.fn().mockResolvedValue({ status: 'success' });
+        const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+
+        mockPywebviewApi({
+            get_app_settings: vi.fn().mockResolvedValue({
+                status: 'success',
+                data: {
+                    theme: 'vyloserve-dark',
+                    language: 'en',
+                    enable_desktop_notifications: true,
+                    enable_floating_ai: true,
+                },
+            }),
+            save_app_settings: saveMock,
+        });
+
+        render(<SettingsModals activeModal="settings" defaultTab="general" onClose={vi.fn()} />);
+
+        const floatingToggle = await screen.findByRole('checkbox', { name: /Enable Floating Assistant/i });
+        expect(floatingToggle).toBeChecked();
+
+        await user.click(floatingToggle);
+
+        expect(saveMock).toHaveBeenCalledWith({ enable_floating_ai: false });
+        expect(dispatchSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'vylo_ai_settings_changed',
+                detail: { enable_floating_ai: false },
+            })
+        );
+        dispatchSpy.mockRestore();
+    });
 });

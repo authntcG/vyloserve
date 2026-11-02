@@ -8,6 +8,8 @@ export default function PhpNewInstanceModal() {
     const {
         isNewInstanceOpen,
         isInstalling,
+        isCancelling,
+        handleCancelInstall,
         updatingInstance,
         installVersion,
         setInstallVersion,
@@ -39,6 +41,8 @@ export default function PhpNewInstanceModal() {
                 port={installPort}
                 setPort={setInstallPort}
                 isInstalling={isInstalling}
+                isCancelling={isCancelling}
+                onCancelInstall={handleCancelInstall}
                 isFetchingVersions={isFetchingVersions}
                 setIsFetchingVersions={setIsFetchingVersions}
                 usedPorts={usedPorts}

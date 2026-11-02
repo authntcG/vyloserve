@@ -30,6 +30,7 @@ export interface ApacheContextValue {
     httpPort: number;
     httpsPort: number;
     isInstalling: boolean;
+    isCancelling: boolean;
     progress: number;
     progressText: string;
     setInstallVersion: React.Dispatch<React.SetStateAction<string>>;
@@ -52,6 +53,7 @@ export interface ApacheContextValue {
     fetchAvailableVersions: () => Promise<void>;
     handleToggleServer: () => Promise<void>;
     handleInstallApache: () => Promise<void>;
+    handleCancelInstall: () => Promise<void>;
     handleUpdateApacheClick: () => Promise<void>;
     handleUninstall: () => Promise<void>;
     openConfigFile: () => void;
@@ -92,6 +94,7 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
     const [httpPort, setHttpPort] = useState(80);
     const [httpsPort, setHttpsPort] = useState(443);
     const [isInstalling, setIsInstalling] = useState(false);
+    const [isCancelling, setIsCancelling] = useState(false);
     const [isOptionsOpen, setIsOptionsOpen] = useState(false);
 
     const [progress, setProgress] = useState(0);
@@ -295,11 +298,16 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
     const handleInstallApache = useCallback(async () => {
         if (!installVersion || !installUrl) return;
         setIsInstalling(true);
+        setIsCancelling(false);
         setProgress(0);
         setProgressText(tRef.current('apache.installing_start'));
         try {
             const res = await window.pywebview?.api?.install_apache(installVersion, installUrl, httpPort);
-            showToast(tRef.current(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
+            if (res?.status === 'cancelled') {
+                showToast(tRef.current(res?.message || '', res?.args || {}) as string, 'info');
+            } else {
+                showToast(tRef.current(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
+            }
             if (res?.status === 'success') {
                 setIsInstallServerOpen(false);
                 fetchApacheStatus();
@@ -309,8 +317,28 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
             showToast(tRef.current('apache.system_error'), 'error');
         } finally {
             setIsInstalling(false);
+            setIsCancelling(false);
         }
     }, [installVersion, installUrl, httpPort, showToast, fetchApacheStatus]);
+
+    const handleCancelInstall = useCallback(async () => {
+        const ok = await confirm({
+            title: tRef.current('common.cancel_install_title'),
+            message: tRef.current('common.cancel_install_confirm'),
+            type: 'danger',
+            confirmText: tRef.current('common.cancel_install'),
+            cancelText: tRef.current('common.continue_install')
+        });
+        if (!ok) return;
+
+        setIsCancelling(true);
+        try {
+            await window.pywebview?.api?.cancel_installation('apache');
+        } catch (e) {
+            console.error(e);
+            setIsCancelling(false);
+        }
+    }, [confirm]);
 
     const handleUpdateApacheClick = useCallback(async () => {
         if (!updateAvailable) return;
@@ -403,6 +431,7 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
         httpPort,
         httpsPort,
         isInstalling,
+        isCancelling,
         progress,
         progressText,
         setInstallVersion,
@@ -419,6 +448,7 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
         fetchAvailableVersions,
         handleToggleServer,
         handleInstallApache,
+        handleCancelInstall,
         handleUpdateApacheClick,
         handleUninstall,
         portsStatus,
@@ -447,6 +477,7 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
         httpPort,
         httpsPort,
         isInstalling,
+        isCancelling,
         progress,
         progressText,
         isOptionsOpen,
@@ -459,6 +490,7 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
         fetchAvailableVersions,
         handleToggleServer,
         handleInstallApache,
+        handleCancelInstall,
         handleUpdateApacheClick,
         handleUninstall,
         openConfigFile,

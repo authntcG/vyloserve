@@ -1128,3 +1128,70 @@ def test_spawn_pty_process_windows_cmd_wrapper(project_manager):
 
 
 
+
+def test_sync_env_database(tmp_path, project_manager):
+    env_file = str(tmp_path / ".env")
+    with open(env_file, "w", encoding="utf-8") as f:
+        f.write("APP_NAME=Laravel\nDB_CONNECTION=mysql\nDB_HOST=127.0.0.1\nDB_PORT=3306\nDB_DATABASE=old_db\nDB_USERNAME=root\nDB_PASSWORD=\n")
+
+    db_obj = {"engine": "postgres", "port": 5432, "rootPassword": "secret_pg_pass"}
+    project_manager._sync_env_database(env_file, db_obj, "new_project_db")
+
+    with open(env_file, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    assert "DB_CONNECTION=pgsql" in content
+    assert "DB_PORT=5432" in content
+    assert "DB_DATABASE=new_project_db" in content
+    assert "DB_USERNAME=postgres" in content
+    assert "DB_PASSWORD=secret_pg_pass" in content
+
+
+def test_handle_auto_create_db_success(tmp_path, project_manager):
+    doc_root = str(tmp_path / "my_project")
+    os.makedirs(doc_root, exist_ok=True)
+    with open(os.path.join(doc_root, ".env.example"), "w", encoding="utf-8") as f:
+        f.write("DB_CONNECTION=mysql\nDB_PORT=3306\nDB_DATABASE=forge\n")
+
+    mock_db = MagicMock()
+    mock_db.config_path = "/data/databases.json"
+    mock_db.start_database.return_value = {"status": "success"}
+    mock_db.create_schema.return_value = {"status": "success"}
+    project_manager.api.database = mock_db
+
+    payload = {
+        "auto_create_db": True,
+        "db_instance_id": "mysql_10_4",
+        "target_db_name": "auto_app_db",
+        "domain": "my-app.local"
+    }
+
+    db_obj = {"id": "mysql_10_4", "engine": "mysql", "port": 3306}
+    with patch("core.services.project.read_json", return_value=[db_obj]), \
+         patch("core.services.project.check_port_in_use", return_value=False), \
+         patch.object(project_manager, "_log") as mock_log:
+        project_manager._handle_auto_create_db(payload, doc_root)
+
+        mock_db.start_database.assert_called_once_with("mysql_10_4")
+        mock_db.create_schema.assert_called_once_with("mysql_10_4", "auto_app_db")
+        mock_log.assert_called_with("backend.project.auto_create_db_success", "success", {"name": "auto_app_db"})
+        assert os.path.exists(os.path.join(doc_root, ".env"))
+
+
+def test_handle_auto_create_db_failed_start(project_manager):
+    mock_db = MagicMock()
+    mock_db.config_path = "/data/databases.json"
+    mock_db.start_database.return_value = {"status": "error"}
+    project_manager.api.database = mock_db
+
+    payload = {
+        "auto_create_db": True,
+        "db_instance_id": "mysql_10_4",
+        "target_db_name": "auto_app_db"
+    }
+    db_obj = {"id": "mysql_10_4", "engine": "mysql", "port": 3306}
+    with patch("core.services.project.read_json", return_value=[db_obj]), \
+         patch("core.services.project.check_port_in_use", return_value=False), \
+         patch.object(project_manager, "_log") as mock_log:
+        project_manager._handle_auto_create_db(payload, "/www/docroot")
+        mock_log.assert_called_with("backend.project.auto_create_db_failed", "warn", {"name": "auto_app_db", "err": "Could not start database"})

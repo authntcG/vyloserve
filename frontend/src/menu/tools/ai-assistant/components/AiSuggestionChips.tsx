@@ -35,7 +35,7 @@ export default function AiSuggestionChips({
                         type="button"
                         disabled={disabled}
                         onClick={() => onSelectSuggestion(suggestion)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/80 bg-white/90 dark:bg-slate-800/90 hover:bg-primary/5 hover:border-primary/40 dark:hover:bg-primary/10 dark:hover:border-primary/40 text-slate-700 dark:text-slate-200 text-xs font-normal transition-all text-left whitespace-nowrap cursor-pointer shadow-2xs group shrink-0 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/80 bg-white/90 dark:bg-slate-800/90 hover:bg-primary/5 hover:border-primary/40 dark:hover:bg-primary/10 dark:hover:border-primary/40 text-slate-700 dark:text-slate-200 text-xs font-normal transition-[transform,colors] text-left whitespace-nowrap cursor-pointer shadow-2xs group shrink-0 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         <span className="text-primary group-hover:scale-110 transition-transform text-[13px]">
                             &rsaquo;

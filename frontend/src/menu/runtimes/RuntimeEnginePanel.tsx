@@ -269,20 +269,24 @@ export function RuntimeEnginePanel({
                                                 <button
                                                     type="button"
                                                     onClick={() => (onOpenFolderForVersion ? onOpenFolderForVersion(ver.version) : onOpenFolder?.())}
-                                                    className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-xs font-medium py-2 px-3 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-xs"
+                                                    title={t('runtimes.open_folder')}
+                                                    aria-label={t('runtimes.open_folder')}
+                                                    className="flex-1 min-w-0 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-xs font-medium py-2 px-3 rounded-lg transition-[transform,colors] active:scale-95 flex items-center justify-center gap-1.5 shadow-xs"
                                                 >
-                                                    <span className="material-symbols-outlined text-[16px]">folder_open</span>
-                                                    <span>{t('runtimes.open_folder')}</span>
+                                                    <span className="material-symbols-outlined text-[16px] shrink-0">folder_open</span>
+                                                    <span className="truncate">{t('runtimes.open_folder')}</span>
                                                 </button>
                                             )}
                                             {(onOpenTerminalForVersion || onOpenTerminal) && (
                                                 <button
                                                     type="button"
                                                     onClick={() => (onOpenTerminalForVersion ? onOpenTerminalForVersion(ver.version) : onOpenTerminal?.())}
-                                                    className="flex-1 bg-slate-900 dark:bg-slate-800 text-white hover:bg-slate-800 dark:hover:bg-slate-700 text-xs font-medium py-2 px-3 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-xs"
+                                                    title={t('runtimes.open_in_terminal')}
+                                                    aria-label={t('runtimes.open_in_terminal')}
+                                                    className="flex-1 min-w-0 bg-slate-900 dark:bg-slate-800 text-white hover:bg-slate-800 dark:hover:bg-slate-700 text-xs font-medium py-2 px-3 rounded-lg transition-[transform,colors] active:scale-95 flex items-center justify-center gap-1.5 shadow-xs"
                                                 >
-                                                    <span className="material-symbols-outlined text-[16px]">terminal</span>
-                                                    <span>{t('runtimes.open_in_terminal')}</span>
+                                                    <span className="material-symbols-outlined text-[16px] shrink-0">terminal</span>
+                                                    <span className="truncate">{t('runtimes.open_in_terminal')}</span>
                                                 </button>
                                             )}
                                         </>
@@ -363,20 +367,24 @@ export function RuntimeEnginePanel({
                                         <button
                                             type="button"
                                             onClick={onOpenFolder}
-                                            className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-xs font-medium py-2 px-3 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-xs"
+                                            title={t('runtimes.open_folder')}
+                                            aria-label={t('runtimes.open_folder')}
+                                            className="flex-1 min-w-0 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-xs font-medium py-2 px-3 rounded-lg transition-[transform,colors] active:scale-95 flex items-center justify-center gap-1.5 shadow-xs"
                                         >
-                                            <span className="material-symbols-outlined text-[16px]">folder_open</span>
-                                            <span>{t('runtimes.open_folder')}</span>
+                                            <span className="material-symbols-outlined text-[16px] shrink-0">folder_open</span>
+                                            <span className="truncate">{t('runtimes.open_folder')}</span>
                                         </button>
                                     )}
                                     {onOpenTerminal && (
                                         <button
                                             type="button"
                                             onClick={onOpenTerminal}
-                                            className="flex-1 bg-slate-900 dark:bg-slate-800 text-white hover:bg-slate-800 dark:hover:bg-slate-700 text-xs font-medium py-2 px-3 rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-xs"
+                                            title={t('runtimes.open_in_terminal')}
+                                            aria-label={t('runtimes.open_in_terminal')}
+                                            className="flex-1 min-w-0 bg-slate-900 dark:bg-slate-800 text-white hover:bg-slate-800 dark:hover:bg-slate-700 text-xs font-medium py-2 px-3 rounded-lg transition-[transform,colors] active:scale-95 flex items-center justify-center gap-1.5 shadow-xs"
                                         >
-                                            <span className="material-symbols-outlined text-[16px]">terminal</span>
-                                            <span>{t('runtimes.open_in_terminal')}</span>
+                                            <span className="material-symbols-outlined text-[16px] shrink-0">terminal</span>
+                                            <span className="truncate">{t('runtimes.open_in_terminal')}</span>
                                         </button>
                                     )}
                                 </>

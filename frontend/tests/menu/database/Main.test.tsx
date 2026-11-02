@@ -1,11 +1,11 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { act, fireEvent, screen, waitFor, within } from '../../test-utils';
 import { mockPywebviewApi, renderWithToast } from '../../test-utils';
 import DatabaseMain from '../../../src/menu/database/Main';
 
 interface DbInstance {
-    id: string; name: string; engine: 'mysql' | 'postgres'; version: string;
+    id: string; name: string; engine: 'mysql' | 'postgres' | 'redis'; version: string;
     port: number; status: 'running' | 'stopped'; dataDir: string;
 }
 
@@ -17,17 +17,26 @@ const pgDb: DbInstance = {
     id: 'db_2', name: 'PostgreSQL', engine: 'postgres', version: '16',
     port: 5432, status: 'running', dataDir: 'C:/data/pg',
 };
+const redisDb: DbInstance = {
+    id: 'db_3', name: 'Redis Server', engine: 'redis', version: '5.0.14',
+    port: 6379, status: 'running', dataDir: 'C:/data/redis',
+};
 
 function apiWithDbs(dbs: DbInstance[]) {
     return { status: 'success', data: dbs };
 }
 
 describe('DatabaseMain', () => {
+    beforeEach(() => {
+        localStorage.clear();
+    });
     it('shows the empty state when there are no installed databases', async () => {
         mockPywebviewApi({ get_installed_databases: vi.fn().mockResolvedValue(apiWithDbs([])) });
         renderWithToast(<DatabaseMain />);
 
         expect(await screen.findByText('database.no_instances_found')).toBeInTheDocument();
+        expect(screen.getByText('database.no_instances_desc')).toBeInTheDocument();
+        expect(screen.getByText('database.download_db_now')).toBeInTheDocument();
     });
 
     it('lists installed instances and filters them by engine tab', async () => {
@@ -716,5 +725,176 @@ describe('DatabaseMain', () => {
         expect(screen.queryByText('MySQL')).not.toBeInTheDocument();
         expect(screen.getByText('PostgreSQL')).toBeInTheDocument();
         expect(screen.getByText('5432')).toBeInTheDocument();
+    });
+
+    it('filters by Redis tab and displays Redis instances', async () => {
+        const user = userEvent.setup();
+        mockPywebviewApi({
+            get_installed_databases: vi.fn().mockResolvedValue(apiWithDbs([mysqlDb, pgDb, redisDb])),
+        });
+        renderWithToast(<DatabaseMain />);
+        await screen.findByText('Redis Server');
+        expect(screen.getByText('MySQL')).toBeInTheDocument();
+
+        const redisChip = screen.getByRole('button', { name: /^Redis/i });
+        await user.click(redisChip);
+
+        expect(screen.queryByText('MySQL')).not.toBeInTheDocument();
+        expect(screen.queryByText('PostgreSQL')).not.toBeInTheDocument();
+        expect(screen.getByText('Redis Server')).toBeInTheDocument();
+        expect(screen.getByText('6379')).toBeInTheDocument();
+        // Redis should not have "Manage Schemas" button
+        expect(screen.queryByRole('button', { name: /database\.manage_schemas/i })).not.toBeInTheDocument();
+    });
+
+    it('opens schema manager modal and lists schemas', async () => {
+        const user = userEvent.setup();
+        const listSchemas = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: [
+                { name: 'app_production', is_system: false },
+                { name: 'information_schema', is_system: true },
+            ],
+        });
+        mockPywebviewApi({
+            get_installed_databases: vi.fn().mockResolvedValue(apiWithDbs([pgDb])),
+            list_database_schemas: listSchemas,
+        });
+        renderWithToast(<DatabaseMain />);
+        await screen.findByText('PostgreSQL');
+
+        const manageBtn = screen.getByTitle('database.manage_schemas');
+        await user.click(manageBtn);
+
+        expect(listSchemas).toHaveBeenCalledWith('db_2', '');
+        expect(await screen.findByText('app_production')).toBeInTheDocument();
+        expect(screen.getByText('information_schema')).toBeInTheDocument();
+        expect(screen.getByText('database.system_db_badge')).toBeInTheDocument();
+        expect(screen.getByText('database.schemas_count')).toBeInTheDocument();
+        expect(screen.getByText('Close')).toBeInTheDocument();
+    });
+
+    it('creates a new schema successfully in schema manager', async () => {
+        const user = userEvent.setup();
+        const listSchemas = vi.fn()
+            .mockResolvedValueOnce({
+                status: 'success',
+                data: [{ name: 'existing_db', is_system: false }],
+            })
+            .mockResolvedValue({
+                status: 'success',
+                data: [
+                    { name: 'existing_db', is_system: false },
+                    { name: 'brand_new_db', is_system: false },
+                ],
+            });
+        const createSchema = vi.fn().mockResolvedValue({
+            status: 'success',
+            message: 'backend.database.schema_create_success',
+            args: { name: 'brand_new_db' },
+        });
+
+        mockPywebviewApi({
+            get_installed_databases: vi.fn().mockResolvedValue(apiWithDbs([pgDb])),
+            list_database_schemas: listSchemas,
+            create_database_schema: createSchema,
+        });
+        renderWithToast(<DatabaseMain />);
+        await screen.findByText('PostgreSQL');
+
+        await user.click(screen.getByTitle('database.manage_schemas'));
+        expect(await screen.findByText('existing_db')).toBeInTheDocument();
+
+        const input = screen.getByPlaceholderText('database.placeholder_schema_name');
+        await user.type(input, 'brand_new_db');
+
+        const submitBtn = screen.getByRole('button', { name: /database\.create_schema_btn/i });
+        await user.click(submitBtn);
+
+        expect(createSchema).toHaveBeenCalledWith('db_2', 'brand_new_db', '');
+        expect(await screen.findByText('brand_new_db')).toBeInTheDocument();
+    });
+
+    it('drops a user schema after confirmation in schema manager', async () => {
+        const user = userEvent.setup();
+        const listSchemas = vi.fn()
+            .mockResolvedValueOnce({
+                status: 'success',
+                data: [
+                    { name: 'app_test', is_system: false },
+                    { name: 'information_schema', is_system: true },
+                ],
+            })
+            .mockResolvedValue({
+                status: 'success',
+                data: [{ name: 'information_schema', is_system: true }],
+            });
+        const dropSchema = vi.fn().mockResolvedValue({
+            status: 'success',
+            message: 'backend.database.schema_drop_success',
+            args: { name: 'app_test' },
+        });
+
+        mockPywebviewApi({
+            get_installed_databases: vi.fn().mockResolvedValue(apiWithDbs([pgDb])),
+            list_database_schemas: listSchemas,
+            drop_database_schema: dropSchema,
+        });
+        renderWithToast(<DatabaseMain />);
+        await screen.findByText('PostgreSQL');
+
+        await user.click(screen.getByTitle('database.manage_schemas'));
+        expect(await screen.findByText('app_test')).toBeInTheDocument();
+
+        // Click row drop button by title
+        const dropBtn = screen.getByTitle('database.drop_schema');
+        await user.click(dropBtn);
+
+        // Confirmation modal appears with confirm button
+        const confirmBtn = await screen.findByRole('button', { name: /database\.drop_schema/i });
+        await user.click(confirmBtn);
+
+        expect(dropSchema).toHaveBeenCalledWith('db_2', 'app_test', '');
+    });
+
+    it('exports and imports SQL schemas through schema modal', async () => {
+        const user = userEvent.setup();
+        const exportSchema = vi.fn().mockResolvedValue({
+            status: 'success',
+            message: 'backend.database.schema_export_success',
+            args: { name: 'app_export', path: 'C:/exports/app_export.sql' },
+        });
+        const importSchema = vi.fn().mockResolvedValue({
+            status: 'success',
+            message: 'backend.database.schema_import_success',
+            args: { name: 'app_export', path: 'C:/exports/app_export.sql' },
+        });
+
+        mockPywebviewApi({
+            get_installed_databases: vi.fn().mockResolvedValue(apiWithDbs([pgDb])),
+            list_database_schemas: vi.fn().mockResolvedValue({
+                status: 'success',
+                data: [{ name: 'app_export', is_system: false }],
+            }),
+            browse_save_file: vi.fn().mockResolvedValue('C:/exports/app_export.sql'),
+            browse_open_file: vi.fn().mockResolvedValue('C:/exports/app_export.sql'),
+            export_database_schema: exportSchema,
+            import_database_schema: importSchema,
+        });
+        renderWithToast(<DatabaseMain />);
+        await screen.findByText('PostgreSQL');
+
+        await user.click(screen.getByTitle('database.manage_schemas'));
+        expect(await screen.findByText('app_export')).toBeInTheDocument();
+
+        // Test Export
+        const exportBtn = screen.getByTitle('database.export_sql');
+        await user.click(exportBtn);
+        expect(exportSchema).toHaveBeenCalledWith('db_2', 'app_export', 'C:/exports/app_export.sql', '');
+
+        // Test Import
+        const importBtn = screen.getByTitle('database.import_sql');
+        await user.click(importBtn);
+        expect(importSchema).toHaveBeenCalledWith('db_2', 'app_export', 'C:/exports/app_export.sql', '');
     });
 });

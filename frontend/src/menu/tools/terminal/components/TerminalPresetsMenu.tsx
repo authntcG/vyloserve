@@ -53,14 +53,23 @@ export default function TerminalPresetsMenu({
             }
         };
         updatePosition();
+        let rafId: number | null = null;
+        const handleResize = () => {
+            if (rafId !== null) cancelAnimationFrame(rafId);
+            rafId = requestAnimationFrame(() => {
+                updatePosition();
+                rafId = null;
+            });
+        };
         const handleScroll = (event: Event) => {
             if (event.target instanceof Node && panelRef.current?.contains(event.target)) return;
             setIsOpen(false);
         };
-        window.addEventListener("resize", updatePosition);
+        window.addEventListener("resize", handleResize);
         window.addEventListener("scroll", handleScroll, true);
         return () => {
-            window.removeEventListener("resize", updatePosition);
+            if (rafId !== null) cancelAnimationFrame(rafId);
+            window.removeEventListener("resize", handleResize);
             window.removeEventListener("scroll", handleScroll, true);
         };
     }, [isOpen]);

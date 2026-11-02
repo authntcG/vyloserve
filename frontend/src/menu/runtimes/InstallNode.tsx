@@ -21,24 +21,27 @@ const InstallNode = forwardRef<InstallNodeRef, InstallNodeProps>(({ targetVersio
     const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
     const [enableCorepack, setEnableCorepack] = useState(true);
 
-    useEffect(() => {
-        const fetchVersions = async () => {
-            try {
-                const res = await window.pywebview?.api?.get_available_node_versions();
-                if (res?.status === 'success' && res.data.length > 0) {
-                    setVersionsList(res.data);
-                    if (!targetVersion) setVersion(res.data[0].value);
-                } else {
-                    setVersionsList([]);
-                }
-            } catch {
+    const fetchVersions = async () => {
+        setIsLoading(true);
+        try {
+            const res = await window.pywebview?.api?.get_available_node_versions();
+            if (res?.status === 'success' && res.data.length > 0) {
+                setVersionsList(res.data);
+                if (!targetVersion) setVersion(res.data[0].value);
+            } else {
                 setVersionsList([]);
-                showToast(t('runtimes.fetch_version_error'), "error");
-            } finally {
-                setIsLoading(false);
             }
-        };
+        } catch {
+            setVersionsList([]);
+            showToast(t('runtimes.fetch_version_error'), "error");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
         fetchVersions();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     useImperativeHandle(ref, () => ({
@@ -51,6 +54,9 @@ const InstallNode = forwardRef<InstallNodeRef, InstallNodeProps>(({ targetVersio
                 if (res?.status === 'success') {
                     showToast((res.message ? t(res.message, res.args || {}) : t('runtimes.node_install_success')) as string, 'success');
                     return true;
+                } else if (res?.status === 'cancelled') {
+                    showToast((res.message ? t(res.message, res.args || {}) : t('backend.runtimes.install_cancelled')) as string, 'info');
+                    return false;
                 } else {
                     showToast((res?.message ? t(res.message, res.args || {}) : t('runtimes.node_install_error')) as string, 'error');
                     return false;
@@ -66,7 +72,7 @@ const InstallNode = forwardRef<InstallNodeRef, InstallNodeProps>(({ targetVersio
         <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
                 <FieldLabel>{t('runtimes.node_version')}</FieldLabel>
-                <RuntimeVersionSelect isLoading={isLoading} versionsList={versionsList} version={version} setVersion={setVersion} />
+                <RuntimeVersionSelect isLoading={isLoading} versionsList={versionsList} version={version} setVersion={setVersion} onRetry={fetchVersions} />
             </div>
 
             <div className="flex flex-col gap-1">
@@ -109,7 +115,7 @@ const InstallNode = forwardRef<InstallNodeRef, InstallNodeProps>(({ targetVersio
                     <span className={`material-symbols-outlined text-[18px] transition-transform duration-300 ${isAdvancedOpen ? 'rotate-180' : ''}`}>expand_more</span>
                     {t('runtimes.advanced_settings')}
                 </button>
-                <div className={`flex flex-col gap-4 overflow-hidden transition-all duration-300 ${isAdvancedOpen ? 'max-h-[200px] opacity-100 mt-4' : 'max-h-0 opacity-0'}`}>
+                <div className={`flex flex-col gap-4 overflow-hidden transition-[max-height,opacity] duration-300 ${isAdvancedOpen ? 'max-h-[200px] opacity-100 mt-4' : 'max-h-0 opacity-0'}`}>
                     <label htmlFor="enable-corepack-checkbox" className="flex items-start gap-3 cursor-pointer p-3 border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-900/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
                         <input id="enable-corepack-checkbox" type="checkbox" checked={enableCorepack} onChange={(e) => setEnableCorepack(e.target.checked)} aria-label={t('runtimes.enable_corepack')} className="mt-1 w-4 h-4 text-primary bg-slate-100 border-slate-300 rounded focus:ring-primary dark:ring-offset-slate-800 dark:bg-slate-700 dark:border-slate-600" />
                         <div className="flex flex-col">

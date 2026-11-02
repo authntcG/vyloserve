@@ -48,14 +48,23 @@ export default function TerminalTabBar({
             }
         };
         updatePosition();
+        let rafId: number | null = null;
+        const handleResize = () => {
+            if (rafId !== null) cancelAnimationFrame(rafId);
+            rafId = requestAnimationFrame(() => {
+                updatePosition();
+                rafId = null;
+            });
+        };
         const handleScroll = (event: Event) => {
             if (event.target instanceof Node && dropdownRef.current?.contains(event.target)) return;
             setIsMenuOpen(false);
         };
-        window.addEventListener("resize", updatePosition);
+        window.addEventListener("resize", handleResize);
         window.addEventListener("scroll", handleScroll, true);
         return () => {
-            window.removeEventListener("resize", updatePosition);
+            if (rafId !== null) cancelAnimationFrame(rafId);
+            window.removeEventListener("resize", handleResize);
             window.removeEventListener("scroll", handleScroll, true);
         };
     }, [isMenuOpen]);

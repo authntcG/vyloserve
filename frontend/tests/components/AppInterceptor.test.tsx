@@ -42,6 +42,17 @@ describe('GlobalAppInterceptor', () => {
         expect(screen.queryByText('components.interceptor.copy_btn')).not.toBeInTheDocument();
     });
 
+    it('always calls preventDefault on contextmenu events to disable default browser right-click menu', () => {
+        renderWithLogArea();
+        const otherArea = screen.getByTestId('other-area');
+        const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+        const preventDefaultSpy = vi.spyOn(event, 'preventDefault');
+
+        otherArea.dispatchEvent(event);
+
+        expect(preventDefaultSpy).toHaveBeenCalled();
+    });
+
     it('closes the menu on a regular click', async () => {
         const user = userEvent.setup();
         renderWithLogArea();

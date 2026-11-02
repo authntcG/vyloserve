@@ -131,7 +131,7 @@ export default function CompactFileDropzone({
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
             onClick={() => !disabled && inputRef.current?.click()}
-            className={`transition-all rounded-lg border-2 border-dashed cursor-pointer select-none flex items-center justify-center ${
+            className={`transition-[border-color,background-color,transform] rounded-lg border-2 border-dashed cursor-pointer select-none flex items-center justify-center ${
                 isDragging
                     ? 'border-primary bg-primary/10 scale-[0.99]'
                     : 'border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:border-primary/50'

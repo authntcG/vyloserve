@@ -2,6 +2,8 @@ import { useTranslation } from 'react-i18next';
 import PageHeader from '../../../components/PageHeader';
 import BackgroundProgressWidget from '../../../components/BackgroundProgressWidget';
 import Tabs from '../../../components/Tabs';
+import OfflineBanner from '../../../components/OfflineBanner';
+import { useNetworkStatus } from '../../../context/NetworkContext';
 import {
     TunnelsProvider,
     useTunnels,
@@ -16,6 +18,7 @@ import TunnelsUninstallModal from './TunnelsUninstallModal';
 
 export function TunnelsMainView() {
     const { t } = useTranslation();
+    const { isOnline } = useNetworkStatus();
     const {
         activeTab,
         setActiveTab,
@@ -28,6 +31,8 @@ export function TunnelsMainView() {
         cfUpdateAvailable,
         isInstallModalOpen,
         isInstalling,
+        isCancelling,
+        handleCancelInstall,
         progress,
         progressText,
         openInstallModal,
@@ -112,6 +117,13 @@ export function TunnelsMainView() {
                 onChange={setActiveTab}
             />
 
+            {!isOnline && (
+                <OfflineBanner
+                    description={t('tools.tunnels.offline_desc')}
+                    className="mb-4"
+                />
+            )}
+
             <TunnelsBody
                 activeTab={activeTab}
                 zrokStatus={zrokStatus}
@@ -143,6 +155,16 @@ export function TunnelsMainView() {
                 }}
                 cfShare={shareConfig}
                 share={shareConfig}
+            />
+
+            <BackgroundProgressWidget
+                isOpen={isInstalling && !isInstallModalOpen}
+                progress={progress}
+                progressText={progressText}
+                title={t('common.installation_progress')}
+                onRestore={openInstallModal}
+                onCancel={handleCancelInstall}
+                isCancelling={isCancelling}
             />
 
             <TunnelsInstallModal />

@@ -224,7 +224,7 @@ Komponen manapun yang memanggil `window.pywebview.api.*` (hampir semua komponen 
 ```powershell
 npm run test            # sekali jalan (CI-friendly)
 npm run test:watch      # mode watch untuk development
-npm run test:coverage   # dengan coverage report (@vitest/coverage-v8) -- juga menghasilkan coverage/lcov.info untuk SonarQube, lihat §6
+npm run test:coverage   # dengan coverage report (@vitest/coverage-v8) -- juga menghasilkan coverage/lcov.info untuk SonarQube, lihat §7
 ```
 
 ### 3.5 🚨 WAJIB: Cara Type-Check Frontend yang BENAR — `tsc -b`, BUKAN `tsc --noEmit -p tsconfig.json`
@@ -388,7 +388,48 @@ Validasi di frontend hanya untuk pengalaman pengguna (tampilkan pesan error cepa
 **3. Jangan Expose Token/Secret di Environment Frontend:**
 File `.env` di `frontend/` tidak boleh berisi data sensitif karena akan di-bundle ke dalam JS yang dapat dibaca siapapun.
 
-## 6. Analisis Kualitas Kode (SonarQube Scan)
+## 6. Standar Analisis & Pengujian Usabilitas, Ergonomi HCI, dan Keamanan Terpadu
+
+Pengembangan fitur dan perbaikan bug di VyloServe tidak hanya diukur dari kelulusan unit test kode semata, melainkan wajib melalui tinjauan komprehensif atas usabilitas (pengalaman pengguna), ergonomi interaksi manusia-komputer (HCI/IMK), dan ketahanan keamanan.
+
+### 6.1 Matriks Evaluasi Heuristik Usabilitas (Nielsen & Shneiderman)
+Sebelum sebuah perubahan UI diserahkan, evaluasi alur fitur terhadap prinsip heuristik berikut:
+
+| Prinsip Heuristik | Implementasi di VyloServe | Cara Verifikasi / Pengujian |
+|-------------------|---------------------------|-----------------------------|
+| **1. Visibility of System Status** | Komponen progress (`emit_progress`, `<BackgroundProgressWidget>`), skeleton loader saat data dimuat, status badge aktif/nonaktif. | Pastikan tidak ada tombol aksi yang setelah diklik membiarkan UI diam tanpa spinner/progress. |
+| **2. Match between System & Real World** | Istilah teknis disederhanakan dan dialokasikan ke konteks lokal pengguna (misal nama database, direktori web root `www/`). | Cek kejelasan teks terjemahan di `locales/` agar tidak membingungkan pengembang awam. |
+| **3. User Control & Freedom** | Tombol Cancel pada wizard/modal, tombol Escape untuk menutup dialog, konfirmasi sebelum aksi destruktif. | Buka modal, coba batalkan/tutup di berbagai langkah alur, pastikan state kembali bersih tanpa side effect. |
+| **4. Consistency & Standards** | Tata letak `PageHeader + SkeletonCard + EmptyState + Card + Modal` konsisten lintas modul; dropdown selalu menggunakan `<Select>` portal. | Periksa apakah modul baru mematuhi hierarki visual dan komponen bersama yang ada di `frontend/src/components/`. |
+| **5. Error Prevention** | Deteksi port terpakai sebelum service start; validasi form sebelum submit; barrier koneksi internet offline. | Coba lakukan aksi tanpa jaringan internet atau dengan port bentrok; pastikan ada peringatan proaktif sebelum error terjadi. |
+| **6. Recognition over Recall** | Auto-suggestion port default, dropdown list template proyek, schema explorer database. | Pastikan pengguna tidak dituntut mengingat konfigurasi rumit secara manual. |
+| **7. Flexibility & Efficiency of Use** | Filter pencarian cepat untuk list proyek/ekstensi/database, navigasi keyboard (a11y). | Uji navigasi dengan tombol Tab dan filter teks apakah responsif seketika. |
+| **8. Aesthetic & Minimalist Design** | Desain desktop-first (`w-full`, Rule 32), kontainer luas tanpa batasan artifisial, progressive disclosure untuk opsi lanjutan. | Periksa layout di resolusi 1280x720 hingga 1920x1080; pastikan tidak ada teks kartu yang terpotong menjadi kolom sempit vertikal. |
+| **9. Help Users Recognize, Diagnose, & Recover** | Pesan error via i18n toast dengan format: Masalah + Alasan + Solusi yang dapat diambil pengguna. | Simulasikan error OS nyata (misal service crash atau path invalid) dan pastikan toast memberikan arahan perbaikan. |
+| **10. Help & Documentation** | Tooltip penjelasan konfigurasi yang kurang familier, tombol dokumentasi/link panduan. | Pastikan setiap konfigurasi rumit memiliki tooltip atau teks panduan singkat. |
+
+### 6.2 Ergonomi Desktop-First & Interaksi Manusia-Komputer (HCI / IMK)
+VyloServe adalah perangkat lunak desktop (Windows GUI via Pywebview), bukan aplikasi web biasa. Prinsip ergonomi berikut wajib dipenuhi:
+1. **Lebar Kontainer Penuh (Desktop Container Layout - Rule 32):**
+   - Halaman modul utama wajib memanfaatkan ruang jendela secara maksimal (`w-full`).
+   - Dilarang membungkus kartu atau header dalam `max-w-md` atau `max-w-lg` yang memotong teks menjadi baris-baris sempit layaknya tampilan smartphone.
+2. **Latensi Respon Interaksi Rendah (<100ms):**
+   - Setiap klik tombol harus langsung mengubah visual state (misal: tombol berubah ke state `disabled` atau menampilkan spinner) dalam hitungan milidetik.
+   - Pekerjaan berat (ekstraksi file, download, scanning OS) wajib didelegasikan ke thread latar belakang (`threading.Thread`) di Python agar jendela GUI tidak mengalami freeze (*Not Responding*).
+3. **Aksesibilitas Kontrol Form (Accessibility / a11y - Rule 6 & 21):**
+   - Setiap `<label>` wajib memiliki atribut `htmlFor="id_unik"` yang berpasangan dengan `id="id_unik"` pada elemen `<input>`, `<select>`, atau `<textarea>`.
+   - Ini memastikan pembaca layar (screen reader) dapat mengidentifikasi kolom input dan memungkinkan pengujian via `getByLabelText()` pada suite Vitest.
+
+### 6.3 Skenario Pengujian Ketahanan (Usability Resilience Matrix)
+Setiap pengujian manual maupun unit test harus menguji kondisi ekstrem berikut:
+- **Skenario Cold Start / Data Kosong:** Apakah modul dapat tampil rapi dengan `<EmptyState>` informatif saat pengguna pertama kali membuka aplikasi tanpa ada service yang terinstal?
+- **Skenario Data Warisan / Tidak Lengkap (Sparse Data):** Apakah sistem tetap stabil jika file JSON (seperti `databases.json`, `projects.json`) kehilangan field opsional atau dibuat oleh versi lama aplikasi? (Pelajaran dari bug #88: string method `.split()` tidak boleh dipanggil pada nilai yang berpotensi `undefined`).
+- **Skenario Hilang Jaringan Internet (Offline Mode):** Apakah alur instalasi atau sinkronisasi menampilkan barrier proaktif yang jelas tanpa melempar raw network exception?
+- **Skenario Hak Akses UAC Windows:** Apakah operasi yang membutuhkan hak administrator (seperti injeksi domain lokal ke `C:\Windows\System32\drivers\etc\hosts`) memberikan petunjuk elevasi yang jelas jika izin ditolak?
+
+---
+
+## 7. Analisis Kualitas Kode (SonarQube Scan)
 Untuk memonitor *Cognitive Complexity*, *Code Smells*, dan *Bugs*, kita menggunakan SonarQube Scanner.
 Jalankan perintah ini di root direktori proyek. Pastikan SonarQube berjalan di `http://127.0.0.1:9000`.
 
@@ -415,7 +456,7 @@ sonar-scanner.bat -D"sonar.projectKey=vyloserve-be" -D"sonar.sources=core,main.p
 
 **Menandai *false positive* dengan `# NOSONAR` (Python):** marker `# NOSONAR` **WAJIB** berada di baris kode yang sama persis dengan baris yang dilaporkan temuan, BUKAN di baris komentar terpisah sebelumnya — SonarQube tidak mengenalinya kalau ditaruh di atas kode (lihat `docs/known_bugs.md` #37/#38 untuk kejadian nyata: komentar penjelasan di baris terpisah di atas kode tetap membuat temuan S7504 dilaporkan ulang di scan berikutnya). Pola yang benar: tulis penjelasan lengkap di komentar baris-baris sebelumnya seperti biasa, lalu tempelkan `# NOSONAR (python:RULEID): <ringkasan singkat>` di akhir baris kode yang sama dengan temuan.
 
-### 6.1 Pipa Otomatis Terpadu (VyloServe AutoScan)
+### 7.1 Pipa Otomatis Terpadu (VyloServe AutoScan)
 Alih-alih menjalankan pytest, Vitest, SonarQube BE, SonarQube FE, dan Gitleaks secara manual satu per satu, repositori pendamping `vyloserve-scan` menyediakan skrip orkestrasi multithreading `scanner.py`:
 
 ```powershell
@@ -444,7 +485,7 @@ python scanner.py
    - `--no-ai`: Menggunakan mesin heuristik berbasis aturan SonarQube tanpa memanggil AI.
    - `--noreport`: Mode dry-run konsol tanpa men-generate file laporan `.md`.
 
-## 7. Proses Kompilasi Produksi (Build Project)
+## 8. Proses Kompilasi Produksi (Build Project)
 Untuk membuat aplikasi mandiri (Standalone Windows Executable `.exe`) yang bisa didistribusikan ke pengguna akhir:
 
 > **CATATAN DETEKSI OTOMATIS (AUTO-DETECT):**

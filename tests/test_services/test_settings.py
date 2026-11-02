@@ -22,6 +22,7 @@ def test_get_settings_default(settings_manager):
     assert res['data']['system_log_levels'] is None
     assert res['data']['system_log_sources'] is None
     assert res['data']['enable_desktop_notifications'] is True
+    assert res['data']['window_maximized'] is False
 
 def test_save_settings_preserves_an_explicitly_empty_list_distinct_from_never_customized(settings_manager):
     """

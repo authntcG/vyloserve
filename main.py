@@ -32,6 +32,133 @@ def _safe_evaluate_js(*args, **kwargs):
             raise
 webview.window.Window.evaluate_js = _safe_evaluate_js
 
+def setup_windows_performance_optimizations() -> bool:
+    """
+    Mengoptimalkan performa rendering WebView2 dan Windows Forms saat window resize:
+    1. Mengaktifkan akselerasi GPU & rasterisasi shader via WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
+       (--enable-gpu-rasterization --ignore-gpu-blocklist --enable-zero-copy).
+       Kalkulasi oklusi native dibiarkan aktif secara default agar Chromium dapat mendeteksi
+       penyembunyian/unmapping HWND jendela secara bersih tanpa memicu GPU swapchain crash.
+    2. Mengonfigurasi WinForms BrowserForm:
+       - Memastikan DoubleBuffered GDI+ CPU tetap False (mencegah alokasi bitmap CPU ganda).
+       - Menyetel AllPaintingInWmPaint = True untuk mengurangi flicker tanpa mematikan UserPaint.
+         UserPaint WAJIB tetap True (default WinForms) agar self.BackColor tema gelap langsung dilukis
+         sejak frame 0 (mencegah Flash of White / glitch putih polos saat startup).
+       - Membiarkan siklus render layout mengalir normal tanpa penangguhan (tidak memakai SuspendLayout)
+         sehingga seluruh animasi CSS, spinner, dan transisi UI tetap hidup 100% saat window di-resize.
+    """
+    if sys.platform != 'win32':
+        return False
+
+    # 1. Chromium GPU Hardware Acceleration & Rasterization Flags
+    try:
+        existing_args = os.environ.get('WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS', '')
+        perf_flags = (
+            '--enable-gpu-rasterization '
+            '--ignore-gpu-blocklist '
+            '--enable-zero-copy'
+        )
+        if '--enable-gpu-rasterization' not in existing_args:
+            os.environ['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = f"{existing_args} {perf_flags}".strip()
+    except Exception:
+        pass
+
+    # 2. WinForms BrowserForm Direct GPU Painting & Live CSS Animation Preservation
+    try:
+        wf = sys.modules.get('webview.platforms.winforms')
+        if wf is None:
+            import webview.platforms.winforms as wf
+
+        _orig_browser_form_init = getattr(wf.BrowserView.BrowserForm, '__init__', None)
+        if _orig_browser_form_init and not getattr(wf.BrowserView.BrowserForm, '_vylo_perf_patched', False):
+            def _optimized_browser_form_init(self, window, cache_dir):
+                _orig_browser_form_init(self, window, cache_dir)
+                try:
+                    # Hindari alokasi bitmap GDI+ CPU ganda di thread WinForms (mencegah lag CPU spike)
+                    self.DoubleBuffered = False
+
+                    # Kurangi flicker redraw dengan AllPaintingInWmPaint = True.
+                    # CATATAN KRUSIAL: DILARANG menyetel UserPaint=False atau Opaque=True di sini!
+                    # UserPaint=False melarang WinForms melukis self.BackColor tema gelap dan memaksa
+                    # Windows DefWindowProc melukis COLOR_WINDOW (putih polos), menimbulkan glitch
+                    # Flash of White (FOIT) selama 100-300ms saat startup aplikasi.
+                    if hasattr(self, 'SetStyle') and hasattr(wf, 'WinForms') and hasattr(wf.WinForms, 'ControlStyles'):
+                        cs = wf.WinForms.ControlStyles
+                        self.SetStyle(cs.AllPaintingInWmPaint, True)
+                except Exception as e:
+                    print(f"[WARNING] Gagal menerapkan optimasi performa WinForms: {e}")
+
+            wf.BrowserView.BrowserForm.__init__ = _optimized_browser_form_init
+            wf.BrowserView.BrowserForm._vylo_perf_patched = True
+    except Exception as e:
+        print(f"[WARNING] Gagal memuat modul winforms untuk optimasi performa: {e}")
+
+    # 3. Konfigurasi Edge WebView2: Supresi Menu Konteks, Dialog Skrip & Auto-Accept Permission Request
+    # Supresi menu konteks default, dialog konfirmasi/prompt native, serta otomatis izinkan aksi (seperti paste/clipboard).
+    try:
+        ec = sys.modules.get('webview.platforms.edgechromium')
+        if ec is None:
+            import webview.platforms.edgechromium as ec
+
+        _orig_on_webview_ready = getattr(ec.EdgeChrome, 'on_webview_ready', None)
+        if _orig_on_webview_ready and not getattr(ec.EdgeChrome, '_vylo_context_menu_patched', False):
+            def _clean_on_webview_ready(self, sender, args):
+                _orig_on_webview_ready(self, sender, args)
+                try:
+                    if args.IsSuccess and hasattr(sender, 'CoreWebView2') and sender.CoreWebView2:
+                        core = sender.CoreWebView2
+                        settings = getattr(core, 'Settings', None)
+                        if settings:
+                            settings.AreDefaultContextMenusEnabled = False
+                            settings.AreDefaultScriptDialogsEnabled = False
+                            if hasattr(settings, 'IsGeneralAutofillEnabled'):
+                                settings.IsGeneralAutofillEnabled = False
+                            if hasattr(settings, 'IsPasswordAutosaveEnabled'):
+                                settings.IsPasswordAutosaveEnabled = False
+
+                        try:
+                            from Microsoft.Web.WebView2.Core import CoreWebView2PermissionState
+                            allow_state = CoreWebView2PermissionState.Allow
+                        except Exception:
+                            allow_state = 1
+
+                        def _on_permission_requested(s, p_args):
+                            try:
+                                p_args.State = allow_state
+                                if hasattr(p_args, 'Handled'):
+                                    p_args.Handled = True
+                                if hasattr(p_args, 'SavesInProfile'):
+                                    p_args.SavesInProfile = True
+                            except Exception:
+                                pass
+
+                        def _on_script_dialog_opening(s, d_args):
+                            try:
+                                if hasattr(d_args, 'Accept'):
+                                    d_args.Accept()
+                            except Exception:
+                                pass
+
+                        try:
+                            core.PermissionRequested += _on_permission_requested
+                        except Exception:
+                            pass
+
+                        try:
+                            core.ScriptDialogOpening += _on_script_dialog_opening
+                        except Exception:
+                            pass
+                except Exception as ex:
+                    print(f"[WARNING] Gagal mengonfigurasi pengaturan WebView2: {ex}")
+
+            ec.EdgeChrome.on_webview_ready = _clean_on_webview_ready
+            ec.EdgeChrome._vylo_context_menu_patched = True
+    except Exception as e:
+        print(f"[WARNING] Gagal memuat modul edgechromium untuk mengonfigurasi WebView2: {e}")
+
+    return True
+
+
 # --- KONSTANTA WINDOWS API ---
 SW_SHOW = 5
 SW_RESTORE = 9
@@ -50,6 +177,18 @@ def get_saved_theme() -> str:
         except Exception:
             pass
     return "vyloserve-dark"
+
+def get_saved_window_maximized() -> bool:
+    settings_path = os.path.join(get_project_root(), 'data', 'settings.json')
+    if os.path.exists(settings_path):
+        try:
+            import json
+            with open(settings_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return bool(data.get("window_maximized", False))
+        except Exception:
+            pass
+    return False
 
 def get_theme_bg_color():
     theme = get_saved_theme()
@@ -239,6 +378,30 @@ class AppLifecycle:
             pass
         self.window = None
 
+    def _cleanup_child_processes(self):
+        """
+        Memastikan seluruh child process yang di-spawn oleh proses aplikasi saat ini
+        (misalnya subprocess runtime, child helper WebView2, dll.) diterminasi secara
+        bersih sebelum proses keluar, mencegah timbulnya zombie processes.
+        """
+        try:
+            import psutil
+            current_proc = psutil.Process(os.getpid())
+            children = current_proc.children(recursive=True)
+            for child in children:
+                try:
+                    child.terminate()
+                except Exception:
+                    pass
+            _, alive = psutil.wait_procs(children, timeout=0.5)
+            for child in alive:
+                try:
+                    child.kill()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     def perform_exit(self):
         """
         Mematikan semua engine (Apache/PHP/Database) sebelum benar-benar keluar,
@@ -266,6 +429,9 @@ class AppLifecycle:
 
             # 6. Hancurkan jendela GUI jika masih ada
             self._cleanup_window()
+
+            # 7. Bersihkan semua child processes yang tersisa untuk mencegah zombie process
+            self._cleanup_child_processes()
         finally:
             os._exit(0)
 
@@ -295,8 +461,8 @@ class AppLifecycle:
 
         # Tray aktif: sembunyikan ke background alih-alih benar-benar menutup.
         if not self.is_real_exit:
-            self.window.hide()  # Sembunyikan jendela saja
             self.api.emit_window_state(hidden=True)
+            self.window.hide()  # Sembunyikan jendela saja
             return False  # Return False berarti membatalkan proses destroy
 
         return True  # Jika is_real_exit True, biarkan aplikasi mati
@@ -445,6 +611,7 @@ def setup_signal_handlers(lifecycle: AppLifecycle):
 
 def main():
     setup_app_user_model_id(IS_PRODUCTION)
+    setup_windows_performance_optimizations()
 
     # 1. Cek apakah VyloServe sudah berjalan
     is_first_instance, _ = check_single_instance(IS_PRODUCTION)
@@ -471,6 +638,9 @@ def main():
         saved_theme = get_saved_theme()
         sync_theme_bootstrap_file(saved_theme)
 
+        # Pulihkan state jendela terakhir (Maximized vs Normal)
+        is_maximized = get_saved_window_maximized()
+
         print("[DEBUG] Membangun jendela UI (Window)...")
         window = webview.create_window(
             title=get_window_title(IS_PRODUCTION),
@@ -479,7 +649,8 @@ def main():
             width=1200,
             height=800,
             min_size=(900, 600),
-            background_color=get_theme_bg_color()
+            background_color=get_theme_bg_color(),
+            maximized=is_maximized
         )
         api.set_window(window)
         api.set_notification_icon(notification_icon_path)
@@ -497,15 +668,24 @@ def main():
         # --- CEGAT EVENT TOMBOL CLOSE (X) ---
         window.events.closing += lifecycle.on_closing
 
-        # --- PUSH STATE MINIMIZE/RESTORE KE FRONTEND ---
+        # --- PUSH STATE MINIMIZE/RESTORE & PERSISTENSI MAXIMIZED KE FRONTEND ---
         # Dipakai NotificationBell/useWindowPresence.ts untuk menentukan kapan
         # notifikasi native Windows perlu ditampilkan (lihat core/api.py
         # emit_window_state). Event ini sudah dikonfirmasi reliable untuk
         # backend 'edgechromium' yang dipakai di sini (WinForms on_resize
         # handler, lihat webview/platforms/winforms.py) -- bukan event yang
         # cuma didokumentasikan tapi belum teruji.
+        def on_window_maximized():
+            api.emit_window_state(minimized=False)
+            api.settings.save_settings({"window_maximized": True})
+
+        def on_window_restored():
+            api.emit_window_state(minimized=False)
+            api.settings.save_settings({"window_maximized": False})
+
         window.events.minimized += lambda: api.emit_window_state(minimized=True)
-        window.events.restored += lambda: api.emit_window_state(minimized=False)
+        window.events.maximized += on_window_maximized
+        window.events.restored += on_window_restored
 
         # --- DWM TITLEBAR NATIVE THEME (WINDOWS 10/11) ---
         window.events.shown += lambda: api.apply_titlebar_theme()

@@ -20,6 +20,8 @@ export function GitMainView() {
         isLoading,
         setIsInstallModalOpen,
         isProcessing,
+        isCancelling,
+        handleCancelInstall,
         isInstallModalOpen,
         isUninstallModalOpen,
         isMinimized,
@@ -89,6 +91,8 @@ export function GitMainView() {
                         setIsInstallModalOpen(true);
                     }
                 }}
+                onCancel={handleCancelInstall}
+                isCancelling={isCancelling}
             />
 
             <InstallGitModal />

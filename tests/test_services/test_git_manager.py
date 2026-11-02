@@ -383,3 +383,11 @@ def test_git_get_status_non_silent_emits_logs(git_manager, mock_api):
         assert res['installed'] is False
         mock_api.emit_log.assert_any_call("backend.git.scanning_external", "info", None)
 
+
+def test_install_git_cancelled(git_manager):
+    from core.utils.cancellation import OperationCancelledError
+    with patch('core.services.git_manager.download_advanced', side_effect=OperationCancelledError("Cancelled")):
+        res = git_manager.install_git("http://fake-git.exe", "git.exe", "2.45.0")
+        assert res["status"] == "cancelled"
+        assert res["message"] == "backend.git.install_cancelled"
+

@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAiAssistant } from '../../../../context/AiContext';
+import { useNetworkStatus } from '../../../../context/NetworkContext';
+import OfflineBanner from '../../../../components/OfflineBanner';
 import AiChatMessage, { extractVyloSuggestions } from './AiChatMessage';
 import AiChatInput, { type AiChatInputHandle } from './AiChatInput';
 import { formatTokens } from './AiUsageBadge';
@@ -91,8 +93,32 @@ function calculatePopupGeometry(params: GeometryParams) {
     return { x, y, width, height: popupHeight };
 }
 
+/**
+ * Batasi koordinat FAB agar selalu berada di dalam viewport yang aman dan dapat dijangkau
+ * (tidak pernah terdorong ke luar layar atau terpotong overflow container).
+ */
+export function clampFloatingPosition(
+    pos: { x: number; y: number },
+    vw: number = typeof window !== 'undefined' ? window.innerWidth : 1280,
+    vh: number = typeof window !== 'undefined' ? window.innerHeight : 800
+): { x: number; y: number } {
+    const margin = 16;
+    const fabSize = 48;
+    const safeVw = Math.max(300, vw);
+    const safeVh = Math.max(300, vh);
+
+    const rawX = Number.isFinite(pos?.x) ? pos.x : safeVw - fabSize - margin;
+    const rawY = Number.isFinite(pos?.y) ? pos.y : safeVh - fabSize - margin;
+
+    const x = Math.max(margin, Math.min(safeVw - fabSize - margin, rawX));
+    const y = Math.max(margin, Math.min(safeVh - fabSize - margin, rawY));
+
+    return { x, y };
+}
+
 export default function AiFloatingWidget({ activeScreen, onOpenFullPage }: AiFloatingWidgetProps) {
     const { t } = useTranslation();
+    const { isOnline } = useNetworkStatus();
     const {
         messages,
         isGenerating,
@@ -118,7 +144,7 @@ export default function AiFloatingWidget({ activeScreen, onOpenFullPage }: AiFlo
         openAiSettings,
     } = useAiAssistant();
 
-    const [localPos, setLocalPos] = useState(floatingPosition);
+    const [localPos, setLocalPos] = useState(() => clampFloatingPosition(floatingPosition));
     const [isDragging, setIsDragging] = useState(false);
     const dragStartRef = useRef<{ startX: number; startY: number; initialX: number; initialY: number; moved: boolean }>({
         startX: 0,
@@ -205,13 +231,30 @@ export default function AiFloatingWidget({ activeScreen, onOpenFullPage }: AiFlo
         }
     }, []);
 
-    // Sync external floatingPosition changes to local state when not dragging
+    // Sync external floatingPosition changes to local state with viewport boundary clamping
     useEffect(() => {
         if (!isDragging) {
-            setLocalPos(floatingPosition);
-            latestPosRef.current = floatingPosition;
+            const clamped = clampFloatingPosition(floatingPosition);
+            setLocalPos(clamped);
+            latestPosRef.current = clamped;
         }
     }, [floatingPosition, isDragging]);
+
+    // Re-clamp posisi saat window di-resize agar widget tidak pernah keluar dari batas layar
+    useEffect(() => {
+        const handleResize = () => {
+            if (!isDragging) {
+                setLocalPos((prev) => {
+                    const clamped = clampFloatingPosition(prev);
+                    latestPosRef.current = clamped;
+                    return clamped;
+                });
+            }
+        };
+
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, [isDragging]);
 
     // Cleanup animation frame on unmount
     useEffect(() => {
@@ -383,7 +426,7 @@ export default function AiFloatingWidget({ activeScreen, onOpenFullPage }: AiFlo
                     onPointerMove={handlePointerMove}
                     onPointerUp={handlePointerUp}
                     className={`relative w-12 h-12 rounded-full bg-primary text-white shadow-lg hover:shadow-primary/30 flex items-center justify-center cursor-pointer active:scale-95 border border-white/20 touch-none ${
-                        isDragging ? 'transition-none select-none' : 'transition-all'
+                        isDragging ? 'transition-none select-none' : 'transition-[transform,colors]'
                     }`}
                     title={t('ai.floating_title', 'VyloServe Copilot')}
                     aria-label={t('ai.floating_title', 'VyloServe Copilot')}
@@ -544,6 +587,26 @@ export default function AiFloatingWidget({ activeScreen, onOpenFullPage }: AiFlo
                         </div>
                     </div>
 
+                    {/* OFFLINE CLOUD PROVIDER WARNING BANNER */}
+                    {!isOnline && activeProvider !== 'ollama' && (
+                        <div className="p-2 border-b border-slate-200 dark:border-slate-800 shrink-0">
+                            <OfflineBanner
+                                description={t('ai.offline_cloud_desc', { provider: activeProvider })}
+                                actionButton={
+                                    <Button
+                                        variant="primary"
+                                        size="sm"
+                                        icon="settings"
+                                        onClick={openAiSettings}
+                                        className="shrink-0 text-xs px-2 py-1"
+                                    >
+                                        {t('ai.switch_to_ollama')}
+                                    </Button>
+                                }
+                            />
+                        </div>
+                    )}
+
                     {/* API KEY WARNING BANNER using InfoBox */}
                     {!hasApiKey && activeProvider !== 'ollama' && (
                         <div className="p-2 border-b border-slate-200 dark:border-slate-800 shrink-0">
@@ -594,7 +657,7 @@ export default function AiFloatingWidget({ activeScreen, onOpenFullPage }: AiFlo
                                     <button
                                         type="button"
                                         onClick={() => sendMessage(t('ai.quick_prompt_logs'), activeScreen)}
-                                        className="group text-left p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800/80 hover:border-primary/50 dark:hover:border-primary/50 bg-white/60 dark:bg-slate-800/40 hover:bg-primary/5 dark:hover:bg-primary/10 transition-all flex items-center justify-between gap-2.5 cursor-pointer shadow-xs"
+                                        className="group text-left p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800/80 hover:border-primary/50 dark:hover:border-primary/50 bg-white/60 dark:bg-slate-800/40 hover:bg-primary/5 dark:hover:bg-primary/10 transition-colors flex items-center justify-between gap-2.5 cursor-pointer shadow-xs"
                                     >
                                         <div className="flex items-center gap-2.5 min-w-0">
                                             <div className="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-500 flex items-center justify-center shrink-0">
@@ -604,7 +667,7 @@ export default function AiFloatingWidget({ activeScreen, onOpenFullPage }: AiFlo
                                                 {t('ai.quick_prompt_logs')}
                                             </span>
                                         </div>
-                                        <span className="material-symbols-outlined text-[16px] text-slate-400 group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0">
+                                        <span className="material-symbols-outlined text-[16px] text-slate-400 group-hover:text-primary group-hover:translate-x-0.5 transition-[transform,colors] shrink-0">
                                             arrow_forward
                                         </span>
                                     </button>
@@ -612,7 +675,7 @@ export default function AiFloatingWidget({ activeScreen, onOpenFullPage }: AiFlo
                                     <button
                                         type="button"
                                         onClick={() => sendMessage(t('ai.quick_prompt_vhost'), activeScreen)}
-                                        className="group text-left p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800/80 hover:border-primary/50 dark:hover:border-primary/50 bg-white/60 dark:bg-slate-800/40 hover:bg-primary/5 dark:hover:bg-primary/10 transition-all flex items-center justify-between gap-2.5 cursor-pointer shadow-xs"
+                                        className="group text-left p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800/80 hover:border-primary/50 dark:hover:border-primary/50 bg-white/60 dark:bg-slate-800/40 hover:bg-primary/5 dark:hover:bg-primary/10 transition-colors flex items-center justify-between gap-2.5 cursor-pointer shadow-xs"
                                     >
                                         <div className="flex items-center gap-2.5 min-w-0">
                                             <div className="w-7 h-7 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0">
@@ -622,7 +685,7 @@ export default function AiFloatingWidget({ activeScreen, onOpenFullPage }: AiFlo
                                                 {t('ai.quick_prompt_vhost')}
                                             </span>
                                         </div>
-                                        <span className="material-symbols-outlined text-[16px] text-slate-400 group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0">
+                                        <span className="material-symbols-outlined text-[16px] text-slate-400 group-hover:text-primary group-hover:translate-x-0.5 transition-[transform,colors] shrink-0">
                                             arrow_forward
                                         </span>
                                     </button>
@@ -630,7 +693,7 @@ export default function AiFloatingWidget({ activeScreen, onOpenFullPage }: AiFlo
                                     <button
                                         type="button"
                                         onClick={() => sendMessage(t('ai.quick_prompt_php'), activeScreen)}
-                                        className="group text-left p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800/80 hover:border-primary/50 dark:hover:border-primary/50 bg-white/60 dark:bg-slate-800/40 hover:bg-primary/5 dark:hover:bg-primary/10 transition-all flex items-center justify-between gap-2.5 cursor-pointer shadow-xs"
+                                        className="group text-left p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800/80 hover:border-primary/50 dark:hover:border-primary/50 bg-white/60 dark:bg-slate-800/40 hover:bg-primary/5 dark:hover:bg-primary/10 transition-colors flex items-center justify-between gap-2.5 cursor-pointer shadow-xs"
                                     >
                                         <div className="flex items-center gap-2.5 min-w-0">
                                             <div className="w-7 h-7 rounded-lg bg-indigo-500/10 text-indigo-500 flex items-center justify-center shrink-0">
@@ -640,7 +703,7 @@ export default function AiFloatingWidget({ activeScreen, onOpenFullPage }: AiFlo
                                                 {t('ai.quick_prompt_php')}
                                             </span>
                                         </div>
-                                        <span className="material-symbols-outlined text-[16px] text-slate-400 group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0">
+                                        <span className="material-symbols-outlined text-[16px] text-slate-400 group-hover:text-primary group-hover:translate-x-0.5 transition-[transform,colors] shrink-0">
                                             arrow_forward
                                         </span>
                                     </button>
@@ -679,6 +742,7 @@ export default function AiFloatingWidget({ activeScreen, onOpenFullPage }: AiFlo
                         onSend={(text) => sendMessage(text, activeScreen)}
                         onStop={stopGenerating}
                         isGenerating={isGenerating}
+                        disabled={!isOnline && activeProvider !== 'ollama'}
                         activeScreen={activeScreen}
                         attachedContext={attachedContext}
                         onToggleContext={(key) =>

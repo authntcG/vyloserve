@@ -21,6 +21,15 @@
         "install": "Instal",
         "installing": "Menginstal...",
         "installation_progress": "Progres Instalasi",
+        "cancel_install": "Batalkan Instalasi",
+        "cancelling": "Membatalkan...",
+        "cancel_install_title": "Batalkan Instalasi",
+        "cancel_install_confirm": "Apakah Anda yakin ingin membatalkan proses instalasi ini? File yang telah diunduh akan dibersihkan secara aman.",
+        "continue_install": "Lanjutkan",
+        "cancel_download": "Batalkan Unduhan",
+        "cancel_download_title": "Batalkan Unduhan",
+        "cancel_download_confirm": "Apakah Anda yakin ingin membatalkan pengunduhan pembaruan?",
+        "continue_download": "Lanjutkan",
         "preparing": "Menyiapkan...",
         "uninstall": "Hapus Instalasi",
         "manage": "Kelola",
@@ -38,7 +47,12 @@
         "density_normal": "Kerapatan normal",
         "density_relaxed": "Kerapatan renggang",
         "more_options": "Opsi Lainnya",
-        "options": "Opsi"
+        "options": "Opsi",
+        "offline_title": "Tidak Ada Koneksi Internet",
+        "offline_desc": "Fitur ini membutuhkan koneksi internet aktif untuk mengambil data atau mengunduh paket.",
+        "offline_versions_unavailable": "Daftar versi tidak tersedia saat offline",
+        "retry_connection": "Coba Lagi",
+        "checking_connection": "Memeriksa..."
     },
     "sidebar": {
         "search": "Cari...",
@@ -263,7 +277,14 @@
         "quick_open_conf_dir": "Folder Config (conf)",
         "quick_open_logs_dir": "Folder Log (logs)",
         "quick_open_httpd_conf": "httpd.conf",
-        "quick_open_vhosts_conf": "vhosts.conf"
+        "quick_open_vhosts_conf": "vhosts.conf",
+        "offline_framework_desc": "Instalasi {{framework}} membutuhkan koneksi internet. Anda dapat beralih ke template Raw untuk membuat proyek secara offline.",
+        "switch_to_raw_offline": "Gunakan Template Raw (Offline)",
+        "auto_create_db": "Otomatis buat database untuk project ini",
+        "target_db_instance": "Mesin Database Target",
+        "target_db_name": "Nama Database",
+        "no_running_db_instances": "Tidak ada instans database yang sedang berjalan",
+        "no_running_db_desc": "Instal dan jalankan database di menu Database terlebih dahulu."
     },
     "php": {
         "fetch_php_data_error": "Gagal memuat data PHP.",
@@ -364,6 +385,9 @@
         "mysql_mariadb": "MySQL & MariaDB",
         "postgres": "PostgreSQL",
         "no_instances_found": "Tidak Ada Instans Ditemukan",
+        "no_instances_desc": "Belum ada mesin database yang terinstal. Instal MySQL, MariaDB, PostgreSQL, atau Redis untuk memulai.",
+        "no_instance_desc": "Belum ada mesin database yang terinstal. Instal MySQL, MariaDB, PostgreSQL, atau Redis untuk memulai.",
+        "download_db_now": "Instal Database Sekarang",
         "no_postgres_desc": "Anda belum menginstal mesin PostgreSQL apa pun.",
         "no_mysql_desc": "Anda belum menginstal mesin MySQL/MariaDB apa pun.",
         "install_now": "Instal sekarang",
@@ -374,6 +398,10 @@
         "drop_engine": "Hapus Mesin",
         "stop_db": "Hentikan DB",
         "start_db": "Mulai DB",
+        "running": "Berjalan",
+        "stopped": "Berhenti",
+        "starting": "Memulai...",
+        "stopping": "Menghentikan...",
         "config": "Konfigurasi",
         "engine": "Mesin",
         "port": "Port",
@@ -445,7 +473,34 @@
         "th_status": "Status",
         "th_port": "Port",
         "th_user": "Pengguna",
-        "th_data_dir": "Direktori Data"
+        "th_data_dir": "Direktori Data",
+        "redis": "Redis",
+        "manage_schemas": "Database",
+        "schemas_title": "Skema & Tabel Database",
+        "schemas_modal_desc": "Inspeksi, buat, ekspor, dan impor database pada instance ini dengan cepat.",
+        "schemas_count": "Database ({{count}})",
+        "new_schema_name": "Nama Database Baru",
+        "placeholder_schema_name": "misal: my_app_db",
+        "create_schema_btn": "Buat Database",
+        "creating_schema": "Membuat...",
+        "export_sql": "Ekspor .sql",
+        "import_sql": "Impor .sql",
+        "drop_schema": "Hapus",
+        "drop_schema_confirm_title": "Hapus Database '{{name}}'?",
+        "drop_schema_confirm_desc": "Apakah Anda yakin ingin menghapus database '{{name}}'? Seluruh tabel dan data akan dihapus permanen!",
+        "system_db_badge": "Sistem",
+        "no_user_schemas": "Belum Ada Database Pengguna",
+        "no_user_schemas_desc": "Buat database pertama Anda menggunakan formulir di atas.",
+        "auth_password_optional": "Password Autentikasi",
+        "auth_password_hint": "Diperlukan hanya jika password root/superuser diatur atau diubah.",
+        "exporting_sql": "Mengekspor SQL...",
+        "importing_sql": "Mengimpor SQL...",
+        "redis_desc": "Penyimpanan Data In-Memory & Cache Redis",
+        "redis_cache": "In-Memory Store",
+        "redis_maxmemory": "Batas Memori",
+        "redis_maxmemory_policy": "Kebijakan Eviksi",
+        "redis_databases": "Jumlah Database",
+        "redis_appendonly": "Append Only File (AOF)"
     },
     "runtimes": {
         "external_lock_warning": "Opsi dikunci karena terdeteksi instalasi {{engine}} eksternal resmi.",
@@ -1055,7 +1110,8 @@
             "all_overview_title": "Dasbor Tunnels",
             "all_overview_subtitle": "Kelola semua mesin tunneling Anda.",
             "services_installed": "{{count}} layanan terinstal",
-            "services_installed_plural": "{{count}} layanan terinstal"
+            "services_installed_plural": "{{count}} layanan terinstal",
+            "offline_desc": "Tunnel publik tidak dapat dijalankan saat offline. Hubungkan kembali ke internet untuk membagikan server lokal Anda."
         },
         "update_btn": "Perbarui",
         "updating_btn": "Memperbarui...",
@@ -1251,7 +1307,9 @@
         "error": {
             "path_traversal": "Akses ditolak: Jalur file tidak diizinkan atau terdeteksi path traversal.",
             "project_module_not_loaded": "Modul Project tidak termuat. Silakan restart aplikasi.",
-            "unexpected": "Terjadi kesalahan tak terduga: {{e}}"
+            "unexpected": "Terjadi kesalahan tak terduga: {{e}}",
+            "no_internet": "Tidak ada koneksi internet. Silakan periksa jaringan Anda dan coba lagi.",
+            "invalid_input": "Input yang diberikan tidak valid: {{detail}}"
         },
         "apache": {
             "status_check_failed": "Gagal mengecek status Apache: {{e}}",
@@ -1327,7 +1385,9 @@
             "starting_service": "Memulai Servis PHP...",
             "stopping_service": "Menghentikan Servis PHP...",
             "update_success": "Berhasil memperbarui PHP {{old}} ke {{new}}",
-            "config_migrated": "Konfigurasi PHP dimigrasi"
+            "config_migrated": "Konfigurasi PHP dimigrasi",
+            "install_cancelled": "Instalasi PHP telah dibatalkan.",
+            "update_cancelled": "Pembaruan PHP telah dibatalkan."
         },
         "database": {
             "not_found": "Instans database tidak ditemukan.",
@@ -1382,7 +1442,21 @@
             "update_success": "Database berhasil diperbarui.",
             "update_complete": "Pembaruan selesai.",
             "update_failed_rollback": "Pembaruan gagal. Mengembalikan ke versi sebelumnya.",
-            "update_failed": "Pembaruan gagal."
+            "update_failed": "Pembaruan gagal.",
+            "schema_name_invalid": "Nama database tidak valid. Gunakan 1-64 karakter alfanumerik dan garis bawah.",
+            "schema_system_protected": "Database sistem tidak dapat diubah atau dihapus.",
+            "schema_already_exists": "Database '{{name}}' sudah ada.",
+            "schema_created_success": "Database '{{name}}' berhasil dibuat.",
+            "schema_dropped_success": "Database '{{name}}' berhasil dihapus.",
+            "schema_not_found": "Database '{{name}}' tidak ditemukan.",
+            "schema_export_success": "Database '{{name}}' berhasil diekspor.",
+            "schema_import_success": "File SQL berhasil diimpor ke database '{{name}}'.",
+            "schema_cli_not_found": "Klien CLI database ({{cli}}) tidak ditemukan.",
+            "schema_exec_failed": "Perintah database gagal: {{err}}",
+            "schema_sql_file_invalid": "File SQL yang dipilih tidak valid atau tidak ada.",
+            "redis_not_supported_for_schemas": "Manajemen skema tidak didukung untuk Redis in-memory store.",
+            "install_cancelled": "Instalasi database telah dibatalkan.",
+            "update_cancelled": "Pembaruan database telah dibatalkan."
         },
         "dashboard": {
             "read_failed": "Gagal membaca config dashboard: {{e}}",
@@ -1407,7 +1481,8 @@
             "read_config_failed": "Gagal membaca konfigurasi Git.",
             "config_updated": "Global Git Config berhasil diperbarui.",
             "config_error": "Gagal mengatur konfigurasi: {{e}}",
-            "starting_download": "Mulai mengunduh PortableGit dari GitHub..."
+            "starting_download": "Mulai mengunduh PortableGit dari GitHub...",
+            "install_cancelled": "Instalasi Git telah dibatalkan."
         },
         "runtimes": {
             "scanning_external": "Memindai instalasi eksternal untuk engine '{{engine}}'...",
@@ -1462,6 +1537,7 @@
             "starting_binary_download": "Mulai mengunduh binary {{engine}} dari peladen resmi...",
             "download_multipart_support": "Server mendukung 'Range Bytes'. Memulai Akselerasi Multi-Part (8 Koneksi)...",
             "downloading_multipart": "Mengunduh (Multi-Part)... {{percent}}%",
+            "download_multipart": "Mengunduh (Multi-Part)... {{percent}}%",
             "download_single_stream": "Server tidak mendukung Multi-Part. Melanjutkan dengan mode Single-Stream standar.",
             "downloading": "Mengunduh... {{percent}}%",
             "downloading_anonymous": "Mengunduh... {{mb}} MB (ukuran server anonim)",
@@ -1470,7 +1546,9 @@
             "auto_promoted_active": "Versi aktif {{engine}} dialihkan ke {{version}} di PATH.",
             "version_not_found": "Versi runtime yang dimaksud tidak ditemukan.",
             "version_already_exists": "{{engine}} versi {{version}} sudah terinstal.",
-            "version_deactivated": "Versi aktif untuk {{engine}} dinonaktifkan."
+            "version_deactivated": "Versi aktif untuk {{engine}} dinonaktifkan.",
+            "install_cancelled": "Instalasi runtime telah dibatalkan.",
+            "install_cancelled_named": "Instalasi {{name}} telah dibatalkan."
         },
         "project": {
             "save_json_failed": "Gagal menyimpan ke projects.json",
@@ -1538,7 +1616,9 @@
             "server_already_running": "Dev server untuk '{{name}}' sudah berjalan.",
             "server_not_running": "Dev server saat ini sedang tidak berjalan.",
             "port_in_use": "Port {{port}} sudah digunakan oleh proses lain.",
-            "no_start_script": "Tidak dapat menemukan 'start-dev.bat' atau perintah start yang dikenali."
+            "no_start_script": "Tidak dapat menemukan 'start-dev.bat' atau perintah start yang dikenali.",
+            "auto_create_db_success": "Database '{{name}}' berhasil dibuat dan dikonfigurasi untuk project.",
+            "auto_create_db_failed": "Gagal membuat database '{{name}}' otomatis: {{err}}"
         },
         "ssl": {
             "creating_root_ca": "Membuat VyloServe Root CA (Otoritas Sertifikat Lokal)...",
@@ -1567,12 +1647,32 @@
             "downloading": "Mengunduh pembaruan {{file}}...",
             "restarting": "Memulai ulang aplikasi untuk menerapkan pembaruan...",
             "ready_to_install": "Siap untuk diinstal",
-            "download_failed": "Gagal mengunduh pembaruan"
+            "download_failed": "Gagal mengunduh pembaruan",
+            "download_cancelled": "Pengunduhan pembaruan telah dibatalkan."
         },
         "common": {
             "file_saved": "File berhasil disimpan ke {{path}}",
             "extracting_files": "Mengekstrak... ({{index}}/{{total}} berkas)",
-            "extract_complete": "Selesai mengekstrak arsip TAR.GZ..."
+            "extract_complete": "Selesai mengekstrak arsip TAR.GZ...",
+            "cancelling": "Membatalkan proses...",
+            "install_cancelled": "Instalasi telah dibatalkan.",
+            "no_active_installation": "Tidak ada proses instalasi aktif untuk modul ini.",
+            "checking_capabilities": "Memeriksa kapabilitas peladen unduhan...",
+            "download_multipart_support": "Server mendukung 'Range Bytes'. Memulai Akselerasi Multi-Part (8 Koneksi)...",
+            "downloading_multipart": "Mengunduh (Multi-Part)... {{percent}}%",
+            "download_multipart": "Mengunduh (Multi-Part)... {{percent}}%",
+            "download_single_stream": "Server tidak mendukung Multi-Part. Melanjutkan dengan mode Single-Stream standar.",
+            "downloading": "Mengunduh... {{percent}}%",
+            "downloading_anonymous": "Mengunduh... {{mb}} MB (ukuran server anonim)"
+        },
+        "runtime": {
+            "checking_capabilities": "Memeriksa kapabilitas peladen unduhan...",
+            "download_multipart_support": "Server mendukung 'Range Bytes'. Memulai Akselerasi Multi-Part (8 Koneksi)...",
+            "downloading_multipart": "Mengunduh (Multi-Part)... {{percent}}%",
+            "download_multipart": "Mengunduh (Multi-Part)... {{percent}}%",
+            "download_single_stream": "Server tidak mendukung Multi-Part. Melanjutkan dengan mode Single-Stream standar.",
+            "downloading": "Mengunduh... {{percent}}%",
+            "downloading_anonymous": "Mengunduh... {{mb}} MB (ukuran server anonim)"
         },
         "zrok": {
             "fetching_latest": "Mengambil rilis Zrok terbaru...",
@@ -1623,6 +1723,9 @@
             "share_stopped": "Share Cloudflare berhasil dihentikan.",
             "process_log": "[Cloudflare] {{msg}}",
             "process_error": "[Cloudflare Error] {{msg}}"
+        },
+        "tunnels": {
+            "install_cancelled": "Instalasi biner tunnel telah dibatalkan."
         },
         "md": {
             "no_window": "Jendela aplikasi tidak tersedia.",
@@ -1771,7 +1874,9 @@
         "clear_chat_desc": "Hapus permanen semua riwayat pesan dari sesi ini",
         "switch_model_tooltip": "Klik untuk mengganti model",
         "usage_status": "Penggunaan Sesi",
-        "more_options": "Opsi Lainnya"
+        "more_options": "Opsi Lainnya",
+        "offline_cloud_desc": "Provider Cloud AI ({{provider}}) membutuhkan koneksi internet. Beralih ke Ollama untuk menggunakan AI lokal secara offline.",
+        "switch_to_ollama": "Beralih ke Ollama (Lokal)"
     },
     "projects": {
         "title": "Proyek",

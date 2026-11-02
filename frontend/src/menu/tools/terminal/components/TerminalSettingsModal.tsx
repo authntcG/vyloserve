@@ -138,7 +138,7 @@ export default function TerminalSettingsModal({
                         role="tab"
                         aria-selected={activeTab === "appearance"}
                         onClick={() => setActiveTab("appearance")}
-                        className={`py-2 text-xs font-semibold rounded-lg flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                        className={`py-2 text-xs font-semibold rounded-lg flex items-center justify-center gap-2 transition-colors cursor-pointer ${
                             activeTab === "appearance"
                                 ? "bg-white dark:bg-slate-900 text-primary shadow-xs"
                                 : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
@@ -152,7 +152,7 @@ export default function TerminalSettingsModal({
                         role="tab"
                         aria-selected={activeTab === "behavior"}
                         onClick={() => setActiveTab("behavior")}
-                        className={`py-2 text-xs font-semibold rounded-lg flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                        className={`py-2 text-xs font-semibold rounded-lg flex items-center justify-center gap-2 transition-colors cursor-pointer ${
                             activeTab === "behavior"
                                 ? "bg-white dark:bg-slate-900 text-primary shadow-xs"
                                 : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"

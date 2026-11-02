@@ -923,3 +923,23 @@ def test_consume_cloudflare_stdout_logging(tunnels_manager):
     tunnels_manager._consume_cloudflare_stdout(q, stdout_closed=False)
     tunnels_manager.api.emit_log.assert_any_call("backend.cloudflare.process_log", "info", {"msg": "INFO: normal cloudflare output"})
     tunnels_manager.api.emit_log.assert_any_call("backend.cloudflare.process_error", "error", {"msg": "ERR: connection failed"})
+
+
+def test_install_zrok_cancelled(tunnels_manager):
+    from core.utils.cancellation import OperationCancelledError
+    with patch.object(tunnels_manager, '_resolve_zrok_download_url', return_value=("http://fake.url/zrok.zip", "v0.4.42")), \
+         patch.object(tunnels_manager, '_download_zrok_archive', side_effect=OperationCancelledError("Cancelled")):
+        res = tunnels_manager.install_zrok()
+        assert res["status"] == "cancelled"
+        assert res["message"] == "backend.tunnels.install_cancelled"
+
+
+def test_install_cloudflare_cancelled(tunnels_manager):
+    from core.utils.cancellation import InstallationManager
+    token = InstallationManager.get_token("tunnels")
+    token.cancel()
+    with patch.object(tunnels_manager, '_resolve_cloudflare_download_url', return_value=("http://url", "2024.1.0")):
+        res = tunnels_manager.install_cloudflare()
+        assert res["status"] == "cancelled"
+        assert res["message"] == "backend.tunnels.install_cancelled"
+

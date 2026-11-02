@@ -8,6 +8,8 @@ import threading
 import traceback
 from core.utils.file_utils import download_advanced
 from core.utils.system_utils import get_project_root
+from core.utils.network_utils import is_network_error
+from core.utils.cancellation import InstallationManager, OperationCancelledError
 
 MSG_DOWNLOADING = "backend.updater.downloading"
 MSG_READY_TO_INSTALL = "backend.updater.ready_to_install"
@@ -114,6 +116,8 @@ class UpdaterManager:
         releases = self._fetch_releases()
         if isinstance(releases, Exception):
             res = {"status": "error", "message": "backend.updater.network_error", "args": {"e": str(releases)}}
+            if is_network_error(releases):
+                res["is_offline"] = True
             self.state["result"] = res
             return res
 
@@ -169,8 +173,11 @@ class UpdaterManager:
         temp_dir = os.path.join(self.base_dir, 'temp')
         os.makedirs(temp_dir, exist_ok=True)
         dest_path = os.path.join(temp_dir, asset_name)
+        token = InstallationManager.get_token("updater")
         
         try:
+            if token.is_cancelled():
+                raise OperationCancelledError("Update download cancelled")
             req = urllib.request.Request(asset_url, headers={'User-Agent': 'VyloServe-Updater'})
             with urllib.request.urlopen(req) as response:
                 total_size = int(response.getheader('Content-Length', 0))
@@ -179,6 +186,8 @@ class UpdaterManager:
                 
                 with open(dest_path, 'wb') as f:
                     while True:
+                        if token.is_cancelled():
+                            raise OperationCancelledError("Update download cancelled")
                         chunk = response.read(chunk_size)
                         if not chunk:
                             break
@@ -202,6 +211,16 @@ class UpdaterManager:
             if self.api._window:
                 self.api._window.evaluate_js("window.dispatchEvent(new CustomEvent('vylo_update_ready'))")
 
+        except OperationCancelledError:
+            self.state["is_downloading"] = False
+            self.state["progress_text"] = "backend.updater.download_cancelled"
+            self.state["progress_percent"] = 0
+            if os.path.exists(dest_path):
+                try: os.remove(dest_path)
+                except OSError: pass
+            self.api.emit_log("backend.updater.download_cancelled", "warn")
+            self.api.emit_progress(0, "backend.updater.download_cancelled", {})
+
         except Exception as e:
             self.state["is_downloading"] = False
             self.state["progress_text"] = MSG_DOWNLOAD_FAILED
@@ -211,6 +230,8 @@ class UpdaterManager:
             # bagi frontend untuk auto-hide widget progress (kontrak percent>=100 di AGENTS.md);
             # status gagal sesungguhnya dibawa oleh progress_text/key, bukan oleh percent.
             self.api.emit_progress(100, MSG_DOWNLOAD_FAILED, {})
+        finally:
+            InstallationManager.reset("updater")
 
     def install_update(self):
         if not self.state["is_ready"] or not self.state["asset_name"]:

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useToast } from './ToastContext';
 import { useAlert } from './AlertContext';
 import { clampPercent } from '../utils/progress';
+import { usePersistedViewMode } from '../hooks/usePersistedViewMode';
 import { type InstallNodeRef } from '../menu/runtimes/InstallNode';
 import { type InstallPythonRef } from '../menu/runtimes/InstallPython';
 import { type InstallJavaRef } from '../menu/runtimes/InstallJava';
@@ -50,6 +51,7 @@ interface RuntimesContextType {
     runtimeData: RuntimeDataMap;
     isLoading: boolean;
     isProcessing: boolean;
+    isCancelling: boolean;
     installingEngine: string | null;
     updatingVersion: string | null;
     progress: number;
@@ -83,6 +85,7 @@ interface RuntimesContextType {
     handleInstallPythonSubmit: () => Promise<void>;
     handleInstallJavaSubmit: () => Promise<void>;
     handleInstallGoSubmit: () => Promise<void>;
+    handleCancelInstall: () => Promise<void>;
     handleOpenFolder: (engine: RuntimeEngine, version?: string) => void;
     handleOpenTerminal: (engine: RuntimeEngine, version?: string) => void;
 }
@@ -95,11 +98,12 @@ export function RuntimesProvider({ children }: { readonly children: ReactNode })
     const { confirm } = useAlert();
 
     const [activeTab, setActiveTab] = useState<RuntimeEngine>('node');
-    const [viewMode, setViewMode] = useState<'table' | 'card'>('card');
+    const [viewMode, setViewMode] = usePersistedViewMode('runtimes', 'card');
     const [runtimeData, setRuntimeData] = useState<RuntimeDataMap>(INITIAL_RUNTIME_DATA);
     const [isLoading, setIsLoading] = useState(true);
 
     const [isProcessing, setIsProcessing] = useState(false);
+    const [isCancelling, setIsCancelling] = useState(false);
     const [installingEngine, setInstallingEngine] = useState<string | null>(null);
     const [updatingVersion, setUpdatingVersion] = useState<string | null>(null);
     const [progress, setProgress] = useState(0);
@@ -460,20 +464,43 @@ export function RuntimesProvider({ children }: { readonly children: ReactNode })
         if (!refTrigger.current) return;
 
         setIsProcessing(true);
+        setIsCancelling(false);
         setInstallingEngine(engineName);
         setProgress(0);
         setProgressText(t('runtimes.starting_install'));
 
-        const success = await refTrigger.current.submit();
+        try {
+            const success = await refTrigger.current.submit();
 
-        if (success) {
-            closeStateSetter(false);
-            fetchStatuses();
+            if (success) {
+                closeStateSetter(false);
+                fetchStatuses();
+            }
+        } finally {
+            setIsProcessing(false);
+            setIsCancelling(false);
+            setIsMinimized(false);
+            setInstallingEngine(null);
         }
+    };
 
-        setIsProcessing(false);
-        setIsMinimized(false);
-        setInstallingEngine(null);
+    const handleCancelInstall = async () => {
+        const ok = await confirm({
+            title: t('common.cancel_install_title'),
+            message: t('common.cancel_install_confirm'),
+            type: 'danger',
+            confirmText: t('common.cancel_install'),
+            cancelText: t('common.continue_install')
+        });
+        if (!ok) return;
+
+        setIsCancelling(true);
+        try {
+            await window.pywebview?.api?.cancel_installation('runtimes');
+        } catch (e) {
+            console.error(e);
+            setIsCancelling(false);
+        }
     };
 
     const handleInstallNodeSubmit = async () => executeInstallation('Node.js', nodeRef, setIsNodeModalOpen);
@@ -503,6 +530,7 @@ export function RuntimesProvider({ children }: { readonly children: ReactNode })
         runtimeData,
         isLoading,
         isProcessing,
+        isCancelling,
         installingEngine,
         updatingVersion,
         progress,
@@ -534,6 +562,7 @@ export function RuntimesProvider({ children }: { readonly children: ReactNode })
         handleInstallPythonSubmit,
         handleInstallJavaSubmit,
         handleInstallGoSubmit,
+        handleCancelInstall,
         handleOpenFolder,
         handleOpenTerminal
     }), [
@@ -542,6 +571,7 @@ export function RuntimesProvider({ children }: { readonly children: ReactNode })
         runtimeData,
         isLoading,
         isProcessing,
+        isCancelling,
         installingEngine,
         updatingVersion,
         progress,

@@ -356,4 +356,41 @@ describe('NewProject', () => {
             install_location: 'C:/workspace',
         }));
     });
+
+    it('supports auto-creating a database instance and passes payload on submit', async () => {
+        const user = userEvent.setup();
+        const create = vi.fn().mockResolvedValue({ status: 'success', message: 'backend.project.create_success' });
+        mockPywebviewApi({
+            get_installed_php: vi.fn().mockResolvedValue({ status: 'success', data: [{ name: 'PHP', version: '8.3' }] }),
+            get_installed_databases: vi.fn().mockResolvedValue({
+                status: 'success',
+                data: [
+                    { id: 'db_pg', name: 'Postgres 16', engine: 'postgres', port: 5432 },
+                ],
+            }),
+            create_project: create,
+        });
+        const ref = createRef<NewProjectRef>();
+        renderWithToast(<NewProject ref={ref} />);
+        await screen.findByRole('button', { name: 'PHP (8.3)' });
+
+        await user.type(screen.getByLabelText('apache.project_name'), 'E-Commerce');
+        fireEvent.change(screen.getByPlaceholderText('apache.placeholder_workspace'), { target: { value: 'C:/workspace' } });
+
+        // Check the auto-create database checkbox
+        const checkbox = await screen.findByLabelText('apache.auto_create_db');
+        await user.click(checkbox);
+
+        expect(screen.getByLabelText('apache.target_db_instance')).toBeInTheDocument();
+        const dbNameInput = screen.getByLabelText('apache.target_db_name');
+        expect(dbNameInput).toHaveValue('e_commerce');
+
+        const result = await act(async () => ref.current!.submit());
+        expect(result).toBe(true);
+        expect(create).toHaveBeenCalledWith(expect.objectContaining({
+            auto_create_db: true,
+            db_instance_id: 'db_pg',
+            target_db_name: 'e_commerce',
+        }));
+    });
 });

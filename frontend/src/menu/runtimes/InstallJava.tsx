@@ -20,24 +20,27 @@ const InstallJava = forwardRef<InstallJavaRef, InstallJavaProps>(({ targetVersio
     const [isLoading, setIsLoading] = useState(true);
     const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
 
-    useEffect(() => {
-        const fetchVersions = async () => {
-            try {
-                const res = await window.pywebview?.api?.get_available_java_versions();
-                if (res?.status === 'success' && res.data.length > 0) {
-                    setVersionsList(res.data);
-                    if (!targetVersion) setVersion(res.data[0].value); // Set default ke yang pertama (Latest LTS biasanya)
-                } else {
-                    setVersionsList([]);
-                }
-            } catch {
+    const fetchVersions = async () => {
+        setIsLoading(true);
+        try {
+            const res = await window.pywebview?.api?.get_available_java_versions();
+            if (res?.status === 'success' && res.data.length > 0) {
+                setVersionsList(res.data);
+                if (!targetVersion) setVersion(res.data[0].value);
+            } else {
                 setVersionsList([]);
-                showToast(t('runtimes.fetch_version_error'), "error");
-            } finally {
-                setIsLoading(false);
             }
-        };
+        } catch {
+            setVersionsList([]);
+            showToast(t('runtimes.fetch_version_error'), "error");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
         fetchVersions();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     useImperativeHandle(ref, () => ({
@@ -50,6 +53,9 @@ const InstallJava = forwardRef<InstallJavaRef, InstallJavaProps>(({ targetVersio
                 if (res?.status === 'success') {
                     showToast((res.message ? t(res.message, res.args || {}) : t('runtimes.java_install_success')) as string, 'success');
                     return true;
+                } else if (res?.status === 'cancelled') {
+                    showToast((res.message ? t(res.message, res.args || {}) : t('backend.runtimes.install_cancelled')) as string, 'info');
+                    return false;
                 } else {
                     showToast((res?.message ? t(res.message, res.args || {}) : t('runtimes.java_install_error')) as string, 'error');
                     return false;
@@ -66,7 +72,7 @@ const InstallJava = forwardRef<InstallJavaRef, InstallJavaProps>(({ targetVersio
             <div className="flex flex-col gap-2">
                 <FieldLabel>{t('runtimes.java_version')}</FieldLabel>
 
-                <RuntimeVersionSelect isLoading={isLoading} versionsList={versionsList} version={version} setVersion={setVersion} />
+                <RuntimeVersionSelect isLoading={isLoading} versionsList={versionsList} version={version} setVersion={setVersion} onRetry={fetchVersions} />
 
                 <span className="text-xs text-slate-500">
                     {t('runtimes.java_api_desc')}
@@ -113,7 +119,7 @@ const InstallJava = forwardRef<InstallJavaRef, InstallJavaProps>(({ targetVersio
                     <span className={`material-symbols-outlined text-[18px] transition-transform duration-300 ${isAdvancedOpen ? 'rotate-180' : ''}`}>expand_more</span>
                     {t('runtimes.advanced_settings')}
                 </button>
-                <div className={`flex flex-col gap-4 overflow-hidden transition-all duration-300 ${isAdvancedOpen ? 'max-h-[100px] opacity-100 mt-4' : 'max-h-0 opacity-0'}`}>
+                <div className={`flex flex-col gap-4 overflow-hidden transition-[max-height,opacity] duration-300 ${isAdvancedOpen ? 'max-h-[100px] opacity-100 mt-4' : 'max-h-0 opacity-0'}`}>
                     <p className="text-xs text-slate-500 dark:text-slate-400">{t('runtimes.java_home_auto_1')}<code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">JAVA_HOME</code>{t('runtimes.java_home_auto_2')}</p>
                 </div>
             </div>

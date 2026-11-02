@@ -103,14 +103,23 @@ export default function NotificationBell() {
             setPanelPosition({ bottom: window.innerHeight - rect.top + 8, left });
         };
         updatePosition();
+        let rafId: number | null = null;
+        const handleResize = () => {
+            if (rafId !== null) cancelAnimationFrame(rafId);
+            rafId = requestAnimationFrame(() => {
+                updatePosition();
+                rafId = null;
+            });
+        };
         const handleScroll = (event: Event) => {
             if (event.target instanceof Node && panelRef.current?.contains(event.target)) return;
             closePanel();
         };
-        window.addEventListener('resize', updatePosition);
+        window.addEventListener('resize', handleResize);
         window.addEventListener('scroll', handleScroll, true);
         return () => {
-            window.removeEventListener('resize', updatePosition);
+            if (rafId !== null) cancelAnimationFrame(rafId);
+            window.removeEventListener('resize', handleResize);
             window.removeEventListener('scroll', handleScroll, true);
         };
     }, [isOpen]);

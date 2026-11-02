@@ -25,6 +25,9 @@ export default function GlobalAppInterceptor() {
         };
 
         const handleContextMenu = (e: MouseEvent) => {
+            // Matikan context menu default bawaan Edge/browser di seluruh aplikasi
+            e.preventDefault();
+
             const target = e.target as HTMLElement;
             const logArea = target.closest('.vylo-log-area');
 
@@ -43,7 +46,6 @@ export default function GlobalAppInterceptor() {
             }
 
             if (selectedText) {
-                e.preventDefault();
                 setMenuState({
                     visible: true,
                     x: e.clientX,
@@ -52,7 +54,6 @@ export default function GlobalAppInterceptor() {
                     isLogArea: Boolean(logArea)
                 });
             } else if (logArea) {
-                e.preventDefault();
                 const textToCopy = (target.innerText || target.textContent || '').trim();
                 setMenuState({
                     visible: true,

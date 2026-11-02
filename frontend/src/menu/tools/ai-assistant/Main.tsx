@@ -1,7 +1,9 @@
 import { useRef, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAiAssistant } from '../../../context/AiContext';
+import { useNetworkStatus } from '../../../context/NetworkContext';
 import PageHeader from '../../../components/PageHeader';
+import OfflineBanner from '../../../components/OfflineBanner';
 import AiChatMessage, { extractVyloSuggestions } from './components/AiChatMessage';
 import AiChatInput, { type AiChatInputHandle } from './components/AiChatInput';
 import AiUsageBadge from './components/AiUsageBadge';
@@ -16,6 +18,7 @@ interface AiAssistantMainProps {
 
 export default function AiAssistantMain({ isActive = true }: AiAssistantMainProps) {
     const { t } = useTranslation();
+    const { isOnline } = useNetworkStatus();
     const {
         messages,
         isGenerating,
@@ -175,6 +178,26 @@ export default function AiAssistantMain({ isActive = true }: AiAssistantMainProp
                 }
             />
 
+            {/* OFFLINE CLOUD PROVIDER WARNING BANNER */}
+            {!isOnline && activeProvider !== 'ollama' && (
+                <div className="mb-4 shrink-0">
+                    <OfflineBanner
+                        description={t('ai.offline_cloud_desc', { provider: activeProvider })}
+                        actionButton={
+                            <Button
+                                variant="primary"
+                                size="sm"
+                                icon="settings"
+                                onClick={handleOpenSettings}
+                                className="shrink-0 text-xs px-2.5 py-1.5"
+                            >
+                                {t('ai.switch_to_ollama')}
+                            </Button>
+                        }
+                    />
+                </div>
+            )}
+
             {/* API KEY WARNING BANNER using InfoBox */}
             {!hasApiKey && activeProvider !== 'ollama' && (
                 <div className="mb-4 shrink-0">
@@ -224,7 +247,7 @@ export default function AiAssistantMain({ isActive = true }: AiAssistantMainProp
                                     <button
                                         type="button"
                                         onClick={() => handleQuickPrompt(t('ai.quick_prompt_logs', 'Analyze recent error logs'))}
-                                        className="p-4 text-left rounded-xl border border-slate-200 dark:border-slate-800 hover:border-primary/50 dark:hover:border-primary/50 bg-slate-50/50 dark:bg-slate-800/40 hover:bg-primary/5 dark:hover:bg-primary/10 transition-all flex flex-col justify-between gap-3 group cursor-pointer shadow-xs"
+                                        className="p-4 text-left rounded-xl border border-slate-200 dark:border-slate-800 hover:border-primary/50 dark:hover:border-primary/50 bg-slate-50/50 dark:bg-slate-800/40 hover:bg-primary/5 dark:hover:bg-primary/10 transition-colors flex flex-col justify-between gap-3 group cursor-pointer shadow-xs"
                                     >
                                         <div className="flex items-center gap-2.5">
                                             <span className="material-symbols-outlined text-[20px] text-amber-500">bug_report</span>
@@ -239,7 +262,7 @@ export default function AiAssistantMain({ isActive = true }: AiAssistantMainProp
                                     <button
                                         type="button"
                                         onClick={() => handleQuickPrompt(t('ai.quick_prompt_vhost', 'How to create an Apache VirtualHost?'))}
-                                        className="p-4 text-left rounded-xl border border-slate-200 dark:border-slate-800 hover:border-primary/50 dark:hover:border-primary/50 bg-slate-50/50 dark:bg-slate-800/40 hover:bg-primary/5 dark:hover:bg-primary/10 transition-all flex flex-col justify-between gap-3 group cursor-pointer shadow-xs"
+                                        className="p-4 text-left rounded-xl border border-slate-200 dark:border-slate-800 hover:border-primary/50 dark:hover:border-primary/50 bg-slate-50/50 dark:bg-slate-800/40 hover:bg-primary/5 dark:hover:bg-primary/10 transition-colors flex flex-col justify-between gap-3 group cursor-pointer shadow-xs"
                                     >
                                         <div className="flex items-center gap-2.5">
                                             <span className="material-symbols-outlined text-[20px] text-blue-500">dns</span>
@@ -254,7 +277,7 @@ export default function AiAssistantMain({ isActive = true }: AiAssistantMainProp
                                     <button
                                         type="button"
                                         onClick={() => handleQuickPrompt(t('ai.quick_prompt_php', 'Recommended php.ini settings for development'))}
-                                        className="p-4 text-left rounded-xl border border-slate-200 dark:border-slate-800 hover:border-primary/50 dark:hover:border-primary/50 bg-slate-50/50 dark:bg-slate-800/40 hover:bg-primary/5 dark:hover:bg-primary/10 transition-all flex flex-col justify-between gap-3 group cursor-pointer shadow-xs"
+                                        className="p-4 text-left rounded-xl border border-slate-200 dark:border-slate-800 hover:border-primary/50 dark:hover:border-primary/50 bg-slate-50/50 dark:bg-slate-800/40 hover:bg-primary/5 dark:hover:bg-primary/10 transition-colors flex flex-col justify-between gap-3 group cursor-pointer shadow-xs"
                                     >
                                         <div className="flex items-center gap-2.5">
                                             <span className="material-symbols-outlined text-[20px] text-indigo-500">settings_suggest</span>
@@ -308,6 +331,7 @@ export default function AiAssistantMain({ isActive = true }: AiAssistantMainProp
                         onSend={(text) => sendMessage(text, 'ai-assistant')}
                         onStop={stopGenerating}
                         isGenerating={isGenerating}
+                        disabled={!isOnline && activeProvider !== 'ollama'}
                         activeProvider={activeProvider}
                         activeModel={activeModel}
                         attachedContext={attachedContext}

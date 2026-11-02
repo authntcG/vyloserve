@@ -8,7 +8,8 @@ from main import (
     AppLifecycle, resource_path, get_entrypoint, setup_systray, get_theme_bg_color,
     get_saved_theme,
     get_mutex_name, get_ipc_pipe_name, get_window_title, setup_app_user_model_id,
-    check_single_instance, bring_existing_instance_to_front, start_ipc_server
+    check_single_instance, bring_existing_instance_to_front, start_ipc_server,
+    setup_windows_performance_optimizations
 )
 
 
@@ -111,6 +112,40 @@ def test_perform_exit_prevents_reentrancy(mock_os_exit, mock_api):
 
     mock_api.set_shutting_down.assert_not_called()
     mock_os_exit.assert_not_called()
+
+@patch('os._exit')
+def test_perform_exit_calls_cleanup_child_processes(mock_os_exit, mock_api):
+    """perform_exit harus memanggil _cleanup_child_processes sebelum os._exit(0)."""
+    lifecycle = AppLifecycle(mock_api, is_production=True)
+    with patch.object(lifecycle, '_cleanup_child_processes') as mock_cleanup:
+        lifecycle.perform_exit()
+        mock_cleanup.assert_called_once()
+    mock_os_exit.assert_called_once_with(0)
+
+def test_cleanup_child_processes_terminates_and_kills_children(mock_api):
+    """_cleanup_child_processes harus mencari proses anak dan melakukan terminate/kill."""
+    lifecycle = AppLifecycle(mock_api, is_production=True)
+    mock_child1 = MagicMock()
+    mock_child2 = MagicMock()
+    with patch('psutil.Process') as mock_proc_cls, \
+         patch('psutil.wait_procs') as mock_wait:
+        mock_proc_instance = MagicMock()
+        mock_proc_instance.children.return_value = [mock_child1, mock_child2]
+        mock_proc_cls.return_value = mock_proc_instance
+        # Simulasi child2 masih hidup setelah terminate -> harus di-kill
+        mock_wait.return_value = ([mock_child1], [mock_child2])
+
+        lifecycle._cleanup_child_processes()
+
+        mock_child1.terminate.assert_called_once()
+        mock_child2.terminate.assert_called_once()
+        mock_child2.kill.assert_called_once()
+
+def test_cleanup_child_processes_swallows_psutil_exceptions(mock_api):
+    """Kegagalan akses psutil tidak boleh memicu crash pada _cleanup_child_processes."""
+    lifecycle = AppLifecycle(mock_api, is_production=True)
+    with patch('psutil.Process', side_effect=RuntimeError("psutil access denied")):
+        lifecycle._cleanup_child_processes()
 
 
 # ==========================================
@@ -406,22 +441,51 @@ def test_main_hooks_minimized_and_restored_events_to_push_window_state(mock_api_
     # dengan nilai return (MagicMock baru) -- referensi ORIGINAL harus ditangkap SEBELUM
     # main() berjalan, kalau tidak __iadd__.call_args sudah tidak bisa diakses lagi.
     minimized_event = mock_window.events.minimized
+    maximized_event = mock_window.events.maximized
     restored_event = mock_window.events.restored
 
     with patch('main.IS_PRODUCTION', False):
         main_module.main()
 
     minimized_event.__iadd__.assert_called_once()
+    maximized_event.__iadd__.assert_called_once()
     restored_event.__iadd__.assert_called_once()
 
     minimized_handler = minimized_event.__iadd__.call_args[0][0]
+    maximized_handler = maximized_event.__iadd__.call_args[0][0]
     restored_handler = restored_event.__iadd__.call_args[0][0]
 
     minimized_handler()
     mock_api_instance.emit_window_state.assert_called_with(minimized=True)
 
+    maximized_handler()
+    mock_api_instance.emit_window_state.assert_called_with(minimized=False)
+    mock_api_instance.settings.save_settings.assert_called_with({"window_maximized": True})
+
     restored_handler()
     mock_api_instance.emit_window_state.assert_called_with(minimized=False)
+    mock_api_instance.settings.save_settings.assert_called_with({"window_maximized": False})
+
+@patch('os._exit')
+@patch('main.check_single_instance', return_value=(True, None))
+@patch('main.webview')
+def test_main_window_maximized_and_restored_with_real_api(mock_webview, mock_check_single, mock_os_exit):
+    """Memastikan handler maximized dan restored tidak menimbulkan AttributeError saat menggunakan instance Api nyata."""
+    mock_window = MagicMock()
+    mock_webview.create_window.return_value = mock_window
+
+    maximized_event = mock_window.events.maximized
+    restored_event = mock_window.events.restored
+
+    with patch('main.IS_PRODUCTION', False):
+        main_module.main()
+
+    maximized_handler = maximized_event.__iadd__.call_args[0][0]
+    restored_handler = restored_event.__iadd__.call_args[0][0]
+
+    # Handler tidak boleh raise AttributeError('Api object has no attribute settings_manager')
+    maximized_handler()
+    restored_handler()
 
 @patch('main.check_single_instance', return_value=(True, None))
 @patch('main.webview')
@@ -708,5 +772,132 @@ def test_main_starts_ipc_server_on_first_instance(mock_api_class, mock_webview, 
     args = mock_start_ipc.call_args[0]
     assert isinstance(args[0], AppLifecycle)
     assert args[1] is False
+
+
+# ==========================================
+# setup_windows_performance_optimizations (docs/known_bugs.md #80)
+# ==========================================
+
+def test_setup_windows_performance_optimizations_non_windows():
+    """Pada platform non-Windows, optimasi harus mengembalikan False tanpa error."""
+    with patch('sys.platform', 'darwin'):
+        result = setup_windows_performance_optimizations()
+        assert result is False
+
+
+def test_setup_windows_performance_optimizations_sets_chromium_flags(monkeypatch):
+    """Harus menyetel argumen GPU rasterization & zero copy, membiarkan oklusi native aktif untuk mencegah GPU crash saat window di-hide."""
+    monkeypatch.setattr('sys.platform', 'win32')
+    monkeypatch.delenv('WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS', raising=False)
+
+    result = setup_windows_performance_optimizations()
+    assert result is True
+    env_args = os.environ.get('WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS', '')
+    assert '--enable-gpu-rasterization' in env_args
+    assert '--ignore-gpu-blocklist' in env_args
+    assert '--enable-zero-copy' in env_args
+    assert '--disable-features=CalculateNativeWinOcclusion' not in env_args
+
+
+def test_setup_windows_performance_optimizations_idempotent(monkeypatch):
+    """Pemanggilan ganda tidak boleh error dan tetap mengembalikan True."""
+    monkeypatch.setattr('sys.platform', 'win32')
+    res1 = setup_windows_performance_optimizations()
+    res2 = setup_windows_performance_optimizations()
+    assert res1 is True
+    assert res2 is True
+
+
+def test_setup_windows_performance_optimizations_applies_styles_and_preserves_live_animation(monkeypatch):
+    """
+    Menguji Form WinForms yang dipatch:
+    - DoubleBuffered harus diset False (menghindari alokasi GDI+ buffer CPU yang membebani UI thread).
+    - SetStyle harus menyetel AllPaintingInWmPaint=True untuk mengurangi flicker redraw.
+    - UserPaint TIDAK boleh dimatikan (UserPaint=False) agar BackColor tema gelap dilukis sejak frame 0
+      (mencegah Flash of White / glitch putih polos saat startup).
+    - Layout tidak disuspend (tidak memasang SuspendLayout) agar animasi CSS tetap berjalan live.
+    """
+    monkeypatch.setattr('sys.platform', 'win32')
+
+    class DummyBrowserForm:
+        def __init__(self, window, cache_dir):
+            self.window = window
+            self.styles = {}
+
+        def SetStyle(self, style, value):
+            self.styles[style] = value
+
+    class DummyControlStyles:
+        UserPaint = "UserPaint"
+        AllPaintingInWmPaint = "AllPaintingInWmPaint"
+        Opaque = "Opaque"
+
+    dummy_wf = MagicMock()
+    dummy_wf.BrowserView.BrowserForm = DummyBrowserForm
+    dummy_wf.WinForms.ControlStyles = DummyControlStyles
+    monkeypatch.setitem(sys.modules, 'webview.platforms.winforms', dummy_wf)
+
+    setup_windows_performance_optimizations()
+
+    # Buat instance form yang telah terpatch
+    form = DummyBrowserForm(MagicMock(), 'cache_dir')
+
+    assert form.DoubleBuffered is False
+    assert form.styles.get(DummyControlStyles.AllPaintingInWmPaint) is True
+    # UserPaint dan Opaque tidak boleh dimatikan agar background tema tetap dilukis sejak frame 0
+    assert DummyControlStyles.UserPaint not in form.styles
+    assert DummyControlStyles.Opaque not in form.styles
+
+
+def test_setup_windows_performance_optimizations_configures_edge_webview2(monkeypatch):
+    """Memastikan on_webview_ready pada EdgeChrome dipatch untuk menonaktifkan context menu, dialog native, serta auto-accept permissions."""
+    monkeypatch.setattr('sys.platform', 'win32')
+
+    class DummyEdgeChrome:
+        _vylo_context_menu_patched = False
+        def on_webview_ready(self, sender, args):
+            pass
+
+    dummy_ec = MagicMock()
+    dummy_ec.EdgeChrome = DummyEdgeChrome
+    monkeypatch.setitem(sys.modules, 'webview.platforms.edgechromium', dummy_ec)
+
+    setup_windows_performance_optimizations()
+
+    assert DummyEdgeChrome._vylo_context_menu_patched is True
+
+    # Test pemanggilan patched method
+    instance = DummyEdgeChrome()
+    mock_sender = MagicMock()
+    mock_args = MagicMock()
+    mock_args.IsSuccess = True
+
+    instance.on_webview_ready(mock_sender, mock_args)
+
+    # 1. Verifikasi settings
+    assert mock_sender.CoreWebView2.Settings.AreDefaultContextMenusEnabled is False
+    assert mock_sender.CoreWebView2.Settings.AreDefaultScriptDialogsEnabled is False
+    assert mock_sender.CoreWebView2.Settings.IsGeneralAutofillEnabled is False
+    assert mock_sender.CoreWebView2.Settings.IsPasswordAutosaveEnabled is False
+
+    # 2. Verifikasi PermissionRequested auto-accept (Allow = 1)
+    perm_calls = [c for c in mock_sender.CoreWebView2.mock_calls if c[0] == 'PermissionRequested.__iadd__']
+    assert len(perm_calls) == 1
+    perm_handler = perm_calls[0][1][0]
+    mock_perm_args = MagicMock()
+    perm_handler(mock_sender, mock_perm_args)
+    assert mock_perm_args.State == 1 or getattr(mock_perm_args.State, 'value__', None) == 1
+    assert mock_perm_args.Handled is True
+    assert mock_perm_args.SavesInProfile is True
+
+    # 3. Verifikasi ScriptDialogOpening auto-accept
+    dialog_calls = [c for c in mock_sender.CoreWebView2.mock_calls if c[0] == 'ScriptDialogOpening.__iadd__']
+    assert len(dialog_calls) == 1
+    dialog_handler = dialog_calls[0][1][0]
+    mock_dialog_args = MagicMock()
+    dialog_handler(mock_sender, mock_dialog_args)
+    mock_dialog_args.Accept.assert_called_once()
+
+
 
 

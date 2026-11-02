@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import Card from '../../components/Card';
 import Button from '../../components/Button';
-import ViewModeToggle, { type ViewMode } from '../../components/ViewModeToggle';
+import ViewModeToggle from '../../components/ViewModeToggle';
+import { usePersistedViewMode } from '../../hooks/usePersistedViewMode';
 import FilterChips from '../../components/FilterChips';
 import ServiceToggleButton from '../../components/ServiceToggleButton';
 import BackgroundProgressWidget from '../../components/BackgroundProgressWidget';
@@ -19,6 +20,7 @@ import {
 import DatabaseNewInstanceModal from './DatabaseNewInstanceModal';
 import DatabasePasswordModal from './DatabasePasswordModal';
 import DatabaseSettingsModal from './DatabaseSettingsModal';
+import DatabaseSchemaModal from './DatabaseSchemaModal';
 import DatabaseTable from './DatabaseTable';
 
 export type { DbInstance, DbEngineType, AvailableUpdate } from '../../context/DatabaseContext';
@@ -34,6 +36,8 @@ function DatabaseMainView() {
         filteredInstances,
         availableUpdates,
         isInstalling,
+        isCancelling,
+        handleCancelInstall,
         isNewInstanceOpen,
         progress,
         progressText,
@@ -43,23 +47,26 @@ function DatabaseMainView() {
         openNewInstanceModal,
         openSettingsModal,
         openPasswordModal,
+        openSchemaModal,
         handleToggleDB,
         handleUpdateDatabase,
         handleConfirmUninstall,
     } = useDatabase();
 
-    const [viewMode, setViewMode] = useState<ViewMode>('card');
+    const [viewMode, setViewMode] = usePersistedViewMode('database', 'card');
 
     const engineCounts = useMemo(() => ({
         all: dbInstances.length,
         mysql: dbInstances.filter((db) => db.engine === 'mysql').length,
         postgres: dbInstances.filter((db) => db.engine === 'postgres').length,
+        redis: dbInstances.filter((db) => db.engine === 'redis').length,
     }), [dbInstances]);
 
     const filterItems = [
         { id: 'all' as const, label: t('database.all_instances'), count: engineCounts.all },
         { id: 'mysql' as const, label: t('database.mysql_mariadb'), count: engineCounts.mysql },
         { id: 'postgres' as const, label: t('database.postgres'), count: engineCounts.postgres },
+        { id: 'redis' as const, label: t('database.redis', 'Redis'), count: engineCounts.redis },
     ];
 
     return (
@@ -136,6 +143,7 @@ function DatabaseMainView() {
                                 onToggleStatus={handleToggleDB}
                                 onOpenSettings={openSettingsModal}
                                 onOpenPasswordModal={openPasswordModal}
+                                onOpenSchemas={openSchemaModal}
                                 onOpenConfigFile={(db) => window.pywebview?.api?.open_db_config_file(db.id)}
                                 onOpenDataDir={(db) => window.pywebview?.api?.open_db_dir(db.id)}
                                 onOpenLogs={(db, type) => setLogViewer({ dbId: db.id, type })}
@@ -165,13 +173,24 @@ function DatabaseMainView() {
                                         gridCols="grid-cols-2 md:grid-cols-3"
                                         dropdownActions={
                                             <>
+                                                {db.engine !== 'redis' && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => openSchemaModal(db)}
+                                                        disabled={!isRunning}
+                                                        className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700/70 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                                    >
+                                                        <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">database</span>
+                                                        <span className="truncate">{t('database.manage_schemas')}</span>
+                                                    </button>
+                                                )}
                                                 <button
                                                     type="button"
                                                     onClick={() => window.pywebview?.api?.open_db_config_file(db.id)}
                                                     className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700/70 transition-colors"
                                                 >
                                                     <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">description</span>
-                                                    <span className="truncate">{db.engine === 'postgres' ? t('database.open_postgres_conf') : t('database.open_my_ini')}</span>
+                                                    <span className="truncate">{db.engine === 'postgres' ? t('database.open_postgres_conf') : (db.engine === 'redis' ? 'redis.conf' : t('database.open_my_ini'))}</span>
                                                 </button>
                                                 <button
                                                     type="button"
@@ -201,14 +220,16 @@ function DatabaseMainView() {
                                                     </button>
                                                 )}
 
-                                                <button
-                                                    type="button"
-                                                    onClick={() => openPasswordModal(db)}
-                                                    className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700/70 transition-colors"
-                                                >
-                                                    <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">key</span>
-                                                    <span className="truncate">{t('database.change_password')}</span>
-                                                </button>
+                                                {db.engine !== 'redis' && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => openPasswordModal(db)}
+                                                        className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700/70 transition-colors"
+                                                    >
+                                                        <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">key</span>
+                                                        <span className="truncate">{t('database.change_password')}</span>
+                                                    </button>
+                                                )}
 
                                                 <div className="border-t border-slate-200 dark:border-slate-700 my-1"></div>
                                                 {update && (
@@ -246,12 +267,27 @@ function DatabaseMainView() {
                                                         stopping: t('database.stop_db'),
                                                     }}
                                                 />
+                                                {isRunning && db.engine !== 'redis' && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => openSchemaModal(db)}
+                                                        title={t('database.manage_schemas')}
+                                                        aria-label={t('database.manage_schemas')}
+                                                        className="flex-1 min-w-0 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 dark:bg-slate-950 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900 text-sm font-medium py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 shadow-xs transition-colors"
+                                                    >
+                                                        <span className="material-symbols-outlined text-[18px] shrink-0">database</span>
+                                                        <span className="truncate">{t('database.manage_schemas')}</span>
+                                                    </button>
+                                                )}
                                                 <button
                                                     type="button"
                                                     onClick={() => openSettingsModal(db)}
-                                                    className="flex-1 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 dark:bg-slate-950 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2"
+                                                    title={t('database.config')}
+                                                    aria-label={t('database.config')}
+                                                    className="flex-1 min-w-0 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 dark:bg-slate-950 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900 text-sm font-medium py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 shadow-xs"
                                                 >
-                                                    <span className="material-symbols-outlined text-[18px]">tune</span> {t('database.config')}
+                                                    <span className="material-symbols-outlined text-[18px] shrink-0">tune</span>
+                                                    <span className="truncate">{t('database.config')}</span>
                                                 </button>
                                             </>
                                         }
@@ -260,9 +296,9 @@ function DatabaseMainView() {
                                             <span className="text-xs font-medium text-slate-500 uppercase">{t('database.engine')}</span>
                                             <span className="text-sm font-medium text-slate-900 dark:text-slate-200 flex items-center gap-1.5 truncate">
                                                 <span className="material-symbols-outlined text-[16px] text-slate-400">
-                                                    {db.engine === 'postgres' ? 'storage' : 'database'}
+                                                    {db.engine === 'postgres' ? 'storage' : (db.engine === 'redis' ? 'memory' : 'database')}
                                                 </span>
-                                                {db.engine === 'postgres' ? t('database.postgres') : t('database.mysql_mariadb')}
+                                                {db.engine === 'postgres' ? t('database.postgres') : (db.engine === 'redis' ? t('database.redis', 'Redis') : t('database.mysql_mariadb'))}
                                             </span>
                                         </div>
                                         <div className="flex flex-col gap-1 min-w-0">
@@ -296,11 +332,14 @@ function DatabaseMainView() {
                 progressText={progressText}
                 title={t('database.processing')}
                 onRestore={openNewInstanceModal}
+                onCancel={handleCancelInstall}
+                isCancelling={isCancelling}
             />
 
             <DatabaseNewInstanceModal />
             <DatabasePasswordModal />
             <DatabaseSettingsModal />
+            <DatabaseSchemaModal />
         </>
     );
 }

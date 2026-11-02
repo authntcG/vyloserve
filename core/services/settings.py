@@ -30,6 +30,7 @@ class SettingsManager:
                 "theme": "vyloserve-dark",
                 "receive_prerelease_updates": False, # opsi untuk auto-updater
                 "enable_desktop_notifications": True, # notifikasi native Windows saat window backgrounded
+                "window_maximized": False, # mengingat state jendela terakhir (Maximized vs Normal)
                 "default_apache_install_location": "", # lokasi folder terakhir dipakai di modal New Project
                 # None = belum pernah dikustomisasi user -> tampilkan semua level/source.
                 # SENGAJA bukan array kosong ([]) -- array kosong dipakai sebagai nilai TERSIMPAN

@@ -11,6 +11,10 @@ describe('compareVersions', () => {
         ['8.2.1', '8.2', 1],
         ['10.11.6', '10.11.6', 0],
         ['16', '15', 1],
+        [undefined as unknown as string, '15', -1],
+        ['16', undefined as unknown as string, 1],
+        [undefined as unknown as string, undefined as unknown as string, 0],
+        ['', '8.0', -1],
     ])('compareVersions(%s, %s) -> %s', (v1, v2, expected) => {
         expect(compareVersions(v1, v2)).toBe(expected);
     });

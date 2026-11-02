@@ -21,6 +21,15 @@
         "install": "Install",
         "installing": "Installing...",
         "installation_progress": "Installation Progress",
+        "cancel_install": "Cancel Installation",
+        "cancelling": "Cancelling...",
+        "cancel_install_title": "Cancel Installation",
+        "cancel_install_confirm": "Are you sure you want to cancel the installation process? Any downloaded files will be safely cleaned up.",
+        "continue_install": "Continue",
+        "cancel_download": "Cancel Download",
+        "cancel_download_title": "Cancel Download",
+        "cancel_download_confirm": "Are you sure you want to cancel the update download?",
+        "continue_download": "Continue",
         "preparing": "Preparing...",
         "uninstall": "Uninstall",
         "manage": "Manage",
@@ -38,7 +47,12 @@
         "view_mode": "View Mode",
         "view_table": "Table View",
         "more_options": "More Options",
-        "options": "Options"
+        "options": "Options",
+        "offline_title": "No Internet Connection",
+        "offline_desc": "This feature requires an active internet connection to fetch data or download packages.",
+        "offline_versions_unavailable": "Version list unavailable while offline",
+        "retry_connection": "Retry Connection",
+        "checking_connection": "Checking..."
     },
     "sidebar": {
         "search": "Search...",
@@ -263,7 +277,14 @@
         "vhosts_routing": "Virtual Hosts Routing",
         "vhosts_routing_desc": "Apache routes incoming local domain requests to project document roots and reverse-proxy runtime ports.",
         "view_cards": "Card View",
-        "view_table": "Table View"
+        "view_table": "Table View",
+        "offline_framework_desc": "Installing {{framework}} requires an internet connection. You can switch to a Raw template to create a project offline.",
+        "switch_to_raw_offline": "Use Raw Template (Offline)",
+        "auto_create_db": "Auto-create database for this project",
+        "target_db_instance": "Target Database Engine",
+        "target_db_name": "Database Name",
+        "no_running_db_instances": "No running database instances found",
+        "no_running_db_desc": "Install and start a database in the Database menu first."
     },
     "php": {
         "fetch_php_data_error": "Failed to load PHP data.",
@@ -363,6 +384,9 @@
         "mysql_mariadb": "MySQL & MariaDB",
         "postgres": "PostgreSQL",
         "no_instances_found": "No Instances Found",
+        "no_instances_desc": "No database engines installed yet. Install MySQL, MariaDB, PostgreSQL, or Redis to get started.",
+        "no_instance_desc": "No database engines installed yet. Install MySQL, MariaDB, PostgreSQL, or Redis to get started.",
+        "download_db_now": "Install Database Now",
         "no_postgres_desc": "You haven't installed any PostgreSQL engines yet.",
         "no_mysql_desc": "You haven't installed any MySQL/MariaDB engines yet.",
         "install_now": "Install one now",
@@ -373,6 +397,10 @@
         "drop_engine": "Drop Engine",
         "stop_db": "Stop DB",
         "start_db": "Start DB",
+        "running": "Running",
+        "stopped": "Stopped",
+        "starting": "Starting...",
+        "stopping": "Stopping...",
         "config": "Config",
         "engine": "Engine",
         "port": "Port",
@@ -445,7 +473,34 @@
         "th_status": "Status",
         "th_port": "Port",
         "th_user": "User",
-        "th_data_dir": "Data Directory"
+        "th_data_dir": "Data Directory",
+        "redis": "Redis",
+        "manage_schemas": "Databases",
+        "schemas_title": "Database Schemas & Tables",
+        "schemas_modal_desc": "Quickly inspect, create, export, and import databases in this instance.",
+        "schemas_count": "Databases ({{count}})",
+        "new_schema_name": "New Database Name",
+        "placeholder_schema_name": "e.g., my_app_db",
+        "create_schema_btn": "Create Database",
+        "creating_schema": "Creating...",
+        "export_sql": "Export .sql",
+        "import_sql": "Import .sql",
+        "drop_schema": "Drop",
+        "drop_schema_confirm_title": "Drop Database '{{name}}'?",
+        "drop_schema_confirm_desc": "Are you sure you want to drop database '{{name}}'? All tables and data will be permanently deleted!",
+        "system_db_badge": "System",
+        "no_user_schemas": "No User Databases",
+        "no_user_schemas_desc": "Create your first database using the form above.",
+        "auth_password_optional": "Authentication Password",
+        "auth_password_hint": "Required only if root/superuser password was set or changed.",
+        "exporting_sql": "Exporting SQL...",
+        "importing_sql": "Importing SQL...",
+        "redis_desc": "Redis In-Memory Data Store & Cache",
+        "redis_cache": "In-Memory Store",
+        "redis_maxmemory": "Max Memory",
+        "redis_maxmemory_policy": "Eviction Policy",
+        "redis_databases": "Databases Count",
+        "redis_appendonly": "Append Only File (AOF)"
     },
     "runtimes": {
         "external_lock_warning": "Option locked because an official external {{engine}} installation was detected.",
@@ -1055,7 +1110,8 @@
             "all_overview_title": "Tunnels Dashboard",
             "all_overview_subtitle": "Manage all your tunneling engines.",
             "services_installed": "{{count}} service installed",
-            "services_installed_plural": "{{count}} services installed"
+            "services_installed_plural": "{{count}} services installed",
+            "offline_desc": "Public tunnels cannot be started while offline. Reconnect to the internet to expose your local server."
         },
         "update_btn": "Update",
         "updating_btn": "Updating...",
@@ -1251,7 +1307,9 @@
         "error": {
             "path_traversal": "Access denied: Unauthorized file path or path traversal detected.",
             "project_module_not_loaded": "Project module is not loaded. Please restart the application.",
-            "unexpected": "Unexpected error: {{e}}"
+            "unexpected": "Unexpected error: {{e}}",
+            "no_internet": "No internet connection detected. Please check your network and try again.",
+            "invalid_input": "Invalid input provided: {{detail}}"
         },
         "apache": {
             "status_check_failed": "Failed to check Apache status: {{e}}",
@@ -1327,7 +1385,9 @@
             "starting_service": "Starting PHP Service...",
             "stopping_service": "Stopping PHP Service...",
             "update_success": "Successfully updated PHP {{old}} to {{new}}",
-            "config_migrated": "PHP configuration migrated"
+            "config_migrated": "PHP configuration migrated",
+            "install_cancelled": "PHP installation was cancelled.",
+            "update_cancelled": "PHP update was cancelled."
         },
         "database": {
             "not_found": "Database instance not found.",
@@ -1382,7 +1442,21 @@
             "update_success": "Database updated successfully.",
             "update_complete": "Update complete.",
             "update_failed_rollback": "Update failed. Rolling back to previous version.",
-            "update_failed": "Update failed."
+            "update_failed": "Update failed.",
+            "schema_name_invalid": "Database name is invalid. Use 1-64 alphanumeric characters and underscores.",
+            "schema_system_protected": "System database cannot be modified or dropped.",
+            "schema_already_exists": "Database '{{name}}' already exists.",
+            "schema_created_success": "Database '{{name}}' created successfully.",
+            "schema_dropped_success": "Database '{{name}}' dropped successfully.",
+            "schema_not_found": "Database '{{name}}' not found.",
+            "schema_export_success": "Database '{{name}}' exported successfully.",
+            "schema_import_success": "SQL file imported into database '{{name}}' successfully.",
+            "schema_cli_not_found": "Database CLI client ({{cli}}) not found.",
+            "schema_exec_failed": "Database command failed: {{err}}",
+            "schema_sql_file_invalid": "Selected SQL file is invalid or does not exist.",
+            "redis_not_supported_for_schemas": "Schema management is not supported for Redis in-memory store.",
+            "install_cancelled": "Database installation was cancelled.",
+            "update_cancelled": "Database update was cancelled."
         },
         "dashboard": {
             "read_failed": "Failed to read dashboard config: {{e}}",
@@ -1407,7 +1481,8 @@
             "read_config_failed": "Failed to read Git configuration.",
             "config_updated": "Global Git Config updated successfully.",
             "config_error": "Failed to set configuration: {{e}}",
-            "starting_download": "Starting to download PortableGit from GitHub..."
+            "starting_download": "Starting to download PortableGit from GitHub...",
+            "install_cancelled": "Git installation was cancelled."
         },
         "runtimes": {
             "scanning_external": "Scanning external installation for '{{engine}}' engine...",
@@ -1462,6 +1537,7 @@
             "starting_binary_download": "Starting {{engine}} binary download from the official server...",
             "download_multipart_support": "Server supports 'Range Bytes'. Starting Multi-Part Acceleration (8 Connections)...",
             "downloading_multipart": "Downloading (Multi-Part)... {{percent}}%",
+            "download_multipart": "Downloading (Multi-Part)... {{percent}}%",
             "download_single_stream": "Server blocks Multi-Part. Continuing with standard Single-Stream mode.",
             "downloading": "Downloading... {{percent}}%",
             "downloading_anonymous": "Downloading... {{mb}} MB (Anonymous server size)",
@@ -1470,7 +1546,9 @@
             "auto_promoted_active": "Promoted {{engine}} {{version}} to active version in PATH.",
             "version_not_found": "Specified runtime version not found.",
             "version_already_exists": "{{engine}} version {{version}} is already installed.",
-            "version_deactivated": "Deactivated active version for {{engine}}."
+            "version_deactivated": "Deactivated active version for {{engine}}.",
+            "install_cancelled": "Runtime installation was cancelled.",
+            "install_cancelled_named": "{{name}} installation was cancelled."
         },
         "project": {
             "save_json_failed": "Failed to save to projects.json",
@@ -1538,7 +1616,9 @@
             "server_already_running": "Dev server for '{{name}}' is already running.",
             "server_not_running": "Dev server is not currently running.",
             "port_in_use": "Port {{port}} is already in use by another process.",
-            "no_start_script": "Could not find 'start-dev.bat' or recognized start command."
+            "no_start_script": "Could not find 'start-dev.bat' or recognized start command.",
+            "auto_create_db_success": "Database '{{name}}' created and configured for project.",
+            "auto_create_db_failed": "Failed to auto-create database '{{name}}': {{err}}"
         },
         "ssl": {
             "creating_root_ca": "Creating VyloServe Root CA (Local Certificate Authority)...",
@@ -1567,12 +1647,32 @@
             "downloading": "Downloading update {{file}}...",
             "restarting": "Restarting application to apply update...",
             "ready_to_install": "Ready to install",
-            "download_failed": "Update download failed"
+            "download_failed": "Update download failed",
+            "download_cancelled": "Update download was cancelled."
         },
         "common": {
             "file_saved": "File successfully saved to {{path}}",
             "extracting_files": "Extracting... ({{index}}/{{total}} files)",
-            "extract_complete": "Finished extracting TAR.GZ archive..."
+            "extract_complete": "Finished extracting TAR.GZ archive...",
+            "cancelling": "Cancelling operation...",
+            "install_cancelled": "Installation was cancelled.",
+            "no_active_installation": "No active installation running for this module.",
+            "checking_capabilities": "Checking download server capabilities...",
+            "download_multipart_support": "Server supports 'Range Bytes'. Starting Multi-Part Acceleration (8 Connections)...",
+            "downloading_multipart": "Downloading (Multi-Part)... {{percent}}%",
+            "download_multipart": "Downloading (Multi-Part)... {{percent}}%",
+            "download_single_stream": "Server blocks Multi-Part. Continuing with standard Single-Stream mode.",
+            "downloading": "Downloading... {{percent}}%",
+            "downloading_anonymous": "Downloading... {{mb}} MB (Anonymous server size)"
+        },
+        "runtime": {
+            "checking_capabilities": "Checking download server capabilities...",
+            "download_multipart_support": "Server supports 'Range Bytes'. Starting Multi-Part Acceleration (8 Connections)...",
+            "downloading_multipart": "Downloading (Multi-Part)... {{percent}}%",
+            "download_multipart": "Downloading (Multi-Part)... {{percent}}%",
+            "download_single_stream": "Server blocks Multi-Part. Continuing with standard Single-Stream mode.",
+            "downloading": "Downloading... {{percent}}%",
+            "downloading_anonymous": "Downloading... {{mb}} MB (Anonymous server size)"
         },
         "zrok": {
             "fetching_latest": "Fetching latest Zrok release...",
@@ -1623,6 +1723,9 @@
             "share_stopped": "Cloudflare share stopped successfully.",
             "process_log": "[Cloudflare] {{msg}}",
             "process_error": "[Cloudflare Error] {{msg}}"
+        },
+        "tunnels": {
+            "install_cancelled": "Tunnel binary installation was cancelled."
         },
         "md": {
             "no_window": "Application window is not available.",
@@ -1771,7 +1874,9 @@
         "clear_chat_desc": "Permanently remove all messages from this session",
         "switch_model_tooltip": "Click to switch model",
         "usage_status": "Session Usage",
-        "more_options": "More Options"
+        "more_options": "More Options",
+        "offline_cloud_desc": "Cloud AI provider ({{provider}}) requires an internet connection. Switch to Ollama to use local AI offline.",
+        "switch_to_ollama": "Switch to Ollama (Local)"
     },
     "projects": {
         "title": "Projects",

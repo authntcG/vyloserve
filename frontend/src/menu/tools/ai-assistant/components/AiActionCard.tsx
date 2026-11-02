@@ -160,7 +160,7 @@ export default function AiActionCard({ action, actionKey, onExecuted }: AiAction
     };
 
     return (
-        <div className="my-2.5 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-50/80 dark:bg-slate-900/70 p-3 shadow-xs text-xs select-none box-border w-full transition-all">
+        <div className="my-2.5 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-50/80 dark:bg-slate-900/70 p-3 shadow-xs text-xs select-none box-border w-full transition-colors">
             {/* Header */}
             <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-200/80 dark:border-slate-700/60">
                 <div className="flex items-center gap-2 min-w-0">

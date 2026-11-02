@@ -10,7 +10,21 @@ const CHARSET_OPTIONS = [
     { value: 'latin1', label: 'latin1' },
 ];
 
-type DbEngineType = 'mysql' | 'postgres';
+const REDIS_POLICY_OPTIONS = [
+    { value: 'noeviction', label: 'noeviction (default)' },
+    { value: 'allkeys-lru', label: 'allkeys-lru' },
+    { value: 'volatile-lru', label: 'volatile-lru' },
+    { value: 'allkeys-random', label: 'allkeys-random' },
+    { value: 'volatile-random', label: 'volatile-random' },
+    { value: 'volatile-ttl', label: 'volatile-ttl' },
+];
+
+const REDIS_AOF_OPTIONS = [
+    { value: 'no', label: 'no (RDB snapshot only)' },
+    { value: 'yes', label: 'yes (Append-only file)' },
+];
+
+type DbEngineType = 'mysql' | 'postgres' | 'redis';
 
 interface DbInstance {
     id: string;
@@ -33,6 +47,7 @@ export default function DbSettings({ instance, config, onChange, isLoading }: Pr
     const { t } = useTranslation();
     const isPostgres = instance.engine === 'postgres';
     const isMysql = instance.engine === 'mysql';
+    const isRedis = instance.engine === 'redis';
 
     if (isLoading) {
         return <SkeletonForm fieldsCount={4} />;
@@ -51,9 +66,9 @@ export default function DbSettings({ instance, config, onChange, isLoading }: Pr
                     </div>
                     <div className="flex flex-col gap-2">
                         <FieldLabel htmlFor="db-bind-address" size="sm">
-                            {isPostgres ? 'listen_addresses' : 'bind-address'}
+                            {isPostgres ? 'listen_addresses' : (isRedis ? 'bind' : 'bind-address')}
                         </FieldLabel>
-                        <input type="text" id="db-bind-address" value={isPostgres ? (config.listen_addresses || '') : (config.bind_address || '')} onChange={(e) => onChange(isPostgres ? 'listen_addresses' : 'bind_address', e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2.5 outline-none transition-colors font-mono" />
+                        <input type="text" id="db-bind-address" value={isPostgres ? (config.listen_addresses || '') : (isRedis ? (config.bind || '') : (config.bind_address || ''))} onChange={(e) => onChange(isPostgres ? 'listen_addresses' : (isRedis ? 'bind' : 'bind_address'), e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2.5 outline-none transition-colors font-mono" />
                     </div>
                 </div>
             </div>
@@ -63,7 +78,7 @@ export default function DbSettings({ instance, config, onChange, isLoading }: Pr
             <div className="flex flex-col gap-4">
                 <h4 className="text-sm font-semibold text-slate-900 dark:text-white uppercase tracking-wider flex justify-between">
                     <span>{t('database.performance_tweaks')}</span>
-                    <span className="text-slate-400 font-mono text-xs normal-case">{isPostgres ? 'postgresql.conf' : 'my.ini'}</span>
+                    <span className="text-slate-400 font-mono text-xs normal-case">{isPostgres ? 'postgresql.conf' : (isRedis ? 'redis.conf' : 'my.ini')}</span>
                 </h4>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -128,6 +143,36 @@ export default function DbSettings({ instance, config, onChange, isLoading }: Pr
                                 <FieldLabel htmlFor="timezone" size="sm">timezone</FieldLabel>
                                 <input type="text" id="timezone" value={config.timezone || ''} onChange={(e) => onChange('timezone', e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg block p-2.5 outline-none font-mono" />
                             </div>
+                        </>
+                    )}
+
+                    {/* REDIS */}
+                    {isRedis && (
+                        <>
+                            <div className="flex flex-col gap-2">
+                                <FieldLabel htmlFor="db-redis-maxmemory" size="sm">{t('database.redis_maxmemory')}</FieldLabel>
+                                <input type="text" id="db-redis-maxmemory" value={config.maxmemory || '256mb'} onChange={(e) => onChange('maxmemory', e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg block p-2.5 outline-none font-mono" placeholder="256mb" />
+                            </div>
+                            <Select
+                                searchable={false}
+                                label={t('database.redis_maxmemory_policy')}
+                                options={REDIS_POLICY_OPTIONS}
+                                value={config.maxmemory_policy || 'noeviction'}
+                                onChange={(v) => onChange('maxmemory_policy', v)}
+                                placeholder="noeviction"
+                            />
+                            <div className="flex flex-col gap-2">
+                                <FieldLabel htmlFor="db-redis-databases" size="sm">{t('database.redis_databases')}</FieldLabel>
+                                <input type="number" id="db-redis-databases" value={config.databases || 16} onChange={(e) => onChange('databases', Number(e.target.value))} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg block p-2.5 outline-none font-mono" min={1} max={128} />
+                            </div>
+                            <Select
+                                searchable={false}
+                                label={t('database.redis_appendonly')}
+                                options={REDIS_AOF_OPTIONS}
+                                value={config.appendonly || 'no'}
+                                onChange={(v) => onChange('appendonly', v)}
+                                placeholder="no"
+                            />
                         </>
                     )}
                 </div>

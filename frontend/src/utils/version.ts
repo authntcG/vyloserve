@@ -9,12 +9,19 @@
  *
  * @returns 1 kalau v1 > v2, -1 kalau v1 < v2, 0 kalau sama.
  */
-export function compareVersions(v1: string, v2: string): number {
-    const p1 = v1.split('.').map(Number);
-    const p2 = v2.split('.').map(Number);
+export function compareVersions(v1?: string | null, v2?: string | null): number {
+    const s1 = String(v1 || '').trim();
+    const s2 = String(v2 || '').trim();
+    if (!s1 && !s2) return 0;
+    if (!s1) return -1;
+    if (!s2) return 1;
+    const p1 = s1.split('.').map(Number);
+    const p2 = s2.split('.').map(Number);
     for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
-        if ((p1[i] || 0) > (p2[i] || 0)) return 1;
-        if ((p1[i] || 0) < (p2[i] || 0)) return -1;
+        const n1 = isNaN(p1[i]) ? 0 : (p1[i] || 0);
+        const n2 = isNaN(p2[i]) ? 0 : (p2[i] || 0);
+        if (n1 > n2) return 1;
+        if (n1 < n2) return -1;
     }
     return 0;
 }

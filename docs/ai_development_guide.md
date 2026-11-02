@@ -703,3 +703,129 @@ Sebelum menyerahkan perubahan, pastikan seluruh checklist ini terpenuhi:
 - [ ] File `.md`/teks berisi emoji yang diedit besar-besaran (terutama lewat PowerShell)
       diverifikasi bebas byte `\x00`/karakter `U+FFFD` sebelum commit — lihat AGENTS.md
       rule 30 & `docs/known_bugs.md` #29
+
+### Analisis Multi-Dimensi & Kualitas Holistik
+- [ ] **UI/UX & HCI (IMK):** Layout desktop-first memenuhi lebar layar yang wajar (`w-full`, Rule 32), status sistem & progress terpancar seketika, barrier proaktif aktif (offline, port collision, validasi form sebelum submit), dan kontras visual harmonis di seluruh 15 tema.
+- [ ] **Usabilitas & Heuristik:** Pengguna memiliki kontrol penuh (aksi cancel/escape/undo, konfirmasi aksi destruktif), error message deskriptif dengan petunjuk perbaikan, dan skenario ekstrim (cold-start, sparse data, ketiadaan koneksi) teruji aman.
+- [ ] **Keamanan:** Input API Python tervalidasi tipe & rentang nilai, subprocess wajib berbentuk list (anti Command Injection), path traversal dicegah via `realpath`, XSS dicegah via `json.dumps()`, dan tidak ada kredensial bocor.
+- [ ] **Clean Code & DRY:** Memanfaatkan reusable component (`components/`, `skeleton/`, `hooks/`, `utils/`), prinsip SRP terpenuhi (fungsi <= 40 baris), state input frekuensi tinggi terisolasi, zero new code smells di SonarQube, dan 100% paritas key i18n `en` & `id`.
+
+## 9. Framework Analisis Multi-Dimensi untuk AI
+
+Setiap kali asisten AI menerima tugas perencanaan fitur (`/plan`), investigasi masalah (bug fixing), maupun modifikasi arsitektur kode, AI **WAJIB** menerapkan **Framework Analisis Multi-Dimensi**. Target utama penggunaan kerangka kerja ini adalah **menaikkan kualitas holistik aplikasi, mengoptimalkan interaksi pengguna, memperkokoh struktur kode, serta meminimalisir potensi timbulnya bug di masa depan.**
+
+```
++---------------------------------------------------------------------------------+
+|                  FRAMEWORK ANALISIS MULTI-DIMENSI VYLOSERVE                     |
++---------------------------------------------------------------------------------+
+| 1. UI/UX & HCI (IMK)              | 2. Usability Testing & Heuristik            |
+| - Mental Model Server Desktop     | - 10 Heuristik Usabilitas Nielsen          |
+| - Visibility of System Status     | - User Control & Safety Confirmation        |
+| - Proactive Error Barriers        | - Recognition over Recall                   |
+| - Desktop-First Ergonomics        | - Error Recovery Guidance                   |
+| - Theming & Visual Harmony        | - Edge Cases & Real-World Simulation        |
++-----------------------------------+---------------------------------------------+
+| 3. Security & Defensive           | 4. Clean Code, DRY & Reusability            |
+| - Strict API Boundary Validation  | - Single Responsibility Principle (SRP)     |
+| - Subprocess List Injection Guard | - Reusable Component First Hierarchy        |
+| - Realpath Traversal Guard        | - High-Frequency Input State Isolation      |
+| - JSON XSS Sanitization           | - Defensive Typing & Sparse-Data Resilience |
+| - Zero Credential Leakage         | - Zero SonarQube Smells & 100% i18n Parity  |
++-----------------------------------+---------------------------------------------+
+```
+
+---
+
+### 9.1 Pilar 1: UI/UX & Interaksi Manusia dan Komputer (HCI / IMK)
+Aplikasi desktop lokal memiliki karakteristik dan ekspektasi interaksi yang berbeda dengan situs web konvensional:
+1. **Mental Model Pengembang Lokal:**
+   - Pengembang menggunakan VyloServe untuk mengelola stack server lokal secara cepat dan andal. Alur kerja harus mencerminkan proses berpikir mereka: *pilih layanan -> atur parameter -> jalankan/pantau -> buka browser/terminal*.
+   - Kurangi friksi navigasi dengan menyediakan navigasi langsung, tombol aksi cepat, serta status badge yang informatif.
+2. **Visibilitas Status Sistem (Visibility of System Status):**
+   - Setiap operasi asinkron (mengunduh engine, mengekstrak arsip, menjalankan daemon, mengekspor database) **wajib** memberikan umpan balik visual seketika.
+   - Gunakan `emit_progress` dan `emit_log` dari backend Python secara bertahap, dan tangkap di frontend menggunakan `<BackgroundProgressWidget>` atau komponen progress inline.
+   - Jangan pernah membiarkan pengguna menghadapi layar diam tanpa indikator aktivitas (*silent processing*).
+3. **Barrier Proaktif & Pencegahan Galat (Proactive Error Barriers):**
+   - Bangun penghalang sistem sebelum kesalahan fatal terjadi:
+     - *Offline Barrier:* Jika sebuah aksi membutuhkan unduhan dari internet (instalasi runtime, clone template, update), periksa status koneksi internet terlebih dahulu dan berikan banner informatif alih-alih membiarkan proses timeout/crash.
+     - *Port Collision Guard:* Cek ketersediaan port jaringan sebelum meluncurkan server lokal (Apache, MySQL, Redis, dll.).
+     - *Form Validation Barrier:* Nonaktifkan tombol submit jika input kritis belum diisi atau formatnya salah, disertai helper text yang menjelaskan penyebabnya.
+4. **Ergonomi Desktop & Progressive Disclosure (Rule 32):**
+   - VyloServe berjalan di jendela desktop (Windows). **Dilarang** membatasi kontainer halaman secara sempit seperti tampilan mobile (`max-w-md`, `max-w-lg`). Biarkan layout memanfaatkan lebar jendela secara proporsional (`w-full`, layout grid `sm:grid-cols-2 lg:grid-cols-3`).
+   - Terapkan *Progressive Disclosure*: tampilkan parameter umum di tampilan utama kartu/form, dan letakkan konfigurasi lanjutan di balik modal atau tab sekunder untuk menghindari kelebihan beban kognitif pengguna (*cognitive overload*).
+5. **Konsistensi Visual & Harmoni Tema:**
+   - Seluruh komponen UI harus kompatibel dengan 15 preset tema VyloServe melalui CSS variable Tailwind v4. Pastikan teks selalu memiliki kontras tinggi yang memenuhi standar keterbacaan WCAG AA.
+
+---
+
+### 9.2 Pilar 2: Usability Testing & Heuristik Interaksi
+Pemeriksaan usabilitas didasarkan pada prinsip heuristik interaksi manusia-komputer (Nielsen Norman Group & Ben Shneiderman):
+1. **Kontrol dan Kebebasan Pengguna (User Control & Freedom):**
+   - Sediakan tombol pembatalan yang jelas (*Cancel*) pada setiap modal, wizard, atau proses yang sedang berjalan.
+   - Aksi destruktif (menghapus database, mereset password root, menghapus versi runtime, mematikan instance aktif) **wajib** meminta konfirmasi eksplisit pengguna (misal konfirmasi nama database atau tombol bahaya berwarna merah).
+2. **Pengenalan daripada Mengingat (Recognition over Recall):**
+   - Hindari memaksa pengguna mengingat sintaks, port default, atau nama engine.
+   - Sediakan dropdown suggestion, placeholder deskriptif, schema explorer untuk basis data, dan tooltip penjelasan di samping opsi yang kurang familier.
+3. **Fleksibilitas dan Efisiensi Penggunaan (Flexibility & Efficiency of Use):**
+   - Sediakan filter pencarian instan pada daftar yang panjang (proyek, ekstensi, basis data, log).
+   - Pastikan keyboard accessibility (a11y) terpenuhi: setiap `<label>` terhubung ke inputnya via `htmlFor`/`id` (Rule 6 & 21), dropdown dapat dioperasikan via keyboard, dan modal dapat ditutup dengan tombol Escape.
+4. **Diagnosis dan Pemulihan Galat (Error Diagnosis & Recovery):**
+   - Hindari menampilkan raw stack trace, exception Python mentah, atau pesan error samar seperti "Terjadi kesalahan sistem".
+   - Gunakan format terstruktur: *Apa masalahnya* + *Mengapa terjadi* + *Langkah perbaikan yang disarankan*.
+   - Contoh: Daripada "Port 80 error", tampilkan "Port 80 sedang digunakan oleh aplikasi lain (PID: 4120 - Skype). Silakan ganti port Apache atau hentikan aplikasi tersebut."
+5. **Simulasi Skenario Riil (Real-World Usability Scenarios):**
+   - Uji skenario di mana konfigurasi JSON lama kosong atau memiliki struktur berbeda (*sparse data / legacy config*).
+   - Uji skenario pengguna baru yang belum menginstal layanan apa pun (*first-time onboarding empty state*).
+   - Uji skenario ketiadaan hak akses administrator (UAC) pada aksi yang memodifikasi file `hosts` atau port istimewa.
+
+---
+
+### 9.3 Pilar 3: Security Testing & Defensive Engineering
+Keamanan pada aplikasi desktop lokal berfokus pada pencegahan eksploitasi hak istimewa OS dan sanitasi input:
+1. **Validasi Batas Input di Pintu Masuk API (API Boundary Validation):**
+   - Setiap endpoint di `core/api.py` adalah gerbang antara antarmuka webview (JavaScript) dan eksekusi OS (Python).
+   - Validasi ketat tipe data (`isinstance`), panjang string, rentang angka (misal port 1-65535), dan karakter terlarang sebelum menyentuh service mana pun.
+2. **Pencegahan Injeksi Perintah OS (Command Injection Guard):**
+   - **DILARANG** menggunakan `shell=True` dengan string format atau konkatenasi variabel pengguna.
+   - Seluruh pemanggilan `subprocess.Popen` atau `subprocess.run` **WAJIB** berupa list argumen terpisah (`["mysql.exe", "-u", user, "-p" + password]`).
+3. **Proteksi Path Traversal:**
+   - Semua input yang merepresentasikan path direktori/file wajib dinormalisasi dengan `os.path.realpath()` dan divalidasi apakah berada di bawah direktori akar yang diizinkan (misal `bin/`, `data/`, `www/`).
+4. **Sanitasi Komunikasi JavaScript (XSS Prevention):**
+   - Saat memanggil `window.evaluate_js()` dari Python, selalu bungkus payload dengan `json.dumps()` agar tanda kutip dan karakter khusus ter-escape dengan benar.
+5. **Ketahanan Integritas Data & Proteksi Sumber Daya Kritis:**
+   - Hindari penulisan konfigurasi secara langsung yang berisiko merusak file jika aplikasi terhenti mendadak.
+   - Proteksi database sistem default (seperti `information_schema`, `mysql`, `sys`, `postgres`) agar tidak dapat dihapus atau di-drop melalui antarmuka schema manager.
+   - Terapkan isolasi registry Windows pada saat pengujian (Rule 34).
+
+---
+
+### 9.4 Pilar 4: Clean Code, DRY & Reusable Components
+Kualitas kode menentukan kemudahan perawatan dan mencegah akumulasi *technical debt*:
+1. **Single Responsibility Principle (SRP):**
+   - Satu file, satu kelas, satu tujuan spesifik. Di Python, pisahkan API facade (`core/api.py`), logika modul (`core/services/*.py`), dan parser/helper file (`core/utils/*.py`).
+   - Pecah fungsi yang melebihi 40 baris atau memiliki lebih dari 2 tingkat indentasi nested menjadi sub-metode privat (`_helper`).
+2. **Reusable Component First:**
+   - Sebelum membuat elemen UI baru di React, selalu periksa pustaka komponen yang sudah tersedia:
+     - Modal: `<Modal>` (`frontend/src/components/Modal.tsx`)
+     - Header: `<PageHeader>` (`frontend/src/components/PageHeader.tsx`)
+     - Loading: `<SkeletonCard>`, `<SkeletonForm>`, `<SkeletonDocument>` (`frontend/src/components/skeleton/`)
+     - Feedback: `showToast` via `useToast()`, `<BackgroundProgressWidget>`
+     - Form: `<Select>` (`frontend/src/components/Select.tsx`)
+3. **Isolasi State Input Berfrekuensi Tinggi (Rule 7):**
+   - Kolom teks yang menerima ketukan keyboard cepat (seperti pencarian, filter, live query, input chat AI) **dilarang** ditempatkan langsung di komponen induk yang merender list besar.
+   - Isolasikan state ketikan di komponen anak terdedikasi dan gunakan `React.memo` pada item list untuk mencegah lag pengetikan.
+4. **Pengetikan Ketat & Pemrograman Defensif (Defensive Coding - Rule 25):**
+   - Gunakan `read_json(path, default_type)` untuk memastikan tipe data JSON sesuai harapan.
+   - Jangan pernah memanggil fungsi manipulasi string (`.split()`, `.trim()`, `.replaceAll()`) tanpa memastikan nilainya bertipe string non-null terlebih dahulu (contoh pelajaran kasus: bug #88).
+5. **Zero SonarQube Smells & 100% i18n Parity:**
+   - Kode baru tidak boleh memicu code smell, cognitive complexity warning, atau security hotspot baru di SonarQube.
+   - Setiap teks baru wajib berupa translation key yang terdaftar di `locales/en/translation.json` **DAN** `locales/id/translation.json`.
+
+---
+
+### 9.5 Panduan Penerapan saat Menyusun Rencana Kerja (`/plan`)
+Ketika pengguna meminta `/plan` atau asisten AI menyusun rancangan fitur, struktur dokumen rencana kerja **wajib menyertakan tinjauan analisis multi-dimensi**:
+- Bagian **User Experience & HCI Considerations**: Menguraikan alur interaksi, transparansi status, pencegahan salah klik, dan ergonomi desktop.
+- Bagian **Usability & Edge Case Matrix**: Menguraikan simulasi skenario riil (data kosong, network offline, data korup, permission error).
+- Bagian **Security & Defensive Design**: Menguraikan validasi input, sanitasi subprocess, proteksi path traversal, dan proteksi integritas data.
+- Bagian **Architecture, Clean Code & Component Reuse**: Menguraikan komponen reusable yang dipakai, pembagian fungsi SRP, dan strategi pencegahan duplikasi kode.

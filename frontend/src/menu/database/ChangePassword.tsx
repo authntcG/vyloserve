@@ -1,4 +1,4 @@
-﻿import { useState, forwardRef, useImperativeHandle } from 'react';
+import { useState, forwardRef, useImperativeHandle } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useToast } from '../../context/ToastContext';
 import FieldLabel from '../../components/FieldLabel';
@@ -7,7 +7,7 @@ import InfoBox from '../../components/InfoBox';
 interface DbInstance {
     id: string;
     name: string;
-    engine: 'mysql' | 'postgres';
+    engine: 'mysql' | 'postgres' | 'redis';
     version: string;
     port: number;
     status: 'running' | 'stopped';

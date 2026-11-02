@@ -32,7 +32,7 @@ export default function Card({
     const fallbackUpdateBadge = 'bg-amber-500/10 text-amber-600 dark:bg-amber-500/20 dark:text-amber-500 border-amber-500/20 dark:border-amber-500/30';
 
     return (
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 flex flex-col gap-4 shadow-sm hover:shadow-md transition-all duration-200 group">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 flex flex-col gap-4 shadow-sm hover:shadow-md transition-shadow duration-200 group">
 
             {/* Header & Status dalam file Card.tsx */}
             <div className="flex justify-between items-start gap-4">
@@ -71,7 +71,7 @@ export default function Card({
                             <span className="material-symbols-outlined text-[20px]">more_vert</span>
                         </button>
 
-                        <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-10 opacity-0 invisible group-hover/menu:opacity-100 group-hover/menu:visible transition-all duration-200 overflow-hidden">
+                        <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-10 opacity-0 invisible group-hover/menu:opacity-100 group-hover/menu:visible transition-[opacity,visibility] duration-200 overflow-hidden">
                             {dropdownActions}
                         </div>
                     </div>

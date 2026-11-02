@@ -9,6 +9,8 @@ from typing import Optional
 # ---> IMPORT UTILITIES (DRY PRINCIPLE) <---
 from core.utils.system_utils import get_project_root, start_silent_process, run_silent_command
 from core.utils.file_utils import read_json, download_advanced, extract_archive
+from core.utils.network_utils import is_network_error
+from core.utils.cancellation import InstallationManager, OperationCancelledError
 PHP_INI = "php.ini"
 MSG_UNEXPECTED_ERROR = "backend.error.unexpected"
 PHP_WIN_PATTERN = re.compile(r'(php-(\d+\.\d+\.\d+)-Win32-[a-zA-Z0-9]+-x64\.zip)')
@@ -89,14 +91,22 @@ class PhpManager:
                 pattern = PHP_NIX_PATTERN
             
             matches = []
+            offline_detected = False
             for url in urls:
                 try:
                     html = urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'}), timeout=10).read().decode('utf-8')
                     matches.extend(pattern.findall(html))
-                except Exception: pass
+                except Exception as e:
+                    if is_network_error(e):
+                        offline_detected = True
+                        break
             
             version_map = {ver: fname for filename, ver in matches if 'nts' not in filename.lower() and '-pack' not in filename.lower() and 'qa' not in filename.lower() for fname in [filename]}
-            if not version_map: return {"status": "error", "message": "backend.php.release_load_failed"}
+            if not version_map:
+                err_res = {"status": "error", "message": "backend.php.release_load_failed"}
+                if offline_detected:
+                    err_res["is_offline"] = True
+                return err_res
 
             latest_minors = {}
             for v in sorted(version_map.keys(), key=lambda v: [int(x) for x in v.split('.')], reverse=True):
@@ -148,18 +158,22 @@ class PhpManager:
         
         return new_lines
 
-    def _download_php_archive(self, dl_url, filename, file_path, log_cb, prog_cb):
+    def _download_php_archive(self, dl_url, filename, file_path, log_cb, prog_cb, cancel_check=None):
         try:
-            download_advanced(dl_url, file_path, log_cb=log_cb, progress_cb=prog_cb)
+            download_advanced(dl_url, file_path, log_cb=log_cb, progress_cb=prog_cb, cancel_check=cancel_check)
+        except OperationCancelledError:
+            raise
         except Exception as http_err:
             if sys.platform == 'win32':
                 self._log("backend.php.redirect_archives", "warn")
-                download_advanced(f"https://windows.php.net/downloads/releases/archives/{filename}", file_path, log_cb=log_cb, progress_cb=prog_cb)
+                download_advanced(f"https://windows.php.net/downloads/releases/archives/{filename}", file_path, log_cb=log_cb, progress_cb=prog_cb, cancel_check=cancel_check)
             else: raise http_err
 
     def install_version(self, version: str, filename: str, port: int, is_update: bool = False):
         target_dir = os.path.join(self.base_dir, version)
         file_path = os.path.join(self.base_dir, filename)
+
+        token = InstallationManager.get_token("php")
 
         try:
             if os.path.exists(target_dir): return {"status": "error", "message": "backend.php.already_installed"}
@@ -173,10 +187,10 @@ class PhpManager:
             def prog_cb(pct, msg, args=None):
                 self._progress(pct, msg, args)
 
-            self._download_php_archive(dl_url, filename, file_path, log_cb, prog_cb)
+            self._download_php_archive(dl_url, filename, file_path, log_cb, prog_cb, cancel_check=token.is_cancelled)
 
             self._log("backend.php.extracting", "info")
-            extract_archive(file_path, target_dir, progress_cb=prog_cb)
+            extract_archive(file_path, target_dir, progress_cb=prog_cb, cancel_check=token.is_cancelled)
             if os.path.exists(file_path): os.remove(file_path)
             
             # Bukan 100: progress 100% harus berarti instalasi BENAR-BENAR selesai
@@ -197,12 +211,22 @@ class PhpManager:
                 self._progress(100, "backend.php.installation_complete")
             return {"status": "success", "message": "backend.php.install_success", "args": {"version": version}}
         
+        except OperationCancelledError:
+            self._log("backend.php.install_cancelled", "warn")
+            if os.path.exists(file_path): os.remove(file_path)
+            if os.path.exists(target_dir): shutil.rmtree(target_dir, ignore_errors=True)
+            self._progress(0, "backend.php.install_cancelled")
+            return {"status": "cancelled", "message": "backend.php.install_cancelled"}
+
         except Exception as e:
             self._log("backend.php.cancelling", "warn")
             if os.path.exists(file_path): os.remove(file_path)
             if os.path.exists(target_dir): shutil.rmtree(target_dir, ignore_errors=True)
             self._progress(0, "backend.php.failed")
             return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+        finally:
+            if not is_update:
+                InstallationManager.reset("php")
 
     def update_version(self, old_version: str, new_version: str, filename: str):
         old_dir = os.path.join(self.base_dir, old_version)

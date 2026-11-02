@@ -208,7 +208,7 @@ export function GitGlobalConfigCard() {
                         type="button"
                         onClick={handleSaveConfig}
                         disabled={isProcessing}
-                        className="bg-slate-900 dark:bg-white hover:bg-slate-800 disabled:opacity-50 text-white dark:text-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-all"
+                        className="bg-slate-900 dark:bg-white hover:bg-slate-800 disabled:opacity-50 text-white dark:text-slate-900 text-sm font-medium py-2 px-4 rounded-lg transition-colors"
                     >
                         {isProcessing ? t('tools.git.saving') : t('tools.git.save_config')}
                     </button>

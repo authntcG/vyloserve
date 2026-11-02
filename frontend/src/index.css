@@ -327,10 +327,10 @@
   [data-theme="catppuccin-dark"] {
     --theme-surface: #1e1e2e;
     --theme-slate-950: #11111b;
-    --theme-slate-900: #181825;
-    --theme-slate-800: #1e1e2e;
-    --theme-slate-700: #313244;
-    --theme-slate-600: #45475a;
+    --theme-slate-900: #1e1e2e;
+    --theme-slate-800: #313244;
+    --theme-slate-700: #45475a;
+    --theme-slate-600: #585b70;
     --theme-slate-500: #7f849c;
     --theme-slate-400: #a6adc8;
     --theme-slate-300: #bac2de;

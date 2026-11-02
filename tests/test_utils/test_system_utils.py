@@ -184,9 +184,9 @@ def test_hex_to_colorref_invalid_input():
 
 def test_get_theme_titlebar_palette_presets():
     """Menguji palet warna untuk 15 tema bawaan (termasuk XP Luna, Zune, Catppuccin, Tokyo Night, & Gruvbox) terdefinisi dengan benar."""
-    assert get_theme_titlebar_palette("catppuccin-dark")["bg"] == "#181825"
-    assert get_theme_titlebar_palette("tokyo-night-dark")["bg"] == "#16161e"
-    assert get_theme_titlebar_palette("gruvbox-dark")["bg"] == "#1d2021"
+    assert get_theme_titlebar_palette("catppuccin-dark")["bg"] == "#1e1e2e"
+    assert get_theme_titlebar_palette("tokyo-night-dark")["bg"] == "#1a1b26"
+    assert get_theme_titlebar_palette("gruvbox-dark")["bg"] == "#282828"
     luna_palette = get_theme_titlebar_palette("xp-luna-light")
     assert luna_palette == {
         "bg": "#0054e3",
@@ -196,7 +196,7 @@ def test_get_theme_titlebar_palette_presets():
     }
     zune_palette = get_theme_titlebar_palette("xp-zune-dark")
     assert zune_palette == {
-        "bg": "#1b1b1d",
+        "bg": "#1e1e21",
         "text": "#f4f4f5",
         "border": "#e35c00",
         "dark_mode": True,

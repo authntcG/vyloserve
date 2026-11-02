@@ -20,6 +20,8 @@ from core.utils.system_utils import (
     broadcast_environment_change,
 )
 from core.utils.file_utils import download_advanced, extract_archive, read_json, write_json
+from core.utils.network_utils import is_network_error
+from core.utils.cancellation import InstallationManager, OperationCancelledError
 
 USER_AGENT = 'Mozilla/5.0'
 MSG_PREPARE_DL = "backend.runtimes.preparing_download"
@@ -70,6 +72,17 @@ class RuntimesManager:
         self._emit_progress(-1, MSG_INSTALL_FAILED, {"e": str(e)})
         self._emit_log("backend.runtimes.install_error_named", "error", {"name": name, "e": str(e)})
         return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+
+    def _cleanup_cancelled_install(self, zip_path: str, target_dir: str, name: str):
+        import os, shutil
+        if zip_path and os.path.exists(zip_path):
+            try: os.remove(zip_path)
+            except OSError: pass
+        if target_dir and os.path.exists(target_dir):
+            shutil.rmtree(target_dir, ignore_errors=True)
+        self._emit_progress(0, "backend.runtimes.install_cancelled")
+        self._emit_log("backend.runtimes.install_cancelled_named", "warn", {"name": name})
+        return {"status": "cancelled", "message": "backend.runtimes.install_cancelled"}
 
     def _get_cbs(self, start_pct: int, end_pct: int):
         """
@@ -565,8 +578,14 @@ class RuntimesManager:
                     })
                 return {'status': 'success', 'data': versions}
         except Exception as e:
-            # Ignore SonarQube urllib warning for now, using Exception is fine when bubbling to UI
-            return {'status': 'error', 'message': "backend.runtimes.node_fetch_failed", 'args': {"e": str(e)}}
+            return self._format_fetch_error("backend.runtimes.node_fetch_failed", e)
+
+    @staticmethod
+    def _format_fetch_error(message_key: str, exc: Exception) -> dict:
+        res = {'status': 'error', 'message': message_key, 'args': {"e": str(exc)}}
+        if is_network_error(exc):
+            res['is_offline'] = True
+        return res
 
 
     def _robust_rename(self, src: str, dst: str, max_retries: int = 5, delay: float = 1.0):
@@ -600,6 +619,7 @@ class RuntimesManager:
         was_in_path = self._prepare_install('node', version)
         node_dir = os.path.join(self._get_engine_parent_dir('node'), version)
         zip_path = os.path.join(self.bin_dir, f"node_{version}.zip")
+        token = InstallationManager.get_token("runtimes")
 
         try:
             # 1. LOG INISIALISASI
@@ -613,7 +633,7 @@ class RuntimesManager:
             log_cb, download_prog_cb = self._get_cbs(5, 60)
 
             log_cb(MSG_STARTING_BINARY_DOWNLOAD, "info", {"engine": "Node.js"})
-            download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb)
+            download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb, cancel_check=token.is_cancelled)
 
             # 3. FASE EKSTRAKSI (60% - 85%)
             self._emit_log(MSG_DL_DONE, "info")
@@ -621,7 +641,7 @@ class RuntimesManager:
             
             _, extract_prog_cb = self._get_cbs(65, 85)
 
-            extract_archive(zip_path, self.bin_dir, progress_cb=extract_prog_cb)
+            extract_archive(zip_path, self.bin_dir, progress_cb=extract_prog_cb, cancel_check=token.is_cancelled)
             
             if os.path.exists(zip_path):
                 os.remove(zip_path)
@@ -633,8 +653,12 @@ class RuntimesManager:
                 self.toggle_user_path('node', True)
             return {"status": "success"}
 
+        except OperationCancelledError:
+            return self._cleanup_cancelled_install(zip_path, node_dir, "Node.js")
         except Exception as e:
             return self._cleanup_failed_install(zip_path, e, "Node.js")
+        finally:
+            InstallationManager.reset("runtimes")
 
     def uninstall_node(self):
         self.toggle_user_path('node', False)
@@ -748,8 +772,7 @@ class RuntimesManager:
             return {'status': 'success', 'data': results}
             
         except Exception as e:
-            # Ignore SonarQube urllib warning for now, using Exception is fine when bubbling to UI
-            return {'status': 'error', 'message': "backend.runtimes.py_fetch_failed", 'args': {"e": str(e)}}
+            return self._format_fetch_error("backend.runtimes.py_fetch_failed", e)
 
 
     def _finalize_python_install(self, python_dir: str, install_pip: bool, version: str):
@@ -795,6 +818,7 @@ class RuntimesManager:
         was_in_path = self._prepare_install('python', version)
         python_dir = os.path.join(self._get_engine_parent_dir('python'), version)
         zip_path = os.path.join(self.bin_dir, f"python_{version}.zip")
+        token = InstallationManager.get_token("runtimes")
 
         try:
             # 1. LOG INISIALISASI
@@ -810,7 +834,7 @@ class RuntimesManager:
             os.makedirs(python_dir, exist_ok=True)
 
             log_cb(MSG_STARTING_BINARY_DOWNLOAD, "info", {"engine": "Python"})
-            download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb)
+            download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb, cancel_check=token.is_cancelled)
 
             # 3. FASE EKSTRAKSI (50% - 75%)
             self._emit_log(MSG_DL_DONE, "info")
@@ -818,7 +842,7 @@ class RuntimesManager:
             
             _, extract_prog_cb = self._get_cbs(65, 80)
 
-            extract_archive(zip_path, python_dir, progress_cb=extract_prog_cb)
+            extract_archive(zip_path, python_dir, progress_cb=extract_prog_cb, cancel_check=token.is_cancelled)
             
             if os.path.exists(zip_path):
                 os.remove(zip_path)
@@ -830,8 +854,12 @@ class RuntimesManager:
                 self.toggle_user_path('python', True)
             return {"status": "success"}
 
+        except OperationCancelledError:
+            return self._cleanup_cancelled_install(zip_path, python_dir, "Python")
         except Exception as e:
             return self._cleanup_failed_install(zip_path, e, "Python")
+        finally:
+            InstallationManager.reset("runtimes")
 
     def uninstall_python(self):
         self.toggle_user_path('python', False)
@@ -916,12 +944,13 @@ class RuntimesManager:
                         
                 return {'status': 'success', 'data': formatted_versions}
         except Exception as e:
-            return {'status': 'error', 'message': "backend.runtimes.java_fetch_failed", 'args': {"e": str(e)}}
+            return self._format_fetch_error("backend.runtimes.java_fetch_failed", e)
 
     def install_java(self, version: str, set_as_active: bool = True):
         was_in_path = self._prepare_install('java', version)
         java_dir = os.path.join(self._get_engine_parent_dir('java'), version)
         zip_path = os.path.join(self.bin_dir, f"java_{version}.zip")
+        token = InstallationManager.get_token("runtimes")
 
         try:
             # 1. LOG INISIALISASI (0% - 5%)
@@ -935,7 +964,7 @@ class RuntimesManager:
             log_cb, download_prog_cb = self._get_cbs(10, 60)
 
             log_cb(MSG_STARTING_BINARY_DOWNLOAD, "info", {"engine": "Java"})
-            download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb)
+            download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb, cancel_check=token.is_cancelled)
 
             # 3. FASE EKSTRAKSI (60% - 95%)
             self._emit_log(MSG_DL_DONE, "info")
@@ -943,7 +972,7 @@ class RuntimesManager:
             
             _, extract_prog_cb = self._get_cbs(65, 95)
 
-            extract_archive(zip_path, self.bin_dir, progress_cb=extract_prog_cb)
+            extract_archive(zip_path, self.bin_dir, progress_cb=extract_prog_cb, cancel_check=token.is_cancelled)
             
             if os.path.exists(zip_path):
                 os.remove(zip_path)
@@ -972,6 +1001,8 @@ class RuntimesManager:
                 self.toggle_user_path('java', True)
             return {"status": "success"}
 
+        except OperationCancelledError:
+            return self._cleanup_cancelled_install(zip_path, java_dir, "Java")
         except Exception as e:
             # PENANGANAN ERROR & PEMBERSIHAN
             # Sebelumnya hanya "except OSError" -- RuntimeError yang dilempar di atas
@@ -984,6 +1015,8 @@ class RuntimesManager:
             self._emit_log("backend.runtimes.java_install_error", "error", {"e": str(e)})
 
             return {"status": "error", "message": "backend.runtimes.java_install_error", "args": {"e": str(e)}}
+        finally:
+            InstallationManager.reset("runtimes")
 
     def uninstall_java(self):
         self.toggle_user_path('java', False)
@@ -1058,11 +1091,12 @@ class RuntimesManager:
                     })
                 return {'status': 'success', 'data': versions}
         except Exception as e:
-            # Ignore SonarQube urllib warning for now, using Exception is fine when bubbling to UI
-            return {'status': 'error', 'message': "backend.runtimes.go_fetch_failed", 'args': {"e": str(e)}}
+            return self._format_fetch_error("backend.runtimes.go_fetch_failed", e)
 
     def install_go(self, version: str, set_as_active: bool = True):
         zip_path = os.path.join(self.bin_dir, "go.zip")
+        token = InstallationManager.get_token("runtimes")
+        go_dir = None
 
         try:
             # 1. LOG INISIALISASI (0% - 10%)
@@ -1088,7 +1122,7 @@ class RuntimesManager:
             log_cb, download_prog_cb = self._get_cbs(10, 60)
 
             log_cb(MSG_STARTING_BINARY_DOWNLOAD, "info", {"engine": "Go"})
-            download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb)
+            download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb, cancel_check=token.is_cancelled)
 
             # 3. FASE EKSTRAKSI (60% - 95%)
             self._emit_log(MSG_DL_DONE, "info")
@@ -1096,7 +1130,7 @@ class RuntimesManager:
             
             _, extract_prog_cb = self._get_cbs(65, 95)
 
-            extract_archive(zip_path, self.bin_dir, progress_cb=extract_prog_cb)
+            extract_archive(zip_path, self.bin_dir, progress_cb=extract_prog_cb, cancel_check=token.is_cancelled)
             
             if os.path.exists(zip_path):
                 os.remove(zip_path)
@@ -1117,6 +1151,8 @@ class RuntimesManager:
                 self.toggle_user_path('go', True)
             return {"status": "success"}
 
+        except OperationCancelledError:
+            return self._cleanup_cancelled_install(zip_path, go_dir, "Go")
         except Exception as e:
             # PENANGANAN ERROR & PEMBERSIHAN
             # Konsisten dengan install_node/install_python/install_java: tangkap Exception
@@ -1129,6 +1165,8 @@ class RuntimesManager:
             self._emit_log("backend.runtimes.go_install_error", "error", {"e": str(e)})
 
             return {"status": "error", "message": "backend.runtimes.go_install_error", "args": {"e": str(e)}}
+        finally:
+            InstallationManager.reset("runtimes")
 
     def uninstall_go(self):
         self.toggle_user_path('go', False)

@@ -149,7 +149,7 @@ export default function PhpSettings({ config, setConfig, extensions, setExtensio
                                 type="button"
                                 key={ext.name}
                                 onClick={() => toggleExtension(ext.name)}
-                                className={`flex items-center justify-between p-2 rounded border cursor-pointer select-none transition-all ${ext.active
+                                className={`flex items-center justify-between p-2 rounded border cursor-pointer select-none transition-colors ${ext.active
                                     ? 'border-primary/50 bg-primary/5 dark:bg-primary/10 dark:border-primary/40'
                                     : 'border-slate-200 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-800'
                                     }`}

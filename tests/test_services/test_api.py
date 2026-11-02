@@ -18,6 +18,12 @@ def api_instance():
         api = Api()
         yield api
 
+def test_api_manager_aliases(api_instance):
+    """Memastikan alias property pada Api instance mereferensikan instance manager yang benar."""
+    assert api_instance.settings_manager is api_instance.settings
+    assert api_instance.runtimes is api_instance.runtimes_manager
+    assert api_instance.git is api_instance.git_manager
+
 def test_set_notification_icon_stores_the_path(api_instance):
     api_instance.set_notification_icon("C:\\fake\\icons-nobg.png")
     assert api_instance._notification_icon_path == "C:\\fake\\icons-nobg.png"
@@ -297,6 +303,8 @@ def test_project_endpoints(api_instance):
     mock_window.create_file_dialog.return_value = [mock_file]
     api_instance.set_window(mock_window)
     assert api_instance.browse_directory() == "d:/test"
+    assert api_instance.browse_open_file() == "d:/test"
+    assert api_instance.browse_save_file("backup.sql") == "d:/test"
     
     with patch('webbrowser.open'):
         assert api_instance.open_browser("url")["status"] == "success"
@@ -402,6 +410,21 @@ def test_database_endpoints(api_instance):
     
     api_instance.change_db_credentials("id", "user", "old", "new")
     api_instance.database.change_db_credentials.assert_called_once_with("id", "user", "old", "new")
+
+    api_instance.list_database_schemas("id", "pass")
+    api_instance.database.list_schemas.assert_called_once_with("id", "pass")
+
+    api_instance.create_database_schema("id", "new_db", "pass")
+    api_instance.database.create_schema.assert_called_once_with("id", "new_db", "pass")
+
+    api_instance.drop_database_schema("id", "old_db", "pass")
+    api_instance.database.drop_schema.assert_called_once_with("id", "old_db", "pass")
+
+    api_instance.export_database_schema("id", "my_db", "/path.sql", "pass")
+    api_instance.database.export_schema.assert_called_once_with("id", "my_db", "/path.sql", "pass")
+
+    api_instance.import_database_schema("id", "my_db", "/path.sql", "pass")
+    api_instance.database.import_schema.assert_called_once_with("id", "my_db", "/path.sql", "pass")
 
 def test_runtimes_endpoints(api_instance):
     api_instance.get_node_status()
@@ -526,6 +549,31 @@ def test_emit_window_state_is_a_no_op_when_no_field_provided(api_instance):
 def test_emit_window_state_does_not_crash_without_a_window(api_instance):
     """Dipanggil sebelum window sempat di-set (mis. gagal di tengah startup) -> tidak boleh crash."""
     api_instance.emit_window_state(minimized=True)  # tidak boleh raise
+
+@patch('core.api.threading.Thread')
+def test_safe_eval_js_dispatches_via_daemon_thread_on_real_window(mock_thread_cls, api_instance):
+    """
+    Pada window nyata (bukan MagicMock), _safe_eval_js harus selalu mendispatch eksekusi
+    melalui daemon thread terpisah agar UI message pump WinForms (.NET STA thread) tidak deadlock
+    akibat semaphore.acquire() di pywebview.
+    """
+    class RealWindow:
+        def __init__(self):
+            self.uid = "test-uid"
+        def evaluate_js(self, script):
+            pass
+
+    real_window = RealWindow()
+    api_instance.set_window(real_window)
+
+    mock_thread_instance = MagicMock()
+    mock_thread_cls.return_value = mock_thread_instance
+
+    api_instance._safe_eval_js("console.log(1)")
+
+    mock_thread_cls.assert_called_once()
+    assert mock_thread_cls.call_args.kwargs.get('daemon') is True
+    mock_thread_instance.start.assert_called_once()
 
 @patch('core.api.threading.Thread')
 def test_show_native_notification_runs_in_a_background_thread(mock_thread_cls, api_instance):
@@ -751,6 +799,42 @@ def test_emit_ai_chunk_evaluates_js(api_instance):
     assert "msg_1" in evaluated_js
     assert "prompt_tokens" in evaluated_js
     assert "Environment" in evaluated_js
+
+
+@patch("core.api._check_internet_connection", return_value=True)
+def test_check_internet_connection_endpoint(mock_probe, api_instance):
+    res = api_instance.check_internet_connection()
+    assert res == {"status": "success", "online": True}
+    mock_probe.assert_called_once()
+
+
+def test_cancel_installation_endpoints(api_instance):
+    # Invalid module
+    assert api_instance.cancel_installation("invalid_mod") == {
+        "status": "error", "message": "backend.error.invalid_input"
+    }
+    assert api_instance.cancel_installation(123) == { # type: ignore
+        "status": "error", "message": "backend.error.invalid_input"
+    }
+
+    # Project delegation
+    api_instance.project.cancel_project_install.return_value = {"status": "success", "message": "cancelled"}
+    res = api_instance.cancel_installation("project")
+    assert res == {"status": "success", "message": "cancelled"}
+    api_instance.project.cancel_project_install.assert_called_once()
+
+    # Active module cancellation via InstallationManager
+    with patch("core.utils.cancellation.InstallationManager.cancel", return_value=True) as mock_cancel:
+        res = api_instance.cancel_installation("apache")
+        assert res == {"status": "success", "message": "backend.apache.cancelling"}
+        mock_cancel.assert_called_once_with("apache")
+
+    # Inactive module cancellation
+    with patch("core.utils.cancellation.InstallationManager.cancel", return_value=False) as mock_cancel:
+        res = api_instance.cancel_installation("database")
+        assert res == {"status": "error", "message": "backend.common.no_active_installation"}
+        mock_cancel.assert_called_once_with("database")
+
 
 
 

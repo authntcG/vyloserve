@@ -42,7 +42,7 @@ export default function FilterChips<T extends string = string>({
                         type="button"
                         aria-pressed={isSelected}
                         onClick={() => onChange(item.id)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 shrink-0 ${
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 shrink-0 ${
                             isSelected
                                 ? 'bg-primary text-white shadow-xs'
                                 : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'

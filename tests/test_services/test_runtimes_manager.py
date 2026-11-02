@@ -962,3 +962,35 @@ def test_uninstall_engine_version_auto_promotes_next(runtimes_manager):
         mock_set_active.assert_called_once_with("python", "3.10.11")
 
 
+def test_install_node_cancelled(runtimes_manager):
+    from core.utils.cancellation import OperationCancelledError
+    with patch('core.services.runtimes_manager.download_advanced', side_effect=OperationCancelledError("Cancelled")):
+        res = runtimes_manager.install_node("20.0.0", False)
+        assert res["status"] == "cancelled"
+        assert res["message"] == "backend.runtimes.install_cancelled"
+
+
+def test_install_python_cancelled(runtimes_manager):
+    from core.utils.cancellation import OperationCancelledError
+    with patch('core.services.runtimes_manager.download_advanced', side_effect=OperationCancelledError("Cancelled")):
+        res = runtimes_manager.install_python("3.11.0", False)
+        assert res["status"] == "cancelled"
+        assert res["message"] == "backend.runtimes.install_cancelled"
+
+
+def test_install_java_cancelled(runtimes_manager):
+    from core.utils.cancellation import OperationCancelledError
+    with patch('core.services.runtimes_manager.download_advanced', side_effect=OperationCancelledError("Cancelled")):
+        res = runtimes_manager.install_java("21", "http://fake-java.zip")
+        assert res["status"] == "cancelled"
+        assert res["message"] == "backend.runtimes.install_cancelled"
+
+
+def test_install_go_cancelled(runtimes_manager):
+    from core.utils.cancellation import OperationCancelledError
+    with patch('core.services.runtimes_manager.download_advanced', side_effect=OperationCancelledError("Cancelled")):
+        res = runtimes_manager.install_go("1.21.0")
+        assert res["status"] == "cancelled"
+        assert res["message"] == "backend.runtimes.install_cancelled"
+
+

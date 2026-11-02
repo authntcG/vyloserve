@@ -1,15 +1,20 @@
 import { useTranslation } from 'react-i18next';
 import Modal from '../../../components/Modal';
+import ProgressStatusBlock from '../../../components/ProgressStatusBlock';
 import InstallTunnel from './InstallTunnel';
 import { useTunnels } from '../../../context/TunnelsContext';
+import { useNetworkStatus } from '../../../context/NetworkContext';
 
 export default function TunnelsInstallModal() {
     const { t } = useTranslation();
+    const { isOnline } = useNetworkStatus();
     const {
         activeTab,
         isInstallModalOpen,
         setIsInstallModalOpen,
         isInstalling,
+        isCancelling,
+        handleCancelInstall,
         progress,
         progressText,
         cfInstallRef,
@@ -48,7 +53,7 @@ export default function TunnelsInstallModal() {
             icon="cloud_download"
             onApply={handleInstallSubmit}
             applyText={getApplyText()}
-            isApplyDisabled={isInstalling}
+            isApplyDisabled={isInstalling || !isOnline}
         >
             <div className={isInstalling ? 'opacity-40 pointer-events-none transition-opacity' : ''}>
                 {activeTab === 'cloudflare' ? (
@@ -82,22 +87,13 @@ export default function TunnelsInstallModal() {
                 )}
             </div>
             {isInstalling && (
-                <div className="mt-5 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700/50">
-                    <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                            {t('common.installation_progress')}
-                        </span>
-                    </div>
-                    <div className="flex justify-between text-[11px] mb-1.5">
-                        <span className="text-slate-500 truncate w-3/4">{progressText || t('common.preparing')}</span>
-                        <span className="font-bold text-primary">{progress}%</span>
-                    </div>
-                    <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
-                        <div
-                            className="bg-primary h-2 rounded-full transition-all duration-300 ease-out"
-                            style={{ width: `${progress}%` }}
-                        ></div>
-                    </div>
+                <div className="mt-5">
+                    <ProgressStatusBlock
+                        progressText={progressText || t('common.preparing')}
+                        progress={progress}
+                        onCancel={handleCancelInstall}
+                        isCancelling={isCancelling}
+                    />
                 </div>
             )}
         </Modal>

@@ -2,9 +2,11 @@ import { useTranslation } from 'react-i18next';
 import Modal from '../../components/Modal';
 import ApacheInstallWizard from './InstallWizard';
 import { useApache } from '../../context/ApacheContext';
+import { useNetworkStatus } from '../../context/NetworkContext';
 
 export default function ApacheInstallModal() {
     const { t } = useTranslation();
+    const { isOnline } = useNetworkStatus();
     const {
         isInstallServerOpen,
         isInstalling,
@@ -21,6 +23,9 @@ export default function ApacheInstallModal() {
         progress,
         progressText,
         handleInstallApache,
+        handleCancelInstall,
+        isCancelling,
+        fetchAvailableVersions,
         closeInstallModal,
     } = useApache();
 
@@ -37,7 +42,7 @@ export default function ApacheInstallModal() {
             icon={isInstalling && isApacheInstalled ? 'upgrade' : 'download'}
             onApply={isInstalling ? undefined : handleInstallApache}
             applyText={isInstalling ? t('apache.installing_start') : t('apache.download_install')}
-            isApplyDisabled={isFetchingVersions || isInstalling || availableVersions.length === 0}
+            isApplyDisabled={isFetchingVersions || isInstalling || availableVersions.length === 0 || !isOnline}
         >
             <ApacheInstallWizard
                 versions={availableVersions}
@@ -52,6 +57,10 @@ export default function ApacheInstallModal() {
                 isFetchingVersions={isFetchingVersions}
                 progress={progress}
                 progressText={progressText}
+                isApacheInstalled={isApacheInstalled}
+                onRetryFetch={fetchAvailableVersions}
+                isCancelling={isCancelling}
+                onCancelInstall={handleCancelInstall}
             />
         </Modal>
     );

@@ -39,7 +39,7 @@ export default function ServiceToggleButton({
 
     const layoutClass = iconOnly
         ? 'p-2 rounded-lg'
-        : 'text-sm font-medium py-2 px-4 rounded-lg gap-2';
+        : 'min-w-0 text-sm font-medium py-2 px-3 sm:px-4 rounded-lg gap-1.5 sm:gap-2';
 
     return (
         <button
@@ -48,17 +48,17 @@ export default function ServiceToggleButton({
             disabled={isToggling}
             title={currentLabel}
             aria-label={currentLabel}
-            className={`text-white transition-all active:scale-95 flex items-center justify-center shadow-xs disabled:opacity-70 disabled:scale-100 ${colorClass} ${layoutClass} ${className}`}
+            className={`text-white transition-[transform,colors] active:scale-95 flex items-center justify-center shadow-xs disabled:opacity-70 disabled:scale-100 ${colorClass} ${layoutClass} ${className}`}
         >
             {isToggling ? (
                 <>
-                    <span aria-hidden="true" className="material-symbols-outlined text-[18px] animate-spin">sync</span>
-                    {!iconOnly && currentLabel}
+                    <span aria-hidden="true" className="material-symbols-outlined text-[18px] animate-spin shrink-0">sync</span>
+                    {!iconOnly && <span className="truncate">{currentLabel}</span>}
                 </>
             ) : (
                 <>
-                    <span aria-hidden="true" className="material-symbols-outlined text-[18px]">{isRunning ? 'stop' : 'play_arrow'}</span>
-                    {!iconOnly && currentLabel}
+                    <span aria-hidden="true" className="material-symbols-outlined text-[18px] shrink-0">{isRunning ? 'stop' : 'play_arrow'}</span>
+                    {!iconOnly && <span className="truncate">{currentLabel}</span>}
                 </>
             )}
         </button>

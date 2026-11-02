@@ -2,7 +2,8 @@ import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import PageHeader from '../../components/PageHeader';
 import Button from '../../components/Button';
-import ViewModeToggle, { type ViewMode } from '../../components/ViewModeToggle';
+import ViewModeToggle from '../../components/ViewModeToggle';
+import { usePersistedViewMode } from '../../hooks/usePersistedViewMode';
 import FilterChips from '../../components/FilterChips';
 import SkeletonCard from '../../components/SkeletonCard';
 import EmptyState from '../../components/EmptyState';
@@ -42,7 +43,7 @@ function ProjectsView() {
 
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedRuntime, setSelectedRuntime] = useState<RuntimeFilter>('all');
-    const [viewMode, setViewMode] = useState<ViewMode>('table');
+    const [viewMode, setViewMode] = usePersistedViewMode('projects', 'table');
 
     // Counts per runtime
     const runtimeCounts = useMemo(() => {
@@ -197,7 +198,7 @@ function ProjectsView() {
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 placeholder={t('projects.search_placeholder', 'Search projects...')}
                                 aria-label={t('projects.search_placeholder', 'Search projects...')}
-                                className="w-full h-8 pl-9 pr-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                                className="w-full h-8 pl-9 pr-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
                             />
                             {searchQuery && (
                                 <button

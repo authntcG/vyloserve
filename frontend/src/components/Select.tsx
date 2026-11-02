@@ -306,6 +306,14 @@ export default function Select<T extends string = string>({
             if (rect) setPanelPosition({ top: rect.bottom + 4, left: rect.left, width: rect.width });
         };
         updatePosition();
+        let rafId: number | null = null;
+        const handleResize = () => {
+            if (rafId !== null) cancelAnimationFrame(rafId);
+            rafId = requestAnimationFrame(() => {
+                updatePosition();
+                rafId = null;
+            });
+        };
         const handleScroll = (event: Event) => {
             // Listener capture-phase di window menjangkau scroll event APAPUN di descendant manapun
             // (termasuk listbox opsi di dalam panel sendiri, meski `scroll` tidak bubble) -- abaikan
@@ -316,10 +324,11 @@ export default function Select<T extends string = string>({
             if (event.target instanceof Node && panelRef.current?.contains(event.target)) return;
             closePanel();
         };
-        window.addEventListener('resize', updatePosition);
+        window.addEventListener('resize', handleResize);
         window.addEventListener('scroll', handleScroll, true);
         return () => {
-            window.removeEventListener('resize', updatePosition);
+            if (rafId !== null) cancelAnimationFrame(rafId);
+            window.removeEventListener('resize', handleResize);
             window.removeEventListener('scroll', handleScroll, true);
         };
     }, [isOpen]);

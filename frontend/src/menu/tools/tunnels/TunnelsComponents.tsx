@@ -6,6 +6,7 @@ import SkeletonCard from '../../../components/skeleton/SkeletonCard';
 import Button from '../../../components/Button';
 import InstalledBadge from '../../../components/InstalledBadge';
 import Select from '../../../components/Select';
+import { useNetworkStatus } from '../../../context/NetworkContext';
 import {
     type ShareMode,
     type ZrokStatus,
@@ -201,6 +202,7 @@ export interface EnableFormProps {
 
 export function ZrokEnableForm({ token, isEnabling, onTokenChange, onEnable }: EnableFormProps) {
     const { t } = useTranslation();
+    const { isOnline } = useNetworkStatus();
     return (
         <div className="flex flex-col">
             <h3 className="text-lg font-semibold mb-4 text-slate-900 dark:text-white">{t('tools.zrok.enable_account')}</h3>
@@ -214,13 +216,14 @@ export function ZrokEnableForm({ token, isEnabling, onTokenChange, onEnable }: E
                         value={token}
                         onChange={(e) => onTokenChange(e.target.value)}
                         placeholder={t('tools.zrok.token_placeholder')}
-                        className="w-full px-4 py-2 border rounded-lg dark:bg-slate-800 dark:border-slate-700 focus:ring-2 focus:ring-primary focus:border-primary outline-none text-slate-700 dark:text-slate-200 bg-white"
+                        disabled={!isOnline}
+                        className="w-full px-4 py-2 border rounded-lg dark:bg-slate-800 dark:border-slate-700 focus:ring-2 focus:ring-primary focus:border-primary outline-none text-slate-700 dark:text-slate-200 bg-white disabled:opacity-50"
                     />
                 </div>
                 <Button
                     variant="primary"
                     onClick={onEnable}
-                    disabled={isEnabling || !token.trim()}
+                    disabled={isEnabling || !token.trim() || !isOnline}
                     loading={isEnabling}
                 >
                     {t('common.enable')}
@@ -298,7 +301,7 @@ export function ShareModeButton({
             type="button"
             disabled={disabled}
             onClick={onClick}
-            className={`flex-1 py-2 text-sm rounded-md transition-all duration-200 outline-none ${stateClass}`}
+            className={`flex-1 py-2 text-sm rounded-md transition-colors duration-200 outline-none ${stateClass}`}
         >
             {label}
         </button>
@@ -378,6 +381,7 @@ export interface ShareCardProps extends ShareTargetFieldProps {
 
 export function ShareCard(props: ShareCardProps) {
     const { t } = useTranslation();
+    const { isOnline } = useNetworkStatus();
     const { shareMode, selectedProject, customTarget, isStarting, onShareModeChange, onStartShare } = props;
     const hasTarget = Boolean(pickShareTarget(shareMode, selectedProject, customTarget));
     return (
@@ -401,7 +405,7 @@ export function ShareCard(props: ShareCardProps) {
                 <Button
                     variant="primary"
                     onClick={onStartShare}
-                    disabled={isStarting || !hasTarget}
+                    disabled={isStarting || !hasTarget || !isOnline}
                     loading={isStarting}
                     className="h-10 flex items-center justify-center gap-2"
                 >

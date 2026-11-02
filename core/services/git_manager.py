@@ -18,6 +18,8 @@ from core.utils.system_utils import (
     modify_user_path,
 )
 from core.utils.file_utils import download_advanced
+from core.utils.network_utils import is_network_error
+from core.utils.cancellation import InstallationManager, OperationCancelledError
 GIT_EXE = "git.exe" if sys.platform == "win32" else "git"
 
 class GitManager:
@@ -220,8 +222,11 @@ class GitManager:
                 
             return {'status': 'success', 'data': results}
             
-        except Exception:
-            return {'status': 'error', 'message': "backend.git.fetch_failed"}
+        except Exception as e:
+            res = {'status': 'error', 'message': "backend.git.fetch_failed"}
+            if is_network_error(e):
+                res['is_offline'] = True
+            return res
 
     def _extract_sfx(self, exe_path: str, git_dir: str):
         creation_flags = get_silent_flags()
@@ -234,6 +239,7 @@ class GitManager:
     def install_git(self, download_url: str, filename: str, version_text: str):
         git_dir = os.path.join(self.bin_dir, 'git')
         exe_path = os.path.join(self.bin_dir, filename)
+        token = InstallationManager.get_token("git")
 
         try:
             # 1. LOG INISIALISASI
@@ -253,7 +259,10 @@ class GitManager:
                 self._progress(clamped_pct, msg, args)
 
             log_cb("backend.git.starting_download", "info")
-            download_advanced(download_url, exe_path, log_cb=log_cb, progress_cb=download_prog_cb)
+            download_advanced(download_url, exe_path, log_cb=log_cb, progress_cb=download_prog_cb, cancel_check=token.is_cancelled)
+
+            if token.is_cancelled():
+                raise OperationCancelledError()
 
             # 3. FASE EKSTRAKSI SFX
             if hasattr(self, 'api'): 
@@ -270,6 +279,17 @@ class GitManager:
                 
             return {"status": "success", "message": "backend.git.install_success"}
 
+        except OperationCancelledError:
+            if os.path.exists(exe_path): 
+                try: os.remove(exe_path)
+                except Exception: pass
+            if os.path.exists(git_dir):
+                shutil.rmtree(git_dir, ignore_errors=True)
+            if hasattr(self, 'api'):
+                self._progress(0, "backend.git.install_cancelled")
+                self._log("backend.git.install_cancelled", "warn")
+            return {"status": "cancelled", "message": "backend.git.install_cancelled"}
+
         except Exception as e:
             if os.path.exists(exe_path): 
                 try: os.remove(exe_path)
@@ -278,6 +298,8 @@ class GitManager:
                 self._progress(-1, "backend.git.install_failed")
                 self._log("backend.git.install_error", "error", {"e": str(e)})
             return {"status": "error", "message": "backend.git.install_error", "args": {"e": str(e)}}
+        finally:
+            InstallationManager.reset("git")
 
     def uninstall_git(self):
         git_dir = os.path.join(self.bin_dir, 'git')

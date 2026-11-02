@@ -8,6 +8,7 @@ import urllib.error
 import concurrent.futures
 import threading
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from core.utils.cancellation import OperationCancelledError
 USER_AGENT_MOZILLA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
 
 def read_json(file_path: str, default_type: type = list) -> Any:
@@ -222,7 +223,7 @@ def _is_safe_extract_path(base_dir: str, member_name: str) -> bool:
     base_dir_real = os.path.realpath(base_dir)
     return target_path == base_dir_real or target_path.startswith(base_dir_real + os.sep)
 
-def _extract_zip(file_path: str, extract_to: str, progress_cb: Optional[Callable[[int, str], None]]):
+def _extract_zip(file_path: str, extract_to: str, progress_cb: Optional[Callable[[int, str], None]], cancel_check: Optional[Callable[[], bool]] = None):
     with zipfile.ZipFile(file_path, 'r') as zip_ref:
         members = zip_ref.infolist()
 
@@ -234,6 +235,8 @@ def _extract_zip(file_path: str, extract_to: str, progress_cb: Optional[Callable
         last_percent = -1
 
         for index, member in enumerate(members):
+            if cancel_check and cancel_check():
+                raise OperationCancelledError("Operasi ekstraksi dibatalkan pengguna.")
             zip_ref.extract(member, extract_to)
 
             if progress_cb and (index % 50 == 0 or index == total_files - 1):
@@ -242,7 +245,7 @@ def _extract_zip(file_path: str, extract_to: str, progress_cb: Optional[Callable
                     progress_cb(extract_percent, "backend.common.extracting_files", {"index": index, "total": total_files})
                     last_percent = extract_percent
 
-def _extract_tar_gz(file_path: str, extract_to: str, progress_cb: Optional[Callable[[int, str], None]]):
+def _extract_tar_gz(file_path: str, extract_to: str, progress_cb: Optional[Callable[[int, str], None]], cancel_check: Optional[Callable[[], bool]] = None):
     with tarfile.open(file_path, 'r:gz') as tar_ref:
         members = tar_ref.getmembers()
 
@@ -250,33 +253,48 @@ def _extract_tar_gz(file_path: str, extract_to: str, progress_cb: Optional[Calla
             if not _is_safe_extract_path(extract_to, member.name):
                 raise RuntimeError(f"Arsip mengandung path tidak aman (path traversal): {member.name}")
 
-        tar_ref.extractall(extract_to, members=members)
+        if cancel_check:
+            for member in members:
+                if cancel_check():
+                    raise OperationCancelledError("Operasi ekstraksi dibatalkan pengguna.")
+                tar_ref.extract(member, path=extract_to)
+        else:
+            tar_ref.extractall(extract_to, members=members)
+
         if progress_cb: progress_cb(80, "backend.common.extract_complete")
 
-def extract_archive(file_path: str, extract_to: str, progress_cb: Optional[Callable[[int, str], None]] = None) -> bool:
+def extract_archive(file_path: str, extract_to: str, 
+                    progress_cb: Optional[Callable[[int, str], None]] = None,
+                    cancel_check: Optional[Callable[[], bool]] = None) -> bool:
     """
     Mengekstrak file Arsip (.zip atau .tar.gz) secara universal dengan aman.
-    Mendukung pelaporan progress persentase jika callback disertakan.
+    Mendukung pelaporan progress persentase jika callback disertakan dan pembatalan operasi.
     
     Args:
         file_path (str): Path file arsip mentah.
         extract_to (str): Path direktori tujuan ekstraksi.
         progress_cb (Callable, optional): Fungsi callback untuk update UI (percent, text).
+        cancel_check (Callable, optional): Callback pemeriksa sinyal pembatalan.
         
     Returns:
         bool: True jika ekstraksi sukses.
     """
+    if cancel_check and cancel_check():
+        raise OperationCancelledError("Operasi ekstraksi dibatalkan pengguna.")
+
     try:
         if file_path.endswith('.zip'):
-            _extract_zip(file_path, extract_to, progress_cb)
+            _extract_zip(file_path, extract_to, progress_cb, cancel_check=cancel_check)
         elif file_path.endswith('.tar.gz'):
-            _extract_tar_gz(file_path, extract_to, progress_cb)
+            _extract_tar_gz(file_path, extract_to, progress_cb, cancel_check=cancel_check)
                 
         return True
+    except OperationCancelledError:
+        raise
     except Exception as e:
         raise RuntimeError(f"Gagal mengekstrak arsip: {str(e)}")
 
-def _download_multi_part(url, dest_path, total_size, progress_cb, log_cb):
+def _download_multi_part(url, dest_path, total_size, progress_cb, log_cb, cancel_check: Optional[Callable[[], bool]] = None):
     import urllib.request, threading, concurrent.futures
     if log_cb: log_cb("backend.runtimes.download_multipart_support", "success")
     num_connections = 8
@@ -292,6 +310,9 @@ def _download_multi_part(url, dest_path, total_size, progress_cb, log_cb):
     
     def download_chunk(start, end):
         nonlocal downloaded_bytes, last_percent
+        if cancel_check and cancel_check():
+            raise OperationCancelledError("Operasi unduhan dibatalkan pengguna.")
+
         req_chunk = urllib.request.Request(url, headers={
             'User-Agent': USER_AGENT_MOZILLA,
             'Range': f'bytes={start}-{end}'
@@ -299,6 +320,8 @@ def _download_multi_part(url, dest_path, total_size, progress_cb, log_cb):
         with urllib.request.urlopen(req_chunk, timeout=30) as res, open(dest_path, 'r+b') as f:
             f.seek(start)
             while True:
+                if cancel_check and cancel_check():
+                    raise OperationCancelledError("Operasi unduhan dibatalkan pengguna.")
                 chunk = res.read(32768)
                 if not chunk: break
                 f.write(chunk)
@@ -319,7 +342,7 @@ def _download_multi_part(url, dest_path, total_size, progress_cb, log_cb):
         for future in concurrent.futures.as_completed(futures):
             future.result()
 
-def _download_single_stream(url, dest_path, total_size, progress_cb, log_cb):
+def _download_single_stream(url, dest_path, total_size, progress_cb, log_cb, cancel_check: Optional[Callable[[], bool]] = None):
     import urllib.request
     if log_cb: log_cb("backend.runtimes.download_single_stream", "warn")
     req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT_MOZILLA})
@@ -329,6 +352,8 @@ def _download_single_stream(url, dest_path, total_size, progress_cb, log_cb):
         last_percent = -1
         
         while True:
+            if cancel_check and cancel_check():
+                raise OperationCancelledError("Operasi unduhan dibatalkan pengguna.")
             buffer = response.read(block_size)
             if not buffer: break
             out_file.write(buffer)
@@ -347,7 +372,11 @@ def _download_single_stream(url, dest_path, total_size, progress_cb, log_cb):
 
 def download_advanced(url: str, dest_path: str, 
                       log_cb: Optional[Callable[[str, str], None]] = None, 
-                      progress_cb: Optional[Callable[[int, str], None]] = None) -> bool:
+                      progress_cb: Optional[Callable[[int, str], None]] = None,
+                      cancel_check: Optional[Callable[[], bool]] = None) -> bool:
+    if cancel_check and cancel_check():
+        raise OperationCancelledError("Operasi unduhan dibatalkan pengguna.")
+
     if log_cb: log_cb("backend.runtimes.checking_capabilities", "info")
     req = urllib.request.Request(url, method='HEAD', headers={'User-Agent': USER_AGENT_MOZILLA})
     
@@ -363,8 +392,8 @@ def download_advanced(url: str, dest_path: str,
         accept_ranges = 'none'
 
     if total_size > 0 and accept_ranges.lower() == 'bytes':
-        _download_multi_part(url, dest_path, total_size, progress_cb, log_cb)
+        _download_multi_part(url, dest_path, total_size, progress_cb, log_cb, cancel_check=cancel_check)
     else:
-        _download_single_stream(url, dest_path, total_size, progress_cb, log_cb)
+        _download_single_stream(url, dest_path, total_size, progress_cb, log_cb, cancel_check=cancel_check)
         
     return True

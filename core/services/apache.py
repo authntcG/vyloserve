@@ -12,6 +12,8 @@ HTTPD_CONF_NAME = "httpd.conf"
 # ---> IMPORT UTILITIES (DRY PRINCIPLE) <---
 from core.utils.system_utils import get_project_root, run_silent_command, start_silent_process, check_port_in_use
 from core.utils.file_utils import read_json, write_json, download_advanced, extract_archive, read_log_tail, read_new_lines
+from core.utils.network_utils import is_network_error, build_offline_error_response
+from core.utils.cancellation import InstallationManager, OperationCancelledError
 INC_VHOSTS = "Include conf/extra/vyloserve-vhosts.conf"
 INC_PHP = "Include conf/extra/vyloserve-php.conf"
 ERR_NOT_INSTALLED = "backend.apache.not_installed"
@@ -334,15 +336,15 @@ class ApacheManager:
         try:
             if sys.platform == 'win32':
                 req = urllib.request.Request("https://www.apachelounge.com/download/", headers={'User-Agent': 'Mozilla/5.0'})
-                try:
-                    html = urllib.request.urlopen(req, timeout=15).read().decode('utf-8')
-                    versions = self._parse_apache_versions_html(html)
-                except Exception: pass
-                
+                html = urllib.request.urlopen(req, timeout=10).read().decode('utf-8')
+                versions = self._parse_apache_versions_html(html)
+
                 if not versions:
                     versions = [{"version": "2.4.68", "filename": "httpd-2.4.68.zip", "url": "https://www.apachelounge.com/download/VS18/binaries/httpd-2.4.68-260617-Win64-VS18.zip"}]
             return {"status": "success", "data": versions}
         except Exception as e:
+            if is_network_error(e):
+                return build_offline_error_response()
             return {"status": "error", "message": "backend.apache.unknown_error", "args": {"e": str(e)}}
 
     def _move_apache_extract(self, temp_extract_dir: str, target_dir: str):
@@ -366,15 +368,15 @@ class ApacheManager:
             time.sleep(1)
             shutil.rmtree(old_path, ignore_errors=True)
 
-    def _download_and_extract_apache(self, download_url: str, zip_path: str, temp_extract_dir: str, target_dir: str):
+    def _download_and_extract_apache(self, download_url: str, zip_path: str, temp_extract_dir: str, target_dir: str, cancel_check=None):
         def log_cb(msg, lvl): 
             if hasattr(self, 'api'): self.api.emit_log(msg, lvl)
         def prog_cb(pct, msg, args=None):
             if hasattr(self, 'api'): self.api.emit_progress(pct, msg, args)
 
-        download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=prog_cb)
+        download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=prog_cb, cancel_check=cancel_check)
         if hasattr(self, 'api'): self.api.emit_log("backend.apache.extracting", "info")
-        extract_archive(zip_path, temp_extract_dir, progress_cb=prog_cb)
+        extract_archive(zip_path, temp_extract_dir, progress_cb=prog_cb, cancel_check=cancel_check)
         if os.path.exists(zip_path): os.remove(zip_path)
         self._move_apache_extract(temp_extract_dir, target_dir)
 
@@ -391,8 +393,10 @@ class ApacheManager:
         
         if os.path.exists(target_dir): return {"status": "error", "message": "backend.apache.already_installed"}
 
+        token = InstallationManager.get_token("apache")
+
         try:
-            self._download_and_extract_apache(download_url, zip_path, temp_extract_dir, target_dir)
+            self._download_and_extract_apache(download_url, zip_path, temp_extract_dir, target_dir, cancel_check=token.is_cancelled)
             self._migrate_old_conf(old_path, target_dir)
 
             if hasattr(self, 'api'): self.api.emit_progress(80, "backend.apache.configuring")
@@ -407,6 +411,15 @@ class ApacheManager:
                 self.api.emit_log("backend.apache.install_success", "success", {"version": version})
             return {"status": "success", "message": "backend.apache.install_success", "args": {"version": version}}
 
+        except OperationCancelledError:
+            if hasattr(self, 'api'):
+                self.api.emit_log("backend.apache.install_cancelled", "warn")
+                self.api.emit_progress(0, "backend.apache.install_cancelled")
+            if os.path.exists(zip_path): os.remove(zip_path)
+            shutil.rmtree(target_dir, ignore_errors=True)
+            shutil.rmtree(temp_extract_dir, ignore_errors=True)
+            return {"status": "cancelled", "message": "backend.apache.install_cancelled"}
+
         except Exception as e:
             if hasattr(self, 'api'):
                 self.api.emit_log("backend.apache.install_error", "error", {"e": str(e)})
@@ -415,6 +428,8 @@ class ApacheManager:
             shutil.rmtree(target_dir, ignore_errors=True)
             shutil.rmtree(temp_extract_dir, ignore_errors=True)
             return {"status": "error", "message": "backend.apache.install_failed", "args": {"e": str(e)}}
+        finally:
+            InstallationManager.reset("apache")
         
     # ---> FIX: Hapus file JSON konfigurasi agar active_version tidak tertinggal <---
     def uninstall(self):

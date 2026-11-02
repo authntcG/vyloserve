@@ -282,6 +282,24 @@ def test_extract_archive_invalid_extension():
     success = extract_archive('test.rar', '/dest')
     assert success is True
 
+@patch('core.utils.file_utils.zipfile.ZipFile')
+def test_extract_archive_cancelled_raises_operation_cancelled(mock_zipfile):
+    """Test extract_archive aborts and raises OperationCancelledError when cancel_check returns True."""
+    from core.utils.cancellation import OperationCancelledError
+    mock_zip_instance = MagicMock()
+    mock_zipfile.return_value.__enter__.return_value = mock_zip_instance
+    mock_zip_instance.infolist.return_value = [MagicMock(filename='file1.txt')]
+
+    with pytest.raises(OperationCancelledError):
+        extract_archive('test.zip', '/dest', cancel_check=lambda: True)
+
+def test_download_advanced_cancelled_raises_operation_cancelled(tmp_path):
+    """Test download_advanced aborts and raises OperationCancelledError when cancel_check returns True."""
+    from core.utils.cancellation import OperationCancelledError
+    dest = str(tmp_path / 'out.zip')
+    with pytest.raises(OperationCancelledError):
+        download_advanced('http://example.com/file.zip', dest, cancel_check=lambda: True)
+
 @patch('core.utils.file_utils.urllib.request.urlopen')
 def test_download_advanced_single_stream(mock_urlopen, tmp_path):
     """Test download_advanced falling back to single stream."""

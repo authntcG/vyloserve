@@ -423,17 +423,32 @@ export default function TerminalInstance({
         window.addEventListener("vylo_terminal_output", handleOutput);
         window.addEventListener("vylo_terminal_exit", handleExit);
 
-        // Window resize listener with ResizeObserver
+        // Window resize listener with ResizeObserver, rAF throttling & ConPTY debouncing
         let resizeObserver: ResizeObserver | null = null;
+        let fitRafId: number | null = null;
+        let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
         if (containerRef.current) {
             resizeObserver = new ResizeObserver(() => {
-                try {
-                    fitAddon.fit();
-                    const api = (window as any).pywebview?.api;
-                    if (api?.resize_terminal && term.cols && term.rows) {
-                        api.resize_terminal(session.id, term.cols, term.rows);
-                    }
-                } catch (_) {}
+                // 1. Visual Fit: Maksimal 1x per animation frame
+                if (fitRafId !== null) cancelAnimationFrame(fitRafId);
+                fitRafId = requestAnimationFrame(() => {
+                    try {
+                        fitAddon.fit();
+                    } catch (_) {}
+                    fitRafId = null;
+                });
+
+                // 2. OS ConPTY IPC: Debounce 100ms trailing edge
+                if (debounceTimer) clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    try {
+                        const api = (window as any).pywebview?.api;
+                        if (api?.resize_terminal && term.cols && term.rows) {
+                            api.resize_terminal(session.id, term.cols, term.rows);
+                        }
+                    } catch (_) {}
+                }, 100);
             });
             resizeObserver.observe(containerRef.current);
         }
@@ -446,6 +461,12 @@ export default function TerminalInstance({
             }
             window.removeEventListener("vylo_terminal_output", handleOutput);
             window.removeEventListener("vylo_terminal_exit", handleExit);
+            if (fitRafId !== null) {
+                cancelAnimationFrame(fitRafId);
+            }
+            if (debounceTimer) {
+                clearTimeout(debounceTimer);
+            }
             resizeObserver?.disconnect();
             if (containerRef.current) {
                 containerRef.current.innerHTML = "";

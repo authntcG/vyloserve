@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import Button from './Button';
 
@@ -42,19 +42,24 @@ export default function Modal({
     const { t } = useTranslation();
     const [isRendered, setIsRendered] = useState(isOpen);
     const [isVisible, setIsVisible] = useState(isOpen);
+    const dialogRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         let timer: number;
         if (isOpen) {
             setIsRendered(true);
             requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                    setIsVisible(true);
-                });
+                // Force layout reflow agar computed style awal (opacity 0, scale 0.95)
+                // terdaftar oleh browser engine sebelum class isVisible diterapkan,
+                // sehingga animasi fade-in tidak terlewati pada mount pertama.
+                if (dialogRef.current) {
+                    void dialogRef.current.offsetHeight;
+                }
+                setIsVisible(true);
             });
         } else {
             setIsVisible(false);
-            timer = setTimeout(() => setIsRendered(false), 300);
+            timer = setTimeout(() => setIsRendered(false), 250);
         }
         return () => {
             if (timer) clearTimeout(timer);
@@ -80,12 +85,12 @@ export default function Modal({
     // ::backdrop) yang berbeda dari implementasi keepMounted+animasi opacity di komponen ini.
     // Migrasi ditunda (butuh smoke-test manual menyeluruh); lihat docs/known_bugs.md.
     return (
-        <div className={`fixed inset-0 z-[100] flex items-center justify-center p-4 transition-all duration-300 ${isVisible ? 'opacity-100 visible' : 'opacity-0 invisible pointer-events-none'}`} role="dialog" aria-modal="true"> {/* NOSONAR typescript:S6819 */}
+        <div ref={dialogRef} className={`fixed inset-0 z-[100] flex items-center justify-center p-4 transition-[opacity,visibility] duration-250 ease-out ${isVisible ? 'opacity-100 visible' : 'opacity-0 invisible pointer-events-none'}`} role="dialog" aria-modal="true"> {/* NOSONAR typescript:S6819 */}
 
             {/* OVERLAY DENGAN ANIMASI OPACITY */}
             <button
                 type="button"
-                className={`absolute inset-0 bg-slate-950/70 backdrop-blur-sm transition-opacity duration-300 outline-none ${isVisible ? 'opacity-100' : 'opacity-0'}`}
+                className={`absolute inset-0 bg-slate-950/70 backdrop-blur-sm transition-opacity duration-250 ease-out outline-none ${isVisible ? 'opacity-100' : 'opacity-0'}`}
                 onClick={(e) => {
                     e.stopPropagation();
                     if (!isLoading && isVisible) onClose();
@@ -93,8 +98,8 @@ export default function Modal({
                 aria-label={t('common.close', 'Close')}
             />
 
-            {/* KOTAK MODAL DENGAN ANIMASI SCALE & SLIDE */}
-            <div className={`relative w-full ${maxWidthClass} bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl flex flex-col transition-all duration-300 ${isVisible ? 'scale-100 translate-y-0' : 'scale-95 translate-y-4'} overflow-hidden`}>
+            {/* KOTAK MODAL DENGAN ANIMASI SCALE, SLIDE & OPACITY */}
+            <div className={`relative w-full ${maxWidthClass} bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl flex flex-col transition-[transform,opacity] duration-250 ease-out ${isVisible ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-3'} overflow-hidden`}>
                 
                 {customHeader || (
                     <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 rounded-t-xl">

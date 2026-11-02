@@ -1,10 +1,13 @@
 import { useState, useEffect, useImperativeHandle, forwardRef, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useToast } from '../../context/ToastContext';
+import { useNetworkStatus } from '../../context/NetworkContext';
 import ProgressBar from '../../components/ProgressBar';
 import Select, { type SelectOption } from '../../components/Select';
 import FieldLabel from '../../components/FieldLabel';
 import InfoBox from '../../components/InfoBox';
+import OfflineBanner from '../../components/OfflineBanner';
+import Button from '../../components/Button';
 import { clampPercent } from '../../utils/progress';
 
 export interface NewProjectRef {
@@ -76,6 +79,14 @@ const ENGINE_BY_DETECTED_FRAMEWORK: Record<string, RuntimeEngineType> = {
 };
 
 const RAW_FRAMEWORKS = new Set(['raw', 'node-raw', 'python-raw', 'go-raw', 'java-raw']);
+
+const RAW_FRAMEWORK_BY_ENGINE: Record<RuntimeEngineType, string> = {
+    php: 'raw',
+    node: 'node-raw',
+    python: 'python-raw',
+    go: 'go-raw',
+    java: 'java-raw',
+};
 
 function getFrameworkOptionsForEngine(engine: RuntimeEngineType, t: any): SelectOption<string>[] {
     switch (engine) {
@@ -192,6 +203,7 @@ function FreshInstallFields({
     onUseVenvChange,
     t,
 }: FreshInstallFieldsProps) {
+    const { isOnline } = useNetworkStatus();
     const isRawFramework = RAW_FRAMEWORKS.has(frameworkToInstall);
     const versionOptions: SelectOption<string>[] = [
         { value: '', label: t('apache.framework_version_latest') },
@@ -200,6 +212,23 @@ function FreshInstallFields({
 
     return (
         <div className="flex flex-col gap-4 animate-in fade-in">
+            {!isOnline && !isRawFramework && (
+                <OfflineBanner
+                    description={t('apache.offline_framework_desc', { framework: frameworkToInstall })}
+                    actionButton={
+                        <Button
+                            variant="primary"
+                            size="sm"
+                            icon="code"
+                            onClick={() => onFrameworkChange(RAW_FRAMEWORK_BY_ENGINE[projectType])}
+                            disabled={isCreating}
+                            className="text-xs px-2.5 py-1.5"
+                        >
+                            {t('apache.switch_to_raw_offline')}
+                        </Button>
+                    }
+                />
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="flex flex-col gap-2">
                     <FieldLabel tone="primary">{t('apache.framework_to_install')}</FieldLabel>
@@ -359,7 +388,7 @@ function AdvancedSettingsSection({
                 {t('apache.advanced_settings')}
             </button>
 
-            <div className={`flex flex-col gap-4 overflow-hidden transition-all duration-300 ${isOpen ? 'max-h-[600px] opacity-100 mt-4' : 'max-h-0 opacity-0'}`}>
+            <div className={`flex flex-col gap-4 overflow-hidden transition-[max-height,opacity] duration-300 ${isOpen ? 'max-h-[600px] opacity-100 mt-4' : 'max-h-0 opacity-0'}`}>
                 <div className="flex flex-col gap-2">
                     <FieldLabel htmlFor="apache_custom_domain_name" size="xs" tone="muted">{t('apache.custom_local_domain')}</FieldLabel>
                     <div className="flex shadow-sm rounded-lg">
@@ -396,6 +425,7 @@ function AdvancedSettingsSection({
 const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
     const { t } = useTranslation();
     const { showToast } = useToast();
+    const { isOnline } = useNetworkStatus();
 
     // --- MAIN STATES ---
     const [projectName, setProjectName] = useState('');
@@ -412,6 +442,12 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
     const [specificVersion, setSpecificVersion] = useState('');
     const [installLocation, setInstallLocation] = useState('');
     const [useVenv, setUseVenv] = useState(true);
+
+    // --- DATABASE AUTO-CREATE STATES ---
+    const [installedDbs, setInstalledDbs] = useState<any[]>([]);
+    const [autoCreateDb, setAutoCreateDb] = useState(false);
+    const [selectedDbId, setSelectedDbId] = useState('');
+    const [targetDbName, setTargetDbName] = useState('');
 
     // --- RUNTIME & VERSION STATES ---
     const [phpVersions, setPhpVersions] = useState<any[]>([]);
@@ -464,6 +500,35 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
             }).catch((e: any) => console.error(e));
         }
     }, []);
+
+    useEffect(() => {
+        let ignore = false;
+        const fetchDbs = async () => {
+            try {
+                const api = window.pywebview?.api;
+                if (api && typeof api.get_installed_databases === 'function') {
+                    const res = await api.get_installed_databases();
+                    if (ignore) return;
+                    if (res?.status === 'success' && Array.isArray(res.data)) {
+                        const usable = res.data.filter((db: any) => db.engine === 'mysql' || db.engine === 'postgres');
+                        setInstalledDbs(usable);
+                        if (usable.length > 0) {
+                            setSelectedDbId(usable[0].id);
+                        }
+                    }
+                }
+            } catch {
+                // ignore
+            }
+        };
+        fetchDbs();
+        return () => { ignore = true; };
+    }, []);
+
+    useEffect(() => {
+        const sanitized = domainName.replace(/[^a-zA-Z0-9_]/g, '_');
+        setTargetDbName(sanitized);
+    }, [domainName]);
 
     useEffect(() => {
         const fetchRuntimes = async () => {
@@ -599,11 +664,15 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
                 showToast(t('apache.new_project_workspace_error'), 'warning');
                 return false;
             }
+            if (!isOnline && !isExistingLocal && !RAW_FRAMEWORKS.has(frameworkToInstall)) {
+                showToast(t('backend.error.no_internet'), 'error');
+                return false;
+            }
 
             const selectedPhpData = phpVersions.find(p => p.version === selectedVersion);
             const actualPhpPort = selectedPhpData?.port || selectedPhpData?.fastcgi_port || 9000;
 
-            const payload = {
+            const payload: any = {
                 name: projectName,
                 domain: domainName,
                 domain_extension: domainExtension,
@@ -617,6 +686,9 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
                 install_location: installLocation,
                 specific_version: specificVersion,
                 use_venv: projectType === 'python' ? useVenv : false,
+                auto_create_db: autoCreateDb,
+                db_instance_id: autoCreateDb ? selectedDbId : undefined,
+                target_db_name: autoCreateDb ? (targetDbName.trim() || domainName.replace(/[^a-zA-Z0-9_]/g, '_')) : undefined,
             };
 
             setInternalIsCreating(true);
@@ -649,10 +721,10 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
         <div className="flex flex-col gap-4 relative">
             {/* 1. SETUP MODE (SEGMENTED CONTROL) */}
             <div className="flex p-1 bg-slate-100 dark:bg-slate-800/80 rounded-lg">
-                <button type="button" disabled={isCreating} onClick={() => setIsExistingLocal(false)} className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all duration-200 outline-none disabled:cursor-not-allowed ${!isExistingLocal ? 'bg-white dark:bg-slate-700 shadow-sm text-primary dark:text-white' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}>
+                <button type="button" disabled={isCreating} onClick={() => setIsExistingLocal(false)} className={`flex-1 py-2 text-sm font-semibold rounded-md transition-colors duration-200 outline-none disabled:cursor-not-allowed ${!isExistingLocal ? 'bg-white dark:bg-slate-700 shadow-sm text-primary dark:text-white' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}>
                     🚀 {t('apache.fresh_install')}
                 </button>
-                <button type="button" disabled={isCreating} onClick={() => setIsExistingLocal(true)} className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all duration-200 outline-none disabled:cursor-not-allowed ${isExistingLocal ? 'bg-white dark:bg-slate-700 shadow-sm text-primary dark:text-white' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}>
+                <button type="button" disabled={isCreating} onClick={() => setIsExistingLocal(true)} className={`flex-1 py-2 text-sm font-semibold rounded-md transition-colors duration-200 outline-none disabled:cursor-not-allowed ${isExistingLocal ? 'bg-white dark:bg-slate-700 shadow-sm text-primary dark:text-white' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}>
                     🔗 {t('apache.link_existing')}
                 </button>
             </div>
@@ -738,6 +810,54 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
                     inputClasses={inputClasses}
                     t={t}
                 />
+            )}
+
+            {/* AUTO-CREATE DATABASE SECTION */}
+            {installedDbs.length > 0 && (
+                <div className="flex flex-col gap-3 p-3.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/40">
+                    <div className="flex items-center gap-2">
+                        <input
+                            id="auto_create_db_checkbox"
+                            type="checkbox"
+                            checked={autoCreateDb}
+                            onChange={(e) => setAutoCreateDb(e.target.checked)}
+                            disabled={isCreating}
+                            className="rounded border-border text-primary focus:ring-primary h-4 w-4 cursor-pointer"
+                        />
+                        <label htmlFor="auto_create_db_checkbox" className="text-xs font-medium text-slate-800 dark:text-slate-200 cursor-pointer select-none">
+                            {t('apache.auto_create_db')}
+                        </label>
+                    </div>
+                    {autoCreateDb && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-6 pt-1 animate-in fade-in duration-200">
+                            <div className="flex flex-col gap-1.5">
+                                <FieldLabel htmlFor="auto_create_db_select" size="xs">{t('apache.target_db_instance')}</FieldLabel>
+                                <Select
+                                    id="auto_create_db_select"
+                                    options={installedDbs.map(db => ({
+                                        value: db.id,
+                                        label: `${db.name || db.engine} (${db.engine.toUpperCase()} - Port ${db.port})`
+                                    }))}
+                                    value={selectedDbId}
+                                    onChange={(val) => setSelectedDbId(val)}
+                                    disabled={isCreating}
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                                <FieldLabel htmlFor="auto_create_db_name" size="xs">{t('apache.target_db_name')}</FieldLabel>
+                                <input
+                                    id="auto_create_db_name"
+                                    type="text"
+                                    value={targetDbName}
+                                    onChange={(e) => setTargetDbName(e.target.value.replace(/[^a-zA-Z0-9_]/g, '_'))}
+                                    disabled={isCreating}
+                                    placeholder="project_db"
+                                    className={inputClasses}
+                                />
+                            </div>
+                        </div>
+                    )}
+                </div>
             )}
 
             {/* 4. PROGRESSIVE DISCLOSURE (ADVANCED SETTINGS) */}

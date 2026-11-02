@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import ProgressStatusBlock from '../../src/components/ProgressStatusBlock';
 
@@ -29,4 +29,36 @@ describe('ProgressStatusBlock', () => {
         expect(screen.getByText('Extracting files...')).toBeInTheDocument();
         expect(screen.getByText('80%')).toBeInTheDocument();
     });
+
+    it('renders cancel button when onCancel is provided and handles click', () => {
+        const onCancel = vi.fn();
+        render(
+            <ProgressStatusBlock
+                progressText="Downloading..."
+                progress={50}
+                onCancel={onCancel}
+            />
+        );
+
+        const cancelBtn = screen.getByRole('button', { name: /cancel_install/i });
+        expect(cancelBtn).toBeInTheDocument();
+        cancelBtn.click();
+        expect(onCancel).toHaveBeenCalledTimes(1);
+    });
+
+    it('disables cancel button and shows cancelling text when isCancelling is true', () => {
+        render(
+            <ProgressStatusBlock
+                progressText="Downloading..."
+                progress={50}
+                onCancel={vi.fn()}
+                isCancelling={true}
+            />
+        );
+
+        const cancelBtn = screen.getByRole('button', { name: /cancelling/i });
+        expect(cancelBtn).toBeDisabled();
+        expect(screen.getByText('common.cancelling')).toBeInTheDocument();
+    });
 });
+
