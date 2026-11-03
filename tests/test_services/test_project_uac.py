@@ -26,7 +26,7 @@ def test_write_hosts_with_uac_permission_error_granted(mock_shell, project_manag
     
     mock_shell.return_value = 42 # > 32 means success
     
-    with patch('builtins.open', mock_f):
+    with patch('sys.platform', 'win32'), patch('builtins.open', mock_f):
         res = project_manager._write_hosts_with_uac("c:/windows/hosts", "127.0.0.1 test.local", "c:/temp/hosts")
         assert res['status'] == 'success'
         assert "backend.project.uac_granted" in res['message']
@@ -40,7 +40,7 @@ def test_write_hosts_with_uac_permission_error_denied(mock_shell, project_manage
 
     mock_shell.return_value = 5 # <= 32 means access denied
 
-    with patch('builtins.open', mock_f):
+    with patch('sys.platform', 'win32'), patch('builtins.open', mock_f):
         res = project_manager._write_hosts_with_uac("c:/windows/hosts", "127.0.0.1 test.local", "c:/temp/hosts")
         assert res['status'] == 'error'
         assert "backend.project.uac_denied" in res['message']

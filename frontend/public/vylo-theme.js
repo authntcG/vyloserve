@@ -1,1 +1,1 @@
-window.__VYLO_INITIAL_THEME__ = "monokai-dark";
+window.__VYLO_INITIAL_THEME__ = "vyloserve-dark";

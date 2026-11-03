@@ -7,7 +7,13 @@ import subprocess
 from typing import Optional
 
 # ---> IMPORT UTILITIES (DRY PRINCIPLE) <---
-from core.utils.system_utils import get_project_root, start_silent_process, run_silent_command
+from core.utils.system_utils import (
+    get_project_root,
+    start_silent_process,
+    run_silent_command,
+    open_path_in_file_manager,
+    kill_process_tree,
+)
 from core.utils.file_utils import read_json, download_advanced, extract_archive
 from core.utils.network_utils import is_network_error
 from core.utils.cancellation import InstallationManager, OperationCancelledError
@@ -42,32 +48,135 @@ class PhpManager:
                         except Exception: pass
         return port, memory_limit
 
+    def _check_system_php(self) -> dict:
+        """
+        Mendeteksi instalasi PHP CLI / FPM bawaan OS (misalnya /usr/bin/php pada Linux).
+        """
+        if sys.platform == 'win32':
+            return {"exists": False, "version": "", "path": "", "status": "stopped", "memory_limit": ""}
+
+        vyloserve_bin = os.path.normpath(os.path.join(get_project_root(), 'bin')).lower()
+        clean_paths = [p for p in os.environ.get('PATH', '').split(os.pathsep) if p and vyloserve_bin not in p.lower()]
+        for std_dir in ['/usr/bin', '/usr/local/bin', '/usr/sbin']:
+            if std_dir not in clean_paths and os.path.isdir(std_dir):
+                clean_paths.append(std_dir)
+
+        found_path = None
+        for cand in ['php', 'php8.3', 'php8.2', 'php8.1', 'php8.0', 'php7.4']:
+            found = shutil.which(cand, path=os.pathsep.join(clean_paths))
+            if found:
+                real_target = os.path.normpath(os.path.realpath(found)).lower()
+                if real_target.startswith(vyloserve_bin) or vyloserve_bin in real_target:
+                    continue
+                found_path = found
+                break
+
+        if not found_path:
+            return {"exists": False, "version": "", "path": "", "status": "stopped", "memory_limit": ""}
+
+        version_str = "Unknown"
+        try:
+            cflags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+            res = subprocess.run([found_path, '-v'], capture_output=True, text=True, creationflags=cflags, timeout=5)
+            out = res.stdout.strip() or res.stderr.strip()
+            match = re.search(r'PHP\s+(\d+\.\d+\.\d+)', out)
+            if match:
+                version_str = match.group(1)
+            elif out:
+                version_str = out.split('\n')[0].strip()
+        except Exception:
+            pass
+
+        memory_limit = "128M"
+        try:
+            cflags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+            res_mem = subprocess.run([found_path, '-r', 'echo ini_get("memory_limit");'], capture_output=True, text=True, creationflags=cflags, timeout=5)
+            out_mem = res_mem.stdout.strip()
+            if out_mem:
+                memory_limit = out_mem
+        except Exception:
+            pass
+
+        is_running = False
+        try:
+            import psutil
+            for proc in psutil.process_iter(['name', 'exe']):
+                try:
+                    pname = (proc.info.get('name') or '').lower()
+                    pexe = (proc.info.get('exe') or '').lower()
+                    if 'php-fpm' in pname and vyloserve_bin not in pexe:
+                        is_running = True
+                        break
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+        except Exception:
+            pass
+
+        return {
+            "exists": True,
+            "version": version_str,
+            "path": found_path,
+            "status": "running" if is_running else "stopped",
+            "memory_limit": memory_limit
+        }
+
     def get_installed_instances(self):
         instances = []
-        if not os.path.exists(self.base_dir): return instances
+        if os.path.exists(self.base_dir):
+            folders = sorted([f for f in os.listdir(self.base_dir) if os.path.isdir(os.path.join(self.base_dir, f))], 
+                             key=lambda v: [int(x) if x.isdigit() else 0 for x in v.split('.')], reverse=True)
             
-        folders = sorted([f for f in os.listdir(self.base_dir) if os.path.isdir(os.path.join(self.base_dir, f))], 
-                         key=lambda v: [int(x) if x.isdigit() else 0 for x in v.split('.')], reverse=True)
-        
-        for version in folders:
-            target_dir = os.path.join(self.base_dir, version)
-            port, memory_limit = self._parse_php_ini_info(os.path.join(target_dir, PHP_INI))
-            
-            status = "stopped"
-            if version in self.processes:
-                if self.processes[version].poll() is None: status = "running"
-                else: self.processes.pop(version, None)
+            for version in folders:
+                target_dir = os.path.join(self.base_dir, version)
+                port, memory_limit = self._parse_php_ini_info(os.path.join(target_dir, PHP_INI))
+                
+                status = "stopped"
+                if version in self.processes:
+                    if self.processes[version].poll() is None: status = "running"
+                    else: self.processes.pop(version, None)
 
+                instances.append({
+                    "id": f"php_{version.replace('.', '_')}", "name": f"PHP {version}",
+                    "version": version, "port": port, "status": status, 
+                    "dir": target_dir, "memory_limit": memory_limit,
+                    "is_system": False
+                })
+
+        system_php = self._check_system_php()
+        if system_php.get("exists"):
             instances.append({
-                "id": f"php_{version.replace('.', '_')}", "name": f"PHP {version}",
-                "version": version, "port": port, "status": status, 
-                "dir": target_dir, "memory_limit": memory_limit
+                "id": "php_system",
+                "name": f"PHP {system_php['version']} (Native OS)",
+                "version": system_php['version'],
+                "port": 0,
+                "status": system_php['status'],
+                "dir": system_php['path'],
+                "memory_limit": system_php['memory_limit'],
+                "is_system": True
             })
+
         return instances
     
     def toggle_global_path(self, target_path: str, enable: bool):
         """ Mengatur PATH OS dinamis agar command 'php' dan 'composer' terhubung ke versi yang aktif """
-        if sys.platform != 'win32': return
+        if sys.platform != 'win32':
+            user_bin = os.path.expanduser('~/.local/bin')
+            os.makedirs(user_bin, exist_ok=True)
+            for bin_name in ['php', 'composer']:
+                src = os.path.join(target_path, bin_name)
+                link_path = os.path.join(user_bin, bin_name)
+                try:
+                    if enable:
+                        if os.path.exists(src):
+                            if os.path.islink(link_path) or os.path.exists(link_path):
+                                os.unlink(link_path)
+                            os.symlink(src, link_path)
+                    else:
+                        if os.path.islink(link_path) and os.path.realpath(link_path).startswith(os.path.realpath(target_path)):
+                            os.unlink(link_path)
+                except Exception:
+                    pass
+            return
         try:
             from core.utils.system_utils import modify_user_path
             normalized_target = os.path.normpath(target_path)
@@ -102,8 +211,11 @@ class PhpManager:
 
     def get_versions(self):
         try:
-            urls = ["https://windows.php.net/downloads/releases/", "https://windows.php.net/downloads/releases/archives/"] if sys.platform == 'win32' else ["https://www.php.net/distributions/"]
-            pattern = PHP_WIN_PATTERN if sys.platform == 'win32' else PHP_NIX_PATTERN
+            if sys.platform != 'win32':
+                return {"status": "success", "data": [], "message": "backend.php.no_linux_binaries"}
+
+            urls = ["https://windows.php.net/downloads/releases/", "https://windows.php.net/downloads/releases/archives/"]
+            pattern = PHP_WIN_PATTERN
             version_map, offline_detected = self._scrape_php_releases(urls, pattern)
             
             if not version_map:
@@ -325,10 +437,9 @@ class PhpManager:
         target = os.path.join(self.base_dir, version, PHP_INI) if is_file else os.path.join(self.base_dir, version)
         if not os.path.exists(target): return {"status": "error", "message": "backend.php.not_found"}
         try:
-            if sys.platform == 'win32': os.startfile(target)
-            elif sys.platform == 'darwin': subprocess.Popen(['open', target])
-            else: subprocess.Popen(['xdg-open', target])
-            return {"status": "success", "message": "backend.php.opened"}
+            if open_path_in_file_manager(target):
+                return {"status": "success", "message": "backend.php.opened"}
+            return {"status": "error", "message": "backend.php.fatal_error"}
         except Exception as e:
             self._log("backend.php.fatal_error", "error", {"e": str(e)})
             return {"status": "error", "message": "backend.php.fatal_error", "args": {"e": str(e)}}
@@ -419,7 +530,7 @@ class PhpManager:
         if version in self.processes:
             proc = self.processes[version]
             if proc.poll() is None:
-                run_silent_command(['taskkill', '/F', '/T', '/PID', str(proc.pid)]) if sys.platform == 'win32' else run_silent_command(['kill', '-9', str(proc.pid)])
+                kill_process_tree(proc.pid)
             self.processes.pop(version, None)
 
             target_dir = os.path.join(self.base_dir, version)

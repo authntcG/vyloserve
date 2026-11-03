@@ -30,6 +30,7 @@ interface ApacheInstallWizardProps {
     readonly onRetryFetch?: () => void;
     readonly isCancelling?: boolean;
     readonly onCancelInstall?: () => void;
+    readonly onRefreshStatus?: () => Promise<void> | void;
 }
 
 export default function ApacheInstallWizard({
@@ -48,11 +49,14 @@ export default function ApacheInstallWizard({
     onRetryFetch,
     isCancelling = false,
     onCancelInstall,
+    onRefreshStatus
 }: ApacheInstallWizardProps) {
 
     const { t } = useTranslation();
     const { isOnline } = useNetworkStatus();
     const [osInfo, setOsInfo] = useState({ name: 'Windows', arch: 'x64', icon: 'window' });
+    const [copied, setCopied] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false);
     const bottomRef = useRef<HTMLDivElement>(null); // Ref untuk auto-scroll
 
     // Deteksi Sistem Operasi
@@ -86,6 +90,37 @@ export default function ApacheInstallWizard({
     };
 
     const isOfflineOrUnavailable = !isOnline;
+    const isLinuxManualSetup = osInfo.name !== 'Windows' && versions.length === 0 && !isFetchingVersions;
+    const linuxCommand = 'sudo apt update && sudo apt install -y apache2';
+
+    const handleCopyCommand = async () => {
+        try {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(linuxCommand);
+            } else {
+                const textArea = document.createElement('textarea');
+                textArea.value = linuxCommand;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+            }
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch {
+            // Ignore clipboard errors
+        }
+    };
+
+    const handleRefresh = async () => {
+        if (!onRefreshStatus) return;
+        setIsRefreshing(true);
+        try {
+            await onRefreshStatus();
+        } finally {
+            setIsRefreshing(false);
+        }
+    };
 
     return (
         <div className="flex flex-col gap-6 relative">
@@ -120,7 +155,13 @@ export default function ApacheInstallWizard({
                         }))}
                         value={version || null}
                         onChange={handleVersionChange}
-                        placeholder={isOfflineOrUnavailable ? t('common.offline_versions_unavailable') : t('apache.server_up_to_date')}
+                        placeholder={
+                            osInfo.name !== 'Windows'
+                                ? t('apache.no_linux_binaries')
+                                : isOfflineOrUnavailable
+                                ? t('common.offline_versions_unavailable')
+                                : t('apache.server_up_to_date')
+                        }
                         disabled={isInstalling || versions.length === 0}
                         loading={isFetchingVersions}
                         loadingText={t('apache.retrieving_releases')}
@@ -130,6 +171,61 @@ export default function ApacheInstallWizard({
                         <p className="text-[11px] text-slate-500 mt-1">
                             {t('apache.binaries_provided_by')} <strong>ApacheLounge</strong>. {t('apache.requires_vcpp')}
                         </p>
+                    )}
+                    {osInfo.name !== 'Windows' && !isFetchingVersions && (
+                        <p className="text-[11px] text-slate-500 mt-1">
+                            {t('apache.no_linux_binaries')}
+                        </p>
+                    )}
+
+                    {isLinuxManualSetup && (
+                        <div className="flex flex-col gap-3 p-3.5 mt-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/60">
+                            <div className="flex items-start gap-2.5">
+                                <span className="p-1.5 rounded-lg bg-primary/10 text-primary material-symbols-outlined text-[18px] shrink-0">
+                                    terminal
+                                </span>
+                                <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                                    <h4 className="text-xs font-semibold text-slate-900 dark:text-white">
+                                        {t('apache.linux_install_guide_title')}
+                                    </h4>
+                                    <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                                        {t('apache.linux_install_guide_desc')}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 p-2.5 bg-slate-900 text-slate-100 rounded-lg font-mono text-xs shadow-inner">
+                                <code className="truncate selection:bg-primary selection:text-white">{linuxCommand}</code>
+                                <button
+                                    type="button"
+                                    onClick={handleCopyCommand}
+                                    className={`px-2.5 py-1 rounded text-xs font-sans font-medium flex items-center justify-center gap-1.5 transition-all shrink-0 ${copied ? 'bg-emerald-600 text-white' : 'bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700'}`}
+                                    title={t('apache.copy_command')}
+                                >
+                                    <span className="material-symbols-outlined text-[14px]">
+                                        {copied ? 'check' : 'content_copy'}
+                                    </span>
+                                    <span>{copied ? t('apache.copied_command') : t('apache.copy_command')}</span>
+                                </button>
+                            </div>
+
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pt-2 border-t border-slate-200 dark:border-slate-800 text-[11px] text-slate-500">
+                                <span>{t('apache.run_in_terminal_hint')}</span>
+                                {onRefreshStatus && (
+                                    <button
+                                        type="button"
+                                        onClick={handleRefresh}
+                                        disabled={isRefreshing}
+                                        className="px-2.5 py-1 rounded bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium flex items-center gap-1.5 transition-all shadow-sm disabled:opacity-50"
+                                    >
+                                        <span className={`material-symbols-outlined text-[15px] ${isRefreshing ? 'animate-spin' : ''}`}>
+                                            refresh
+                                        </span>
+                                        <span>{isRefreshing ? t('apache.refreshing') : t('apache.refresh_status')}</span>
+                                    </button>
+                                )}
+                            </div>
+                        </div>
                     )}
                 </div>
             </div>

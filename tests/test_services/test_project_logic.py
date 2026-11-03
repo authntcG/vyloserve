@@ -499,9 +499,10 @@ def test_run_framework_post_install_codeigniter3_does_nothing(project_manager):
 @patch('os.startfile')
 @patch('os.path.exists', return_value=True)
 def test_open_in_explorer_success(mock_exists, mock_startfile, project_manager):
-    res = project_manager.open_in_explorer("C:/www/project")
-    assert res == {"status": "success"}
-    mock_startfile.assert_called_once()
+    with patch('sys.platform', 'win32'):
+        res = project_manager.open_in_explorer("C:/www/project")
+        assert res == {"status": "success"}
+        mock_startfile.assert_called_once()
 
 @patch('os.path.exists', return_value=False)
 def test_open_in_explorer_directory_not_found(mock_exists, project_manager):

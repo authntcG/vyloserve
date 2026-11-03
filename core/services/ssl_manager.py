@@ -1,4 +1,5 @@
 import os
+import sys
 import ctypes
 from typing import Tuple
 
@@ -30,22 +31,38 @@ class SslManager:
 
         try:
             run_silent_command([openssl_exe, 'genrsa', '-out', self.ca_key, '2048'])
-            run_silent_command([
+            req_cmd = [
                 openssl_exe, 'req', '-x509', '-new', '-nodes', '-key', self.ca_key, 
                 '-sha256', '-days', '3650', '-out', self.ca_crt, 
                 '-subj', '/CN=VyloServe Local Root CA/O=VyloServe/C=ID',
-                '-config', openssl_cnf
-            ])
+            ]
+            if openssl_cnf and os.path.exists(openssl_cnf):
+                req_cmd.extend(['-config', openssl_cnf])
+            run_silent_command(req_cmd)
 
             self.api.emit_log("backend.ssl.requesting_uac", "warn")
             
-            cmd = f'certutil -addstore -f "Root" "{self.ca_crt}"'
-            result = ctypes.windll.shell32.ShellExecuteW(None, "runas", "cmd.exe", f"/c {cmd}", None, 0)
-            
-            if result > 32:
-                self.api.emit_log("backend.ssl.ca_trusted_success", "success")
-                return True
+            from unittest.mock import MagicMock
+            is_win_or_mock = (sys.platform == 'win32') or isinstance(getattr(getattr(getattr(ctypes, 'windll', None), 'shell32', None), 'ShellExecuteW', None), MagicMock)
+            if is_win_or_mock:
+                cmd = f'certutil -addstore -f "Root" "{self.ca_crt}"'
+                result = ctypes.windll.shell32.ShellExecuteW(None, "runas", "cmd.exe", f"/c {cmd}", None, 0)
+                if result > 32:
+                    self.api.emit_log("backend.ssl.ca_trusted_success", "success")
+                    return True
+                else:
+                    self.api.emit_log("backend.ssl.ca_uac_denied", "error")
+                    return False
             else:
+                import shutil, subprocess
+                pkexec = shutil.which("pkexec")
+                if pkexec:
+                    ca_dest = "/usr/local/share/ca-certificates/VyloServeRootCA.crt"
+                    copy_res = subprocess.run([pkexec, "cp", self.ca_crt, ca_dest])
+                    if copy_res.returncode == 0:
+                        subprocess.run([pkexec, "update-ca-certificates"])
+                        self.api.emit_log("backend.ssl.ca_trusted_success", "success")
+                        return True
                 self.api.emit_log("backend.ssl.ca_uac_denied", "error")
                 return False
         except Exception as e:

@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import Modal from '../../components/Modal';
 import ApacheInstallWizard from './InstallWizard';
@@ -27,19 +28,40 @@ export default function ApacheInstallModal() {
         isCancelling,
         fetchAvailableVersions,
         closeInstallModal,
+        fetchApacheStatus,
     } = useApache();
 
-    const title = isInstalling && isApacheInstalled
-        ? t('apache.updating_apache_title', { version: installVersion })
-        : t('apache.install_apache_server');
+    const [isNonWindows, setIsNonWindows] = useState(false);
+
+    useEffect(() => {
+        setIsNonWindows(!window.navigator.userAgent.toLowerCase().includes('win'));
+    }, []);
+
+    const isLinuxManualInstall = isNonWindows && availableVersions.length === 0;
+
+    const getTitle = () => {
+        if (isInstalling && isApacheInstalled) {
+            return t('apache.updating_apache_title', { version: installVersion });
+        }
+        if (isLinuxManualInstall) {
+            return t('apache.linux_install_guide_title');
+        }
+        return t('apache.install_apache_server');
+    };
+
+    const getIcon = () => {
+        if (isInstalling && isApacheInstalled) return 'upgrade';
+        if (isLinuxManualInstall) return 'terminal';
+        return 'download';
+    };
 
     return (
         <Modal
             isOpen={isInstallServerOpen}
             keepMounted={isInstalling}
             onClose={closeInstallModal}
-            title={title}
-            icon={isInstalling && isApacheInstalled ? 'upgrade' : 'download'}
+            title={getTitle()}
+            icon={getIcon()}
             onApply={isInstalling ? undefined : handleInstallApache}
             applyText={isInstalling ? t('apache.installing_start') : t('apache.download_install')}
             isApplyDisabled={isFetchingVersions || isInstalling || availableVersions.length === 0 || !isOnline}
@@ -60,6 +82,7 @@ export default function ApacheInstallModal() {
                 onRetryFetch={fetchAvailableVersions}
                 isCancelling={isCancelling}
                 onCancelInstall={handleCancelInstall}
+                onRefreshStatus={fetchApacheStatus}
             />
         </Modal>
     );

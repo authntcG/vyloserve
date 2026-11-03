@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import time
 import zipfile
@@ -247,8 +248,27 @@ def _extract_zip(file_path: str, extract_to: str, progress_cb: Optional[Callable
                     progress_cb(extract_percent, "backend.common.extracting_files", {"index": index, "total": total_files})
                     last_percent = extract_percent
 
+def _ensure_executable_permissions(target_dir: str):
+    """
+    Memastikan berkas di folder bin/ atau berkas executable mendapatkan izin 0o755
+    pada platform Linux / macOS.
+    """
+    if sys.platform == 'win32' or not os.path.exists(target_dir):
+        return
+    for root, _, files in os.walk(target_dir):
+        is_bin_folder = os.path.basename(root) == 'bin' or 'bin' in root.split(os.sep)
+        for f in files:
+            file_path = os.path.join(root, f)
+            try:
+                if is_bin_folder or '.' not in f or f.endswith(('.sh', '.bin', '.so')):
+                    current_mode = os.stat(file_path).st_mode
+                    os.chmod(file_path, current_mode | 0o755)
+            except Exception:
+                pass
+
 def _extract_tar_gz(file_path: str, extract_to: str, progress_cb: Optional[Callable[[int, str], None]], cancel_check: Optional[Callable[[], bool]] = None):
-    with tarfile.open(file_path, 'r:gz') as tar_ref:
+    tar_mode = 'r:gz' if file_path.endswith(('.tar.gz', '.tgz')) else 'r:*'
+    with tarfile.open(file_path, tar_mode) as tar_ref:
         members = tar_ref.getmembers()
 
         for member in members:
@@ -269,7 +289,7 @@ def extract_archive(file_path: str, extract_to: str,
                     progress_cb: Optional[Callable[[int, str], None]] = None,
                     cancel_check: Optional[Callable[[], bool]] = None) -> bool:
     """
-    Mengekstrak file Arsip (.zip atau .tar.gz) secara universal dengan aman.
+    Mengekstrak file Arsip (.zip, .tar.gz, .tgz, .tar.xz) secara universal dengan aman.
     Mendukung pelaporan progress persentase jika callback disertakan dan pembatalan operasi.
     
     Args:
@@ -285,11 +305,25 @@ def extract_archive(file_path: str, extract_to: str,
         raise OperationCancelledError(MSG_EXTRACTION_CANCELLED)
 
     try:
-        if file_path.endswith('.zip'):
-            _extract_zip(file_path, extract_to, progress_cb, cancel_check=cancel_check)
-        elif file_path.endswith('.tar.gz'):
+        lower_path = file_path.lower()
+
+        if lower_path.endswith('.zip'):
+            try:
+                _extract_zip(file_path, extract_to, progress_cb, cancel_check=cancel_check)
+            except zipfile.BadZipFile:
+                if os.path.exists(file_path) and tarfile.is_tarfile(file_path):
+                    _extract_tar_gz(file_path, extract_to, progress_cb, cancel_check=cancel_check)
+                else:
+                    raise
+        elif lower_path.endswith(('.tar.gz', '.tgz', '.tar.xz', '.tar.bz2', '.tar')):
             _extract_tar_gz(file_path, extract_to, progress_cb, cancel_check=cancel_check)
-                
+        elif os.path.exists(file_path):
+            if zipfile.is_zipfile(file_path):
+                _extract_zip(file_path, extract_to, progress_cb, cancel_check=cancel_check)
+            elif tarfile.is_tarfile(file_path):
+                _extract_tar_gz(file_path, extract_to, progress_cb, cancel_check=cancel_check)
+
+        _ensure_executable_permissions(extract_to)
         return True
     except OperationCancelledError:
         raise

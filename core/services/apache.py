@@ -10,7 +10,14 @@ import subprocess
 HTTPD_CONF_NAME = "httpd.conf"
 
 # ---> IMPORT UTILITIES (DRY PRINCIPLE) <---
-from core.utils.system_utils import get_project_root, run_silent_command, start_silent_process, check_port_in_use
+from core.utils.system_utils import (
+    get_project_root,
+    run_silent_command,
+    start_silent_process,
+    get_silent_flags,
+    check_port_in_use,
+    open_path_in_file_manager,
+)
 from core.utils.file_utils import read_json, write_json, download_advanced, extract_archive, read_log_tail, read_new_lines
 from core.utils.network_utils import is_network_error, build_offline_error_response
 from core.utils.cancellation import InstallationManager, OperationCancelledError
@@ -65,7 +72,7 @@ class ApacheManager:
                 res = run_silent_command(['tasklist', '/FI', 'IMAGENAME eq httpd.exe'])
                 return 'httpd.exe' in res.stdout
             else:
-                res = run_silent_command(['pgrep', 'httpd'])
+                res = run_silent_command(['pgrep', '-f', 'apache2|httpd'])
                 return len(res.stdout.strip()) > 0
         except Exception:
             return False
@@ -76,13 +83,78 @@ class ApacheManager:
         return {str(item).strip(): item for item in os.listdir(self.base_dir) 
                 if os.path.isdir(os.path.join(self.base_dir, item)) and not item.startswith("temp_")}
 
+    def _check_system_apache(self) -> dict:
+        """
+        Mendeteksi instalasi Apache2 / httpd bawaan OS (misalnya /usr/sbin/apache2 pada Linux).
+        """
+        if sys.platform == 'win32':
+            return {"exists": False, "version": "", "path": "", "running": False}
+
+        vyloserve_bin = os.path.normpath(os.path.join(get_project_root(), 'bin')).lower()
+        candidates = ['apache2', 'httpd']
+        clean_paths = [p for p in os.environ.get('PATH', '').split(os.pathsep) if vyloserve_bin not in p.lower()]
+        for std_dir in ['/usr/sbin', '/usr/bin', '/sbin', '/usr/local/sbin', '/usr/local/bin']:
+            if std_dir not in clean_paths and os.path.isdir(std_dir):
+                clean_paths.append(std_dir)
+
+        found_path = None
+        for cand in candidates:
+            found = shutil.which(cand, path=os.pathsep.join(clean_paths))
+            if found:
+                real_target = os.path.normpath(os.path.realpath(found)).lower()
+                if real_target.startswith(vyloserve_bin) or vyloserve_bin in real_target:
+                    continue
+                found_path = found
+                break
+
+        if not found_path:
+            return {"exists": False, "version": "", "path": "", "running": False}
+
+        version_str = "Unknown"
+        try:
+            res = subprocess.run([found_path, '-v'], capture_output=True, text=True, creationflags=get_silent_flags(), timeout=5)
+            out = res.stdout.strip() or res.stderr.strip()
+            match = re.search(r'Apache/(\d+\.\d+\.\d+)', out)
+            if match:
+                version_str = match.group(1)
+            elif out:
+                version_str = out.split('\n')[0].strip()
+        except Exception:
+            pass
+
+        is_running = False
+        try:
+            import psutil
+            for proc in psutil.process_iter(['name', 'exe']):
+                try:
+                    pname = (proc.info.get('name') or '').lower()
+                    pexe = (proc.info.get('exe') or '').lower()
+                    real_pexe = os.path.normpath(os.path.realpath(pexe)).lower() if pexe else ''
+                    if ('apache2' in pname or 'httpd' in pname) and vyloserve_bin not in pexe and not real_pexe.startswith(vyloserve_bin):
+                        is_running = True
+                        break
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+        except Exception:
+            pass
+
+        return {"exists": True, "version": version_str, "path": found_path, "running": is_running}
+
     def get_status(self):
         try:
             is_running = self.check_is_running()
             folder_map = self._get_installed_folders()
+            system_apache = self._check_system_apache()
             
             if not folder_map:
-                return {"status": "success", "installed": False, "version": None, "path": None, "running": is_running}
+                return {
+                    "status": "success",
+                    "installed": False,
+                    "version": None,
+                    "path": None,
+                    "running": is_running,
+                    "system_apache": system_apache
+                }
                 
             clean_folders = sorted(folder_map.keys(), key=lambda v: [int(x) for x in re.findall(r'\d+', v)] if re.findall(r'\d+', v) else [0], reverse=True)
             active_version = self._get_active_version()
@@ -92,7 +164,14 @@ class ApacheManager:
                 self._set_active_version_silent(installed_version)
 
             installed_path = os.path.join(self.base_dir, folder_map[installed_version])
-            return {"status": "success", "installed": True, "version": installed_version, "path": installed_path, "running": is_running}
+            return {
+                "status": "success",
+                "installed": True,
+                "version": installed_version,
+                "path": installed_path,
+                "running": is_running,
+                "system_apache": system_apache
+            }
         except Exception as e:
             return {"status": "error", "message": "backend.apache.status_check_failed", "args": {"e": str(e)}}
 
@@ -450,13 +529,9 @@ class ApacheManager:
             return {"status": "error", "message": "backend.apache.uninstall_failed", "args": {"e": str(e)}}
 
     def _open_path_os(self, target: str):
-        if sys.platform == 'win32':
-            os.startfile(target)
-        elif sys.platform == 'darwin':
-            subprocess.Popen(['open', target])
-        else:
-            subprocess.Popen(['xdg-open', target])
-        return {"status": "success"}
+        if open_path_in_file_manager(target):
+            return {"status": "success"}
+        return {"status": "error", "message": MSG_UNEXPECTED_ERROR}
 
     def open_directory(self):
         try:
@@ -527,10 +602,9 @@ class ApacheManager:
             if status.get("installed"):
                 conf_path = os.path.join(status["path"], "conf", HTTPD_CONF_NAME)
                 if os.path.exists(conf_path):
-                    if sys.platform == 'win32': os.startfile(conf_path)
-                    elif sys.platform == 'darwin': subprocess.Popen(['open', conf_path])
-                    else: subprocess.Popen(['xdg-open', conf_path])
-                    return {"status": "success"}
+                    if open_path_in_file_manager(conf_path):
+                        return {"status": "success"}
+                    return {"status": "error", "message": MSG_UNEXPECTED_ERROR}
             return {"status": "error", "message": "backend.apache.httpd_not_found"}
         except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
@@ -548,10 +622,9 @@ class ApacheManager:
                 
             if not os.path.exists(target): return {"status": "error", "message": "backend.apache.file_not_found"}
 
-            if sys.platform == 'win32': os.startfile(target)
-            elif sys.platform == 'darwin': subprocess.Popen(['open', target])
-            else: subprocess.Popen(['xdg-open', target])
-            return {"status": "success"}
+            if open_path_in_file_manager(target):
+                return {"status": "success"}
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR}
         except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
     def get_log_content(self, log_type: str):
@@ -636,7 +709,7 @@ class ApacheManager:
         try:
             if hasattr(self, 'api'): self.api.emit_log("backend.apache.terminating", "warn")
             if sys.platform == 'win32': run_silent_command(['taskkill', '/F', '/T', '/IM', 'httpd.exe'])
-            else: run_silent_command(['pkill', '-', 'httpd'])
+            else: run_silent_command(['pkill', '-f', 'httpd'])
                 
             if hasattr(self, 'api'): self.api.emit_log("backend.apache.stopped", "success")
             return {"status": "success", "message": "backend.apache.stopped_success"}

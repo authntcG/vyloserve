@@ -3,7 +3,10 @@ import sys
 import shutil
 from typing import Optional
 import subprocess
-import winreg
+try:
+    import winreg
+except ImportError:
+    winreg = None
 import ctypes
 import urllib.request
 import json
@@ -39,14 +42,39 @@ class GitManager:
     def _progress(self, pct: int, msg: str, args: dict = None):
         if hasattr(self, 'api') and self.api: self.api.emit_progress(pct, msg, args)
 
+    def _find_via_which(self, vyloserve_bin: str) -> Optional[str]:
+        if sys.platform == 'win32': return None
+        env = os.environ.copy()
+        clean_vylo = os.path.normpath(vyloserve_bin).lower() if vyloserve_bin else ""
+        clean_paths = [p for p in env.get('PATH', '').split(os.pathsep) if not clean_vylo or clean_vylo not in p.lower()]
+        for std_dir in ['/usr/bin', '/bin', '/usr/local/bin']:
+            if std_dir not in clean_paths and os.path.isdir(std_dir):
+                clean_paths.append(std_dir)
+        found = shutil.which('git', path=os.pathsep.join(clean_paths))
+        if found:
+            real_target = os.path.normpath(os.path.realpath(found)).lower()
+            if clean_vylo and (real_target.startswith(clean_vylo) or clean_vylo in real_target):
+                remaining = [p for p in clean_paths if os.path.normpath(p) != os.path.normpath(os.path.dirname(found))]
+                found_next = shutil.which('git', path=os.pathsep.join(remaining))
+                if found_next:
+                    real_next = os.path.normpath(os.path.realpath(found_next)).lower()
+                    if not (clean_vylo and (real_next.startswith(clean_vylo) or clean_vylo in real_next)):
+                        return found_next
+                return None
+            return found
+        return None
+
     def _find_via_where(self, vyloserve_bin: str) -> Optional[str]:
         if sys.platform != 'win32': return None
+        clean_vylo = os.path.normpath(vyloserve_bin).lower() if vyloserve_bin else ""
         try:
             res = subprocess.run(['where', 'git'], capture_output=True, text=True, creationflags=get_silent_flags())
             if res.returncode == 0:
                 for p in res.stdout.strip().split('\n'):
                     p_clean = os.path.normpath(p.strip())
-                    if p_clean and vyloserve_bin not in p_clean.lower(): return p_clean
+                    real_p = os.path.normpath(os.path.realpath(p_clean)).lower()
+                    if p_clean and (not clean_vylo or clean_vylo not in p_clean.lower()) and (not clean_vylo or not real_p.startswith(clean_vylo)):
+                        return p_clean
         except Exception: pass
         return None
 
@@ -113,7 +141,12 @@ class GitManager:
 
         vyloserve_bin = os.path.normpath(os.path.join(self.root_dir, 'bin')).lower()
         
-        found_path = self._find_via_where(vyloserve_bin) or self._find_via_registry(vyloserve_bin) or self._find_via_hardcoded()
+        found_path = (
+            self._find_via_which(vyloserve_bin) or
+            self._find_via_where(vyloserve_bin) or
+            self._find_via_registry(vyloserve_bin) or
+            self._find_via_hardcoded()
+        )
 
         if found_path:
             validated = self._validate_git_binary(found_path, silent=silent)
@@ -230,6 +263,11 @@ class GitManager:
             return res
 
     def _extract_sfx(self, exe_path: str, git_dir: str):
+        if sys.platform != 'win32' and os.path.exists(exe_path):
+            try:
+                os.chmod(exe_path, os.stat(exe_path).st_mode | 0o755)
+            except OSError:
+                pass
         creation_flags = get_silent_flags()
         res = subprocess.run([exe_path, "-y", f"-o{git_dir}"], capture_output=True, creationflags=creation_flags)
         if res.returncode != 0:

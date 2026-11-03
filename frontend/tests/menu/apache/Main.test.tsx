@@ -30,7 +30,7 @@ describe('ApacheMain', () => {
         mockPywebviewApi(apacheApi());
         renderWithToast(<ApacheMain />);
 
-        expect(await screen.findByText('Apache 2.4.62 (Win64)')).toBeInTheDocument();
+        expect(await screen.findByText(/Apache 2\.4\.62 \((Win64|Linux x64)\)/)).toBeInTheDocument();
     });
 
     it('starts a stopped Apache server and shows a success toast', async () => {
@@ -384,7 +384,7 @@ describe('ApacheMain', () => {
         await waitFor(() => expect(screen.getByText('apache.download_install')).not.toBeDisabled());
         await user.click(screen.getByText('apache.download_install'));
 
-        await user.click(screen.getAllByLabelText('Close')[0]);
+        await user.click(screen.getByText('Close'));
         act(() => {
             window.dispatchEvent(new CustomEvent('vylo_progress', {
                 detail: { source: 'ApacheManager', percent: 45, text: 'Installing...' },

@@ -155,17 +155,21 @@ def emit_log(self, message: str, level: str = "info", args: dict = None, source_
 
 | Fungsi | Perilaku |
 |---|---|
-| `get_project_root()` | Resolusi path aman baik mode `.py` (dev) maupun `.exe` (`sys.frozen`, PyInstaller). |
+| `get_project_root()` | Resolusi path aman baik mode `.py` (dev) maupun `.exe` (`sys.frozen`, PyInstaller lintas platform). |
 | `get_resource_path(rel)` | Resolusi path aset statis (`sys._MEIPASS` pada executable PyInstaller vs direktori root source). |
-| `run_silent_command(cmd)` | Eksekusi sinkron tersembunyi (`CREATE_NO_WINDOW`). |
+| `run_silent_command(cmd)` | Eksekusi sinkron tersembunyi (`CREATE_NO_WINDOW` di Windows, standar di Linux). |
 | `start_silent_process(cmd)` | Eksekusi asinkron tersembunyi (untuk daemon Apache/PHP/DB). |
 | `check_port_in_use(port, host)` | Cek `socket.create_connection((host, port))` (IPv4) dulu; jika gagal **dan** host adalah `127.0.0.1`/`localhost`, fallback ke `AF_INET6` (`::1`). |
+| `open_path_in_file_manager(target)` | Membuka berkas/folder pada File Manager default OS (`os.startfile` di Windows, `xdg-open` di Linux, `open` di macOS). |
+| `kill_process_tree(pid, timeout)` | Mematikan proses beserta pohon anak secara rekursif dan aman via `psutil`, dengan pengaman defensif terhadap PID `<= 1` dan `os.getpid()`. |
+| `acquire_single_instance_lock(lock_name)` | Mengunci instance tunggal pada OS non-Windows menggunakan `fcntl.flock` pada direktori `~/.vyloserve/`. |
+| `get_ipc_endpoint(is_production)` | Menghasilkan tuple `(address, family)` untuk koneksi IPC (`AF_PIPE` Named Pipe di Windows, `AF_UNIX` Domain Socket di Linux). |
 | `hex_to_colorref(hex_str)` | Mengonversi warna hex `#RRGGBB` ke integer Windows `COLORREF` (`0x00BBGGRR`). |
 | `get_theme_titlebar_palette(theme)` | Mengembalikan mapping warna caption & text titlebar untuk 15 tema bawaan. |
-| `apply_window_titlebar_theme(hwnd, theme, dark_mode)` | Mengatur atribut DWM window (`DWMWA_CAPTION_COLOR = 35`, `DWMWA_TEXT_COLOR = 36`, `DWMWA_USE_IMMERSIVE_DARK_MODE = 20`) via `dwmapi.dll`. |
-| `send_show_command_to_pipe(pipe_name)` | Menghubungkan client ke Named Pipe Windows dan mengirim string `"SHOW"` untuk aktivasi instance utama. |
-| `start_ipc_server(pipe_name, on_show_callback)` | Membuka server Windows Named Pipe di thread daemon untuk mendengarkan sinyal aktivasi dari instance sekunder. |
-| `bring_existing_instance_to_front()` | Mencoba aktivasi lewat Named Pipe IPC terlebih dahulu; fallback ke Win32 `FindWindowW` + `ShowWindow` jika IPC tidak merespon. |
+| `apply_window_titlebar_theme(hwnd, theme, dark_mode)` | Mengatur atribut DWM window (`DWMWA_CAPTION_COLOR = 35`, `DWMWA_TEXT_COLOR = 36`, `DWMWA_USE_IMMERSIVE_DARK_MODE = 20`) via `dwmapi.dll` di Windows. |
+| `send_show_command_to_pipe(pipe_name)` | Menghubungkan client ke Named Pipe Windows / Unix Domain Socket Linux dan mengirim string `"SHOW"` untuk aktivasi instance utama. |
+| `start_ipc_server(pipe_name, on_show_callback)` | Membuka server IPC di thread daemon untuk mendengarkan sinyal aktivasi dari instance sekunder. |
+| `bring_existing_instance_to_front()` | Mencoba aktivasi lewat IPC terlebih dahulu; fallback ke Win32 `FindWindowW` + `ShowWindow` jika di Windows dan IPC tidak merespon. |
 
 ### 3.3 `cancellation.py` — Pengelolaan Token Pembatalan Asinkron
 
@@ -1132,6 +1136,7 @@ Tabel ini adalah hasil audit langsung terhadap kode per tanggal dokumen ini ditu
 | 11 | `uninstall_go()` tidak punya `return` sama sekali (implisit `None`) — frontend salah menampilkan error walau sukses | `runtimes_manager.py.uninstall_go()` | 🟡 Sedang — bug fungsional UX | ✅ **Sudah diperbaiki** — ditambahkan `return {"status": "success"}` |
 | 12 | `install_java()`/`install_go()` hanya menangkap `except OSError`, melewatkan `RuntimeError` yang dilempar sendiri di dalam try-nya → crash tidak tertangkap | `runtimes_manager.py` | 🔴 Bisa crash saat folder JDK tidak ditemukan setelah ekstrak | ✅ **Sudah diperbaiki** — diubah jadi `except Exception as e:`, konsisten dengan `install_node`/`install_python` |
 | 13 | Menu Tray "Exit Engine" punya jalur exit terpisah yang melewatkan cleanup engine (Apache/PHP/Database) — bug #2 sebenarnya masih bisa terjadi lewat jalur ini | `main.py` (`setup_systray.on_exit_clicked`, sebelum refactor) | 🔴 Kritis — bug fungsional (zombie process via jalur lain) | ✅ **Sudah diperbaiki** — kini memanggil `lifecycle.perform_exit()` yang sama dengan tombol Quit UI, sekaligus bagian dari refactor `main.py` → `AppLifecycle` (§15) |
+| 14 | Crash / Auto-Logout OS User di Linux saat `stop_server()` Apache (`pkill - httpd`) | `apache.py.stop_server()`, `system_utils.py.kill_process_tree()` | 🔴 Kritis — OS Desktop Session Crash | ✅ **Sudah diperbaiki** — diubah ke `pkill -f httpd`, proteksi `int_pid <= 1` & `os.getpid()`, autouse fixture `guard_process_termination` di conftest |
 | 14 | `_get_cbs()`'s `download_cb` memperlakukan `pct` (absolut 0-100 dari `file_utils.py`) seolah fraksi `0.0-1.0`, mengalikannya dengan `span` → progress meluber ribuan persen saat unduhan/ekstraksi, lalu "melompat mundur" saat tahap berikutnya mengirim nilai tetap | `runtimes_manager.py._get_cbs()`, `git_manager.py.install_git()` (multiplier lebih kecil, gejala tersamar) | 🔴 Kritis — bug UX nyata, dilaporkan pengguna | ✅ **Sudah diperbaiki** — `download_cb` sekarang meng-*clamp* `pct` ke `[start_pct, end_pct]`, bukan mengalikan. Lihat §8.2 & `docs/known_bugs.md` #16 |
 | 15 | `read_json(path, dict).get(...)` dipanggil langsung tanpa `isinstance` check di 2 tempat — crash `AttributeError: 'str' object has no attribute 'get'` jika file JSON valid tapi bukan objek | `php.py._get_preferred_versions()`, `database.py._get_preferred_dbs()` | 🔴 Kritis — crash tidak konsisten (tergantung isi file saat itu) | ✅ **Sudah diperbaiki** — root cause di `read_json()` sendiri (§3.1, sekarang menjamin tipe), plus `isinstance` guard eksplisit di kedua caller. Lihat `docs/known_bugs.md` #17 |
 | 16 | Tahap "configuring" pada `install_version()` PHP melapor progress **100%** padahal Composer (tahap berikutnya) belum dipasang → melanggar kontrak `percent>=100 = selesai` (§2.2) → widget progress frontend menghilang mid-instalasi | `php.py.install_version()` | 🔴 Kritis — bug UX nyata, dilaporkan pengguna | ✅ **Sudah diperbaiki** — diganti jadi 92%; 100% dicadangkan khusus untuk `"backend.php.installation_complete"`. Lihat `docs/known_bugs.md` #18 |

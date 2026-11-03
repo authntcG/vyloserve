@@ -37,32 +37,33 @@ def test_check_external_installation(mock_query, mock_open, mock_run, git_manage
 
     mock_run.side_effect = run_side_effect
     
-    # 1. via where
-    res1 = git_manager._check_external_installation()
-    assert res1['exists'] is True
-    assert res1['path'] == "C:\\Program Files\\Git\\cmd\\git.exe"
-    
-    # 2. via registry (simulate where failing)
-    def run_side_effect2(cmd, *args, **kwargs):
-        cmd_str = cmd if isinstance(cmd, str) else cmd[0]
-        if 'where' in cmd_str:
-            return MagicMock(returncode=1, stdout="")
-        else:
-            return MagicMock(returncode=0, stdout="git version 2.0.0")
-            
-    mock_run.side_effect = run_side_effect2
-    mock_query.return_value = ("C:\\Program Files\\Git", 1)
-    with patch('core.services.git_manager.os.path.exists', return_value=True):
-        res2 = git_manager._check_external_installation()
-        assert res2['exists'] is True
-        assert "git.exe" in res2['path']
+    with patch('sys.platform', 'win32'):
+        # 1. via where
+        res1 = git_manager._check_external_installation()
+        assert res1['exists'] is True
+        assert res1['path'] == "C:\\Program Files\\Git\\cmd\\git.exe"
         
-    # 3. via hardcoded (simulate where and registry failing)
-    mock_query.side_effect = Exception("Not found")
-    with patch('core.services.git_manager.os.path.exists', side_effect=lambda p: "Program Files\\Git" in p):
-        res3 = git_manager._check_external_installation()
-        assert res3['exists'] is True
-        assert "git.exe" in res3['path']
+        # 2. via registry (simulate where failing)
+        def run_side_effect2(cmd, *args, **kwargs):
+            cmd_str = cmd if isinstance(cmd, str) else cmd[0]
+            if 'where' in cmd_str:
+                return MagicMock(returncode=1, stdout="")
+            else:
+                return MagicMock(returncode=0, stdout="git version 2.0.0")
+                
+        mock_run.side_effect = run_side_effect2
+        mock_query.return_value = ("C:\\Program Files\\Git", 1)
+        with patch('core.services.git_manager.os.path.exists', return_value=True):
+            res2 = git_manager._check_external_installation()
+            assert res2['exists'] is True
+            assert "git.exe" in res2['path']
+            
+        # 3. via hardcoded (simulate where and registry failing)
+        mock_query.side_effect = Exception("Not found")
+        with patch('core.services.git_manager.os.path.exists', side_effect=lambda p: "Program Files\\Git" in p):
+            res3 = git_manager._check_external_installation()
+            assert res3['exists'] is True
+            assert "git.exe" in res3['path']
 
 @patch('core.services.git_manager.download_advanced')
 @patch.object(GitManager, '_extract_sfx')
@@ -129,11 +130,12 @@ def test_uninstall_git(mock_exists, mock_rmtree, git_manager):
 @patch('winreg.CloseKey')
 @patch('ctypes.windll.user32.SendMessageTimeoutW')
 def test_git_toggle_user_path(mock_send, mock_close, mock_set, mock_query, mock_open, git_manager):
-    mock_query.return_value = (r"C:\Windows;", 1)
-    res = git_manager.toggle_user_path(True)
-    assert res['status'] == 'success'
-    mock_set.assert_called_once()
-    assert 'bin\\git\\cmd' in mock_set.call_args[0][4]
+    with patch('sys.platform', 'win32'):
+        mock_query.return_value = (r"C:\Windows;", 1)
+        res = git_manager.toggle_user_path(True)
+        assert res['status'] == 'success'
+        mock_set.assert_called_once()
+        assert os.path.join('bin', 'git', 'cmd') in mock_set.call_args[0][4]
 
 @patch('core.services.git_manager.subprocess.run')
 def test_get_git_config(mock_run, git_manager):
@@ -178,12 +180,13 @@ def test_get_available_git_versions_exception(mock_urlopen, git_manager):
 @patch('core.services.git_manager.winreg.QueryValueEx')
 @patch('core.services.git_manager.winreg.CloseKey')
 def test_is_in_user_path(mock_close, mock_query, mock_open, git_manager):
-    mock_query.return_value = (r"C:\Windows;D:\Projects\Python\vyloserve\bin\git\cmd", 1)
-    assert git_manager._is_in_user_path(r"D:\Projects\Python\vyloserve\bin\git\cmd") is True
-    assert git_manager._is_in_user_path(r"C:\NonExistent") is False
+    with patch('sys.platform', 'win32'):
+        mock_query.return_value = (r"C:\Windows;D:\Projects\Python\vyloserve\bin\git\cmd", 1)
+        assert git_manager._is_in_user_path(r"D:\Projects\Python\vyloserve\bin\git\cmd") is True
+        assert git_manager._is_in_user_path(r"C:\NonExistent") is False
 
-    mock_query.side_effect = Exception("Registry error")
-    assert git_manager._is_in_user_path(r"C:\Windows") is False
+        mock_query.side_effect = Exception("Registry error")
+        assert git_manager._is_in_user_path(r"C:\Windows") is False
 
 # ==========================================
 # _find_via_hardcoded — cabang tidak ditemukan
@@ -321,25 +324,27 @@ def test_install_git_download_prog_cb_accepts_three_positional_args(mock_extract
 @patch('winreg.CloseKey')
 @patch('ctypes.windll.user32.SendMessageTimeoutW')
 def test_git_toggle_user_path_handles_missing_registry_value(mock_send, mock_close, mock_set, mock_query, mock_open, git_manager):
-    res = git_manager.toggle_user_path(True)
-    assert res['status'] == 'success'
-    mock_set.assert_called_once()
+    with patch('sys.platform', 'win32'):
+        res = git_manager.toggle_user_path(True)
+        assert res['status'] == 'success'
+        mock_set.assert_called_once()
 
 @patch('winreg.OpenKey')
 @patch('winreg.CloseKey')
 @patch('ctypes.windll.user32.SendMessageTimeoutW')
 def test_git_toggle_user_path_disable_removes_from_path(mock_send, mock_close, mock_open, git_manager):
-    target = os.path.normpath(os.path.join(git_manager.bin_dir, 'git', 'cmd'))
-    with patch('winreg.QueryValueEx', return_value=(f"C:\\Windows;{target}", 1)):
-        with patch('winreg.SetValueEx') as mock_set:
-            res = git_manager.toggle_user_path(False)
-    assert res['status'] == 'success'
-    new_path = mock_set.call_args[0][4]
-    assert target not in new_path
-    assert "C:\\Windows" in new_path
+    with patch('sys.platform', 'win32'):
+        target = os.path.normpath(os.path.join(git_manager.bin_dir, 'git', 'cmd'))
+        with patch('winreg.QueryValueEx', return_value=(f"C:\\Windows;{target}", 1)):
+            with patch('winreg.SetValueEx') as mock_set:
+                res = git_manager.toggle_user_path(False)
+        assert res['status'] == 'success'
+        new_path = mock_set.call_args[0][4]
+        assert target not in new_path
+        assert "C:\\Windows" in new_path
 
 def test_git_toggle_user_path_handles_exception(git_manager):
-    with patch('winreg.OpenKey', side_effect=OSError("registry locked")):
+    with patch('sys.platform', 'win32'), patch('winreg.OpenKey', side_effect=OSError("registry locked")):
         res = git_manager.toggle_user_path(True)
     assert res['status'] == 'error'
     assert res['args']['e'] == 'registry locked'
@@ -375,7 +380,8 @@ def test_git_get_status_silent_suppresses_logs(git_manager, mock_api):
         mock_api.emit_log.assert_not_called()
 
 def test_git_get_status_non_silent_emits_logs(git_manager, mock_api):
-    with patch.object(git_manager, '_find_via_where', return_value=None), \
+    with patch.object(git_manager, '_find_via_which', return_value=None), \
+         patch.object(git_manager, '_find_via_where', return_value=None), \
          patch.object(git_manager, '_find_via_registry', return_value=None), \
          patch.object(git_manager, '_find_via_hardcoded', return_value=None), \
          patch('os.path.exists', return_value=False):
@@ -383,11 +389,20 @@ def test_git_get_status_non_silent_emits_logs(git_manager, mock_api):
         assert res['installed'] is False
         mock_api.emit_log.assert_any_call("backend.git.scanning_external", "info", None)
 
-
 def test_install_git_cancelled(git_manager):
     from core.utils.cancellation import OperationCancelledError
     with patch('core.services.git_manager.download_advanced', side_effect=OperationCancelledError("Cancelled")):
         res = git_manager.install_git("http://fake-git.exe", "git.exe", "2.45.0")
         assert res["status"] == "cancelled"
         assert res["message"] == "backend.git.install_cancelled"
+
+def test_find_via_which_returns_none_on_windows(git_manager):
+    with patch('sys.platform', 'win32'):
+        assert git_manager._find_via_which("/fake/bin") is None
+
+def test_find_via_which_finds_system_git_on_linux(git_manager):
+    with patch('sys.platform', 'linux'), \
+         patch('shutil.which', return_value="/usr/bin/git") as mock_which:
+        assert git_manager._find_via_which("/fake/bin") == "/usr/bin/git"
+        mock_which.assert_called_once()
 

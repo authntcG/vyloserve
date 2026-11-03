@@ -392,6 +392,7 @@ import threading
 # install_zrok Tests
 # ==========================================
 
+@patch('sys.platform', 'win32')
 @patch('core.services.tunnels.os.path.exists')
 @patch('core.services.tunnels.os.remove')
 @patch('core.services.tunnels.os.makedirs')
@@ -425,6 +426,36 @@ def test_install_zrok_success(mock_open, mock_rename, mock_glob, mock_extract, m
     assert res['status'] == 'success'
     tunnels_manager.api.emit_progress.assert_any_call(100, "backend.zrok.install_success", None)
 
+@patch('sys.platform', 'linux')
+@patch('core.services.tunnels.os.path.exists')
+@patch('core.services.tunnels.os.remove')
+@patch('core.services.tunnels.os.makedirs')
+@patch('core.services.tunnels.urllib.request.urlopen')
+@patch('core.services.tunnels.extract_archive')
+@patch('glob.glob')
+@patch('core.services.tunnels.os.rename')
+@patch('builtins.open', new_callable=MagicMock)
+def test_install_zrok_success_linux(mock_open, mock_rename, mock_glob, mock_extract, mock_urlopen, mock_makedirs, mock_remove, mock_exists, tunnels_manager):
+    mock_exists.return_value = True
+    
+    mock_json_response = MagicMock()
+    mock_json_response.read.return_value = json.dumps({
+        "assets": [{"name": "zrok_linux_amd64.tar.gz", "browser_download_url": "http://fake.url/zrok.tar.gz"}]
+    }).encode('utf-8')
+    
+    mock_bin_response = MagicMock()
+    mock_bin_response.info.return_value.get.return_value = "100"
+    mock_bin_response.read.side_effect = [b"1234567890", b""]
+    
+    mock_urlopen.return_value.__enter__.side_effect = [mock_json_response, mock_bin_response]
+    mock_glob.return_value = ["fake_extracted_zrok"]
+    
+    tunnels_manager.api = MagicMock()
+    
+    res = tunnels_manager.install_zrok("latest")
+    assert res['status'] == 'success'
+    tunnels_manager.api.emit_progress.assert_any_call(100, "backend.zrok.install_success", None)
+
 @patch('core.services.tunnels.urllib.request.urlopen')
 def test_install_zrok_release_not_found(mock_urlopen, tunnels_manager):
     mock_json_response = MagicMock()
@@ -435,6 +466,7 @@ def test_install_zrok_release_not_found(mock_urlopen, tunnels_manager):
     assert res['status'] == 'error'
     assert res['message'] == 'backend.zrok.release_not_found'
 
+@patch('sys.platform', 'win32')
 @patch('core.services.tunnels.os.path.exists')
 @patch('core.services.tunnels.os.makedirs')
 @patch('core.services.tunnels.urllib.request.urlopen')
@@ -459,6 +491,7 @@ def test_install_zrok_extract_fail(mock_remove, mock_open, mock_extract, mock_ur
     assert res['status'] == 'error'
     assert res['message'] == 'backend.zrok.extract_failed'
 
+@patch('sys.platform', 'win32')
 @patch('core.services.tunnels.os.path.exists')
 @patch('core.services.tunnels.os.makedirs')
 @patch('core.services.tunnels.urllib.request.urlopen')
@@ -491,6 +524,7 @@ def test_install_zrok_rename_retry_loop(mock_sleep, mock_rename, mock_glob, mock
     mock_sleep.assert_called_once()
     assert mock_rename.call_count == 2
 
+@patch('sys.platform', 'win32')
 @patch('core.services.tunnels.os.path.exists')
 @patch('core.services.tunnels.os.makedirs')
 @patch('core.services.tunnels.urllib.request.urlopen')
@@ -670,11 +704,26 @@ def test_start_cloudflare_share_success(mock_popen, mock_exists, tunnels_manager
     assert res['status'] == 'success'
     assert res['url'] == 'https://random-words.trycloudflare.com'
 
+@patch('sys.platform', 'win32')
 @patch('core.services.tunnels.urllib.request.urlopen')
 def test_get_available_cloudflare_versions(mock_urlopen, tunnels_manager):
     mock_json_response = MagicMock()
     mock_json_response.read.return_value = json.dumps([
         {"tag_name": "2024.1.0", "name": "2024.1.0", "assets": [{"name": "cloudflared-windows-amd64.exe"}]}
+    ]).encode('utf-8')
+    mock_urlopen.return_value.__enter__.return_value = mock_json_response
+    
+    res = tunnels_manager.get_available_cloudflare_versions()
+    assert res['status'] == 'success'
+    assert len(res['data']) == 1
+    assert res['data'][0]['id'] == "2024.1.0"
+
+@patch('sys.platform', 'linux')
+@patch('core.services.tunnels.urllib.request.urlopen')
+def test_get_available_cloudflare_versions_linux(mock_urlopen, tunnels_manager):
+    mock_json_response = MagicMock()
+    mock_json_response.read.return_value = json.dumps([
+        {"tag_name": "2024.1.0", "name": "2024.1.0", "assets": [{"name": "cloudflared-linux-amd64"}]}
     ]).encode('utf-8')
     mock_urlopen.return_value.__enter__.return_value = mock_json_response
     
@@ -796,20 +845,37 @@ def test_read_cloudflare_version_scenarios(tunnels_manager):
         assert tunnels_manager._read_cloudflare_version() == "2024.2.0"
 
 def test_resolve_cloudflare_download_url_variants(tunnels_manager):
-    with patch('core.services.tunnels.urllib.request.urlopen', side_effect=Exception("timeout")):
-        url, ver = tunnels_manager._resolve_cloudflare_download_url("latest")
-        assert url == "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
-        assert ver == "latest"
+    with patch('sys.platform', 'win32'):
+        with patch('core.services.tunnels.urllib.request.urlopen', side_effect=Exception("timeout")):
+            url, ver = tunnels_manager._resolve_cloudflare_download_url("latest")
+            assert url == "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+            assert ver == "latest"
 
-    mock_resp = MagicMock()
-    mock_resp.read.return_value = json.dumps({
-        "assets": [{"name": "cloudflared-windows-amd64.exe", "browser_download_url": "https://example.com/cf.exe"}]
-    }).encode('utf-8')
-    with patch('core.services.tunnels.urllib.request.urlopen') as mock_open:
-        mock_open.return_value.__enter__.return_value = mock_resp
-        url, ver = tunnels_manager._resolve_cloudflare_download_url("2024.2.0")
-        assert url == "https://example.com/cf.exe"
-        assert ver == "2024.2.0"
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps({
+            "assets": [{"name": "cloudflared-windows-amd64.exe", "browser_download_url": "https://example.com/cf.exe"}]
+        }).encode('utf-8')
+        with patch('core.services.tunnels.urllib.request.urlopen') as mock_open:
+            mock_open.return_value.__enter__.return_value = mock_resp
+            url, ver = tunnels_manager._resolve_cloudflare_download_url("2024.2.0")
+            assert url == "https://example.com/cf.exe"
+            assert ver == "2024.2.0"
+
+    with patch('sys.platform', 'linux'):
+        with patch('core.services.tunnels.urllib.request.urlopen', side_effect=Exception("timeout")):
+            url, ver = tunnels_manager._resolve_cloudflare_download_url("latest")
+            assert url == "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
+            assert ver == "latest"
+
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps({
+            "assets": [{"name": "cloudflared-linux-amd64", "browser_download_url": "https://example.com/cf-linux"}]
+        }).encode('utf-8')
+        with patch('core.services.tunnels.urllib.request.urlopen') as mock_open:
+            mock_open.return_value.__enter__.return_value = mock_resp
+            url, ver = tunnels_manager._resolve_cloudflare_download_url("2024.2.0")
+            assert url == "https://example.com/cf-linux"
+            assert ver == "2024.2.0"
 
     mock_resp_empty = MagicMock()
     mock_resp_empty.read.return_value = json.dumps({"assets": []}).encode('utf-8')

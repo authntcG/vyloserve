@@ -1,5 +1,6 @@
 import re
 import os
+import sys
 import json
 import shutil
 import urllib.request
@@ -37,7 +38,8 @@ ZROK_SHARE_DETECT_TIMEOUT_SECONDS = 30
 # SonarQube python:S1192 -- literal "localhost:" dipakai berulang untuk mendeteksi
 # target custom (localhost:port) vs. project VyloServe terdaftar.
 ZROK_LOCALHOST_PREFIX = "localhost:"
-ZROK_EXE_NAME = "zrok.exe"
+ZROK_EXE_NAME = "zrok.exe" if sys.platform == "win32" else "zrok"
+CLOUDFLARED_EXE_NAME = "cloudflared.exe" if sys.platform == "win32" else "cloudflared"
 MSG_ZROK_PROCESS_LOG = "backend.zrok.process_log"
 MSG_PROJECT_NOT_FOUND = "backend.project.project_not_found"
 MSG_CF_PROCESS_LOG = "backend.cloudflare.process_log"
@@ -88,7 +90,7 @@ class TunnelsManager:
 
     @property
     def cloudflared_exe(self):
-        return os.path.join(self.cloudflared_dir, 'cloudflared.exe')
+        return os.path.join(self.cloudflared_dir, CLOUDFLARED_EXE_NAME)
 
     def _log(self, msg: str, level: str = "info", args: dict = None):
         if hasattr(self, 'api') and self.api: self.api.emit_log(msg, level, args)
@@ -224,9 +226,10 @@ class TunnelsManager:
             return res
 
     def get_available_zrok_versions(self) -> dict:
+        target_token = "windows_amd64" if sys.platform == "win32" else "linux_amd64"
         return self._fetch_release_versions(
             "openziti/zrok",
-            "windows_amd64",
+            target_token,
             "backend.zrok.fetching_versions",
             "backend.zrok.versions_fetched",
             MSG_ZROK_PROCESS_LOG
@@ -283,8 +286,9 @@ class TunnelsManager:
         }
 
     def _resolve_zrok_download_url(self, version: str) -> "tuple[Optional[str], str]":
-        """Cari URL aset Windows AMD64 dari GitHub Releases untuk versi zrok yang diminta, mengembalikan (url, actual_version)."""
+        """Cari URL aset platform saat ini dari GitHub Releases untuk versi zrok yang diminta, mengembalikan (url, actual_version)."""
         actual_version = version
+        target_token = "windows_amd64" if sys.platform == "win32" else "linux_amd64"
         if version == "latest":
             try:
                 req_latest = urllib.request.Request("https://github.com/openziti/zrok/releases/latest", headers=GITHUB_API_HEADERS)
@@ -294,7 +298,7 @@ class TunnelsManager:
                 actual_version = "v0.4.42"
                 
         clean_version = actual_version.lstrip('v')
-        guessed_url = f"https://github.com/openziti/zrok/releases/download/{actual_version}/zrok_{clean_version}_windows_amd64.tar.gz"
+        guessed_url = f"https://github.com/openziti/zrok/releases/download/{actual_version}/zrok_{clean_version}_{target_token}.tar.gz"
         
         url = f'https://api.github.com/repos/openziti/zrok/releases/tags/{actual_version}'
         try:
@@ -302,7 +306,7 @@ class TunnelsManager:
             with urllib.request.urlopen(req, timeout=10) as response:
                 data = json.loads(response.read().decode())
                 for asset in data.get('assets', []):
-                    if 'windows_amd64.tar.gz' in asset['name'] or 'windows_amd64.zip' in asset['name']:
+                    if f'{target_token}.tar.gz' in asset['name'] or f'{target_token}.zip' in asset['name']:
                         return asset['browser_download_url'], actual_version
         except Exception:
             try:
@@ -342,12 +346,16 @@ class TunnelsManager:
             shutil.rmtree(target_dir, ignore_errors=True)
 
     def _normalize_zrok_exe_name(self, target_dir: str) -> None:
-        """Rilis zrok terbaru kadang menamai binari 'zrok2.exe' dsb; samakan jadi zrok.exe."""
+        """Rilis zrok terbaru kadang menamai binari 'zrok2.exe' dsb; samakan jadi zrok.exe atau zrok."""
         target_exe = os.path.join(target_dir, ZROK_EXE_NAME)
         if os.path.exists(target_exe):
+            if sys.platform != "win32":
+                try: os.chmod(target_exe, 0o755)
+                except OSError: pass
             return
         import glob
-        exe_files = glob.glob(os.path.join(target_dir, "zrok*.exe"))
+        pattern = os.path.join(target_dir, "zrok*.exe" if sys.platform == "win32" else "zrok*")
+        exe_files = [f for f in glob.glob(pattern) if not os.path.isdir(f) and not f.endswith(('.tar.gz', '.zip'))]
         if not exe_files:
             return
         for _ in range(10):
@@ -356,6 +364,9 @@ class TunnelsManager:
                 if os.path.exists(target_exe):
                     os.remove(target_exe)
                 os.rename(exe_files[0], target_exe)
+                if sys.platform != "win32":
+                    try: os.chmod(target_exe, 0o755)
+                    except OSError: pass
                 return
             except Exception:
                 time.sleep(0.5)
@@ -661,9 +672,10 @@ class TunnelsManager:
     # ------------------------------------------------------------------------
 
     def get_available_cloudflare_versions(self) -> dict:
+        target_asset = "cloudflared-windows-amd64.exe" if sys.platform == "win32" else "cloudflared-linux-amd64"
         return self._fetch_release_versions(
             "cloudflare/cloudflared",
-            "cloudflared-windows-amd64.exe",
+            target_asset,
             "backend.cloudflare.fetching_versions",
             "backend.cloudflare.versions_fetched",
             MSG_CF_PROCESS_LOG
@@ -703,6 +715,7 @@ class TunnelsManager:
         }
 
     def _resolve_cloudflare_download_url(self, version: str) -> "tuple[Optional[str], str]":
+        asset_name = "cloudflared-windows-amd64.exe" if sys.platform == "win32" else "cloudflared-linux-amd64"
         actual_version = version
         if version == "latest":
             try:
@@ -712,7 +725,7 @@ class TunnelsManager:
                     actual_version = data.get('tag_name', 'latest')
             except Exception:
                 actual_version = "latest"
-            return "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe", actual_version
+            return f"https://github.com/cloudflare/cloudflared/releases/latest/download/{asset_name}", actual_version
             
         url = f'https://api.github.com/repos/cloudflare/cloudflared/releases/tags/{actual_version}'
         try:
@@ -720,7 +733,7 @@ class TunnelsManager:
             with urllib.request.urlopen(req, timeout=10) as response:
                 data = json.loads(response.read().decode())
                 for asset in data.get('assets', []):
-                    if 'cloudflared-windows-amd64.exe' in asset['name']:
+                    if asset_name in asset['name']:
                         return asset['browser_download_url'], actual_version
         except Exception:
             return None, actual_version
@@ -763,10 +776,16 @@ class TunnelsManager:
             self._clear_engine('cloudflared')
             target_dir = os.path.join(self._get_tunnel_parent_dir('cloudflared'), actual_version)
             os.makedirs(target_dir, exist_ok=True)
-            target_exe = os.path.join(target_dir, 'cloudflared.exe')
+            target_exe = os.path.join(target_dir, CLOUDFLARED_EXE_NAME)
 
             self._log("backend.cloudflare.downloading", "info", {"url": download_url})
             self._download_cf_archive(download_url, target_exe, token)
+
+            if sys.platform != 'win32':
+                try:
+                    os.chmod(target_exe, 0o755)
+                except OSError:
+                    pass
 
             self._progress(100, MSG_CF_INSTALL_SUCCESS)
             self._log(MSG_CF_INSTALL_SUCCESS, "success")

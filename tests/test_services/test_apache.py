@@ -301,11 +301,12 @@ def test_apache_get_available_versions(mock_urlopen, apache_manager):
     mock_response.read.return_value.decode.return_value = 'href="httpd-2.4.50-win64-VS16.zip"'
     mock_urlopen.return_value = mock_response
     
-    with patch.object(apache_manager, '_parse_apache_versions_html', return_value=[{"version": "2.4.50"}]):
-        res = apache_manager.get_available_versions()
-        assert res['status'] == 'success'
-        assert len(res['data']) > 0
-        assert res['data'][0]['version'] == '2.4.50'
+    with patch('sys.platform', 'win32'):
+        with patch.object(apache_manager, '_parse_apache_versions_html', return_value=[{"version": "2.4.50"}]):
+            res = apache_manager.get_available_versions()
+            assert res['status'] == 'success'
+            assert len(res['data']) > 0
+            assert res['data'][0]['version'] == '2.4.50'
 
 @patch('core.services.apache.os.path.exists', return_value=True)
 @patch('core.services.apache.os.listdir', return_value=["2.4.50", "2.4.51"])
@@ -407,10 +408,38 @@ def test_get_installed_folders_empty_when_base_dir_missing(apache_manager):
 # ==========================================
 
 def test_get_status_not_installed(apache_manager):
-    with patch.object(apache_manager, 'check_is_running', return_value=False):
-        with patch.object(apache_manager, '_get_installed_folders', return_value={}):
-            res = apache_manager.get_status()
-    assert res == {"status": "success", "installed": False, "version": None, "path": None, "running": False}
+    with patch.object(apache_manager, 'check_is_running', return_value=False), \
+         patch.object(apache_manager, '_check_system_apache', return_value={"exists": False, "version": "", "path": "", "running": False}), \
+         patch.object(apache_manager, '_get_installed_folders', return_value={}):
+        res = apache_manager.get_status()
+    assert res == {
+        "status": "success",
+        "installed": False,
+        "version": None,
+        "path": None,
+        "running": False,
+        "system_apache": {"exists": False, "version": "", "path": "", "running": False}
+    }
+
+def test_check_system_apache_windows(apache_manager):
+    with patch('sys.platform', 'win32'):
+        res = apache_manager._check_system_apache()
+        assert res["exists"] is False
+
+def test_check_system_apache_found(apache_manager):
+    with patch('sys.platform', 'linux'), \
+         patch('shutil.which', return_value="/usr/sbin/apache2"), \
+         patch('subprocess.run', return_value=MagicMock(stdout="Server version: Apache/2.4.58 (Ubuntu)\n", stderr="")):
+        res = apache_manager._check_system_apache()
+        assert res["exists"] is True
+        assert res["version"] == "2.4.58"
+        assert res["path"] == "/usr/sbin/apache2"
+
+def test_check_system_apache_not_found(apache_manager):
+    with patch('sys.platform', 'linux'), \
+         patch('shutil.which', return_value=None):
+        res = apache_manager._check_system_apache()
+        assert res["exists"] is False
 
 def test_get_status_self_heals_when_saved_active_version_missing(apache_manager):
     """Jika versi aktif tersimpan sudah tidak ada di disk, harus otomatis pindah ke versi terbaru terinstal."""
@@ -622,7 +651,7 @@ def test_install_version_cancelled_cleans_up_and_returns_cancelled(apache_manage
 
 def test_open_directory_linux_branch(apache_manager):
     with patch.object(apache_manager, 'get_status', return_value={"installed": True, "path": "/opt/apache"}):
-        with patch('os.makedirs'):
+        with patch('os.makedirs'), patch('os.path.exists', return_value=True):
             with patch('sys.platform', 'linux'):
                 with patch('subprocess.Popen') as mock_popen:
                     res = apache_manager.open_directory()
@@ -825,7 +854,7 @@ def test_stop_server_uses_pkill_on_non_windows(apache_manager):
         with patch('core.services.apache.run_silent_command') as mock_run:
             res = apache_manager.stop_server()
     assert res['status'] == 'success'
-    mock_run.assert_called_once_with(['pkill', '-', 'httpd'])
+    mock_run.assert_called_once_with(['pkill', '-f', 'httpd'])
 
 # ==========================================
 # Pintasan Direktori & Status Port

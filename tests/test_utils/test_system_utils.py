@@ -481,4 +481,95 @@ def test_sync_theme_bootstrap_file_fallback_on_invalid_theme(tmp_path):
         assert 'window.__VYLO_INITIAL_THEME__ = "vyloserve-dark";' in pub_file.read_text(encoding="utf-8")
 
 
+def test_open_path_in_file_manager_invalid_path():
+    from core.utils.system_utils import open_path_in_file_manager
+    assert open_path_in_file_manager("") is False
+    assert open_path_in_file_manager("/path/does/not/exist/anywhere") is False
+
+
+def test_open_path_in_file_manager_windows(tmp_path):
+    from core.utils.system_utils import open_path_in_file_manager
+    test_dir = str(tmp_path)
+    with patch('sys.platform', 'win32'), patch('os.startfile', create=True) as mock_start:
+        assert open_path_in_file_manager(test_dir) is True
+        mock_start.assert_called_once_with(test_dir)
+
+
+def test_open_path_in_file_manager_linux(tmp_path):
+    from core.utils.system_utils import open_path_in_file_manager
+    test_dir = str(tmp_path)
+    with patch('sys.platform', 'linux'), patch('subprocess.Popen') as mock_popen:
+        assert open_path_in_file_manager(test_dir) is True
+        mock_popen.assert_called_once_with(['xdg-open', test_dir])
+
+
+def test_open_path_in_file_manager_darwin(tmp_path):
+    from core.utils.system_utils import open_path_in_file_manager
+    test_dir = str(tmp_path)
+    with patch('sys.platform', 'darwin'), patch('subprocess.Popen') as mock_popen:
+        assert open_path_in_file_manager(test_dir) is True
+        mock_popen.assert_called_once_with(['open', test_dir])
+
+
+def test_kill_process_tree_invalid_pid():
+    from core.utils.system_utils import kill_process_tree
+    assert kill_process_tree(0) is False
+    assert kill_process_tree(-1) is False
+
+
+def test_kill_process_tree_success():
+    from core.utils.system_utils import kill_process_tree
+    mock_parent = MagicMock()
+    mock_child = MagicMock()
+    mock_parent.children.return_value = [mock_child]
+
+    with patch('psutil.Process', return_value=mock_parent), \
+         patch('psutil.wait_procs', return_value=([mock_child, mock_parent], [])):
+        assert kill_process_tree(1234) is True
+        mock_child.terminate.assert_called_once()
+        mock_parent.terminate.assert_called_once()
+
+
+def test_get_ipc_endpoint_windows():
+    from core.utils.system_utils import get_ipc_endpoint
+    with patch('sys.platform', 'win32'):
+        endpoint_prod, family_prod = get_ipc_endpoint(is_production=True)
+        assert endpoint_prod == r'\\.\pipe\VyloServe_IPC_v1'
+        assert family_prod == 'AF_PIPE'
+
+        endpoint_dev, family_dev = get_ipc_endpoint(is_production=False)
+        assert endpoint_dev == r'\\.\pipe\VyloServe_Dev_IPC_v1'
+        assert family_dev == 'AF_PIPE'
+
+
+def test_get_ipc_endpoint_linux():
+    from core.utils.system_utils import get_ipc_endpoint
+    with patch('sys.platform', 'linux'):
+        endpoint_prod, family_prod = get_ipc_endpoint(is_production=True)
+        assert 'vyloserve_ipc.sock' in endpoint_prod
+        assert family_prod == 'AF_UNIX'
+
+        endpoint_dev, family_dev = get_ipc_endpoint(is_production=False)
+        assert 'vyloserve_dev_ipc.sock' in endpoint_dev
+        assert family_dev == 'AF_UNIX'
+
+
+def test_acquire_single_instance_lock_windows():
+    from core.utils.system_utils import acquire_single_instance_lock
+    with patch('sys.platform', 'win32'):
+        is_first, handle = acquire_single_instance_lock("test_lock")
+        assert is_first is True
+        assert handle is None
+
+
+def test_acquire_single_instance_lock_linux(tmp_path):
+    from core.utils.system_utils import acquire_single_instance_lock
+    with patch('sys.platform', 'linux'), patch('os.path.expanduser', return_value=str(tmp_path)):
+        is_first, handle = acquire_single_instance_lock("test_lock")
+        assert is_first is True
+        assert handle is not None
+        handle.close()
+
+
+
 
