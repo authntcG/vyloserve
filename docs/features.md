@@ -15,11 +15,14 @@ VyloServe dirancang sebagai alternatif yang jauh lebih cepat, estetik, dan ringa
 - **Pengaturan Dinamis:** Dapat mengubah `memory_limit`, `upload_max_filesize`, dan variabel `php.ini` lainnya dari UI.
 - **Cek & Update Versi (Patch):** Instance PHP yang terinstal dicek otomatis di latar belakang terhadap versi patch terbaru pada baris major.minor yang sama (mis. 8.2.x terbaru, bukan loncat ke 8.3). Kalau ada, kartu instance mendapat badge kecil "Update" di sebelah namanya dan opsi "Update to {versi}" muncul di menu "..." — pola referensi yang kemudian ditiru modul Database (lihat §3). Beda dengan Database, update PHP hanya satu langkah konfirmasi (tanpa opsi backup, karena `update_php()` backend tidak punya kemampuan itu).
 
-## 3. Database (MySQL/MariaDB & PostgreSQL)
-- **Instalasi Dual-Engine:** Mendukung MariaDB (pengganti MySQL ringan) dan PostgreSQL.
+## 3. Database (MariaDB, PostgreSQL, & Redis)
+- **Instalasi Triple-Engine:** Mendukung MariaDB (pengganti MySQL ringan), PostgreSQL, dan **Redis** (In-Memory Key-Value Data Store & Cache portable port 6379, konfigurasi `redis.conf`, kontrol memori `maxmemory` dan `maxmemory-policy`).
+- **Database Schema Manager Terpadu:** Pengguna dapat mengelola skema database secara langsung dari UI via modal `DatabaseSchemaModal` (melihat daftar skema, membuat database/skema baru, dan menghapus skema dengan konfirmasi aman) untuk MySQL/MariaDB dan PostgreSQL tanpa memerlukan GUI client pihak ketiga seperti DBeaver atau HeidiSQL.
 - **Silent Start:** Menjalankan instance database melalui *daemon* tanpa menggunakan Windows Services. Membaca port secara kustom agar tidak bertabrakan dengan database sistem pengguna.
-- **Auto-Password & Config:** Melakukan parsing otomatis terhadap `my.ini` dan `postgresql.conf` untuk menyesuaikan penggunaan memori (seperti `shared_buffers`).
+- **Auto-Password & Config:** Melakukan parsing otomatis terhadap `my.ini`, `postgresql.conf`, dan `redis.conf` untuk menyesuaikan penggunaan memori (seperti `shared_buffers` atau `maxmemory`).
+- **Optimasi Fetch Versi MariaDB:** Pengambilan daftar rilis MariaDB dari repositori mirror resmi dilengkapi sistem caching lokal dan batas waktu adaptif (*timeout*), mengeliminasi jeda latensi panjang (>30 detik) saat peladen mirror lambat.
 - **Cek & Update Versi Engine:** Setiap instance database yang terinstal dicek otomatis di latar belakang terhadap versi terbaru yang tersedia untuk engine-nya (sekali per engine unik, bukan per-instance, dibandingkan secara semantik lewat `compareVersions()` agar versi yang sudah lebih baru dari hasil cek tidak keliru ditandai "ada update"). Kalau ada versi lebih baru, kartu instance terkait mendapat badge kecil "Update" di sebelah namanya dan opsi "Update to {versi}" muncul di menu "..." — pola yang sama persis dengan modul PHP. Alur update terdiri dari dua konfirmasi berurutan — (1) konfirmasi update ke versi target, (2) pilihan opsional membuat cadangan (*backup*) direktori data sebelum memperbarui (langkah ini khusus Database, PHP tidak punya ini) — lalu dijalankan dengan progress bar real-time dan *auto-rollback* otomatis ke versi sebelumnya kalau proses update gagal di tengah jalan.
+- **Pembatalan Berkelanjutan (*Cancellable*):** Proses download dan instalasi database dapat dibatalkan sewaktu-waktu melalui tombol *Cancel* pada progress status block; sistem secara otomatis memutus stream dan melakukan pembersihan direktori parsial.
 
 ## 4. Runtimes Manager
 Mengelola instalasi engine pemrograman pihak ketiga dengan arsitektur multi-versi simultan dan kontrol orkestrasi PATH terpusat (**`RuntimePathHub`**).
@@ -46,6 +49,7 @@ Modul independen di navigasi utama untuk mengelola siklus hidup proyek web dan a
 - **Auto Windows Hosts:** Melakukan injeksi domain lokal ke file `C:\Windows\System32\drivers\etc\hosts` secara aman dengan elevasi Administrator (UAC).
 - **Dev Server Process Manager:** Menjalankan, memantau, dan menghentikan proses server pengembangan latar belakang (*dev server*) per proyek secara independen, lengkap dengan dialog live log streaming (`get_project_server_logs`).
 - **Modal Terminal CLI Interaktif (`ProjectCliInstallModal`):** Menyediakan terminal berbasis `xterm.js` dengan streaming PTY dua arah saat instalasi framework meminta interaksi tanya-jawab CLI (seperti setup Next.js atau Vite) sehingga proses tidak pernah hang di latar belakang.
+- **Smart Offline Partial Barrier:** Saat komputer tidak terhubung ke internet, wizard pembuatan project (`NewProject.tsx`) secara adaptif tetap mengizinkan opsi "Link Existing Directory" dan penyusunan "Raw Template" lokal tanpa terblokir oleh download framework remote, lengkap dengan tombol 1-klik untuk beralih ke template offline.
 - **Tampilan Ganda (Card View & Table View):** Fleksibilitas visual dengan opsi kerapatan tabel (*compact*, *normal*, *relaxed*) dan filter chip runtime.
 
 ## 6. Git Version Control & Local SSL CA
@@ -127,12 +131,22 @@ Kumpulan utilitas pengembang modern dengan tata letak visual terpadu (12-column 
 - **Dual Interface Modes & Isolated Input Performance:** Pengguna dapat berinteraksi melalui halaman utama terdedikasi (*AI Assistant Page*) atau melalui tombol gelembung melayang (*Floating Chat Bubble*) yang persisten di pojok kanan bawah seluruh menu. Kolom input pesan (`AiChatInput`) terisolasi dari state daftar pesan yang di-memoize (`AiChatMessage`), menjamin pengetikan bebas lag dan layout anti-lompat selama streaming berlangsung.
 - **Real-Time SSE Streaming:** Streaming token respons asinkron menggunakan Server-Sent Events (SSE) di background thread Python (`vylo_ai_chunk`), memberikan efek pengetikan halus dengan latensi minimal dan penanganan kesalahan terperinci untuk kuota habis (HTTP 429), kunci tidak valid (HTTP 401), atau server lokal Ollama mati.
 
-## 14. Developer Terminal (Multi-Tab & Environment Scoping)
+## 14. Developer Terminal (Multi-Tab, Workspaces, & Environment Scoping)
 Terminal terintegrasi di dalam aplikasi desktop yang dirancang khusus untuk kenyamanan alur kerja pengembangan web lokal:
 - **Arsitektur Multi-Tab Berbasis `xterm.js`:** Menjalankan beberapa sesi terminal secara independen dalam tab-tab terisolasi, lengkap dengan shortcut keyboard penambahan tab baru (`+`), penutupan tab, dan pembersihan buffer konsol (*clear*).
 - **Dukungan Ragam Shell:** Mendukung shell bawaan Windows PowerShell, Command Prompt (CMD), Git Bash (termasuk deteksi instalasi PortableGit internal), serta opsi shell kustom yang dapat diatur sebagai profil default.
-- **Environment Scoping & Saved Presets:** Memungkinkan pembukaan sesi terminal yang disuntikkan (*scoped environment*) direktori bin dari versi tertentu (PHP, Node.js, Python, Java, Go, atau Git) ke variabel PATH sesi terminal tersebut secara instan tanpa memodifikasi registry Windows PATH sistem. Konfigurasi scoping ini dapat disimpan sebagai Preset tersimpan (*Saved Presets*) untuk digunakan kembali dengan 1-klik.
-- **Pelacakan CWD Real-Time:** Memantau direktori kerja aktif (*Current Working Directory*) sesi terminal di latar belakang, memungkinkan penamaan tab yang dinamis dan penyelarasan konteks direktori secara otomatis.
+- **Saved Presets & Workspace Tab Groups:** Memungkinkan penyimpanan konfigurasi tab aktif menjadi *Saved Preset* (nama, shell, direktori CWD, palet warna tab, dan profil runtime), serta penyimpanan seluruh tab yang sedang terbuka sekaligus menjadi *Workspace Tab Group*. Pengguna dapat meluncurkan kembali seluruh sesi tab proyek dalam 1-klik melalui menu popover *Saved Sessions* (`TerminalPresetsMenu`).
+- **Environment Scoping Dinamis:** Menyediakan modal konfigurasi profil lingkungan (`TerminalEnvModal` & `TerminalConfigModal`). Pengguna dapat menentukan versi PHP, Node.js, Python, Java, Go, atau Git yang aktif di sesi terminal tanpa mengubah registry PATH global Windows, dengan pilihan scope:
+  - *Current Tab:* Hanya berlaku pada tab yang sedang aktif.
+  - *Global Default:* Menjadi profil bawaan untuk setiap pembukaan tab terminal baru berikutnya.
+  - *Quick Presets:* Tombol cepat satu-klik untuk langsung menerapkan paket *VyloServe Stack* atau *OS Native Only*.
+- **Pelacakan CWD Real-Time:** Memantau direktori kerja aktif (*Current Working Directory*) sesi terminal di latar belakang via API `get_terminal_session_cwd`, memungkinkan penamaan tab yang dinamis dan penyelarasan konteks direktori secara otomatis.
 - **Kustomisasi Tampilan & Perilaku:** Dialog pengaturan terminal (`TerminalSettingsModal`) menyediakan konfigurasi font family, ukuran font, gaya kursor (*block*, *underline*, *bar*), kedipan kursor (*cursor blink*), ukuran buffer scrollback, dan opsi salin otomatis saat seleksi teks (*copy on select*).
 - **Integrasi Pintasan Lintas-Modul:** Tombol "Open in Terminal" dari modul Projects Hub, Runtimes, dan Apache secara cerdas mengarahkan pengguna ke Developer Terminal dan langsung membuka sesi di direktori proyek atau runtime yang bersangkutan.
+
+## 15. Resiliensi Offline & Pembatalan Operasi (Cancellation & Rollback)
+- **Proactive Multi-Endpoint Internet Probe:** Memeriksa ketersediaan koneksi internet menggunakan probe multi-DNS independen (`core/utils/network_utils.py`), membedakan kegagalan akibat jaringan fisik terputus (`is_offline = True`) dari kesalahan server remote (HTTP 5xx / 404).
+- **Unified `<OfflineBanner>` Komponen:** Menampilkan spanduk peringatan non-intrusif di seluruh modal instalasi jika koneksi tidak tersedia, lengkap dengan tombol *Retry Connection* yang memverifikasi koneksi ulang secara instan.
+- **Pencegahan Hang & Fallback Palsu:** Menghilangkan placeholder yang menyesatkan saat offline dan membatalkan fallback versi statis lama yang rentan gagal di tengah jalan.
+- **Asynchronous Cancellation Token (`core/utils/cancellation.py`):** Seluruh proses pengunduhan dan ekstraksi multi-tahap (Apache, PHP, Database, Runtimes, Git, Tunnels) terhubung ke registry token pembatalan. Menekan tombol "Cancel" pada widget progress secara aman memutus koneksi streaming, membatalkan thread ekstraksi, dan melakukan auto-rollback (penghapusan arsip parsial dan direktori target yang belum rampung) sehingga disk pengguna tetap bersih dan tidak korup.
 

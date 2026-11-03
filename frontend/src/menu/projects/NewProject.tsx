@@ -526,7 +526,7 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
     }, []);
 
     useEffect(() => {
-        const sanitized = domainName.replace(/[^a-zA-Z0-9_]/g, '_');
+        const sanitized = domainName.replace(/\W/g, '_');
         setTargetDbName(sanitized);
     }, [domainName]);
 
@@ -645,30 +645,38 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
         setIsDetecting(false);
     };
 
+    const validateSubmission = (): boolean => {
+        const isPhp = projectType === 'php';
+        if (!projectName || !domainName || (isPhp && !selectedVersion)) {
+            showToast(t('apache.new_project_req_error'), 'warning');
+            return false;
+        }
+        if (!isPhp && (!proxyPort || proxyPort < 1024 || proxyPort > 65535)) {
+            showToast(t('apache.invalid_proxy_port_error'), 'warning');
+            return false;
+        }
+        if (isExistingLocal && !documentRoot) {
+            showToast(t('apache.new_project_docroot_error'), 'warning');
+            return false;
+        }
+        if (!isExistingLocal && !installLocation) {
+            showToast(t('apache.new_project_workspace_error'), 'warning');
+            return false;
+        }
+        if (!isOnline && !isExistingLocal && !RAW_FRAMEWORKS.has(frameworkToInstall)) {
+            showToast(t('backend.error.no_internet'), 'error');
+            return false;
+        }
+        return true;
+    };
+
     useImperativeHandle(ref, () => ({
         submit: async () => {
-            const isPhp = projectType === 'php';
-            if (!projectName || !domainName || (isPhp && !selectedVersion)) {
-                showToast(t('apache.new_project_req_error'), 'warning');
-                return false;
-            }
-            if (!isPhp && (!proxyPort || proxyPort < 1024 || proxyPort > 65535)) {
-                showToast(t('apache.invalid_proxy_port_error'), 'warning');
-                return false;
-            }
-            if (isExistingLocal && !documentRoot) {
-                showToast(t('apache.new_project_docroot_error'), 'warning');
-                return false;
-            }
-            if (!isExistingLocal && !installLocation) {
-                showToast(t('apache.new_project_workspace_error'), 'warning');
-                return false;
-            }
-            if (!isOnline && !isExistingLocal && !RAW_FRAMEWORKS.has(frameworkToInstall)) {
-                showToast(t('backend.error.no_internet'), 'error');
+            if (!validateSubmission()) {
                 return false;
             }
 
+            const isPhp = projectType === 'php';
             const selectedPhpData = phpVersions.find(p => p.version === selectedVersion);
             const actualPhpPort = selectedPhpData?.port || selectedPhpData?.fastcgi_port || 9000;
 
@@ -688,7 +696,7 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
                 use_venv: projectType === 'python' ? useVenv : false,
                 auto_create_db: autoCreateDb,
                 db_instance_id: autoCreateDb ? selectedDbId : undefined,
-                target_db_name: autoCreateDb ? (targetDbName.trim() || domainName.replace(/[^a-zA-Z0-9_]/g, '_')) : undefined,
+                target_db_name: autoCreateDb ? (targetDbName.trim() || domainName.replace(/\W/g, '_')) : undefined,
             };
 
             setInternalIsCreating(true);
@@ -849,7 +857,7 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
                                     id="auto_create_db_name"
                                     type="text"
                                     value={targetDbName}
-                                    onChange={(e) => setTargetDbName(e.target.value.replace(/[^a-zA-Z0-9_]/g, '_'))}
+                                    onChange={(e) => setTargetDbName(e.target.value.replace(/\W/g, '_'))}
                                     disabled={isCreating}
                                     placeholder="project_db"
                                     className={inputClasses}

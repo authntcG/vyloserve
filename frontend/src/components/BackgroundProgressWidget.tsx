@@ -28,7 +28,7 @@ export default function BackgroundProgressWidget({
     const displayTitle = title || t('components.progress.installing');
 
     return (
-        <div
+        <div // NOSONAR typescript:S6819
             role="button"
             tabIndex={0}
             onClick={onRestore}

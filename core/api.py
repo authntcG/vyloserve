@@ -24,6 +24,7 @@ from core.utils.network_utils import check_internet_connection as _check_interne
 
 PROJECT_NOT_LOADED_MSG = "backend.error.project_module_not_loaded"
 UNEXPECTED_ERROR_MSG = "backend.error.unexpected"
+FILTER_ALL_FILES = 'All files (*.*)'
 
 class Api:
     """
@@ -479,7 +480,7 @@ class Api:
     # ==========================================
     # FILE / DIRECTORY DIALOG
     # ==========================================
-    def save_base64_file(self, filename: str, base64_data: str, file_types: tuple = ('All files (*.*)',)):
+    def save_base64_file(self, filename: str, base64_data: str, file_types: tuple = (FILTER_ALL_FILES,)):
         if not self._window: return {"status": "error", "message": UNEXPECTED_ERROR_MSG, "args": {"e": "No window"}}
         result = self._window.create_file_dialog(
             webview.SAVE_DIALOG, 
@@ -504,14 +505,14 @@ class Api:
                 return result[0].replace('\\', '/')
         return None
 
-    def browse_open_file(self, file_types: tuple = ('SQL files (*.sql)', 'All files (*.*)')) -> Optional[str]:
+    def browse_open_file(self, file_types: tuple = ('SQL files (*.sql)', FILTER_ALL_FILES)) -> Optional[str]:
         if self._window:
             result = self._window.create_file_dialog(webview.OPEN_DIALOG, file_types=file_types)
             if result and len(result) > 0:
                 return result[0].replace('\\', '/')
         return None
 
-    def browse_save_file(self, default_name: str = "", file_types: tuple = ('SQL files (*.sql)', 'All files (*.*)')) -> Optional[str]:
+    def browse_save_file(self, default_name: str = "", file_types: tuple = ('SQL files (*.sql)', FILTER_ALL_FILES)) -> Optional[str]:
         if self._window:
             result = self._window.create_file_dialog(webview.SAVE_DIALOG, save_filename=default_name, file_types=file_types)
             if result and len(result) > 0:

@@ -133,47 +133,58 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
         window.pywebview?.api?.open_apache_file?.('vhosts');
     }, []);
 
+    const fetchPortsStatus = async () => {
+        try {
+            const pRes = await window.pywebview?.api?.get_apache_ports_status?.();
+            if (pRes?.status === 'success') {
+                setPortsStatus(pRes.data);
+            }
+        } catch {
+            // ignore
+        }
+    };
+
+    const syncApacheVersions = async (installed: boolean) => {
+        if (!installed) {
+            setInstalledApacheVersion(null);
+            setUpdateAvailable(null);
+            return;
+        }
+
+        let activeVersion: string | null = null;
+        const ver = await window.pywebview?.api?.get_apache_installed_versions?.();
+        if (ver?.status === 'success') {
+            activeVersion = ver.active || ver.data?.[0] || null;
+            setInstalledApacheVersion(activeVersion);
+        }
+
+        if (!activeVersion) {
+            setUpdateAvailable(null);
+            return;
+        }
+
+        const avail = await window.pywebview?.api?.get_available_apache?.();
+        if (avail?.status === 'success') {
+            const filtered = (avail.data || []).filter((v: ApacheVersionData) => v.version !== activeVersion);
+            setAvailableVersions(filtered);
+            setUpdateAvailable(filtered[0]?.version ?? null);
+        } else {
+            setUpdateAvailable(null);
+        }
+    };
+
     const fetchApacheStatus = useCallback(async () => {
         setIsFetchingApacheStatus(true);
         try {
             const res = await window.pywebview?.api?.get_apache_status();
+            const isInstalled = Boolean(res?.status === 'success' && res.installed);
             if (res?.status === 'success') {
                 setIsApacheInstalled(res.installed);
                 setApachePath(res.path || tRef.current('apache.not_installed'));
                 setIsApacheRunning(res.running || false);
             }
-            try {
-                const pRes = await window.pywebview?.api?.get_apache_ports_status?.();
-                if (pRes?.status === 'success') {
-                    setPortsStatus(pRes.data);
-                }
-            } catch {
-                // ignore
-            }
-            let activeVersion = null;
-            if (res?.status === 'success' && res.installed) {
-                const ver = await window.pywebview?.api?.get_apache_installed_versions();
-                if (ver?.status === 'success') {
-                    activeVersion = ver.active || ver.data[0];
-                    setInstalledApacheVersion(activeVersion);
-                }
-            } else {
-                setInstalledApacheVersion(null);
-            }
-            if (res?.status === 'success' && res.installed && activeVersion) {
-                const avail = await window.pywebview?.api?.get_available_apache();
-                if (avail?.status === 'success') {
-                    const filtered = avail.data.filter((v: ApacheVersionData) => v.version !== activeVersion);
-                    setAvailableVersions(filtered);
-                    if (filtered.length > 0) {
-                        setUpdateAvailable(filtered[0].version);
-                    } else {
-                        setUpdateAvailable(null);
-                    }
-                }
-            } else {
-                setUpdateAvailable(null);
-            }
+            await fetchPortsStatus();
+            await syncApacheVersions(isInstalled);
         } catch (e) {
             console.error(e);
         } finally {

@@ -6,10 +6,11 @@ import pytest
 from core.services.terminal import TerminalManager
 
 @pytest.fixture
-def terminal_manager():
+def terminal_manager(tmp_path):
     api = MagicMock()
-    tm = TerminalManager(api=api)
-    return tm
+    with patch('core.services.terminal.get_project_root', return_value=str(tmp_path)):
+        tm = TerminalManager(api=api)
+        return tm
 
 def test_get_available_shells(terminal_manager):
     shells = terminal_manager.get_available_shells()

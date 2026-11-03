@@ -94,6 +94,14 @@ export default function UrlMain() {
         }
     };
 
+    const applyUpdatedUrl = (updated: string) => {
+        if (mode === 'encode') {
+            setInput(updated);
+        } else {
+            setInput(scope === 'full' ? encodeURI(updated) : encodeURIComponent(updated));
+        }
+    };
+
     const handleParamChange = (index: number, newKey: string, newValue: string) => {
         if (!parsedUrl) return;
         try {
@@ -106,8 +114,7 @@ export default function UrlMain() {
             for (const [k, v] of entries) {
                 if (k.trim()) urlObj.searchParams.append(k, v);
             }
-            const updated = urlObj.toString();
-            setInput(mode === 'encode' ? updated : (scope === 'full' ? encodeURI(updated) : encodeURIComponent(updated)));
+            applyUpdatedUrl(urlObj.toString());
         } catch (e) {
             console.error(e);
         }
@@ -118,8 +125,7 @@ export default function UrlMain() {
         try {
             const urlObj = new URL(parsedUrl.toString());
             urlObj.searchParams.append('key', 'value');
-            const updated = urlObj.toString();
-            setInput(mode === 'encode' ? updated : (scope === 'full' ? encodeURI(updated) : encodeURIComponent(updated)));
+            applyUpdatedUrl(urlObj.toString());
         } catch (e) {
             console.error(e);
         }
@@ -135,8 +141,7 @@ export default function UrlMain() {
             for (const [k, v] of entries) {
                 urlObj.searchParams.append(k, v);
             }
-            const updated = urlObj.toString();
-            setInput(mode === 'encode' ? updated : (scope === 'full' ? encodeURI(updated) : encodeURIComponent(updated)));
+            applyUpdatedUrl(urlObj.toString());
         } catch (e) {
             console.error(e);
         }

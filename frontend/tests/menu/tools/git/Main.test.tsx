@@ -29,9 +29,14 @@ describe('GitMain', () => {
         renderWithToast(<GitMain />);
 
         expect(await screen.findByText('tools.git.native_os_card_title')).toBeInTheDocument();
-        expect(screen.getByText('C:/Git/bin/git.exe')).toBeInTheDocument();
+        expect(screen.getAllByText('C:/Git/bin/git.exe').length).toBeGreaterThanOrEqual(1);
         expect(screen.queryByText('tools.git.not_installed_title')).not.toBeInTheDocument();
         expect(screen.getByText('tools.git.install_git')).not.toBeDisabled();
+
+        const alertBox = screen.getByTestId('external-git-warning-alert');
+        expect(alertBox).toBeInTheDocument();
+        expect(alertBox).toHaveTextContent('tools.git.external_overview_title');
+        expect(alertBox).toHaveTextContent('tools.git.external_locked');
     });
 
     it('shows the core system and global config cards when git is installed', async () => {

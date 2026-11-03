@@ -6,7 +6,7 @@ Dokumen ini adalah rujukan tunggal untuk aturan konsistensi visual & komponen be
 
 ## 1. Aturan Warna: Theme-Aware vs Statis
 
-VyloServe punya 10 tema (lihat `docs/frontend_ui.md` §2.1). Sebagian token warna Tailwind **mengikuti tema aktif** (berubah per `[data-theme]`), sebagian lagi **selalu sama** di semua tema. Salah memilih di antara keduanya adalah sumber #1 bug inkonsistensi yang ditemukan audit.
+VyloServe punya **15 tema bawaan** (VyloServe Dark/Light, Darcula, Solarized Dark/Light, High Contrast Dark/Light, Monokai, Dracula, Nord, Windows XP Luna Light, Windows XP Zune Dark, Catppuccin Mocha, Tokyo Night, dan Gruvbox Dark; lihat `docs/frontend_ui.md` §2.1). Sebagian token warna Tailwind **mengikuti tema aktif** (berubah per `[data-theme]`), sebagian lagi **selalu sama** di semua tema. Salah memilih di antara keduanya adalah sumber #1 bug inkonsistensi yang ditemukan audit.
 
 ### Token yang THEME-AWARE (ikut berubah per tema)
 Didefinisikan via CSS custom property `var(--theme-X, fallback)` di `frontend/src/index.css`. **Ini daftar LENGKAP shade yang benar-benar punya `--theme-*` — shade lain di family yang sama (mis. `emerald-100`, `amber-800`) TIDAK ter-cover sama sekali, meskipun "secara keluarga" terlihat seperti sudah theme-aware:**

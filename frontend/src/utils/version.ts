@@ -18,8 +18,8 @@ export function compareVersions(v1?: string | null, v2?: string | null): number 
     const p1 = s1.split('.').map(Number);
     const p2 = s2.split('.').map(Number);
     for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
-        const n1 = isNaN(p1[i]) ? 0 : (p1[i] || 0);
-        const n2 = isNaN(p2[i]) ? 0 : (p2[i] || 0);
+        const n1 = Number.isNaN(p1[i]) ? 0 : (p1[i] || 0);
+        const n2 = Number.isNaN(p2[i]) ? 0 : (p2[i] || 0);
         if (n1 > n2) return 1;
         if (n1 < n2) return -1;
     }

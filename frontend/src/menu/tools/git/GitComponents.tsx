@@ -39,23 +39,53 @@ export function ExternalCard({ gitData, t }: any) {
     if (!gitData.external?.exists || gitData.installed) return null;
     return (
         <div className="mt-6">
-            <Card title={t('tools.git.native_os_card_title')} status={t('tools.git.native_os')} gridCols="grid-cols-1">
+            <Card title={t('tools.git.native_os_card_title')} status={t('tools.git.native_os')} gridCols="grid-cols-1 md:grid-cols-2">
                 <div className="flex flex-col gap-1 w-full min-w-0">
-                    <span className="text-xs font-medium text-slate-500 uppercase">{t('tools.git.installed_version')}</span>
+                    <span className="text-xs font-medium text-slate-500 uppercase">{t('tools.git.version')}</span>
                     <span className="font-mono text-sm font-semibold text-slate-900 dark:text-slate-200 truncate">
                         {gitData.external.version}
                     </span>
                 </div>
-                <div className="flex flex-col gap-1 mt-3 w-full min-w-0">
+                <div className="flex flex-col gap-1 w-full min-w-0">
+                    <span className="text-xs font-medium text-slate-500 uppercase">{t('tools.git.architecture')}</span>
+                    <span className="font-mono text-sm text-slate-900 dark:text-slate-200 truncate">
+                        {t('tools.git.native_os')}
+                    </span>
+                </div>
+                <div className="flex flex-col gap-1 col-span-1 md:col-span-2 w-full min-w-0">
                     <span className="text-xs font-medium text-slate-500 uppercase">{t('tools.git.system_path_binary')}</span>
-                    <span className="font-mono text-[11px] text-slate-600 dark:text-slate-400 break-all bg-slate-100 dark:bg-slate-800/50 p-2 rounded border border-slate-200 dark:border-slate-700/50 leading-relaxed">
+                    <span className="font-mono text-xs text-slate-600 dark:text-slate-400 truncate" title={gitData.external.path}>
                         {gitData.external.path}
                     </span>
                 </div>
-                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 w-full min-w-0">
-                    <div className="flex items-start gap-2 text-xs font-medium text-amber-600 dark:text-amber-500">
-                        <span className="material-symbols-outlined text-[16px] shrink-0 mt-0.5">lock</span>
-                        <span className="leading-relaxed break-words">{t('tools.git.external_locked')}</span>
+                <div className="col-span-1 md:col-span-2 mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 w-full min-w-0">
+                    <div
+                        data-testid="external-git-warning-alert"
+                        className="flex items-start gap-3 p-3.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs"
+                    >
+                        <span className="material-symbols-outlined text-[20px] text-amber-600 dark:text-amber-400 shrink-0 mt-0.5">
+                            warning
+                        </span>
+                        <div className="flex flex-col gap-1 min-w-0">
+                            <span className="font-semibold text-amber-900 dark:text-amber-300">
+                                {t('tools.git.external_overview_title')} (v{gitData.external.version})
+                            </span>
+                            {gitData.external.path && (
+                                <span
+                                    className="font-mono text-[11px] text-slate-700 dark:text-slate-300 bg-white/70 dark:bg-slate-950/50 px-2 py-0.5 rounded border border-amber-500/20 truncate"
+                                    title={gitData.external.path}
+                                >
+                                    {gitData.external.path}
+                                </span>
+                            )}
+                            <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
+                                {t('tools.git.external_overview_desc', { version: gitData.external.version, path: gitData.external.path })}
+                            </p>
+                            <div className="flex items-center gap-1.5 mt-1 text-amber-600 dark:text-amber-500 font-medium">
+                                <span className="material-symbols-outlined text-[16px] shrink-0">lock</span>
+                                <span className="leading-relaxed">{t('tools.git.external_locked')}</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </Card>

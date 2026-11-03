@@ -27,7 +27,6 @@ interface ApacheInstallWizardProps {
     readonly isFetchingVersions: boolean;
     readonly progress: number;
     readonly progressText: string;
-    readonly isApacheInstalled?: boolean;
     readonly onRetryFetch?: () => void;
     readonly isCancelling?: boolean;
     readonly onCancelInstall?: () => void;

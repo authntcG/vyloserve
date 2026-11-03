@@ -33,9 +33,10 @@ export default function ServiceToggleButton({
     className = '',
 }: ServiceToggleButtonProps) {
     const colorClass = isRunning ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600';
-    const currentLabel = isToggling
-        ? (isRunning ? labels.stopping : labels.starting)
-        : (isRunning ? labels.stop : labels.start);
+    let currentLabel = isRunning ? labels.stop : labels.start;
+    if (isToggling) {
+        currentLabel = isRunning ? labels.stopping : labels.starting;
+    }
 
     const layoutClass = iconOnly
         ? 'p-2 rounded-lg'

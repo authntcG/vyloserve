@@ -115,6 +115,7 @@ describe('RuntimePathHub', () => {
         expect(alertBox).toHaveTextContent('C:/Program Files/nodejs/node.exe');
         expect(alertBox).toHaveTextContent('22.0.0');
         expect(alertBox).toHaveTextContent('runtimes.external_overview_title');
+        expect(alertBox).toHaveTextContent('runtimes.external_install_locked');
     });
 
     it('renders isolated status when in_path is false', () => {

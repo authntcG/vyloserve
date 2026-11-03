@@ -65,42 +65,45 @@ export default function NewPhpInstance({
         }
     }, [isInstalling]);
 
+    const handlePhpVersionsResponse = useCallback((response: any) => {
+        if (response.status === 'success') {
+            reportOnline();
+            const versions = response.data || [];
+            setAvailableVersions(versions);
+
+            if (versions.length > 0) {
+                if (!version) {
+                    setVersion(versions[0].version);
+                    setFilename(versions[0].filename);
+                }
+            } else {
+                setVersion('');
+                setFilename('');
+            }
+        } else {
+            if (isOfflineResponse(response)) {
+                reportOffline();
+            }
+            setFetchError((t(response.message, response.args || {}) as string));
+            setAvailableVersions([]);
+        }
+    }, [version, t]);
+
     const fetchVersions = useCallback(async () => {
         setIsFetchingVersions(true);
         setFetchError('');
 
-        if (window.pywebview?.api) {
+        if (window.pywebview?.api?.get_php_versions) {
             try {
                 const response = await window.pywebview.api.get_php_versions();
-                if (response.status === 'success') {
-                    reportOnline();
-                    const versions = response.data;
-                    setAvailableVersions(versions);
-
-                    if (versions.length > 0) {
-                        if (!version) {
-                            setVersion(versions[0].version);
-                            setFilename(versions[0].filename);
-                        }
-                    } else {
-                        setVersion('');
-                        setFilename('');
-                    }
-                } else {
-                    if (isOfflineResponse(response)) {
-                        reportOffline();
-                    }
-                    setFetchError((t(response.message, response.args || {}) as string));
-                    setAvailableVersions([]);
-                }
+                handlePhpVersionsResponse(response);
             } catch (error) {
                 console.error(error);
                 setFetchError(t('php.backend_connection_error'));
             }
         }
         setIsFetchingVersions(false);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [t]);
+    }, [handlePhpVersionsResponse, t]);
 
     useEffect(() => {
         fetchVersions();

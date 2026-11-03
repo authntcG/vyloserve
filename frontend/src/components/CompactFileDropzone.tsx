@@ -126,7 +126,16 @@ export default function CompactFileDropzone({
     const defaultPrompt = promptText || t('tools.base64.drag_drop_tip') || 'Drag & drop a file here or browse';
 
     return (
-        <div
+        <div // NOSONAR typescript:S6819
+            role="button"
+            tabIndex={disabled ? -1 : 0}
+            aria-disabled={disabled}
+            onKeyDown={(e) => {
+                if (!disabled && (e.key === 'Enter' || e.key === ' ')) {
+                    e.preventDefault();
+                    inputRef.current?.click();
+                }
+            }}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}

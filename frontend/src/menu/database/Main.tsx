@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import Card from '../../components/Card';
 import Button from '../../components/Button';
 import ViewModeToggle from '../../components/ViewModeToggle';
@@ -24,6 +25,24 @@ import DatabaseSchemaModal from './DatabaseSchemaModal';
 import DatabaseTable from './DatabaseTable';
 
 export type { DbInstance, DbEngineType, AvailableUpdate } from '../../context/DatabaseContext';
+
+const getConfigFileLabel = (engine: string | undefined, t: TFunction) => {
+    if (engine === 'postgres') return t('database.open_postgres_conf');
+    if (engine === 'redis') return 'redis.conf';
+    return t('database.open_my_ini');
+};
+
+const getEngineIcon = (engine: string | undefined) => {
+    if (engine === 'postgres') return 'storage';
+    if (engine === 'redis') return 'memory';
+    return 'database';
+};
+
+const getEngineLabel = (engine: string | undefined, t: TFunction) => {
+    if (engine === 'postgres') return t('database.postgres');
+    if (engine === 'redis') return t('database.redis');
+    return t('database.mysql_mariadb');
+};
 
 function DatabaseMainView() {
     const { t } = useTranslation();
@@ -190,7 +209,7 @@ function DatabaseMainView() {
                                                     className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700/70 transition-colors"
                                                 >
                                                     <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">description</span>
-                                                    <span className="truncate">{db.engine === 'postgres' ? t('database.open_postgres_conf') : (db.engine === 'redis' ? 'redis.conf' : t('database.open_my_ini'))}</span>
+                                                    <span className="truncate">{getConfigFileLabel(db.engine, t)}</span>
                                                 </button>
                                                 <button
                                                     type="button"
@@ -296,9 +315,9 @@ function DatabaseMainView() {
                                             <span className="text-xs font-medium text-slate-500 uppercase">{t('database.engine')}</span>
                                             <span className="text-sm font-medium text-slate-900 dark:text-slate-200 flex items-center gap-1.5 truncate">
                                                 <span className="material-symbols-outlined text-[16px] text-slate-400">
-                                                    {db.engine === 'postgres' ? 'storage' : (db.engine === 'redis' ? 'memory' : 'database')}
+                                                    {getEngineIcon(db.engine)}
                                                 </span>
-                                                {db.engine === 'postgres' ? t('database.postgres') : (db.engine === 'redis' ? t('database.redis', 'Redis') : t('database.mysql_mariadb'))}
+                                                {getEngineLabel(db.engine, t)}
                                             </span>
                                         </div>
                                         <div className="flex flex-col gap-1 min-w-0">

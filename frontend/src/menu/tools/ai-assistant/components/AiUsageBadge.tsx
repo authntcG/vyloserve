@@ -96,7 +96,7 @@ export default function AiUsageBadge({ compact = false, className = '' }: AiUsag
 
             {/* POPOVER DIALOG */}
             {isOpen && (
-                <div
+                <div // NOSONAR typescript:S6819
                     role="dialog"
                     aria-label={t('ai.token_usage', 'Token Usage')}
                     className="absolute right-0 top-full mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl p-4 z-50 animate-in fade-in zoom-in-95 duration-150 m-0 block"

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { screen } from '../../../test-utils';
+import { screen, fireEvent } from '../../../test-utils';
 import { renderWithToast } from '../../../test-utils';
 import UrlMain from '../../../../src/menu/tools/url-encode-decode/Main';
 
@@ -153,5 +153,39 @@ describe('UrlMain', () => {
 
         expect(screen.getByDisplayValue(/key=value/)).toBeInTheDocument();
         expect(screen.queryByDisplayValue(/foo=bar/)).not.toBeInTheDocument();
+    });
+
+    it('allows changing param key, value, and copying param value', async () => {
+        const user = userEvent.setup();
+        renderWithToast(<UrlMain />);
+
+        await user.type(screen.getByPlaceholderText('tools.url.placeholder_encode'), 'https://example.com?query=search');
+
+        const keyInput = screen.getByLabelText('tools.url.param_key');
+        fireEvent.change(keyInput, { target: { value: 'q' } });
+
+        const valInput = screen.getByLabelText('tools.url.param_value');
+        fireEvent.change(valInput, { target: { value: 'find' } });
+
+        expect(screen.getByDisplayValue(/q=find/)).toBeInTheDocument();
+
+        const copyValBtn = screen.getByRole('button', { name: 'tools.url.copy_value' });
+        await user.click(copyValBtn);
+        expect(await navigator.clipboard.readText()).toBe('find');
+    });
+
+    it('loads sample from empty hierarchy placeholder and switches space encoding back to standard', async () => {
+        const user = userEvent.setup();
+        renderWithToast(<UrlMain />);
+
+        // Placeholder sample button (second sample button)
+        const sampleButtons = screen.getAllByRole('button', { name: /tools\.url\.sample/ });
+        await user.click(sampleButtons[1]);
+        expect(screen.getAllByDisplayValue(/vyloserve\.com/).length).toBeGreaterThan(0);
+
+        // Switch to plus then standard
+        await user.click(screen.getByText('tools.url.space_plus'));
+        await user.click(screen.getByText('tools.url.space_standard'));
+        expect(screen.getByText('tools.url.space_standard')).toBeInTheDocument();
     });
 });

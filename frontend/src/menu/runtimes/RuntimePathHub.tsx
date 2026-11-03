@@ -153,6 +153,10 @@ export default function RuntimePathHub({
                         <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
                             {t('runtimes.external_overview_desc', { version: ext.version, path: ext.path })}
                         </p>
+                        <div className="flex items-center gap-1.5 mt-1 text-amber-600 dark:text-amber-500 font-medium">
+                            <span className="material-symbols-outlined text-[16px] shrink-0">lock</span>
+                            <span className="leading-relaxed">{t('runtimes.external_install_locked')}</span>
+                        </div>
                     </div>
                 </div>
             )}

@@ -184,7 +184,7 @@ export default function TerminalEnvModal({
                         className="px-2.5 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary/20 font-medium transition-colors flex items-center gap-1 cursor-pointer"
                     >
                         <span className="material-symbols-outlined text-[14px]">bolt</span>
-                        VyloServe Stack
+                        <span>VyloServe Stack</span>
                     </button>
                     <button
                         type="button"
@@ -192,7 +192,7 @@ export default function TerminalEnvModal({
                         className="px-2.5 py-1 rounded-md bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 font-medium transition-colors flex items-center gap-1 cursor-pointer"
                     >
                         <span className="material-symbols-outlined text-[14px]">terminal</span>
-                        OS Native Only
+                        <span>OS Native Only</span>
                     </button>
                 </div>
 
@@ -206,17 +206,19 @@ export default function TerminalEnvModal({
                         {Object.entries(matrix).map(([engineKey, item]) => {
                             const rawVal = profile[engineKey] || item.default_mode;
                             const isUsingOS = rawVal === "os";
-                            const selectedValue = isUsingOS
-                                ? "os"
-                                : (rawVal === "vyloserve" && item.versions && item.versions.length > 0
-                                    ? item.versions[0].path
-                                    : rawVal);
+                            let selectedValue = rawVal;
+                            if (isUsingOS) {
+                                selectedValue = "os";
+                            } else if (rawVal === "vyloserve" && item.versions && item.versions.length > 0) {
+                                selectedValue = item.versions[0].path;
+                            }
 
-                            const activePathPreview = isUsingOS
-                                ? (item.os_path ? `OS PATH: ${item.os_path}` : "OS PATH binary")
-                                : (typeof selectedValue === "string" && selectedValue.includes("\\")
-                                    ? selectedValue
-                                    : item.path || (item.versions?.[0]?.path) || "Managed by VyloServe");
+                            let activePathPreview = item.path || item.versions?.[0]?.path || "Managed by VyloServe";
+                            if (isUsingOS) {
+                                activePathPreview = item.os_path ? `OS PATH: ${item.os_path}` : "OS PATH binary";
+                            } else if (typeof selectedValue === "string" && selectedValue.includes("\\")) {
+                                activePathPreview = selectedValue;
+                            }
 
                             return (
                                 <div

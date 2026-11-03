@@ -12,7 +12,7 @@ Selamat datang di Panduan Pengguna Resmi dan Pusat Pengetahuan **VyloServe**. Do
 3. [Panduan Operasional & Tutorial Lengkap Modul Server (Atomic Guides)](#3-panduan-operasional--tutorial-lengkap-modul-server-atomic-guides)
    - [3.1 Web Server (Apache Lounge x64)](#31-web-server-apache-lounge-x64)
    - [3.2 Bahasa Pemrograman (PHP FastCGI Engine)](#32-bahasa-pemrograman-php-fastcgi-engine)
-   - [3.3 Layanan Database (MariaDB & PostgreSQL)](#33-layanan-database-mariadb--postgresql)
+   - [3.3 Layanan Database (MariaDB, PostgreSQL, & Redis)](#33-layanan-database-mariadb-postgresql--redis)
    - [3.4 Manajer Runtimes (Node.js, Python, Java, Go)](#34-manajer-runtimes-nodejs-python-java-go)
    - [3.5 Projects Hub (Manajer Proyek Multi-Runtime & Virtual Host Otomatis)](#35-projects-hub-manajer-proyek-multi-runtime--virtual-host-otomatis)
    - [3.6 Git Manager & Otoritas Sertifikat SSL Lokal (Git & Root CA)](#36-git-manager--otoritas-sertifikat-ssl-lokal-git--root-ca)
@@ -21,6 +21,7 @@ Selamat datang di Panduan Pengguna Resmi dan Pusat Pengetahuan **VyloServe**. Do
    - [3.9 AI Assistant Copilot & In-App RAG Retriever](#39-ai-assistant-copilot--in-app-rag-retriever)
    - [3.10 Developer Terminal (Terminal Konsol Pengembang Terpadu)](#310-developer-terminal-terminal-konsol-pengembang-terpadu)
    - [3.11 Pengaturan Sistem & Kustomisasi (Settings & Preferences)](#311-pengaturan-sistem--kustomisasi-settings--preferences)
+   - [3.12 Pembatalan Operasi & Ketahanan Mode Offline (Resilience & Rollback)](#312-pembatalan-operasi--ketahanan-mode-offline-resilience--rollback)
 4. [Kamus Kode Error & Log Sistem Lengkap (Exhaustive Error Dictionary)](#4-kamus-kode-error--log-sistem-lengkap-exhaustive-error-dictionary)
 5. [Panduan Pemecahan Masalah Langkah-demi-Langkah (Step-by-Step Troubleshooting)](#5-panduan-pemecahan-masalah-langkah-demi-langkah-step-by-step-troubleshooting)
 6. [Tanya Jawab Umum Komprehensif (FAQ)](#6-tanya-jawab-umum-komprehensif-faq)
@@ -267,31 +268,31 @@ VyloServe menerapkan fitur *Smart Routing* cerdas:
 
 ---
 
-<!-- section: database, module: database, tags: [database, mysql, mariadb, postgresql, port-3306, port-5432, root-password, adminer, phpmyadmin, backup, tutorial-database, datadir, mysql-install-db, initdb] -->
-### 3.3 Layanan Database (MariaDB & PostgreSQL)
+<!-- section: database, module: database, tags: [database, mysql, mariadb, postgresql, redis, port-3306, port-5432, port-6379, root-password, schema-manager, create-schema, drop-schema, backup, tutorial-database, datadir, redis-conf] -->
+### 3.3 Layanan Database (MariaDB, PostgreSQL, & Redis)
 
-#### A. Tutorial Menambah Instance Database Baru (MariaDB atau PostgreSQL)
+VyloServe menyediakan pengelolaan tiga mesin database populer untuk kebutuhan backend modern: **MariaDB** (relasional MySQL-compatible), **PostgreSQL** (relasional objek tingkat lanjut), dan **Redis** (in-memory key-value store untuk caching dan job queue).
+
+#### A. Tutorial Menambah Instance Database Baru (MariaDB, PostgreSQL, atau Redis)
 1. Buka menu **Database** dari sidebar.
 2. Klik tombol **New Instance** di pojok kanan atas.
 3. Form modal penambahan instance akan muncul:
-   - **Engine**: Pilih antara `MariaDB` (MySQL compatible) atau `PostgreSQL`.
-   - **Version**: Pilih nomor versi rilis yang tersedia (misal: MariaDB `11.4.4`, `10.11.10` atau PostgreSQL `16.4`, `15.8`). Daftar diambil dari arsip resmi `archive.mariadb.org` atau EnterpriseDB binaries.
+   - **Engine**: Pilih antara `MariaDB` (MySQL compatible), `PostgreSQL`, atau `Redis`.
+   - **Version**: Pilih nomor versi rilis yang tersedia:
+     - MariaDB: `11.4.x`, `10.11.x` (diambil dari arsip resmi `archive.mariadb.org` dengan caching pintar).
+     - PostgreSQL: `16.x`, `15.x` (biner resmi EnterpriseDB Windows).
+     - Redis: `5.0.x`, `3.2.x` (port Windows native resmi dari tporadowski).
    - **Listening Port**:
-     - MariaDB default: `3306` (atau `3307`, `3308` jika Anda memiliki MySQL lain).
+     - MariaDB default: `3306` (atau `3307`, `3308`).
      - PostgreSQL default: `5432` (atau `5433`).
-   - **Root / Superuser Password**: Tentukan kata sandi awal user administratif (`root` pada MariaDB atau `postgres` pada PostgreSQL). Default: `root` jika dikosongkan.
+     - Redis default: `6379` (atau `6380`).
+   - **Root / Superuser Password** (Khusus MariaDB & PostgreSQL): Tentukan kata sandi awal user administratif (`root` pada MariaDB atau `postgres` pada PostgreSQL). Default: `root` jika dikosongkan.
 4. Klik tombol **Install Database**:
    - Arsip biner diunduh ke `bin/database/<db_id>.zip` dan diekstrak ke folder `bin/database/<db_id>/`.
-   - **Inisialisasi Cluster Data Mandiri (`dataDir`)**:
-     - Direktori penyimpanan data dibuat di `data/<db_id>/`.
-     - Jika MariaDB: Backend menjalankan perintah inisialisasi:
-       ```cmd
-       mysql_install_db.exe --datadir=data/<db_id>
-       ```
-     - Jika PostgreSQL: Backend menulis password sementara dan mengeksekusi:
-       ```cmd
-       initdb.exe -D data/<db_id> -U postgres --pwfile=pw.txt --encoding=UTF8
-       ```
+   - **Inisialisasi Cluster Data / Konfigurasi**:
+     - Jika MariaDB: Backend menjalankan `mysql_install_db.exe --datadir=data/<db_id>`.
+     - Jika PostgreSQL: Backend menulis password sementara dan mengeksekusi `initdb.exe -D data/<db_id> -U postgres --pwfile=pw.txt --encoding=UTF8`.
+     - Jika Redis: Backend mengenerate file konfigurasi `redis.windows.conf` terisolasi dengan direktif `port <port>`, `maxmemory 256mb`, `maxmemory-policy allkeys-lru`, dan `appendonly yes` untuk persistensi data AOF.
    - Metadata instance dicatat ke dalam `data/databases.json`.
    - Selesai! Instance database baru siap dijalankan.
 
@@ -300,14 +301,15 @@ VyloServe menerapkan fitur *Smart Routing* cerdas:
   - Klik tombol hijau **Start** pada kartu database.
   - MariaDB dijalankan dengan perintah: `mysqld.exe --datadir=... --port=...`.
   - PostgreSQL dijalankan dengan perintah: `postgres.exe -D ... -p ...`.
+  - Redis dijalankan dengan perintah: `redis-server.exe redis.windows.conf`.
   - Output proses dicatat ke dalam file `data/<db_id>/db_startup.log`.
-  - Sistem melakukan polling selama 15 detik sampai port database terkonfirmasi `LISTENING` di OS.
+  - Sistem melakukan polling selama 15 detik (menggunakan socket checking atau `redis-cli.exe ping`) sampai port database terkonfirmasi `LISTENING` di OS.
   - Lencana status berubah menjadi hijau **Running**.
 - **Mematikan (Stop)**:
-  - Klik tombol merah **Stop**. Sistem mengirim sinyal graceful shutdown (`mysqladmin.exe -u root shutdown` atau `pg_ctl.exe stop`) lalu mematikan proses background.
+  - Klik tombol merah **Stop**. Sistem mengirim sinyal graceful shutdown (`mysqladmin.exe -u root shutdown`, `pg_ctl.exe stop`, atau `redis-cli.exe shutdown`) lalu mematikan proses background secara bersih.
 
 #### C. Mengubah Kata Sandi Administratif (Change Root Password)
-1. Pastikan instance database dalam status **Running**.
+1. Pastikan instance database dalam status **Running** (khusus MariaDB & PostgreSQL).
 2. Klik tombol opsi (menu titik tiga / burger) pada kartu database, lalu klik **Change Password**.
 3. Masukkan **Old Password** (kata sandi lama) dan **New Password** (kata sandi baru).
 4. Klik **Update Password**:
@@ -321,6 +323,21 @@ VyloServe menerapkan fitur *Smart Routing* cerdas:
   1. Konfirmasi persetujuan update ke versi target.
   2. Pilihan opsional mencadangkan (*backup*) direktori data `data/<db_id>/` sebelum proses pembaruan.
 - Jika terjadi error saat ekstraksi biner baru, sistem otomatis melakukan *rollback* ke versi biner lama sehingga data Anda tetap utuh.
+
+#### E. Pengelola Skema Database (Database Schema Manager)
+Untuk instance MariaDB dan PostgreSQL yang sedang berjalan:
+1. Klik tombol **Schemas** (ikon tabel/database) pada kartu database.
+2. Modal **Database Schema Manager** (`DatabaseSchemaModal.tsx`) akan terbuka:
+   - **Tabel Daftar Skema**: Menampilkan seluruh skema/database yang ada di instance tersebut lengkap dengan nama, charset default, collation, dan status proteksi sistem.
+   - **Membuat Skema Baru (Create Schema)**:
+     - Masukkan nama skema baru (misal: `db_toko_online`). Sistem memvalidasi nama dari karakter ilegal dan SQL injection.
+     - Pilih Character Set (misal: `utf8mb4` untuk dukungan penuh emoji atau `utf8`).
+     - Pilih Collation yang diinginkan (misal: `utf8mb4_unicode_ci`).
+     - Klik **Create**: Backend mengeksekusi query pembuatan skema via CLI resmi (`mysql.exe` / `psql.exe`) secara aman tanpa mengekspos kredensial.
+   - **Menghapus Skema (Drop Schema)**:
+     - Klik ikon tong sampah di baris skema yang ingin dihapus.
+     - Muncul dialog konfirmasi destruktif: ketik konfirmasi untuk mencegah ketidaksengajaan.
+     - Skema sistem bawaan (`mysql`, `information_schema`, `performance_schema`, `sys`, `postgres`, `template0/1`) otomatis diproteksi dan tidak dapat dihapus.
 
 ---
 
@@ -525,7 +542,7 @@ Fitur Tunnels memungkinkan website lokal di komputer Anda diakses oleh klien, re
 
 ---
 
-<!-- section: dev-tools, module: tools, tags: [qr-code, base64, url-encode, markdown-viewer, documentation, utilities, tutorial-tools] -->
+<!-- section: dev-tools, module: tools, tags: [qr-code, base64, url-encode, markdown-viewer, documentation, utilities, tutorial-tools, vcard, wifi-qr, email-qr, sms-qr, logo-embed] -->
 ### 3.8 Utilitas Pengembang (Developer Tools)
 
 VyloServe menyediakan alat-alat bantu produktivitas harian yang berjalan instan di komputer lokal Anda:
@@ -533,12 +550,23 @@ VyloServe menyediakan alat-alat bantu produktivitas harian yang berjalan instan 
    - Arahkan ke folder dokumentasi proyek Anda untuk menjelajahi file `.md` dalam bentuk hierarki pohon (*tree view*).
    - Menyaring direktori yang tidak relevan secara cerdas (mengabaikan `node_modules`, `.git`, `.venv`).
    - Render GFM lengkap: tabel, task list checkbox, syntax highlighting kode, badge, serta konversi gambar lokal ke base64 agar tampil sempurna tanpa server web eksternal.
-2. **QR Code Generator**:
-   - Masukkan teks, tautan URL, atau konfigurasi Wi-Fi (SSID & Password).
-   - Menghasilkan gambar QR code berkualitas tinggi yang dapat diunduh dalam format raster **PNG** atau vektor resolusi tak terbatas **SVG**.
+2. **QR Code Generator Komprehensif**:
+   - **5 Mode Konten Spesifik**:
+     - *URL / Free Text*: Tautan web atau teks biasa apapun.
+     - *Wi-Fi Network*: Mengisi SSID, tipe keamanan (WPA/WPA2, WEP, Open), password, dan checkbox jaringan tersembunyi (*hidden SSID*) sehingga perangkat mobile dapat langsung terhubung dengan sekali pindai.
+     - *vCard Digital Contact*: Kartu nama elektronik lengkap (Nama Depan, Nama Belakang, Nomor Telepon, Email, Organisasi, dan Jabatan).
+     - *Email Draft*: Template surat elektronik otomatis berisi alamat penerima, subjek, dan draft pesan.
+     - *SMS Dispatch*: Nomor telepon tujuan dan template isi pesan teks instan.
+   - **Kustomisasi Visual & Logo**:
+     - Pengaturan *Error Correction Level*: `Low (7%)`, `Medium (15%)`, `Quartile (25%)`, dan `High (30%)`.
+     - *Color Picker*: Warna titik QR (*foreground*) dan warna latar belakang (*background*).
+     - *Logo Embedding*: Upload file gambar logo (.png, .jpg, .svg) untuk disematkan di titik tengah QR code secara proporsional.
+   - **Ekspor Fleksibel**: Unduh hasil dalam format vektor tajam **SVG** (cocok untuk cetak/desain) atau raster resolusi tinggi **PNG**, serta tombol salin instan (*Copy to Clipboard*).
 3. **Base64 Converter**:
-   - Mode Teks: Konversi string teks ke Base64 dan sebaliknya dengan penanganan enkripsi UTF-8 yang kebal terhadap karakter aksen/emoji.
-   - Mode File: Drag-and-drop file gambar, dokumen PDF, atau arsip untuk mengubahnya menjadi Base64 Data URI siap pakai untuk CSS/HTML.
+   - **Mode Teks**: Konversi string teks ke Base64 dan sebaliknya dengan penanganan enkripsi UTF-8 yang kebal terhadap karakter aksen/emoji.
+   - **Mode File**: Drag-and-drop file gambar, dokumen PDF, audio, atau arsip untuk mengubahnya menjadi Base64 Data URI siap pakai untuk CSS/HTML.
+   - **Line Wrapping**: Pilihan format pemecahan baris output (tanpa wrap, 64 karakter standar RFC 2045 MIME, atau 76 karakter RFC 4880 PGP).
+   - **Binary Download**: Mengunduh ulang hasil decode binary secara langsung ke file lokal via backend dialog atau fallback browser blob.
 4. **URL Encoder / Decoder**:
    - Melakukan encoding/decoding karakter URL khusus (`%20`, `%2F`, dll.) dan membedah komponen URL (protokol, host, pathname, query parameters).
 
@@ -637,16 +665,22 @@ Fitur unggulan Developer Terminal di VyloServe adalah kemampuannya untuk menginj
 - Pada mode ini, path direktori biner aktif VyloServe (Node.js aktif, Python aktif, Go aktif, Java aktif, PHP aktif, dan Git portabel) disuntikkan secara otomatis ke variabel lingkungan `PATH` sesi terminal tersebut.
 - Anda dapat langsung mengeksekusi perintah seperti `node -v`, `python --version`, `go run`, `java -version`, atau `composer` tanpa harus mendaftarkannya ke sistem Windows PATH global!
 
-#### D. Preset Sesi Tersimpan (Saved Presets & Quick Launch)
+#### D. Preset Sesi Tersimpan & Grup Tab Workspace (Saved Presets & Workspace Tab Groups)
 Jika Anda memiliki rutinitas sesi terminal tertentu yang sering digunakan berulang:
-1. Klik tombol **Presets** pada toolbar terminal.
-2. Anda dapat membuat preset baru dengan menentukan:
-   - Nama preset (misal: *Backend API Server* atau *Frontend Vite Build*).
-   - Shell yang digunakan (PowerShell, CMD, atau Git Bash).
-   - Folder kerja awal (*Initial Working Directory*).
-   - Variabel lingkungan kustom (key-value pairs).
-   - Perintah otomatis saat sesi dibuka (*Auto-run Command*, misal: `npm run dev`).
-3. Kapan pun dibutuhkan, luncurkan preset tersebut dengan satu klik untuk membuka sesi terminal yang siap pakai seketika.
+1. **Preset Sesi Mandiri**:
+   - Klik tombol **Presets** pada toolbar terminal.
+   - Anda dapat membuat preset baru dengan menentukan:
+     - Nama preset (misal: *Backend API Server* atau *Frontend Vite Build*).
+     - Shell yang digunakan (PowerShell, CMD, atau Git Bash).
+     - Folder kerja awal (*Initial Working Directory*).
+     - Variabel lingkungan kustom (key-value pairs).
+     - Perintah otomatis saat sesi dibuka (*Auto-run Command*, misal: `npm run dev`).
+   - Luncurkan preset tersebut dengan satu klik untuk membuka sesi terminal yang siap pakai seketika.
+2. **Workspace Tab Groups (Simpan & Pulihkan Multi-Tab)**:
+   - Jika alur kerja harian Anda membutuhkan 3–4 tab terminal sekaligus (misal Tab 1: Frontend Next.js, Tab 2: Backend Laravel, Tab 3: Docker/Database CLI):
+   - Klik menu **Workspace -> Save Current Workspace As...** dan beri nama grup kerja.
+   - Seluruh susunan tab aktif, direktori kerja masing-masing tab, dan jenis shell tersimpan rapi ke `data/terminal_workspaces.json`.
+   - Di sesi berikutnya, pilih nama workspace tersebut untuk membuka dan menyusun kembali seluruh tab kerja Anda dalam hitungan detik.
 
 #### E. Pelacakan Direktori Kerja Real-Time (CWD Tracking)
 - VyloServe memanfaatkan pemanggilan native Windows Win32 API (`OpenProcess`, `NtQueryInformationProcess`, Process Basic Information) untuk memantau perubahan folder kerja aktif (*Current Working Directory*) dari proses shell anak secara real-time.
@@ -686,6 +720,30 @@ Buka menu **Settings** di footer sidebar untuk mengonfigurasi preferensi aplikas
 
 ---
 
+<!-- section: resilience, module: general, tags: [cancellation, rollback, offline, network, barrier, retry, internet-connection, clean-abort] -->
+### 3.12 Pembatalan Operasi & Ketahanan Mode Offline (Resilience & Rollback)
+
+VyloServe menerapkan standar rekayasa pertahanan (*Defensive Engineering*) untuk melindungi integritas sistem dari gangguan jaringan atau pembatalan tak terduga:
+
+#### A. Pembatalan Instalasi Aman & Auto-Rollback Atomik
+- **Tombol Cancel Responsif**: Setiap wizard instalasi (Apache, PHP, MariaDB/PostgreSQL/Redis, Runtimes, Git, Tunnels) dan widget proses melayang (`BackgroundProgressWidget`) menyediakan tombol **Cancel**.
+- **Cooperative Token Check**: Backend Python memeriksa token pembatalan setiap membaca chunk unduhan 64KB dan setiap mengekstrak file arsip.
+- **Rollback Otomatis Tanpa Sampah**: Saat pembatalan dikonfirmasi:
+  1. Pengunduhan atau ekstraksi dihentikan seketika.
+  2. Seluruh file sementara (`.tmp`) dihapus dari disk.
+  3. Folder instalasi parsial dibersihkan secara rekursif agar tidak mengunci instalasi berikutnya.
+  4. File konfigurasi `data/*.json` tidak dimodifikasi sama sekali, menjaga state aplikasi tetap bersih.
+
+#### B. Deteksi Koneksi Internet & Smart Offline Barrier
+- **Pengecekan Jaringan Berkala & On-Demand**: Aplikasi mendeteksi status internet menggunakan gabungan event peramban dan pengecekan soket non-intrusif ke DNS publik (`1.1.1.1` / `8.8.8.8`).
+- **Banner Peringatan Offline (`OfflineBanner`)**: Jika koneksi internet terputus, muncul banner peringatan di bagian atas modul yang membutuhkan jaringan, lengkap dengan tombol **Retry Connection**.
+- **Smart Partial Barrier**:
+  - Modul **Projects**: Pembuatan proyek berbasis template online otomatis diblokir dengan penjelasan ramah, namun pembuatan proyek via *Link Existing Project* (menautkan folder lokal) dan *Raw PHP Template* tetap dapat digunakan 100% tanpa internet.
+  - Modul **Database**: Manajemen skema, pembuatan user, dan eksekusi query lokal tetap berfungsi penuh tanpa koneksi luar.
+  - Modul **AI Assistant**: Secara otomatis merekomendasikan beralih ke provider lokal offline (**Ollama**) jika koneksi ke cloud provider (Gemini / Groq / OpenRouter) terputus.
+
+---
+
 <!-- section: error-codes, module: errors, tags: [error-code, os-10048, ah00072, ah00015, 403-forbidden, 502-bad-gateway, php-error, 1045-access-denied, 2002-cant-connect, http-404, http-429, uac-denied, kamus-error, error-log, php-cgi-1, memory-limit, eaddrinuse, terminal-spawn, path-conflict] -->
 ## 4. Kamus Kode Error & Log Sistem Lengkap (Exhaustive Error Dictionary)
 
@@ -714,6 +772,10 @@ Tabel berikut merangkum seluruh kode error umum yang sering dijumpai dalam pengo
 | `EADDRINUSE: address already in use 127.0.0.1:<port>` | **Projects Hub (Dev Server)** | Port target dev server (seperti 3000, 5173, atau 8000) sedang dipakai oleh aplikasi atau instance dev server lain di Windows. | Pada kartu proyek di menu **Projects**, klik tombol **Stop** atau buka modal **Settings** proyek untuk memindahkan target dev server port ke port kosong lain. |
 | `backend.terminal.spawn_failed / ConPTY creation error` | **Developer Terminal** | Inisialisasi ConPTY gagal karena biner shell yang dipilih (`bash.exe` atau `powershell.exe`) tidak ditemukan pada path yang ditentukan. | Buka modal **Terminal Settings** di toolbar terminal, pastikan shell biner valid atau gunakan shell default `powershell.exe` / `cmd.exe`. |
 | `Runtime PATH Conflict: Multiple versions in system PATH` | **Runtimes (Path Hub)** | Terjadi inkonsistensi environment variable karena versi biner lama masih tersisa di registry Windows PATH. | Buka menu **Runtimes** -> buka kartu **Centralized PATH Hub** -> pilih versi yang diinginkan -> klik tombol **Apply to System PATH** untuk menormalkan PATH secara otomatis. |
+| `Could not create server TCP listening socket 127.0.0.1:6379: bind: Unknown error` | **Database Redis** (`db_startup.log`) | Port `6379` telah digunakan oleh instance Redis lain (misal service Windows native atau container Docker). | Tutup instance Redis yang sedang berjalan atau ubah port Redis di `data/databases.json` ke `6380`. |
+| `ERROR 1007 (HY000): Can't create database 'x'; database exists` | **Database Schema Manager** (Toast Error) | Skema database dengan nama yang sama sudah ada di dalam cluster instance tersebut. | Buka modal **Schemas** -> gunakan nama skema yang berbeda atau kelola skema yang sudah ada. |
+| `ERROR: Cannot drop default system schema` | **Database Schema Manager** (Dialog Peringatan) | Pengguna mencoba menghapus skema sistem bawaan (`mysql`, `information_schema`, `postgres`). | Tindakan diblokir proaktif oleh VyloServe demi menjaga integritas mesin database. Skema sistem tidak boleh dihapus. |
+| `ERR_INTERNET_DISCONNECTED / backend.network.offline` | **Global Network Barrier** (Banner Oranye) | Fitur instalasi modul atau cloud AI membutuhkan koneksi internet, namun komputer sedang offline. | Sambungkan kembali perangkat ke jaringan Wi-Fi/Ethernet lalu klik tombol **Retry Connection** pada banner atas. |
 
 ---
 
@@ -759,6 +821,26 @@ Tabel berikut merangkum seluruh kode error umum yang sering dijumpai dalam pengo
 2. **Periksa Startup Log**:
    - Klik menu opsi pada kartu database -> klik **Startup Log**.
    - Jika terdapat pesan `InnoDB: Operating system error number 32`, folder data sedang terkunci oleh proses lain atau antivirus. Restart komputer Anda atau matikan proses `mysqld.exe` gantung via Task Manager.
+
+### 5.4 Redis Server Gagal Menyala (Port 6379 Bentrok)
+1. **Periksa Port 6379 Terpakai**:
+   - Jalankan perintah di CMD:
+     ```cmd
+     netstat -ano | findstr :6379
+     ```
+   - Jika ada proses lain yang mendengarkan pada port tersebut, periksa PID di Task Manager (misal container Docker atau Redis native Windows service).
+2. **Ubah Port Redis**:
+   - Buka `data/databases.json`, ubah field `"port": 6379` menjadi `6380`.
+   - Buka `bin/database/<id>/redis.windows.conf`, ubah `port 6379` menjadi `port 6380`.
+   - Klik **Start** kembali pada kartu Redis di VyloServe.
+
+### 5.5 Skema Database Gagal Dibuat atau Dihapus
+1. **Status Database Harus Running**:
+   - Pembuatan dan penghapusan skema membutuhkan CLI runner aktif (`mysql.exe` / `psql.exe`). Pastikan status kartu database berwarna hijau **Running**.
+2. **Validasi Karakter Nama Skema**:
+   - Pastikan nama skema hanya memuat huruf alfanumerik dan garis bawah (`a-z`, `0-9`, `_`), tanpa spasi atau tanda baca khusus.
+3. **Skema Sedang Terkunci Koneksi Aktif**:
+   - Pada PostgreSQL, menghapus database yang sedang terhubung ke aplikasi lain (misal pgAdmin atau dev server) akan ditolak. Matikan koneksi dev server terlebih dahulu sebelum menghapus skema.
 
 ---
 

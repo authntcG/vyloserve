@@ -314,7 +314,7 @@ export function ProjectProvider({ children }: { readonly children: React.ReactNo
         const url = `https://${domain}`;
         try {
             const project = projects.find(p => p.domain === domain);
-            if (project && project.project_type && project.project_type !== 'php') {
+            if (project?.project_type && project.project_type !== 'php') {
                 const serverStatus = runningServers[project.id];
                 if (!serverStatus?.running) {
                     showToast(tRef.current('projects.auto_starting_server') as string, 'info');

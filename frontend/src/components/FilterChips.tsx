@@ -30,7 +30,6 @@ export default function FilterChips<T extends string = string>({
 }: FilterChipsProps<T>) {
     return (
         <div
-            role="group"
             aria-label={ariaLabel}
             className={`flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1 ${className}`}
         >

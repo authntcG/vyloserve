@@ -123,6 +123,31 @@ interface AiContextValue {
 
 const AiContext = createContext<AiContextValue | undefined>(undefined);
 
+function getInitialFloatingPosition(): { x: number; y: number } {
+    const hasWindow = typeof window !== 'undefined';
+    const vw = hasWindow && window.innerWidth > 0 ? window.innerWidth : 1280;
+    const vh = hasWindow && window.innerHeight > 0 ? window.innerHeight : 800;
+    const defaultPos = {
+        x: Math.max(16, vw - 80),
+        y: Math.max(16, vh - 100),
+    };
+    try {
+        const saved = localStorage.getItem('vylo_ai_floating_pos');
+        if (saved) {
+            const parsed = JSON.parse(saved);
+            if (typeof parsed === 'object' && parsed !== null && Number.isFinite(parsed.x) && Number.isFinite(parsed.y)) {
+                return {
+                    x: Math.max(16, Math.min(vw - 64, parsed.x)),
+                    y: Math.max(16, Math.min(vh - 64, parsed.y)),
+                };
+            }
+        }
+    } catch {
+        // Ignore corrupted localStorage data and fallback to default position
+    }
+    return defaultPos;
+}
+
 export function AiProvider({ children }: { readonly children: React.ReactNode }) {
     const { t } = useTranslation();
     const { showToast } = useToast();
@@ -137,29 +162,7 @@ export function AiProvider({ children }: { readonly children: React.ReactNode })
     const [isAiSettingsOpen, setIsAiSettingsOpen] = useState(false);
     const openAiSettings = useCallback(() => setIsAiSettingsOpen(true), []);
     const closeAiSettings = useCallback(() => setIsAiSettingsOpen(false), []);
-    const [floatingPosition, setFloatingPosition] = useState<{ x: number; y: number }>(() => {
-        const defaultPos = {
-            x: typeof window !== 'undefined' && window.innerWidth > 0 ? Math.max(16, window.innerWidth - 80) : 1100,
-            y: typeof window !== 'undefined' && window.innerHeight > 0 ? Math.max(16, window.innerHeight - 100) : 680,
-        };
-        try {
-            const saved = localStorage.getItem('vylo_ai_floating_pos');
-            if (saved) {
-                const parsed = JSON.parse(saved);
-                if (typeof parsed === 'object' && parsed !== null && Number.isFinite(parsed.x) && Number.isFinite(parsed.y)) {
-                    const vw = typeof window !== 'undefined' && window.innerWidth > 0 ? window.innerWidth : 1280;
-                    const vh = typeof window !== 'undefined' && window.innerHeight > 0 ? window.innerHeight : 800;
-                    return {
-                        x: Math.max(16, Math.min(vw - 64, parsed.x)),
-                        y: Math.max(16, Math.min(vh - 64, parsed.y)),
-                    };
-                }
-            }
-        } catch {
-            // Ignore corrupted localStorage data and fallback to default position
-        }
-        return defaultPos;
-    });
+    const [floatingPosition, setFloatingPosition] = useState<{ x: number; y: number }>(getInitialFloatingPosition);
 
     const [enableAi, setEnableAi] = useState(true);
     const [enableFloating, setEnableFloating] = useState(true);

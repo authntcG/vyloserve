@@ -118,7 +118,7 @@ describe('RuntimeTable', () => {
         );
 
         const setActiveBtns = screen.getAllByRole('button', { name: 'runtimes.set_as_active' });
-        expect(setActiveBtns.length).toBe(2);
+        expect(setActiveBtns).toHaveLength(2);
 
         await user.click(setActiveBtns[0]);
         expect(setActive).toHaveBeenCalledWith('20.18.0');
@@ -177,7 +177,7 @@ describe('RuntimeTable', () => {
             />
         );
 
-        expect(screen.getAllByTitle('runtimes.set_as_active_vyloserve_tooltip').length).toBe(2);
+        expect(screen.getAllByTitle('runtimes.set_as_active_vyloserve_tooltip')).toHaveLength(2);
         unmount();
     });
 });

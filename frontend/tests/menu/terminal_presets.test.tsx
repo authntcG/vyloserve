@@ -132,6 +132,33 @@ describe("Terminal Presets, Workspaces & Scoping", () => {
         const savePresetBtn = screen.getByText("tools.terminal.save_tab_action");
         fireEvent.click(savePresetBtn);
         expect(onOpenSavePresetModal).toHaveBeenCalled();
+
+        // Launch workspace & delete workspace
+        fireEvent.click(toggleBtn);
+        const launchWsBtn = screen.getByTitle("tools.terminal.launch_group");
+        fireEvent.click(launchWsBtn);
+        expect(onLaunchWorkspace).toHaveBeenCalledWith(mockWorkspace);
+
+        // Launch workspace closes menu -> reopen to test delete workspace
+        fireEvent.click(toggleBtn);
+        const deleteWsButtons = screen.getAllByTitle("tools.terminal.delete_group");
+        fireEvent.click(deleteWsButtons[0]);
+        expect(onDeleteWorkspace).toHaveBeenCalledWith("w1");
+
+        // Click save workspace action (menu is currently open)
+        const saveWsBtn = screen.getByText("tools.terminal.save_group_action");
+        fireEvent.click(saveWsBtn);
+        expect(onOpenSaveWorkspaceModal).toHaveBeenCalled();
+
+        // Escape closes menu
+        fireEvent.click(toggleBtn);
+        fireEvent.keyDown(document, { key: "Escape" });
+        expect(screen.queryByText("Laravel Dev")).not.toBeInTheDocument();
+
+        // Click outside closes menu
+        fireEvent.click(toggleBtn);
+        fireEvent.mouseDown(document.body);
+        expect(screen.queryByText("Laravel Dev")).not.toBeInTheDocument();
     });
 
     it("renders TerminalSavePresetModal for preset mode and calls onSavePreset with accessible form fields", async () => {
@@ -246,5 +273,66 @@ describe("Terminal Presets, Workspaces & Scoping", () => {
             // Should have created initial tab + 2 tabs from workspace
             expect((window as any).pywebview.api.create_terminal_session).toHaveBeenCalledTimes(3);
         });
+    });
+
+    it("manages preset and workspace saving and deletion in TerminalMain", async () => {
+        (window as any).pywebview.api.get_terminal_session_cwd = vi.fn().mockResolvedValue({
+            status: "success",
+            cwd: "D:\\Projects\\Detected"
+        });
+
+        render(<TerminalMain isActive={true} />);
+
+        await waitFor(() => {
+            expect((window as any).pywebview.api.get_terminal_saved_sessions).toHaveBeenCalled();
+        });
+
+        // 1. Open Presets menu & delete preset
+        const toggleBtn = screen.getByLabelText("tools.terminal.saved_sessions_btn");
+        fireEvent.click(toggleBtn);
+        const deletePresetBtn = screen.getAllByTitle("tools.terminal.delete_tab")[0];
+        fireEvent.click(deletePresetBtn);
+        expect((window as any).pywebview.api.delete_terminal_preset).toHaveBeenCalledWith("p1");
+
+        // 2. Open Save Preset Modal (menu is already open after delete)
+        fireEvent.click(screen.getByText("tools.terminal.save_tab_action"));
+
+        await waitFor(() => {
+            expect(screen.getByText("tools.terminal.save_tab_title")).toBeInTheDocument();
+        });
+        fireEvent.change(screen.getByLabelText("tools.terminal.tab_name_label"), {
+            target: { value: "Saved From Main" }
+        });
+        fireEvent.click(screen.getByText("tools.terminal.save_tab_btn"));
+
+        await waitFor(() => {
+            expect((window as any).pywebview.api.save_terminal_preset).toHaveBeenCalledWith(
+                expect.objectContaining({ name: "Saved From Main" })
+            );
+        });
+
+        // 3. Open Save Workspace Modal (menu was closed by save preset modal action)
+        fireEvent.click(toggleBtn);
+        fireEvent.click(screen.getByText("tools.terminal.save_group_action"));
+
+        await waitFor(() => {
+            expect(screen.getByText("tools.terminal.save_group_title")).toBeInTheDocument();
+        });
+        fireEvent.change(screen.getByLabelText("tools.terminal.group_name_label"), {
+            target: { value: "Saved Workspace From Main" }
+        });
+        fireEvent.click(screen.getByText("tools.terminal.save_group_btn"));
+
+        await waitFor(() => {
+            expect((window as any).pywebview.api.save_terminal_workspace).toHaveBeenCalledWith(
+                expect.objectContaining({ name: "Saved Workspace From Main" })
+            );
+        });
+
+        // 4. Delete workspace in TerminalMain (menu was closed by save workspace modal action)
+        fireEvent.click(toggleBtn);
+        const deleteWsBtn = screen.getAllByTitle("tools.terminal.delete_group")[0];
+        fireEvent.click(deleteWsBtn);
+        expect((window as any).pywebview.api.delete_terminal_workspace).toHaveBeenCalledWith("w1");
     });
 });

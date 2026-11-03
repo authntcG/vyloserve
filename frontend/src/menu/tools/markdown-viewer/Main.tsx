@@ -272,7 +272,7 @@ export default function MarkdownViewer() {
             }
             if (inCodeBlock) continue;
 
-            const match = line.match(/^(#{1,6})\s+(.+)$/);
+            const match = /^(#{1,6})\s+(\S.*)$/.exec(line);
             if (match) {
                 const level = match[1].length;
                 const text = match[2].trim().replace(/[*_`#]/g, '');

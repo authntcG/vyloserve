@@ -49,6 +49,19 @@ export default function DbSettings({ instance, config, onChange, isLoading }: Pr
     const isMysql = instance.engine === 'mysql';
     const isRedis = instance.engine === 'redis';
 
+    let bindLabel = 'bind-address';
+    let bindFieldKey = 'bind_address';
+    let confFileName = 'my.ini';
+    if (isPostgres) {
+        bindLabel = 'listen_addresses';
+        bindFieldKey = 'listen_addresses';
+        confFileName = 'postgresql.conf';
+    } else if (isRedis) {
+        bindLabel = 'bind';
+        bindFieldKey = 'bind';
+        confFileName = 'redis.conf';
+    }
+
     if (isLoading) {
         return <SkeletonForm fieldsCount={4} />;
     }
@@ -66,9 +79,9 @@ export default function DbSettings({ instance, config, onChange, isLoading }: Pr
                     </div>
                     <div className="flex flex-col gap-2">
                         <FieldLabel htmlFor="db-bind-address" size="sm">
-                            {isPostgres ? 'listen_addresses' : (isRedis ? 'bind' : 'bind-address')}
+                            {bindLabel}
                         </FieldLabel>
-                        <input type="text" id="db-bind-address" value={isPostgres ? (config.listen_addresses || '') : (isRedis ? (config.bind || '') : (config.bind_address || ''))} onChange={(e) => onChange(isPostgres ? 'listen_addresses' : (isRedis ? 'bind' : 'bind_address'), e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2.5 outline-none transition-colors font-mono" />
+                        <input type="text" id="db-bind-address" value={config[bindFieldKey] || ''} onChange={(e) => onChange(bindFieldKey, e.target.value)} className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2.5 outline-none transition-colors font-mono" />
                     </div>
                 </div>
             </div>
@@ -78,7 +91,7 @@ export default function DbSettings({ instance, config, onChange, isLoading }: Pr
             <div className="flex flex-col gap-4">
                 <h4 className="text-sm font-semibold text-slate-900 dark:text-white uppercase tracking-wider flex justify-between">
                     <span>{t('database.performance_tweaks')}</span>
-                    <span className="text-slate-400 font-mono text-xs normal-case">{isPostgres ? 'postgresql.conf' : (isRedis ? 'redis.conf' : 'my.ini')}</span>
+                    <span className="text-slate-400 font-mono text-xs normal-case">{confFileName}</span>
                 </h4>
 
                 <div className="grid grid-cols-2 gap-4">

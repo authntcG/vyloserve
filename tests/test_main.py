@@ -35,8 +35,13 @@ def test_resource_path_frozen_mode_uses_meipass(monkeypatch):
     assert result == os.path.join('C:\\fake\\frozen\\dir', "frontend/dist")
 
 def test_get_entrypoint_dev_mode_uses_vite_dev_server():
+    with patch('main.IS_PRODUCTION', False), patch('main.DEV_SERVER_PORT', 55173):
+        assert get_entrypoint() == 'http://localhost:55173'
+
+def test_get_entrypoint_dev_mode_custom_port(monkeypatch):
+    monkeypatch.setattr('main.DEV_SERVER_PORT', 59999)
     with patch('main.IS_PRODUCTION', False):
-        assert get_entrypoint() == 'http://localhost:5173'
+        assert get_entrypoint() == 'http://localhost:59999'
 
 def test_get_entrypoint_production_uses_bundled_index_html():
     with patch('main.IS_PRODUCTION', True):
@@ -469,7 +474,7 @@ def test_main_hooks_minimized_and_restored_events_to_push_window_state(mock_api_
 @patch('os._exit')
 @patch('main.check_single_instance', return_value=(True, None))
 @patch('main.webview')
-def test_main_window_maximized_and_restored_with_real_api(mock_webview, mock_check_single, mock_os_exit):
+def test_main_window_maximized_and_restored_with_real_api(mock_webview, mock_check_single, mock_os_exit, tmp_path):
     """Memastikan handler maximized dan restored tidak menimbulkan AttributeError saat menggunakan instance Api nyata."""
     mock_window = MagicMock()
     mock_webview.create_window.return_value = mock_window
@@ -477,15 +482,16 @@ def test_main_window_maximized_and_restored_with_real_api(mock_webview, mock_che
     maximized_event = mock_window.events.maximized
     restored_event = mock_window.events.restored
 
-    with patch('main.IS_PRODUCTION', False):
-        main_module.main()
+    with patch('core.services.settings.get_project_root', return_value=str(tmp_path)):
+        with patch('main.IS_PRODUCTION', False):
+            main_module.main()
 
-    maximized_handler = maximized_event.__iadd__.call_args[0][0]
-    restored_handler = restored_event.__iadd__.call_args[0][0]
+        maximized_handler = maximized_event.__iadd__.call_args[0][0]
+        restored_handler = restored_event.__iadd__.call_args[0][0]
 
-    # Handler tidak boleh raise AttributeError('Api object has no attribute settings_manager')
-    maximized_handler()
-    restored_handler()
+        # Handler tidak boleh raise AttributeError('Api object has no attribute settings_manager')
+        maximized_handler()
+        restored_handler()
 
 @patch('main.check_single_instance', return_value=(True, None))
 @patch('main.webview')

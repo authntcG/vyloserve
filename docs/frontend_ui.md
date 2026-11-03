@@ -42,6 +42,7 @@ frontend/src/
 │   ├── BackgroundProgressWidget.tsx
 │   ├── Button.tsx               # Komponen bersama — lihat docs/ui_consistency_guide.md §2
 │   ├── Card.tsx
+│   ├── CompactFileDropzone.tsx   # Zona drag-and-drop unggah berkas ringkas terintegrasi
 │   ├── EmptyState.tsx
 │   ├── FieldLabel.tsx           # Komponen bersama — lihat docs/ui_consistency_guide.md §2
 │   ├── HeaderMobile.tsx
@@ -50,6 +51,7 @@ frontend/src/
 │   ├── LogsPanel.tsx
 │   ├── Modal.tsx
 │   ├── NotificationBell.tsx     # Bell histori toast + notifikasi native — lihat §4.4, docs/ui_consistency_guide.md §2
+│   ├── OfflineBanner.tsx        # Spanduk peringatan offline kontekstual dengan tombol Retry
 │   ├── OsCompatibilityCard.tsx  # Komponen bersama — lihat docs/ui_consistency_guide.md §2
 │   ├── PageHeader.tsx
 │   ├── ProgressBar.tsx          # Komponen bar progres visual serbaguna
@@ -71,21 +73,23 @@ frontend/src/
 │   ├── AlertContext.tsx         # Provider dialog alert/confirm — lihat §6.7
 │   ├── ApacheContext.tsx        # State & aksi modul Apache + Virtual Host CRUD
 │   ├── DashboardContext.tsx     # State & aksi Global Control Panel Dashboard
-│   ├── DatabaseContext.tsx      # State & aksi modul Database (MariaDB & PostgreSQL)
+│   ├── DatabaseContext.tsx      # State & aksi modul Database (MariaDB, PostgreSQL, & Redis)
 │   ├── GitContext.tsx           # State & aksi modul PortableGit, in-card alert & PATH
+│   ├── NetworkContext.tsx       # NetworkProvider & useNetworkStatus hook — verifikasi online/offline reaktif
 │   ├── PhpContext.tsx           # State & aksi modul PHP multi-versi
 │   ├── RuntimesContext.tsx      # State & aksi modul Runtimes (Node, Python, Java, Go) & RuntimePathHub
 │   ├── ToastContext.tsx         # Provider toast non-blocking + histori — lihat §6.7, §5.5
 │   ├── TunnelsContext.tsx       # State & aksi modul Tunnels (zrok & Cloudflare)
 │   └── ProjectContext.tsx       # State terpusat Projects Hub: Dev Server multi-runtime, log, & mutasi proyek
 ├── hooks/                       # Custom hooks lintas-komponen
-│   └── useWindowPresence.ts     # Deteksi fokus/minimize/hidden window — lihat §5.1, docs/known_bugs.md #45
+│   ├── useWindowPresence.ts     # Deteksi fokus/minimize/hidden window — lihat §5.1, docs/known_bugs.md #45
+│   └── usePersistedViewMode.ts  # Persistensi mode tampilan Card vs Table ke localStorage per modul
 ├── menu/
 │   ├── dashboard/  Main.tsx, components/ (DashboardControlPanel.tsx, RecentProjectsSection.tsx, SystemResourcesCard.tsx, OptimizationSuggestions.tsx)
 │   ├── projects/   Main.tsx, ProjectsTable.tsx, ProjectCards.tsx, NewProjectModal.tsx, ProjectSettingsModal.tsx, ProjectCliInstallModal.tsx, ProjectServerLogsModal.tsx # Projects Hub — lihat §10
 │   ├── apache/     Main.tsx, Settings.tsx, InstallWizard.tsx, ApacheInstallModal.tsx # Apache Web Server Management — lihat §11
 │   ├── php/        Main.tsx, PhpTable.tsx, NewInstance.tsx, Settings.tsx, PhpNewInstanceModal.tsx, PhpSettingsModal.tsx
-│   ├── database/   Main.tsx, DatabaseTable.tsx, NewInstance.tsx, Settings.tsx, ChangePassword.tsx, DatabaseNewInstanceModal.tsx, DatabasePasswordModal.tsx, DatabaseSettingsModal.tsx
+│   ├── database/   Main.tsx, DatabaseTable.tsx, NewInstance.tsx, Settings.tsx, ChangePassword.tsx, DatabaseSchemaModal.tsx, DatabaseNewInstanceModal.tsx, DatabasePasswordModal.tsx, DatabaseSettingsModal.tsx
 │   ├── runtimes/   Main.tsx, RuntimeEnginePanel.tsx, RuntimePathHub.tsx, RuntimeTable.tsx, InstallNode.tsx, InstallPython.tsx, InstallJava.tsx, InstallGo.tsx, RuntimeVersionSelect.tsx, RuntimeInstallModal.tsx
 │   └── tools/
 │       ├── terminal/Main.tsx, types.ts, components/ (TerminalInstance.tsx, TerminalTabBar.tsx, TerminalToolbar.tsx, TerminalEnvModal.tsx, TerminalSettingsModal.tsx, TerminalPresetsMenu.tsx, TerminalSavePresetModal.tsx, TerminalConfigModal.tsx) # Developer Terminal — lihat §14

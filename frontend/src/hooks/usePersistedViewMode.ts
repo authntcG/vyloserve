@@ -8,7 +8,7 @@ import type { ViewMode } from '../components/ViewModeToggle';
 export function usePersistedViewMode(moduleKey: string, defaultMode: ViewMode = 'card'): [ViewMode, (mode: ViewMode) => void] {
     const storageKey = `vylo_view_mode_${moduleKey}`;
 
-    const [viewMode, setViewModeState] = useState<ViewMode>(() => {
+    const [viewMode, setViewMode] = useState<ViewMode>(() => {
         try {
             if (typeof window !== 'undefined' && window.localStorage) {
                 const saved = window.localStorage.getItem(storageKey);
@@ -22,9 +22,9 @@ export function usePersistedViewMode(moduleKey: string, defaultMode: ViewMode = 
         return defaultMode;
     });
 
-    const setViewMode = useCallback((newMode: ViewMode) => {
+    const updateViewMode = useCallback((newMode: ViewMode) => {
         if (newMode !== 'card' && newMode !== 'table') return;
-        setViewModeState(newMode);
+        setViewMode(newMode);
         try {
             if (typeof window !== 'undefined' && window.localStorage) {
                 window.localStorage.setItem(storageKey, newMode);
@@ -34,5 +34,5 @@ export function usePersistedViewMode(moduleKey: string, defaultMode: ViewMode = 
         }
     }, [storageKey]);
 
-    return [viewMode, setViewMode];
+    return [viewMode, updateViewMode];
 }

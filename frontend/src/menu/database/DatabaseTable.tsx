@@ -124,6 +124,12 @@ export default function DatabaseTable({
             render: (db) => {
                 const isRunning = db.status === 'running';
                 const isToggling = togglingDbId === db.id;
+                let configTitle = t('database.open_my_ini');
+                if (db.engine === 'postgres') {
+                    configTitle = t('database.open_postgres_conf');
+                } else if (db.engine === 'redis') {
+                    configTitle = 'redis.conf';
+                }
 
                 return (
                     <div className="flex items-center justify-end gap-1.5">
@@ -178,8 +184,8 @@ export default function DatabaseTable({
                         <button
                             type="button"
                             onClick={() => onOpenConfigFile(db)}
-                            title={db.engine === 'postgres' ? t('database.open_postgres_conf') : (db.engine === 'redis' ? 'redis.conf' : t('database.open_my_ini'))}
-                            aria-label={db.engine === 'postgres' ? t('database.open_postgres_conf') : (db.engine === 'redis' ? 'redis.conf' : t('database.open_my_ini'))}
+                            title={configTitle}
+                            aria-label={configTitle}
                             className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors flex items-center justify-center"
                         >
                             <span className="material-symbols-outlined text-[18px]">description</span>

@@ -19,6 +19,7 @@ INC_PHP = "Include conf/extra/vyloserve-php.conf"
 ERR_NOT_INSTALLED = "backend.apache.not_installed"
 APACHE_JSON = "apache.json"
 MSG_UNEXPECTED_ERROR = "backend.error.unexpected"
+MSG_INSTALL_CANCELLED = "backend.apache.install_cancelled"
 
 class ApacheManager:
     """Manager untuk siklus hidup Engine Web Server Apache"""
@@ -413,17 +414,17 @@ class ApacheManager:
 
         except OperationCancelledError:
             if hasattr(self, 'api'):
-                self.api.emit_log("backend.apache.install_cancelled", "warn")
-                self.api.emit_progress(0, "backend.apache.install_cancelled")
+                self.api.emit_log(MSG_INSTALL_CANCELLED, "warn")
+                self.api.emit_progress(0, MSG_INSTALL_CANCELLED)
             if os.path.exists(zip_path): os.remove(zip_path)
             shutil.rmtree(target_dir, ignore_errors=True)
             shutil.rmtree(temp_extract_dir, ignore_errors=True)
-            return {"status": "cancelled", "message": "backend.apache.install_cancelled"}
+            return {"status": "cancelled", "message": MSG_INSTALL_CANCELLED}
 
         except Exception as e:
             if hasattr(self, 'api'):
                 self.api.emit_log("backend.apache.install_error", "error", {"e": str(e)})
-                self.api.emit_progress(0, "backend.apache.install_cancelled")
+                self.api.emit_progress(0, MSG_INSTALL_CANCELLED)
             if os.path.exists(zip_path): os.remove(zip_path)
             shutil.rmtree(target_dir, ignore_errors=True)
             shutil.rmtree(temp_extract_dir, ignore_errors=True)

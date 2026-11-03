@@ -206,7 +206,6 @@ export function RuntimesMainView() {
                     field2Label={t('runtimes.environment')}
                     field2Value={t('runtimes.java_home_set')}
                     pathDescKey="runtimes.java_path_desc"
-                    toggleMarginClass="ml-4"
                     onTogglePath={(checked) => handleTogglePath('java', checked)}
                     onOpenFolder={() => handleOpenFolder('java')}
                     onOpenTerminal={() => handleOpenTerminal('java')}
@@ -238,7 +237,6 @@ export function RuntimesMainView() {
                     field2Label={t('runtimes.architecture')}
                     field2Value="amd64"
                     pathDescKey="runtimes.go_path_desc"
-                    toggleMarginClass="ml-4"
                     onTogglePath={(checked) => handleTogglePath('go', checked)}
                     onOpenFolder={() => handleOpenFolder('go')}
                     onOpenTerminal={() => handleOpenTerminal('go')}

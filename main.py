@@ -19,6 +19,9 @@ import webview.window
 from webview.errors import JavascriptException
 
 # --- MONKEY PATCH PYWEBVIEW ---
+PLATFORM_WINFORMS = 'webview.platforms.winforms'
+PLATFORM_EDGECHROMIUM = 'webview.platforms.edgechromium'
+
 # Mencegah exception pada thread internal pywebview saat frontend reload (hot-reload Vite)
 # yang menyebabkan promise JS hilang tapi backend tetap mencoba me-resolve-nya.
 _orig_evaluate_js = webview.window.Window.evaluate_js
@@ -31,6 +34,117 @@ def _safe_evaluate_js(*args, **kwargs):
         else:
             raise
 webview.window.Window.evaluate_js = _safe_evaluate_js
+
+def _setup_chromium_gpu_flags() -> None:
+    try:
+        existing_args = os.environ.get('WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS', '')
+        perf_flags = (
+            '--enable-gpu-rasterization '
+            '--ignore-gpu-blocklist '
+            '--enable-zero-copy'
+        )
+        if '--enable-gpu-rasterization' not in existing_args:
+            os.environ['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = f"{existing_args} {perf_flags}".strip()
+    except Exception:
+        pass
+
+
+def _patch_winforms_performance() -> None:
+    try:
+        wf = sys.modules.get(PLATFORM_WINFORMS)
+        if wf is None:
+            import webview.platforms.winforms as wf
+
+        _orig_browser_form_init = getattr(wf.BrowserView.BrowserForm, '__init__', None)
+        if _orig_browser_form_init and not getattr(wf.BrowserView.BrowserForm, '_vylo_perf_patched', False):
+            def _optimized_browser_form_init(self, window, cache_dir):
+                _orig_browser_form_init(self, window, cache_dir)
+                try:
+                    self.DoubleBuffered = False
+                    if hasattr(self, 'SetStyle') and hasattr(wf, 'WinForms') and hasattr(wf.WinForms, 'ControlStyles'):
+                        cs = wf.WinForms.ControlStyles
+                        self.SetStyle(cs.AllPaintingInWmPaint, True)
+                except Exception as e:
+                    print(f"[WARNING] Gagal menerapkan optimasi performa WinForms: {e}")
+
+            wf.BrowserView.BrowserForm.__init__ = _optimized_browser_form_init
+            wf.BrowserView.BrowserForm._vylo_perf_patched = True
+    except Exception as e:
+        print(f"[WARNING] Gagal memuat modul winforms untuk optimasi performa: {e}")
+
+
+def _disable_webview2_autofill_and_menus(settings) -> None:
+    if not settings:
+        return
+    settings.AreDefaultContextMenusEnabled = False
+    settings.AreDefaultScriptDialogsEnabled = False
+    if hasattr(settings, 'IsGeneralAutofillEnabled'):
+        settings.IsGeneralAutofillEnabled = False
+    if hasattr(settings, 'IsPasswordAutosaveEnabled'):
+        settings.IsPasswordAutosaveEnabled = False
+
+
+def _hook_webview2_permission_and_dialog_events(core) -> None:
+    try:
+        from Microsoft.Web.WebView2.Core import CoreWebView2PermissionState
+        allow_state = CoreWebView2PermissionState.Allow
+    except Exception:
+        allow_state = 1
+
+    def _on_permission_requested(s, p_args):
+        try:
+            p_args.State = allow_state
+            if hasattr(p_args, 'Handled'):
+                p_args.Handled = True
+            if hasattr(p_args, 'SavesInProfile'):
+                p_args.SavesInProfile = True
+        except Exception:
+            pass
+
+    def _on_script_dialog_opening(s, d_args):
+        try:
+            if hasattr(d_args, 'Accept'):
+                d_args.Accept()
+        except Exception:
+            pass
+
+    try:
+        core.PermissionRequested += _on_permission_requested
+    except Exception:
+        pass
+
+    try:
+        core.ScriptDialogOpening += _on_script_dialog_opening
+    except Exception:
+        pass
+
+
+def _configure_webview2_core_settings(core) -> None:
+    _disable_webview2_autofill_and_menus(getattr(core, 'Settings', None))
+    _hook_webview2_permission_and_dialog_events(core)
+
+
+def _patch_edgechromium_dialogs_and_menus() -> None:
+    try:
+        ec = sys.modules.get(PLATFORM_EDGECHROMIUM)
+        if ec is None:
+            import webview.platforms.edgechromium as ec
+
+        _orig_on_webview_ready = getattr(ec.EdgeChrome, 'on_webview_ready', None)
+        if _orig_on_webview_ready and not getattr(ec.EdgeChrome, '_vylo_context_menu_patched', False):
+            def _clean_on_webview_ready(self, sender, args):
+                _orig_on_webview_ready(self, sender, args)
+                try:
+                    if args.IsSuccess and hasattr(sender, 'CoreWebView2') and sender.CoreWebView2:
+                        _configure_webview2_core_settings(sender.CoreWebView2)
+                except Exception as ex:
+                    print(f"[WARNING] Gagal mengonfigurasi pengaturan WebView2: {ex}")
+
+            ec.EdgeChrome.on_webview_ready = _clean_on_webview_ready
+            ec.EdgeChrome._vylo_context_menu_patched = True
+    except Exception as e:
+        print(f"[WARNING] Gagal memuat modul edgechromium untuk mengonfigurasi WebView2: {e}")
+
 
 def setup_windows_performance_optimizations() -> bool:
     """
@@ -49,113 +163,9 @@ def setup_windows_performance_optimizations() -> bool:
     """
     if sys.platform != 'win32':
         return False
-
-    # 1. Chromium GPU Hardware Acceleration & Rasterization Flags
-    try:
-        existing_args = os.environ.get('WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS', '')
-        perf_flags = (
-            '--enable-gpu-rasterization '
-            '--ignore-gpu-blocklist '
-            '--enable-zero-copy'
-        )
-        if '--enable-gpu-rasterization' not in existing_args:
-            os.environ['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = f"{existing_args} {perf_flags}".strip()
-    except Exception:
-        pass
-
-    # 2. WinForms BrowserForm Direct GPU Painting & Live CSS Animation Preservation
-    try:
-        wf = sys.modules.get('webview.platforms.winforms')
-        if wf is None:
-            import webview.platforms.winforms as wf
-
-        _orig_browser_form_init = getattr(wf.BrowserView.BrowserForm, '__init__', None)
-        if _orig_browser_form_init and not getattr(wf.BrowserView.BrowserForm, '_vylo_perf_patched', False):
-            def _optimized_browser_form_init(self, window, cache_dir):
-                _orig_browser_form_init(self, window, cache_dir)
-                try:
-                    # Hindari alokasi bitmap GDI+ CPU ganda di thread WinForms (mencegah lag CPU spike)
-                    self.DoubleBuffered = False
-
-                    # Kurangi flicker redraw dengan AllPaintingInWmPaint = True.
-                    # CATATAN KRUSIAL: DILARANG menyetel UserPaint=False atau Opaque=True di sini!
-                    # UserPaint=False melarang WinForms melukis self.BackColor tema gelap dan memaksa
-                    # Windows DefWindowProc melukis COLOR_WINDOW (putih polos), menimbulkan glitch
-                    # Flash of White (FOIT) selama 100-300ms saat startup aplikasi.
-                    if hasattr(self, 'SetStyle') and hasattr(wf, 'WinForms') and hasattr(wf.WinForms, 'ControlStyles'):
-                        cs = wf.WinForms.ControlStyles
-                        self.SetStyle(cs.AllPaintingInWmPaint, True)
-                except Exception as e:
-                    print(f"[WARNING] Gagal menerapkan optimasi performa WinForms: {e}")
-
-            wf.BrowserView.BrowserForm.__init__ = _optimized_browser_form_init
-            wf.BrowserView.BrowserForm._vylo_perf_patched = True
-    except Exception as e:
-        print(f"[WARNING] Gagal memuat modul winforms untuk optimasi performa: {e}")
-
-    # 3. Konfigurasi Edge WebView2: Supresi Menu Konteks, Dialog Skrip & Auto-Accept Permission Request
-    # Supresi menu konteks default, dialog konfirmasi/prompt native, serta otomatis izinkan aksi (seperti paste/clipboard).
-    try:
-        ec = sys.modules.get('webview.platforms.edgechromium')
-        if ec is None:
-            import webview.platforms.edgechromium as ec
-
-        _orig_on_webview_ready = getattr(ec.EdgeChrome, 'on_webview_ready', None)
-        if _orig_on_webview_ready and not getattr(ec.EdgeChrome, '_vylo_context_menu_patched', False):
-            def _clean_on_webview_ready(self, sender, args):
-                _orig_on_webview_ready(self, sender, args)
-                try:
-                    if args.IsSuccess and hasattr(sender, 'CoreWebView2') and sender.CoreWebView2:
-                        core = sender.CoreWebView2
-                        settings = getattr(core, 'Settings', None)
-                        if settings:
-                            settings.AreDefaultContextMenusEnabled = False
-                            settings.AreDefaultScriptDialogsEnabled = False
-                            if hasattr(settings, 'IsGeneralAutofillEnabled'):
-                                settings.IsGeneralAutofillEnabled = False
-                            if hasattr(settings, 'IsPasswordAutosaveEnabled'):
-                                settings.IsPasswordAutosaveEnabled = False
-
-                        try:
-                            from Microsoft.Web.WebView2.Core import CoreWebView2PermissionState
-                            allow_state = CoreWebView2PermissionState.Allow
-                        except Exception:
-                            allow_state = 1
-
-                        def _on_permission_requested(s, p_args):
-                            try:
-                                p_args.State = allow_state
-                                if hasattr(p_args, 'Handled'):
-                                    p_args.Handled = True
-                                if hasattr(p_args, 'SavesInProfile'):
-                                    p_args.SavesInProfile = True
-                            except Exception:
-                                pass
-
-                        def _on_script_dialog_opening(s, d_args):
-                            try:
-                                if hasattr(d_args, 'Accept'):
-                                    d_args.Accept()
-                            except Exception:
-                                pass
-
-                        try:
-                            core.PermissionRequested += _on_permission_requested
-                        except Exception:
-                            pass
-
-                        try:
-                            core.ScriptDialogOpening += _on_script_dialog_opening
-                        except Exception:
-                            pass
-                except Exception as ex:
-                    print(f"[WARNING] Gagal mengonfigurasi pengaturan WebView2: {ex}")
-
-            ec.EdgeChrome.on_webview_ready = _clean_on_webview_ready
-            ec.EdgeChrome._vylo_context_menu_patched = True
-    except Exception as e:
-        print(f"[WARNING] Gagal memuat modul edgechromium untuk mengonfigurasi WebView2: {e}")
-
+    _setup_chromium_gpu_flags()
+    _patch_winforms_performance()
+    _patch_edgechromium_dialogs_and_menus()
     return True
 
 
@@ -275,12 +285,17 @@ def resource_path(relative_path):
     """ Mendapatkan path absolut ke resource, kompatibel untuk Dev dan PyInstaller """
     return get_resource_path(relative_path)
 
+# Port server dev Vite untuk VyloServe. Port 55173 dipilih di rentang dynamic/private
+# agar tidak bentrok dengan default framework user (seperti React-Vite di 5173, Next.js di 3000,
+# Django di 8000, Flask di 5000, dsb).
+DEV_SERVER_PORT = int(os.environ.get("VYLOSERVE_DEV_PORT", 55173))
+
 # --- FUNGSI ENTRYPOINT ---
 def get_entrypoint():
     if IS_PRODUCTION:
         return resource_path(os.path.join('frontend', 'dist', 'index.html'))
     else:
-        return 'http://localhost:5173'
+        return f'http://localhost:{DEV_SERVER_PORT}'
 
 
 class AppLifecycle:
@@ -442,7 +457,7 @@ class AppLifecycle:
         """
         # Jika PyWebView mendeteksi sinyal interrupt (Ctrl+C), lakukan exit bersih
         try:
-            wf = sys.modules.get('webview.platforms.winforms')
+            wf = sys.modules.get(PLATFORM_WINFORMS)
             if wf is None:
                 import webview.platforms.winforms as wf
             if getattr(wf, '_sigint_received', False):
@@ -593,7 +608,7 @@ def setup_signal_handlers(lifecycle: AppLifecycle):
 
     # Hook PyWebView's internal winforms _sigint_handler jika tersedia
     try:
-        wf = sys.modules.get('webview.platforms.winforms')
+        wf = sys.modules.get(PLATFORM_WINFORMS)
         if wf is None:
             import webview.platforms.winforms as wf
         _orig_wf_sigint = getattr(wf, '_sigint_handler', None)

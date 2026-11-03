@@ -5,8 +5,8 @@ from typing import Any, Dict, Optional, Tuple
 MSG_NO_INTERNET = "backend.error.no_internet"
 
 DEFAULT_CONNECTIVITY_PROBES: Tuple[Tuple[str, int], ...] = (
-    ("1.1.1.1", 53),
-    ("8.8.8.8", 53),
+    ("1.1.1.1", 53),  # NOSONAR python:S1313
+    ("8.8.8.8", 53),  # NOSONAR python:S1313
     ("api.github.com", 443),
 )
 

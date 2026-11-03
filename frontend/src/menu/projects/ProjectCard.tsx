@@ -16,6 +16,199 @@ export interface ProjectCardProps {
     readonly onOpenBrowser: (domain: string) => void;
 }
 
+interface ProjectCardDropdownProps {
+    readonly project: ProjectData;
+    readonly t: (key: string, args?: any) => string;
+    readonly onOpenDocumentRoot: (path: string) => void;
+    readonly onOpenSettings: (id: string) => void;
+    readonly onViewLogs?: (id: string) => void;
+    readonly onSyncHost: (id: string) => void;
+    readonly onDeleteClick: (id: string) => void;
+}
+
+function ProjectCardDropdown({ project, t, onOpenDocumentRoot, onOpenSettings, onViewLogs, onSyncHost, onDeleteClick }: ProjectCardDropdownProps) {
+    const isNonPhp = Boolean(project.project_type && project.project_type !== 'php');
+    return (
+        <>
+            <button
+                type="button"
+                onClick={() => onOpenDocumentRoot(project.path)}
+                className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/70 transition-colors"
+            >
+                <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">folder_open</span>
+                <span className="truncate">{t('apache.open_document_root')}</span>
+            </button>
+            <button
+                type="button"
+                onClick={() => {
+                    window.dispatchEvent(new CustomEvent('vylo_open_terminal_project', {
+                        detail: {
+                            cwd: project.path,
+                            title: project.domain || project.name
+                        }
+                    }));
+                }}
+                className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/70 transition-colors"
+            >
+                <span className="material-symbols-outlined text-[16px] text-primary shrink-0">terminal</span>
+                <span className="truncate">{t('apache.open_in_terminal')}</span>
+            </button>
+            <button
+                type="button"
+                onClick={() => onOpenSettings(project.id)}
+                className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/70 transition-colors"
+            >
+                <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">tune</span>
+                <span className="truncate">{t('apache.vhost_settings')}</span>
+            </button>
+            {isNonPhp && (
+                <button
+                    type="button"
+                    onClick={() => onViewLogs?.(project.id)}
+                    className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/70 transition-colors"
+                >
+                    <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">terminal</span>
+                    <span className="truncate">{t('projects.view_server_logs')}</span>
+                </button>
+            )}
+            {project.host_synced === false && (
+                <button
+                    type="button"
+                    onClick={() => onSyncHost(project.id)}
+                    className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
+                >
+                    <span className="material-symbols-outlined text-[16px] text-amber-500 shrink-0">sync</span>
+                    <span className="truncate">{t('apache.retry_host_sync')}</span>
+                </button>
+            )}
+            <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
+            <button
+                type="button"
+                onClick={() => onDeleteClick(project.id)}
+                className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+            >
+                <span className="material-symbols-outlined text-[16px] text-red-500 shrink-0">delete</span>
+                <span className="truncate">{t('apache.delete_project')}</span>
+            </button>
+        </>
+    );
+}
+
+interface ProjectCardFooterProps {
+    readonly project: ProjectData;
+    readonly serverInfo?: RunningServerInfo;
+    readonly t: (key: string, args?: any) => string;
+    readonly secondaryBtnClass: string;
+    readonly onStartServer?: (id: string) => void;
+    readonly onStopServer?: (id: string) => void;
+    readonly onOpenBrowser: (domain: string) => void;
+    readonly onOpenSettings: (id: string) => void;
+}
+
+function NonPhpServerToggleButton({
+    project,
+    serverInfo,
+    t,
+    onStartServer,
+    onStopServer
+}: {
+    readonly project: ProjectData;
+    readonly serverInfo?: { running: boolean; starting?: boolean; stopping?: boolean; port?: number; pid?: number };
+    readonly t: (key: string, args?: any) => string;
+    readonly onStartServer?: (id: string) => void;
+    readonly onStopServer?: (id: string) => void;
+}) {
+    if (serverInfo?.running) {
+        return (
+            <button
+                type="button"
+                onClick={() => onStopServer?.(project.id)}
+                title={t('projects.stop_server')}
+                aria-label={t('projects.stop_server')}
+                className="flex-1 min-w-0 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-sm font-medium py-2 px-3 rounded-lg transition-[transform,colors] active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
+            >
+                <span className="material-symbols-outlined text-[18px] text-rose-600 dark:text-rose-400 shrink-0">stop_circle</span>
+                <span className="truncate">{t('projects.stop_server')}</span>
+            </button>
+        );
+    }
+    return (
+        <button
+            type="button"
+            disabled={serverInfo?.starting}
+            onClick={() => onStartServer?.(project.id)}
+            title={serverInfo?.starting ? t('projects.server_starting') : t('projects.start_server')}
+            aria-label={serverInfo?.starting ? t('projects.server_starting') : t('projects.start_server')}
+            className="flex-1 min-w-0 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 disabled:opacity-60 text-sm font-medium py-2 px-3 rounded-lg transition-[transform,colors] active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
+        >
+            <span className={`material-symbols-outlined text-[18px] text-emerald-600 dark:text-emerald-400 shrink-0 ${serverInfo?.starting ? 'animate-spin' : ''}`}>
+                {serverInfo?.starting ? 'progress_activity' : 'play_circle'}
+            </span>
+            <span className="truncate">{serverInfo?.starting ? t('projects.server_starting') : t('projects.start_server')}</span>
+        </button>
+    );
+}
+
+function ProjectCardFooter({
+    project,
+    serverInfo,
+    t,
+    secondaryBtnClass,
+    onStartServer,
+    onStopServer,
+    onOpenBrowser,
+    onOpenSettings
+}: ProjectCardFooterProps) {
+    if (project.project_type && project.project_type !== 'php') {
+        return (
+            <>
+                <NonPhpServerToggleButton
+                    project={project}
+                    serverInfo={serverInfo}
+                    t={t}
+                    onStartServer={onStartServer}
+                    onStopServer={onStopServer}
+                />
+                <button
+                    type="button"
+                    onClick={() => onOpenBrowser(project.domain)}
+                    title={t('apache.open_in_browser')}
+                    aria-label={t('apache.open_in_browser')}
+                    className={secondaryBtnClass}
+                >
+                    <span className="material-symbols-outlined text-[18px] shrink-0">open_in_browser</span>
+                    <span className="truncate">{t('apache.open_in_browser')}</span>
+                </button>
+            </>
+        );
+    }
+
+    return (
+        <>
+            <button
+                type="button"
+                onClick={() => onOpenBrowser(project.domain)}
+                title={t('apache.open_in_browser')}
+                aria-label={t('apache.open_in_browser')}
+                className={secondaryBtnClass}
+            >
+                <span className="material-symbols-outlined text-[18px] shrink-0">open_in_browser</span>
+                <span className="truncate">{t('apache.open_in_browser')}</span>
+            </button>
+            <button
+                type="button"
+                onClick={() => onOpenSettings(project.id)}
+                title={t('apache.setup')}
+                aria-label={t('apache.setup')}
+                className={secondaryBtnClass}
+            >
+                <span className="material-symbols-outlined text-[18px] shrink-0">settings</span>
+                <span className="truncate">{t('apache.setup')}</span>
+            </button>
+        </>
+    );
+}
+
 export default function ProjectCard({
     project,
     serverInfo,
@@ -48,138 +241,57 @@ export default function ProjectCard({
         );
     };
 
+    const getServerStatusBadge = () => {
+        if (serverInfo?.starting) {
+            return (
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                    {t('projects.server_starting')}
+                </span>
+            );
+        }
+        if (serverInfo?.running) {
+            return (
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    {t('projects.server_running')} <span className="text-slate-400 font-mono text-[11px]">(PID: {serverInfo.pid})</span>
+                </span>
+            );
+        }
+        return (
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400 dark:text-slate-500">
+                <span className="w-2 h-2 rounded-full bg-slate-400 dark:bg-slate-600" />
+                {t('projects.server_stopped')}
+            </span>
+        );
+    };
+
     return (
         <Card
             title={project.name || t('apache.untitled_project')}
             gridCols="grid-cols-1"
             dropdownActions={
-                <>
-                    <button
-                        type="button"
-                        onClick={() => onOpenDocumentRoot(project.path)}
-                        className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/70 transition-colors"
-                    >
-                        <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">folder_open</span>
-                        <span className="truncate">{t('apache.open_document_root')}</span>
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => {
-                            window.dispatchEvent(new CustomEvent('vylo_open_terminal_project', {
-                                detail: {
-                                    cwd: project.path,
-                                    title: project.domain || project.name
-                                }
-                            }));
-                        }}
-                        className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/70 transition-colors"
-                    >
-                        <span className="material-symbols-outlined text-[16px] text-primary shrink-0">terminal</span>
-                        <span className="truncate">{t('apache.open_in_terminal')}</span>
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => onOpenSettings(project.id)}
-                        className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/70 transition-colors"
-                    >
-                        <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">tune</span>
-                        <span className="truncate">{t('apache.vhost_settings')}</span>
-                    </button>
-                    {project.project_type && project.project_type !== 'php' && (
-                        <button
-                            type="button"
-                            onClick={() => onViewLogs?.(project.id)}
-                            className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/70 transition-colors"
-                        >
-                            <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">terminal</span>
-                            <span className="truncate">{t('projects.view_server_logs')}</span>
-                        </button>
-                    )}
-                    {project.host_synced === false && (
-                        <button
-                            type="button"
-                            onClick={() => onSyncHost(project.id)}
-                            className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
-                        >
-                            <span className="material-symbols-outlined text-[16px] text-amber-500 shrink-0">sync</span>
-                            <span className="truncate">{t('apache.retry_host_sync')}</span>
-                        </button>
-                    )}
-                    <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
-                    <button
-                        type="button"
-                        onClick={() => onDeleteClick(project.id)}
-                        className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                    >
-                        <span className="material-symbols-outlined text-[16px] text-red-500 shrink-0">delete</span>
-                        <span className="truncate">{t('apache.delete_project')}</span>
-                    </button>
-                </>
+                <ProjectCardDropdown
+                    project={project}
+                    t={t}
+                    onOpenDocumentRoot={onOpenDocumentRoot}
+                    onOpenSettings={onOpenSettings}
+                    onViewLogs={onViewLogs}
+                    onSyncHost={onSyncHost}
+                    onDeleteClick={onDeleteClick}
+                />
             }
             footerActions={
-                project.project_type && project.project_type !== 'php' ? (
-                    <>
-                        {serverInfo?.running ? (
-                            <button
-                                type="button"
-                                onClick={() => onStopServer?.(project.id)}
-                                title={t('projects.stop_server')}
-                                aria-label={t('projects.stop_server')}
-                                className="flex-1 min-w-0 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-sm font-medium py-2 px-3 rounded-lg transition-[transform,colors] active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
-                            >
-                                <span className="material-symbols-outlined text-[18px] text-rose-600 dark:text-rose-400 shrink-0">stop_circle</span>
-                                <span className="truncate">{t('projects.stop_server')}</span>
-                            </button>
-                        ) : (
-                            <button
-                                type="button"
-                                disabled={serverInfo?.starting}
-                                onClick={() => onStartServer?.(project.id)}
-                                title={serverInfo?.starting ? t('projects.server_starting') : t('projects.start_server')}
-                                aria-label={serverInfo?.starting ? t('projects.server_starting') : t('projects.start_server')}
-                                className="flex-1 min-w-0 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 disabled:opacity-60 text-sm font-medium py-2 px-3 rounded-lg transition-[transform,colors] active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
-                            >
-                                <span className={`material-symbols-outlined text-[18px] text-emerald-600 dark:text-emerald-400 shrink-0 ${serverInfo?.starting ? 'animate-spin' : ''}`}>
-                                    {serverInfo?.starting ? 'progress_activity' : 'play_circle'}
-                                </span>
-                                <span className="truncate">{serverInfo?.starting ? t('projects.server_starting') : t('projects.start_server')}</span>
-                            </button>
-                        )}
-                        <button
-                            type="button"
-                            onClick={() => onOpenBrowser(project.domain)}
-                            title={t('apache.open_in_browser')}
-                            aria-label={t('apache.open_in_browser')}
-                            className={secondaryBtnClass}
-                        >
-                            <span className="material-symbols-outlined text-[18px] shrink-0">open_in_browser</span>
-                            <span className="truncate">{t('apache.open_in_browser')}</span>
-                        </button>
-                    </>
-                ) : (
-                    <>
-                        <button
-                            type="button"
-                            onClick={() => onOpenBrowser(project.domain)}
-                            title={t('apache.open_in_browser')}
-                            aria-label={t('apache.open_in_browser')}
-                            className={secondaryBtnClass}
-                        >
-                            <span className="material-symbols-outlined text-[18px] shrink-0">open_in_browser</span>
-                            <span className="truncate">{t('apache.open_in_browser')}</span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => onOpenSettings(project.id)}
-                            title={t('apache.setup')}
-                            aria-label={t('apache.setup')}
-                            className={secondaryBtnClass}
-                        >
-                            <span className="material-symbols-outlined text-[18px] shrink-0">settings</span>
-                            <span className="truncate">{t('apache.setup')}</span>
-                        </button>
-                    </>
-                )
+                <ProjectCardFooter
+                    project={project}
+                    serverInfo={serverInfo}
+                    t={t}
+                    secondaryBtnClass={secondaryBtnClass}
+                    onStartServer={onStartServer}
+                    onStopServer={onStopServer}
+                    onOpenBrowser={onOpenBrowser}
+                    onOpenSettings={onOpenSettings}
+                />
             }
         >
             <div className="flex flex-col w-full gap-4">
@@ -199,22 +311,7 @@ export default function ProjectCard({
                             <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                                 {t('projects.dev_server_status')}
                             </span>
-                            {serverInfo?.starting ? (
-                                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">
-                                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
-                                    {t('projects.server_starting')}
-                                </span>
-                            ) : serverInfo?.running ? (
-                                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                                    {t('projects.server_running')} <span className="text-slate-400 font-mono text-[11px]">(PID: {serverInfo.pid})</span>
-                                </span>
-                            ) : (
-                                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400 dark:text-slate-500">
-                                    <span className="w-2 h-2 rounded-full bg-slate-400 dark:bg-slate-600" />
-                                    {t('projects.server_stopped')}
-                                </span>
-                            )}
+                            {getServerStatusBadge()}
                         </div>
                     )}
                     <div className="flex flex-col gap-1 col-span-2">

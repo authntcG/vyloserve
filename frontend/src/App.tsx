@@ -65,20 +65,78 @@ async function handleUpdateAvailable(
   window.pywebview.api.start_download_update?.(upd.asset_url, upd.asset_name);
 }
 
-function AppContent() {
-  const { t } = useTranslation();
-  const { confirm } = useAlert();
-  const { enableAi } = useAiAssistant();
-  const [isMobileOpen, setIsMobileOpen] = useState(false);
-  const [isDesktopCollapsed, setIsDesktopCollapsed] = useState(false);
-  const [activeMenu, setActiveMenu] = useState('dashboard');
+function useAppSettingsBootstrap(confirm: any, t: any) {
+  const [isApiReady, setIsApiReady] = useState(false);
+  const [isSettingsLoaded, setIsSettingsLoaded] = useState(false);
 
   useEffect(() => {
-    if (!enableAi && activeMenu === 'ai-assistant') {
-      setActiveMenu('dashboard');
-    }
-  }, [enableAi, activeMenu]);
+    const applyAppSettings = (res: any) => {
+      if (res?.status === 'success') {
+        if (res.data?.language) {
+          i18n.changeLanguage(res.data.language);
+        }
+        const theme = res.data?.theme || getCachedTheme();
+        applyTheme(theme);
 
+        window.dispatchEvent(new CustomEvent('vylo_desktop_notifications_changed', {
+          detail: { enabled: res.data?.enable_desktop_notifications ?? true }
+        }));
+
+        window.dispatchEvent(new CustomEvent('vylo_ai_settings_changed', {
+          detail: res.data || {}
+        }));
+
+        if (window.pywebview.api.check_for_updates) {
+          window.pywebview.api.check_for_updates().then((upd: any) => {
+            if (upd?.status === 'success' && upd?.is_update_available) {
+              handleUpdateAvailable(upd, confirm, t);
+            }
+          }).catch((e: any) => console.error("Gagal mengecek pembaruan:", e));
+        }
+      }
+      setIsSettingsLoaded(true);
+      setIsApiReady(true);
+    };
+
+    const checkApi = () => {
+      if (!window.pywebview?.api?.test_connection) return false;
+
+      if (window.pywebview.api.get_app_settings) {
+        window.pywebview.api.get_app_settings()
+          .then(applyAppSettings)
+          .catch((err: any) => {
+            console.error("Gagal memuat setting:", err);
+            setIsSettingsLoaded(true);
+            setIsApiReady(true);
+          });
+      } else {
+        setIsSettingsLoaded(true);
+        setIsApiReady(true);
+      }
+      return true;
+    };
+
+    if (!checkApi()) {
+      const handleReady = () => checkApi();
+      window.addEventListener('pywebviewready', handleReady);
+      const interval = setInterval(() => {
+        if (checkApi()) {
+          clearInterval(interval);
+          window.removeEventListener('pywebviewready', handleReady);
+        }
+      }, 100);
+      return () => {
+        clearInterval(interval);
+        window.removeEventListener('pywebviewready', handleReady);
+      };
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return { isApiReady, isSettingsLoaded };
+}
+
+function useGlobalShortcutsAndNavigation(setActiveMenu: React.Dispatch<React.SetStateAction<string>>) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === '`') {
@@ -103,79 +161,46 @@ function AppContent() {
       window.removeEventListener('vylo_open_terminal_project', handleOpenProjectTerminal);
       window.removeEventListener('vylo_navigate_menu', handleNavigateMenu);
     };
-  }, []);
+  }, [setActiveMenu]);
+}
 
-  const [isApiReady, setIsApiReady] = useState(false);
-  const [isSettingsLoaded, setIsSettingsLoaded] = useState(false);
+function AppPagesView({ activeMenu }: { readonly activeMenu: string }) {
+  const isFillScreen = activeMenu === 'ai-assistant' || activeMenu === 'terminal';
+  return (
+    <div className={`flex-1 min-h-0 px-4 py-6 md:px-8 md:py-8 relative ${isFillScreen ? 'flex flex-col h-full overflow-hidden' : 'overflow-y-auto'}`}>
+      <div className={activeMenu === 'dashboard' ? 'block' : 'hidden'}><DashboardMain /></div>
+      <div className={activeMenu === 'projects' ? 'block' : 'hidden'}><ProjectsMain /></div>
+      <div className={activeMenu === 'apache' ? 'block' : 'hidden'}><ApacheMain /></div>
+      <div className={activeMenu === 'php' ? 'block' : 'hidden'}><PhpMain /></div>
+      <div className={activeMenu === 'database' ? 'block' : 'hidden'}><DatabaseMain /></div>
+      <div className={activeMenu === 'ai-assistant' ? 'flex-1 min-h-0 flex flex-col w-full' : 'hidden'}><AiAssistantMain isActive={activeMenu === 'ai-assistant'} /></div>
+      <div className={activeMenu === 'terminal' ? 'flex-1 min-h-0 flex flex-col w-full' : 'hidden'}><TerminalMain isActive={activeMenu === 'terminal'} /></div>
+      <div className={activeMenu === 'tunnels' ? 'block' : 'hidden'}><TunnelsMain /></div>
+      <div className={activeMenu === 'runtimes' ? 'block' : 'hidden'}><RuntimesMain /></div>
+      <div className={activeMenu === 'git' ? 'block' : 'hidden'}><GitMain /></div>
+      <div className={activeMenu === 'docs-reader' ? 'block' : 'hidden'}><DocsReaderMain /></div>
+      <div className={activeMenu === 'qr' ? 'block' : 'hidden'}><QrMain /></div>
+      <div className={activeMenu === 'base64' ? 'block' : 'hidden'}><Base64Main /></div>
+      <div className={activeMenu === 'url-encode-decode' ? 'block' : 'hidden'}><UrlEncodeDecodeMain /></div>
+    </div>
+  );
+}
+
+function AppContent() {
+  const { t } = useTranslation();
+  const { confirm } = useAlert();
+  const { enableAi } = useAiAssistant();
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const [isDesktopCollapsed, setIsDesktopCollapsed] = useState(false);
+  const [activeMenu, setActiveMenu] = useState('dashboard');
+  const { isApiReady, isSettingsLoaded } = useAppSettingsBootstrap(confirm, t);
+  useGlobalShortcutsAndNavigation(setActiveMenu);
 
   useEffect(() => {
-    const checkApi = () => {
-      if (window.pywebview?.api?.test_connection) {
-        // --- LOAD GLOBAL SETTINGS ---
-        if (window.pywebview.api.get_app_settings) {
-            window.pywebview.api.get_app_settings().then((res: any) => {
-                if (res?.status === 'success') {
-                    if (res.data?.language) {
-                        i18n.changeLanguage(res.data.language);
-                    }
-                    const theme = res.data?.theme || getCachedTheme();
-                    applyTheme(theme);
-
-                    // Broadcast ke ToastProvider (ToastContext.tsx) -- provider itu SENGAJA
-                    // tidak memanggil get_app_settings() sendiri (hindari fetch duplikat),
-                    // jadi mengandalkan event ini untuk nilai awal enable_desktop_notifications.
-                    window.dispatchEvent(new CustomEvent('vylo_desktop_notifications_changed', {
-                        detail: { enabled: res.data?.enable_desktop_notifications ?? true }
-                    }));
-
-                    window.dispatchEvent(new CustomEvent('vylo_ai_settings_changed', {
-                        detail: res.data || {}
-                    }));
-
-                    // Cek update otomatis di latar belakang
-                    if (window.pywebview.api.check_for_updates) {
-                        window.pywebview.api.check_for_updates().then((upd: any) => {
-                            if (upd?.status === 'success' && upd?.is_update_available) {
-                                handleUpdateAvailable(upd, confirm, t);
-                            }
-                        }).catch((e: any) => console.error("Gagal mengecek pembaruan:", e));
-                    }
-                }
-                setIsSettingsLoaded(true);
-                setIsApiReady(true);
-            }).catch((err: any) => {
-                console.error("Gagal memuat setting:", err);
-                setIsSettingsLoaded(true);
-                setIsApiReady(true);
-            });
-        } else {
-            setIsSettingsLoaded(true);
-            setIsApiReady(true);
-        }
-
-        return true;
-      }
-      return false;
-    };
-
-    if (!checkApi()) {
-      const handleReady = () => checkApi();
-      window.addEventListener('pywebviewready', handleReady);
-
-      const interval = setInterval(() => {
-        if (checkApi()) {
-          clearInterval(interval);
-          window.removeEventListener('pywebviewready', handleReady);
-        }
-      }, 100);
-
-      return () => {
-        clearInterval(interval);
-        window.removeEventListener('pywebviewready', handleReady);
-      };
+    if (!enableAi && activeMenu === 'ai-assistant') {
+      setActiveMenu('dashboard');
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [enableAi, activeMenu]);
 
   if (!isApiReady || !isSettingsLoaded) {
     return <AppSkeletonLayout />;
@@ -199,24 +224,7 @@ function AppContent() {
         />
 
         <div className={`flex flex-col flex-1 min-w-0 h-full min-h-0 transition-[margin] duration-300 ${mainContentMargin}`}>
-
-          {/* ---> FIX: Ganti Kondisional Render dengan CSS Hiding <--- */}
-          <div className={`flex-1 min-h-0 px-4 py-6 md:px-8 md:py-8 relative ${activeMenu === 'ai-assistant' || activeMenu === 'terminal' ? 'flex flex-col h-full overflow-hidden' : 'overflow-y-auto'}`}>
-            <div className={activeMenu === 'dashboard' ? 'block' : 'hidden'}><DashboardMain /></div>
-            <div className={activeMenu === 'projects' ? 'block' : 'hidden'}><ProjectsMain /></div>
-            <div className={activeMenu === 'apache' ? 'block' : 'hidden'}><ApacheMain /></div>
-            <div className={activeMenu === 'php' ? 'block' : 'hidden'}><PhpMain /></div>
-            <div className={activeMenu === 'database' ? 'block' : 'hidden'}><DatabaseMain /></div>
-            <div className={activeMenu === 'ai-assistant' ? 'flex-1 min-h-0 flex flex-col w-full' : 'hidden'}><AiAssistantMain isActive={activeMenu === 'ai-assistant'} /></div>
-            <div className={activeMenu === 'terminal' ? 'flex-1 min-h-0 flex flex-col w-full' : 'hidden'}><TerminalMain isActive={activeMenu === 'terminal'} /></div>
-            <div className={activeMenu === 'tunnels' ? 'block' : 'hidden'}><TunnelsMain /></div>
-            <div className={activeMenu === 'runtimes' ? 'block' : 'hidden'}><RuntimesMain /></div>
-            <div className={activeMenu === 'git' ? 'block' : 'hidden'}><GitMain /></div>
-            <div className={activeMenu === 'docs-reader' ? 'block' : 'hidden'}><DocsReaderMain /></div>
-            <div className={activeMenu === 'qr' ? 'block' : 'hidden'}><QrMain /></div>
-            <div className={activeMenu === 'base64' ? 'block' : 'hidden'}><Base64Main /></div>
-            <div className={activeMenu === 'url-encode-decode' ? 'block' : 'hidden'}><UrlEncodeDecodeMain /></div>
-          </div>
+          <AppPagesView activeMenu={activeMenu} />
 
           <div className="flex-none min-h-0 relative">
             <LogsPanel />
@@ -227,8 +235,7 @@ function AppContent() {
       <AiFloatingWidget
         activeScreen={activeMenu}
         onOpenFullPage={() => setActiveMenu('ai-assistant')} />
-      <AiSettingsModal
-      />
+      <AiSettingsModal />
     </div>
   );
 }

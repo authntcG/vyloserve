@@ -239,3 +239,55 @@ Bila migrasi diputuskan di masa depan, **seluruh kode backend Python (`core/serv
 - **Keuntungan:** Window resizing sehalus aplikasi native/VS Code, animasi CSS dan micro-interaction 100% fluid tanpa frame-drop, dukungan custom frameless titlebar yang sangat stabil.
 - **Konsekuensi:** Ukuran biner installer meningkat dari ~25 MB menjadi ~150–200 MB (karena membundel Chromium & Node.js mandiri), dan baseline konsumsi memori (RAM) meningkat dari ~150 MB menjadi ~350 MB.
 
+## 14. Mekanisme Pembatalan Asinkron (Asynchronous Cancellation & Auto-Rollback)
+
+Operasi berdurasi panjang seperti pengunduhan arsip biner besar atau ekstraksi multi-tahap (Apache, PHP, Database, Runtimes, Git, Tunnels) dikelola menggunakan paradigma **Cancellation Token** terpusat (`core/utils/cancellation.py`):
+
+```mermaid
+sequenceDiagram
+    participant User as Pengguna (UI)
+    participant UI as ProgressStatusBlock
+    participant Api as Api Facade (core/api.py)
+    participant Token as CancellationToken
+    participant Worker as Background Thread Worker
+    participant FS as File System (bin/ & tmp/)
+
+    User->>UI: Klik tombol "Cancel"
+    UI->>Api: api.cancel_installation(task_id)
+    Api->>Token: cancel_task(task_id) -> token.cancel()
+    Note over Worker: Worker memeriksa token.is_cancelled<br/>pada setiap chunk download / per-file extract
+    Worker->>Token: check_cancelled() -> melempar CancelledError
+    Worker->>FS: Rollback: hapus partial zip & rmtree direktori tujuan
+    Worker-->>Api: emit_progress(0) & return {"status": "cancelled"}
+    Api-->>UI: Update state UI & auto-hide progress widget
+    UI->>User: Toast "Installation cancelled"
+```
+
+1. **Pendaftaran Token:** Di awal proses panjang, service memanggil `register_cancellation_token(task_id)`.
+2. **Pemeriksaan Intermiten:** Loop unduhan (`_download_single_stream` / `_download_multi_part` di `file_utils.py`) dan ekstraksi zip memeriksa `token.is_cancelled` secara intermiten tanpa overhead performa.
+3. **Pembersihan Bersih (*Clean Rollback*):** Jika pembatalan dipicu, blok `except (CancelledError, Exception)` memicu rutinitas `_cleanup_install_failure()` untuk menghapus arsip `.zip` sementara dan membuang direktori instalasi yang belum rampung (`shutil.rmtree`) sehingga sistem tidak pernah meninggalkan folder setengah-terpasang yang korup.
+
+## 15. Deteksi Jaringan & Arsitektur Resiliensi Offline
+
+VyloServe menerapkan pertahanan berlapis untuk menjamin aplikasi tetap responsif dan informatif saat beroperasi tanpa koneksi internet (*zero-internet resilience*):
+
+1. **Multi-Endpoint Backend Probe (`core/utils/network_utils.py`):**
+   - Fungsi `check_internet_connection()` melakukan socket probe ringan dengan batas waktu singkat (2 detik) ke DNS publik terpercaya (`1.1.1.1:53`, `8.8.8.8:53`, `208.67.222.222:53`).
+   - `is_network_error(exc)` membedakan kesalahan jaringan fisik (`socket.gaierror`, `URLError`, timeout) dari kesalahan logika HTTP (404/500).
+   - `build_offline_error_response()` menyematkan atribut `"is_offline": True` pada respons error sehingga frontend dapat langsung merespons dengan state offline tanpa perlu menebak-nebak pesan error.
+2. **Jembatan Sinkronisasi Frontend (`NetworkContext.tsx`):**
+   - `<NetworkProvider>` mengombinasikan event DOM bawaan peramban (`online` & `offline`) dengan verifikasi berkala ke backend (`api.check_internet_connection()`).
+   - Menyediakan status `isOnline` yang reaktif bagi seluruh komponen UI melalui hook `useNetworkStatus()`.
+3. **Smart Partial Barrier (Contoh: `NewProject.tsx`):**
+   - Saat offline, sistem tidak memblokir halaman secara total. Modul Projects secara cerdas menonaktifkan download framework remote (seperti Laravel via Composer atau Next.js via npm), namun **tetap mengizinkan** menghubungkan folder lokal yang sudah ada (*Link Existing Directory*) dan membuat *Raw Template* lokal, lengkap dengan tombol 1-klik untuk beralih ke mode offline.
+4. **Komponen Reusable `<OfflineBanner>`:**
+   - Ditempatkan di setiap modal instalasi versi (Apache, PHP, Database, Runtimes, Git, Tunnels), menyajikan tombol *Retry Connection* yang langsung memvalidasi ulang sambungan internet begitu ditekan.
+
+## 16. Isolasi Port Development Server (Port Collision Prevention)
+
+Untuk mencegah benturan port (*port collision*) saat pengembang menjalankan server pengembangan frontend dan berbagai dev server proyek lokal:
+- Mode development Vite (`frontend/vite.config.ts`) dikonfigurasi ke port non-standar **`55173`** (dapat di-override melalui environment variable `VITE_PORT`).
+- Port-port umum seperti `3000` (Next.js/React), `5173` (Vite default), `8000` (FastAPI/Django), dan `8080` (Vue/Spring Boot) sengaja dibiarkan bebas agar proyek multi-runtime pengguna dapat berjalan lancar tanpa mengalami penolakan port (*EADDRINUSE*).
+- Backend Python di `main.py` secara otomatis mendeteksi konfigurasi port Vite dev server aktif via `get_entrypoint()` dan mengarahkan PyWebView ke alamat yang tepat saat `IS_PRODUCTION = False`.
+
+

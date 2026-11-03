@@ -21,6 +21,7 @@ from core.utils.file_utils import download_advanced
 from core.utils.network_utils import is_network_error
 from core.utils.cancellation import InstallationManager, OperationCancelledError
 GIT_EXE = "git.exe" if sys.platform == "win32" else "git"
+MSG_INSTALL_CANCELLED = "backend.git.install_cancelled"
 
 class GitManager:
     """
@@ -236,6 +237,25 @@ class GitManager:
         if os.path.exists(exe_path):
             os.remove(exe_path)
 
+    def _cleanup_git_paths(self, exe_path: str, git_dir: str = None):
+        if os.path.exists(exe_path):
+            try: os.remove(exe_path)
+            except Exception: pass
+        if git_dir and os.path.exists(git_dir):
+            shutil.rmtree(git_dir, ignore_errors=True)
+
+    def _download_git_binary(self, download_url: str, exe_path: str, token):
+        def log_cb(msg, lvl="info"): 
+            self._log(msg, lvl)
+        def download_prog_cb(pct, msg, args=None):
+            clamped_pct = max(5, min(pct, 74))
+            self._progress(clamped_pct, msg, args)
+
+        log_cb("backend.git.starting_download", "info")
+        download_advanced(download_url, exe_path, log_cb=log_cb, progress_cb=download_prog_cb, cancel_check=token.is_cancelled)
+        if token.is_cancelled():
+            raise OperationCancelledError()
+
     def install_git(self, download_url: str, filename: str, version_text: str):
         git_dir = os.path.join(self.bin_dir, 'git')
         exe_path = os.path.join(self.bin_dir, filename)
@@ -248,21 +268,7 @@ class GitManager:
                 self._progress(5, "backend.git.preparing_download")
 
             # 2. FASE UNDUHAN
-            def log_cb(msg, lvl="info"): 
-                self._log(msg, lvl)
-            def download_prog_cb(pct, msg, args=None):
-                # download_advanced (core/utils/file_utils.py) mengirim persentase ABSOLUT
-                # (0-100), bukan fraksi 0.0-1.0 -- lihat docs/known_bugs.md. Clamp ke jendela
-                # aman sebelum fase ekstraksi mulai di 75% agar progress tidak meluber lalu
-                # "melompat mundur".
-                clamped_pct = max(5, min(pct, 74))
-                self._progress(clamped_pct, msg, args)
-
-            log_cb("backend.git.starting_download", "info")
-            download_advanced(download_url, exe_path, log_cb=log_cb, progress_cb=download_prog_cb, cancel_check=token.is_cancelled)
-
-            if token.is_cancelled():
-                raise OperationCancelledError()
+            self._download_git_binary(download_url, exe_path, token)
 
             # 3. FASE EKSTRAKSI SFX
             if hasattr(self, 'api'): 
@@ -280,20 +286,14 @@ class GitManager:
             return {"status": "success", "message": "backend.git.install_success"}
 
         except OperationCancelledError:
-            if os.path.exists(exe_path): 
-                try: os.remove(exe_path)
-                except Exception: pass
-            if os.path.exists(git_dir):
-                shutil.rmtree(git_dir, ignore_errors=True)
+            self._cleanup_git_paths(exe_path, git_dir)
             if hasattr(self, 'api'):
-                self._progress(0, "backend.git.install_cancelled")
-                self._log("backend.git.install_cancelled", "warn")
-            return {"status": "cancelled", "message": "backend.git.install_cancelled"}
+                self._progress(0, MSG_INSTALL_CANCELLED)
+                self._log(MSG_INSTALL_CANCELLED, "warn")
+            return {"status": "cancelled", "message": MSG_INSTALL_CANCELLED}
 
         except Exception as e:
-            if os.path.exists(exe_path): 
-                try: os.remove(exe_path)
-                except Exception: pass
+            self._cleanup_git_paths(exe_path)
             if hasattr(self, 'api'):
                 self._progress(-1, "backend.git.install_failed")
                 self._log("backend.git.install_error", "error", {"e": str(e)})

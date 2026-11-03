@@ -75,7 +75,7 @@ export default function TerminalSavePresetModal({
         setIsSubmitting(false);
     }, [isOpen, mode, activeSession, detectedCwd]);
 
-    const handleSubmit = async (e?: React.FormEvent) => {
+    const handleSubmit = async (e?: React.SyntheticEvent) => {
         if (e) e.preventDefault();
         const trimmedName = name.trim();
         if (!trimmedName || isSubmitting) return;
@@ -100,7 +100,7 @@ export default function TerminalSavePresetModal({
                     shell_id: s.shell_id,
                     cwd: s.lastCwd || s.cwd,
                     lastCwd: s.lastCwd || s.cwd,
-                    historyBuffer: (allTabsHistory && allTabsHistory[s.id]) || s.historyBuffer || "",
+                    historyBuffer: allTabsHistory?.[s.id] || s.historyBuffer || "",
                     envProfile: s.envProfile,
                     color: s.color,
                     icon: s.icon
@@ -312,7 +312,7 @@ export default function TerminalSavePresetModal({
                                             </span>
                                         </div>
                                         <div className="flex items-center gap-2 shrink-0">
-                                            {allTabsHistory && allTabsHistory[tab.id] ? (
+                                            {allTabsHistory?.[tab.id] ? (
                                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-mono">
                                                     log OK
                                                 </span>

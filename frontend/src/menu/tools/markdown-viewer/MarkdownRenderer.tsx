@@ -217,6 +217,36 @@ function consumeMkDocsBlock(
     return idx;
 }
 
+function processHtmlCommentLine(rawLine: string, wasInComment: boolean): { line: string; inComment: boolean; skip: boolean } {
+    let line = rawLine;
+    let inHtmlComment = wasInComment;
+
+    if (inHtmlComment) {
+        const closeIdx = line.indexOf('-->');
+        if (closeIdx !== -1) {
+            inHtmlComment = false;
+            line = line.slice(closeIdx + 3);
+        } else {
+            return { line: '', inComment: true, skip: true };
+        }
+    }
+
+    while (line.includes('<!--')) {
+        const startIdx = line.indexOf('<!--');
+        const endIdx = line.indexOf('-->', startIdx + 4);
+        if (endIdx !== -1) {
+            line = line.slice(0, startIdx) + line.slice(endIdx + 3);
+        } else {
+            line = line.slice(0, startIdx);
+            inHtmlComment = true;
+            break;
+        }
+    }
+
+    const cleanLine = line.trim() === '' ? '' : line;
+    return { line: cleanLine, inComment: inHtmlComment, skip: false };
+}
+
 export function stripHtmlComments(markdown: string): string {
     if (!markdown) return '';
     const lines = markdown.replaceAll('\r\n', '\n').split('\n');
@@ -224,47 +254,21 @@ export function stripHtmlComments(markdown: string): string {
     let fenceMarker = '';
     let inHtmlComment = false;
 
-    for (let i = 0; i < lines.length; i++) {
-        let line = lines[i];
-        const fence = updateFenceState(line.trimStart(), fenceMarker);
+    for (const rawLine of lines) {
+        const fence = updateFenceState(rawLine.trimStart(), fenceMarker);
         fenceMarker = fence.nextFence;
 
         // Inside code block or fence line itself: preserve untouched
         if (fence.isFenceLine || fenceMarker) {
-            out.push(line);
+            out.push(rawLine);
             continue;
         }
 
-        // Outside code fence: handle multi-line comment state
-        if (inHtmlComment) {
-            const closeIdx = line.indexOf('-->');
-            if (closeIdx !== -1) {
-                inHtmlComment = false;
-                line = line.slice(closeIdx + 3);
-            } else {
-                continue;
-            }
+        const res = processHtmlCommentLine(rawLine, inHtmlComment);
+        inHtmlComment = res.inComment;
+        if (!res.skip) {
+            out.push(res.line);
         }
-
-        // Handle inline and multi-line comments starting on this line
-        while (line.includes('<!--')) {
-            const startIdx = line.indexOf('<!--');
-            const endIdx = line.indexOf('-->', startIdx + 4);
-            if (endIdx !== -1) {
-                line = line.slice(0, startIdx) + line.slice(endIdx + 3);
-            } else {
-                line = line.slice(0, startIdx);
-                inHtmlComment = true;
-                break;
-            }
-        }
-
-        // Normalize blanked comment line
-        if (line.trim() === '') {
-            line = '';
-        }
-
-        out.push(line);
     }
 
     return out.join('\n');

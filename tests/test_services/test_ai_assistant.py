@@ -26,8 +26,13 @@ def mock_api():
     return api
 
 @pytest.fixture
-def ai_manager(mock_api):
+def ai_manager(mock_api, tmp_path):
     manager = AIAssistantManager(mock_api)
+    manager.data_dir = str(tmp_path / "data")
+    manager.history_file = os.path.join(manager.data_dir, 'ai_chat_history.json')
+    manager.action_states_file = os.path.join(manager.data_dir, 'ai_action_states.json')
+    manager.usage_file = os.path.join(manager.data_dir, 'ai_usage.json')
+    os.makedirs(manager.data_dir, exist_ok=True)
     return manager
 
 # ==========================================

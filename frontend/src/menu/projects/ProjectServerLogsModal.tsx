@@ -71,11 +71,10 @@ export default function ProjectServerLogsModal() {
                 </div>
                 <pre
                     ref={logContainerRef}
-                    tabIndex={0}
                     aria-label={t('projects.server_logs_title')}
                     className="w-full h-80 overflow-y-auto p-3.5 bg-slate-950 text-slate-200 font-mono text-[11px] leading-relaxed rounded-lg border border-slate-800 focus:outline-none focus:ring-1 focus:ring-primary select-text whitespace-pre-wrap break-all"
                 >
-                    {serverLogsContent ? serverLogsContent : (
+                    {serverLogsContent || (
                         <span className="text-slate-500 italic">
                             {t('projects.server_logs_empty')}
                         </span>

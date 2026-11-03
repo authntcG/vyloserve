@@ -125,6 +125,10 @@ def emit_log(self, message: str, level: str = "info", args: dict = None, source_
 |---|---|
 | `close_app()` | Jika `self.quit_callback` di-set → panggil callback tersebut. Jika tidak → `os._exit(0)` langsung. |
 | `browse_directory()` | Membuka native folder picker via `self._window.create_file_dialog(webview.FOLDER_DIALOG)`. |
+| `browse_open_file()` / `browse_save_file()` | Membuka dialog pemilih berkas native Windows via `self._window.create_file_dialog()`. |
+| `save_base64_file(filename, b64_data, filters)` | Menyimpan payload Base64 menjadi berkas biner ke lokasi pilihan pengguna melalui native Save File Dialog. |
+| `check_internet_connection()` | Melakukan verifikasi konektivitas internet menggunakan socket probe ringan ke multiple DNS publik (`core.utils.network_utils.check_internet_connection`). |
+| `cancel_installation(task_id)` / `cancel_project_install(task_id)` | Memicu sinyal pembatalan tugas asinkron yang sedang berjalan (`core.utils.cancellation.cancel_task`). |
 | `start_service(id)` / `stop_service(id)` | Dispatcher generik dipakai oleh toggle switch di Sidebar & Dashboard — merutekan ke `apache`/`php`/`database` manager berdasarkan `id`. |
 | `get_all_services_status()` | Menggabungkan `psutil.cpu_percent()` + `psutil.virtual_memory().percent` dengan status running tiap service — dipoll frontend tiap 2 detik. |
 | `apply_titlebar_theme(theme)` | Menerapkan palet warna caption bar dan teks titlebar native Windows via DWM API (`core.utils.system_utils.apply_window_titlebar_theme`). |
@@ -142,8 +146,8 @@ def emit_log(self, message: str, level: str = "info", args: dict = None, source_
 
 | Fungsi | Perilaku |
 |---|---|
-| `download_advanced(url, dest, log_cb, prog_cb)` | Kirim `HEAD` dulu untuk cek `Content-Length` & `Accept-Ranges`. Jika server mendukung *byte range* dan ukuran diketahui → `_download_multi_part()` (8 koneksi paralel, file di-*preallocate*, tiap thread menulis potongan byte-nya sendiri, progress digabung via `threading.Lock`). Jika tidak → `_download_single_stream()` (chunked 32KB). HTTP 404 dilempar ulang sebagai `RuntimeError` yang jelas. |
-| `extract_archive(zip_path, dest, prog_cb)` | `.zip` → member-by-member (progress tiap 50 file). `.tar.gz` → `extractall()` sekali jalan (progress langsung loncat ke 80%, tidak granular). Dilengkapi `_is_safe_extract_path()` mencegah Zip Slip traversal. |
+| `download_advanced(url, dest, log_cb, prog_cb, cancellation_token)` | Kirim `HEAD` dulu untuk cek `Content-Length` & `Accept-Ranges`. Mendukung pemeriksaan berkala `cancellation_token.check_cancelled()` pada setiap pembacaan chunk. Jika server mendukung *byte range* dan ukuran diketahui → `_download_multi_part()` (8 koneksi paralel, file di-*preallocate*, tiap thread menulis potongan byte-nya sendiri, progress digabung via `threading.Lock`). Jika tidak → `_download_single_stream()` (chunked 32KB). HTTP 404 dilempar ulang sebagai `RuntimeError` yang jelas. |
+| `extract_archive(zip_path, dest, prog_cb, cancellation_token)` | `.zip` → member-by-member (progress tiap 50 file, memverifikasi `cancellation_token`). `.tar.gz` → `extractall()` sekali jalan (progress langsung loncat ke 80%, tidak granular). Dilengkapi `_is_safe_extract_path()` mencegah Zip Slip traversal. |
 | `read_json(path, default_type=list)` | Baca JSON dengan aman. **Selalu mengembalikan tipe `default_type`** — jika file tidak ada/kosong/JSON tidak valid, ATAU jika isi file valid JSON tapi bertipe berbeda dari `default_type`, otomatis fallback ke `default_type()` kosong. |
 | `write_json(path, data)` | Tulis `data` sebagai JSON (`indent=4`), `os.makedirs` otomatis. Return `bool` sukses/gagal. |
 
@@ -157,11 +161,33 @@ def emit_log(self, message: str, level: str = "info", args: dict = None, source_
 | `start_silent_process(cmd)` | Eksekusi asinkron tersembunyi (untuk daemon Apache/PHP/DB). |
 | `check_port_in_use(port, host)` | Cek `socket.create_connection((host, port))` (IPv4) dulu; jika gagal **dan** host adalah `127.0.0.1`/`localhost`, fallback ke `AF_INET6` (`::1`). |
 | `hex_to_colorref(hex_str)` | Mengonversi warna hex `#RRGGBB` ke integer Windows `COLORREF` (`0x00BBGGRR`). |
-| `get_theme_titlebar_palette(theme)` | Mengembalikan mapping warna caption & text titlebar untuk 10 tema bawaan. |
+| `get_theme_titlebar_palette(theme)` | Mengembalikan mapping warna caption & text titlebar untuk 15 tema bawaan. |
 | `apply_window_titlebar_theme(hwnd, theme, dark_mode)` | Mengatur atribut DWM window (`DWMWA_CAPTION_COLOR = 35`, `DWMWA_TEXT_COLOR = 36`, `DWMWA_USE_IMMERSIVE_DARK_MODE = 20`) via `dwmapi.dll`. |
 | `send_show_command_to_pipe(pipe_name)` | Menghubungkan client ke Named Pipe Windows dan mengirim string `"SHOW"` untuk aktivasi instance utama. |
 | `start_ipc_server(pipe_name, on_show_callback)` | Membuka server Windows Named Pipe di thread daemon untuk mendengarkan sinyal aktivasi dari instance sekunder. |
 | `bring_existing_instance_to_front()` | Mencoba aktivasi lewat Named Pipe IPC terlebih dahulu; fallback ke Win32 `FindWindowW` + `ShowWindow` jika IPC tidak merespon. |
+
+### 3.3 `cancellation.py` — Pengelolaan Token Pembatalan Asinkron
+
+Menyediakan infrastruktur pembatalan tugas asinkron terpusat untuk operasi I/O berdurasi panjang:
+
+| Komponen / Fungsi | Perilaku & Tanggung Jawab |
+|---|---|
+| `CancelledError` | Kelas eksepsi khusus (`Exception`) yang dilempar saat `CancellationToken.check_cancelled()` mendeteksi sinyal pembatalan. |
+| `CancellationToken` | Objek thread-safe yang membungkus `threading.Event`. Menyediakan method `cancel()` untuk mengaktifkan sinyal pembatalan, properti `is_cancelled`, dan method `check_cancelled()` yang langsung melempar `CancelledError`. |
+| `register_cancellation_token(task_id)` | Membuat dan mendaftarkan instance `CancellationToken` baru ke dalam registry global thread-safe `_ACTIVE_TOKENS[task_id]`. |
+| `cancel_task(task_id)` | Mencari token berdasarkan `task_id` dan memanggil `token.cancel()`. Mengembalikan `True` jika token ditemukan dan berhasil dibatalkan. |
+| `cleanup_task(task_id)` | Menghapus token dari registry `_ACTIVE_TOKENS` setelah proses selesai (baik berhasil, error, maupun dibatalkan) untuk mencegah kebocoran memori. |
+
+### 3.4 `network_utils.py` — Probing Koneksi & Klasifikasi Error Jaringan
+
+Menyediakan utilitas proaktif untuk mendeteksi ketersediaan akses internet dan mengklasifikasikan error jaringan:
+
+| Fungsi | Perilaku & Tanggung Jawab |
+|---|---|
+| `check_internet_connection(timeout=2.0)` | Menguji konektivitas fisik ke server DNS publik terpercaya (`1.1.1.1:53`, `8.8.8.8:53`, `208.67.222.222:53`) menggunakan socket connection bertempo cepat (timeout 2 detik). Mengembalikan `True` jika salah satu probe berhasil. |
+| `is_network_error(exc)` | Memeriksa apakah sebuah eksepsi (`socket.gaierror`, `socket.timeout`, `urllib.error.URLError`, atau koneksi ditolak) tergolong masalah koneksi jaringan fisik pengguna, bukan kesalahan server HTTP (seperti 404/500). |
+| `build_offline_error_response(message_key)` | Membangun payload respons standar `{"status": "error", "message": message_key, "is_offline": True}` untuk dikonsumsi frontend secara deklaratif. |
 
 ---
 
@@ -312,6 +338,7 @@ Sebelumnya, setiap kali fetch daftar versi PHP dari internet gagal (mis. tidak a
 
 ### 6.1 Dependency & State
 - `bin_dir = bin/database/`, `config_path = data/databases.json` (list instance), `self.processes = {}` (in-memory, caveat sama seperti PHP).
+- **Dukungan Triple-Engine:** Mendukung **MySQL / MariaDB**, **PostgreSQL**, dan **Redis** (In-Memory Key-Value Data Store & Cache portable port default 6379).
 - **Tidak bergantung pada service lain** — modul paling independen di codebase ini.
 
 ### 6.2 Workflow: `install_database(engine, version, url, port, root_pass)`
@@ -325,37 +352,58 @@ flowchart TD
     ReuseData --> GuardInstall
     FreshData --> GuardInstall{install_dir<br/>sudah ada?}
     GuardInstall -- ya --> ErrExist([return error: already_installed])
-    GuardInstall -- tidak --> IsMySQL{engine == mysql?}
-    IsMySQL -- ya --> ResolveUrl["_resolve_mariadb_url(version)<br/>(abaikan param url, scrape ulang<br/>archive.mariadb.org utk binary OS yang tepat)"]
-    IsMySQL -- tidak --> DL
+    GuardInstall -- tidak --> CheckEngine{engine type?}
+    
+    CheckEngine -- mysql --> ResolveUrl["_resolve_mariadb_url(version)<br/>(caching TTL & mirror timeout guard)"]
+    CheckEngine -- postgres --> DL
+    CheckEngine -- redis --> DL
+    
     ResolveUrl --> DL[download_advanced → extract_archive → hapus zip]
     DL --> Unwrap["_unwrap_single_subdir()<br/>flatten folder wrapper tar.gz"]
     Unwrap --> NeedInit{is_existing_data<br/>== False?}
-    NeedInit -- ya --> Init["_init_database()<br/>_assert_installer_present() dulu (lihat catatan di bawah)<br/>MySQL: mysql_install_db.exe --datadir=<br/>Postgres: initdb.exe -U postgres --pwfile=pw.txt<br/>(pw.txt dihapus segera setelah dipakai)"]
+    
+    NeedInit -- ya --> InitEngine{engine?}
+    InitEngine -- mysql --> InitMySQL["_init_database(): mysql_install_db.exe"]
+    InitEngine -- postgres --> InitPG["_init_database(): initdb.exe -U postgres"]
+    InitEngine -- redis --> InitRedis["_build_redis_conf(): generate redis.conf"]
+    
     NeedInit -- tidak --> Register
-    Init --> Register["_register_database()<br/>append entry ke databases.json"]
+    InitMySQL --> Register["_register_database()<br/>append entry ke databases.json"]
+    InitPG --> Register
+    InitRedis --> Register
     Register --> Success([return status: success])
 
-    ResolveUrl -.exception.-> Cleanup
-    DL -.exception.-> Cleanup
-    Init -.exception.-> Cleanup
-    Cleanup["_cleanup_install_failure():<br/>hapus zip + rmtree install_dir<br/>rmtree data_dir HANYA JIKA is_existing_data == False<br/>(melindungi data user pada reinstall gagal)"] --> Fail([return status: error])
+    ResolveUrl -.exception / cancel.-> Cleanup
+    DL -.exception / cancel.-> Cleanup
+    InitMySQL -.exception / cancel.-> Cleanup
+    InitPG -.exception / cancel.-> Cleanup
+    InitRedis -.exception / cancel.-> Cleanup
+    Cleanup["_cleanup_install_failure():<br/>hapus zip + rmtree install_dir<br/>rmtree data_dir HANYA JIKA is_existing_data == False<br/>(melindungi data user pada reinstall gagal / dibatalkan)"] --> Fail([return status: error / cancelled])
 ```
 
-> ✅ **`_assert_installer_present(installer, error_prefix)`** (ditambahkan setelah insiden nyata — lihat `docs/known_bugs.md` #52): dipanggil di awal `_init_database()` untuk KEDUA engine, SEBELUM `run_silent_command([installer, ...])` dieksekusi. Tanpa ini, binary installer yang hilang pasca-ekstraksi (unduhan terputus sebagian, antivirus mengarantina sebagian hasil ekstraksi, atau — akar penyebab nyata yang ditemukan saat insiden ini — `engine`/`version`/`url` yang dikirim frontend tidak konsisten akibat race condition di `NewInstance.tsx`, lihat `docs/known_bugs.md` #52 untuk kronologi lengkap) menyebabkan `FileNotFoundError` mentah dari `CreateProcess` (`"[WinError 2] The system cannot find the file specified"`) yang **tidak menyebutkan file APA yang hilang sama sekali**. Dengan guard ini, kegagalan yang sama sekarang melempar `RuntimeError` yang menyebutkan path lengkap installer yang dicari, dua penyebab paling umum, dan saran tindak lanjut — jauh lebih actionable untuk didiagnosis dari laporan user.
+> ✅ **`_assert_installer_present(installer, error_prefix)`** (ditambahkan setelah insiden nyata — lihat `docs/known_bugs.md` #52): dipanggil di awal `_init_database()` untuk KEDUA engine (MySQL & Postgres), SEBELUM `run_silent_command([installer, ...])` dieksekusi. Mencegah error biner hilang pasca-ekstraksi dan memberikan pesan diagnostik actionable.
 
-### 6.3 Workflow: `start_database(db_id)`
+### 6.3 Database Schema Management (`list_schemas`, `create_schema`, `drop_schema`)
+
+Modul Database menyediakan API manajemen skema grafis terpadu:
+- **`list_database_schemas(db_id)`**: Menjalankan kueri SQL introspeksi (`SHOW DATABASES` pada MySQL/MariaDB; `SELECT datname FROM pg_database WHERE datistemplate = false` pada PostgreSQL) via CLI silent subprocess dan mengembalikan daftar database ke frontend.
+- **`create_database_schema(db_id, schema_name)`**: Mengeksekusi `CREATE DATABASE <schema_name>` dengan validasi sanitasi pengidentifikasi SQL untuk mencegah SQL Injection.
+- **`drop_database_schema(db_id, schema_name)`**: Mengeksekusi `DROP DATABASE <schema_name>` setelah verifikasi skema bukan database sistem internal (`mysql`, `information_schema`, `performance_schema`, `sys`, `postgres`).
+- **Refaktorisasi SRP Helper:** Logika eksekusi CLI dipisah secara modular ke dalam private helpers `_run_mysql_cli` dan `_run_pg_cli`, memangkas Cognitive Complexity dari 16 menjadi 2.
+- **Penanganan Khusus Redis:** Karena Redis adalah *key-value store* in-memory non-relasional yang mengandalkan indeks numerik (`db 0` - `db 15`), pemanggilan schema manager pada instance Redis dicegah dan mengembalikan pesan `"backend.database.redis_not_supported_for_schemas"`.
+
+### 6.4 Workflow: `start_database(db_id)`
 
 ```mermaid
 sequenceDiagram
     participant U as User
     participant D as DatabaseManager
     participant Log as data/{db_id}/db_startup.log
-    participant OS as mysqld.exe / postgres.exe
+    participant OS as mysqld.exe / postgres.exe / redis-server.exe
 
     U->>D: start_database(db_id)
     D->>D: guard: port sudah dipakai? → error
-    D->>D: _build_startup_cmd()<br/>(MySQL: --datadir --port | Postgres: -D datadir -p port)
+    D->>D: _build_startup_cmd()<br/>(MySQL: --datadir --port | Postgres: -D datadir -p port | Redis: redis.conf)
     D->>Log: buka file log untuk redirect stdout/stderr
     D->>OS: subprocess.Popen(cmd, stdout=log_f, stderr=log_f)
     loop polling max 150x @ 0.1s (total 15s)
@@ -370,14 +418,14 @@ sequenceDiagram
     D-->>U: error "timeout_starting" (jika 15s habis tanpa sinyal)
 ```
 
-### 6.4 Workflow: `stop_database(db_id)` — Pola Kill-lalu-Graceful (Tidak Biasa)
+### 6.5 Workflow: `stop_database(db_id)` — Pola Kill-lalu-Graceful (Tidak Biasa)
 
 ```mermaid
 flowchart LR
     Start([stop_database]) --> Kill["_kill_process()<br/>terminate() → wait 5s → kill() jika masih hidup"]
     Kill --> Check{port masih<br/>terbuka?}
     Check -- tidak --> Done([selesai, port sudah bebas])
-    Check -- ya --> Graceful["_graceful_shutdown()<br/>Postgres: pg_ctl -D datadir stop<br/>MySQL: mysqladmin --port= shutdown"]
+    Check -- ya --> Graceful["_graceful_shutdown()<br/>Postgres: pg_ctl -D datadir stop<br/>MySQL: mysqladmin --port= shutdown<br/>Redis: redis-cli -p port shutdown"]
     Graceful --> Done2([selesai])
 ```
 

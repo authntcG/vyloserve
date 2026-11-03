@@ -5,12 +5,17 @@ import uuid
 import time
 import shutil
 import threading
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from core.utils.system_utils import get_project_root
 from core.utils.file_utils import read_json, write_json
 
 CMD_DIR_COMMANDS = ("cd", "chdir", "pushd", "dir", "md", "mkdir", "rd", "rmdir", "tree")
 ANSI_ESCAPE_RE = re.compile(r'\x1b(?:\[[0-9;?]*[a-zA-Z~]|\][^\x07\x1b]*(\x07|\x1b\\)|[PX^_].*?\x1b\\|.)')
+
+DIR_WINDOWS = "C:\\Windows"
+EXE_POWERSHELL = "powershell.exe"
+MSG_SPAWN_FAILED = "backend.terminal.spawn_failed"
+MSG_SESSION_NOT_FOUND = "backend.terminal.session_not_found"
 
 class TerminalManager:
     """
@@ -30,50 +35,49 @@ class TerminalManager:
         if hasattr(self, 'api') and self.api and hasattr(self.api, 'emit_log'):
             self.api.emit_log(msg, level, args)
 
-    def get_available_shells(self) -> List[Dict[str, Any]]:
-        """
-        Mendeteksi ketersediaan shell di sistem Windows.
-        Mengembalikan daftar shell dengan flag availability dan penanda default.
-        """
-        shells = []
+    @staticmethod
+    def _resolve_default_mode(versions: list, os_path: Optional[str]) -> str:
+        if versions:
+            return versions[0]["path"]
+        return "os" if os_path else "none"
 
-        # 1. PowerShell Core (pwsh) & Windows PowerShell
+    def _detect_powershell(self) -> Dict[str, Any]:
         pwsh_path = shutil.which("pwsh")
         powershell_path = shutil.which("powershell")
         if not powershell_path and sys.platform == "win32":
-            system_root = os.environ.get("SystemRoot", "C:\\Windows")
-            fallback_ps = os.path.join(system_root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+            system_root = os.environ.get("SystemRoot", DIR_WINDOWS)
+            fallback_ps = os.path.join(system_root, "System32", "WindowsPowerShell", "v1.0", EXE_POWERSHELL)
             if os.path.exists(fallback_ps):
                 powershell_path = fallback_ps
 
         primary_ps_path = pwsh_path or powershell_path
-        shells.append({
+        return {
             "id": "powershell",
             "name": "PowerShell",
             "icon": "terminal",
             "available": bool(primary_ps_path),
             "path": primary_ps_path or "",
             "is_default": True
-        })
+        }
 
-        # 2. Command Prompt (cmd.exe)
+    def _detect_cmd(self) -> Dict[str, Any]:
         cmd_path = shutil.which("cmd") or os.environ.get("COMSPEC", "")
         if not cmd_path and sys.platform == "win32":
-            system_root = os.environ.get("SystemRoot", "C:\\Windows")
+            system_root = os.environ.get("SystemRoot", DIR_WINDOWS)
             fallback_cmd = os.path.join(system_root, "System32", "cmd.exe")
             if os.path.exists(fallback_cmd):
                 cmd_path = fallback_cmd
 
-        shells.append({
+        return {
             "id": "cmd",
             "name": "Command Prompt",
             "icon": "terminal",
             "available": bool(cmd_path and os.path.exists(cmd_path)),
             "path": cmd_path or "",
             "is_default": False
-        })
+        }
 
-        # 3. Git Bash
+    def _detect_git_bash(self) -> Dict[str, Any]:
         git_bash_candidates = [
             shutil.which("bash"),
             r"C:\Program Files\Git\bin\bash.exe",
@@ -82,33 +86,54 @@ class TerminalManager:
             os.path.join(self.bin_dir, "git", "bin", "bash.exe")
         ]
         git_bash_path = next((p for p in git_bash_candidates if p and os.path.exists(p)), None)
-        shells.append({
+        return {
             "id": "git-bash",
             "name": "Git Bash",
             "icon": "terminal",
             "available": bool(git_bash_path),
             "path": git_bash_path or "",
             "is_default": False
-        })
+        }
 
-        # 4. WSL (Windows Subsystem for Linux)
+    def _detect_wsl(self) -> Dict[str, Any]:
         wsl_path = shutil.which("wsl")
         if not wsl_path and sys.platform == "win32":
-            system_root = os.environ.get("SystemRoot", "C:\\Windows")
+            system_root = os.environ.get("SystemRoot", DIR_WINDOWS)
             fallback_wsl = os.path.join(system_root, "System32", "wsl.exe")
             if os.path.exists(fallback_wsl):
                 wsl_path = fallback_wsl
 
-        shells.append({
+        return {
             "id": "wsl",
             "name": "WSL",
             "icon": "terminal",
             "available": bool(wsl_path and os.path.exists(wsl_path)),
             "path": wsl_path or "",
             "is_default": False
-        })
+        }
 
-        return shells
+    def get_available_shells(self) -> List[Dict[str, Any]]:
+        """
+        Mendeteksi ketersediaan shell di sistem Windows.
+        Mengembalikan daftar shell dengan flag availability dan penanda default.
+        """
+        return [
+            self._detect_powershell(),
+            self._detect_cmd(),
+            self._detect_git_bash(),
+            self._detect_wsl()
+        ]
+
+    def _resolve_powershell_cmd(self, target: Optional[Dict[str, Any]]) -> List[str]:
+        if target and target.get("available"):
+            return [target["path"], "-NoLogo"]
+        pwsh = shutil.which("pwsh") or shutil.which("powershell") or EXE_POWERSHELL
+        return [pwsh, "-NoLogo"]
+
+    def _resolve_cmd_shell(self, target: Optional[Dict[str, Any]]) -> List[str]:
+        if target and target.get("available"):
+            return [target["path"]]
+        return [shutil.which("cmd") or "cmd.exe"]
 
     def _resolve_shell_command(self, shell_id: str) -> Optional[List[str]]:
         """
@@ -118,28 +143,47 @@ class TerminalManager:
         target = available.get(shell_id)
 
         if shell_id == "powershell":
-            if target and target["available"]:
-                return [target["path"], "-NoLogo"]
-            pwsh = shutil.which("pwsh") or shutil.which("powershell") or "powershell.exe"
-            return [pwsh, "-NoLogo"]
-
+            return self._resolve_powershell_cmd(target)
         if shell_id == "cmd":
-            cmd_exe = (target["path"] if target and target["available"] else None) or shutil.which("cmd") or "cmd.exe"
-            return [cmd_exe]
-
+            return self._resolve_cmd_shell(target)
         if shell_id == "git-bash":
-            if target and target["available"]:
-                return [target["path"], "--login", "-i"]
-            return None
-
+            return [target["path"], "--login", "-i"] if (target and target.get("available")) else None
         if shell_id == "wsl":
-            if target and target["available"]:
-                return [target["path"]]
-            return None
+            return [target["path"]] if (target and target.get("available")) else None
 
-        # Fallback ke default powershell
-        pwsh = shutil.which("pwsh") or shutil.which("powershell") or "powershell.exe"
-        return [pwsh, "-NoLogo"]
+        return self._resolve_powershell_cmd(None)
+
+    def _scan_hierarchical_versions(
+        self,
+        base: str,
+        binary_name: str,
+        bin_subdir: str,
+        display_prefix: str,
+        seen_paths: set
+    ) -> List[Dict[str, str]]:
+        found = []
+        try:
+            for entry in sorted(os.listdir(base), reverse=True):
+                sub = os.path.join(base, entry)
+                if not os.path.isdir(sub):
+                    continue
+
+                sub_bin_dir = os.path.join(sub, bin_subdir) if bin_subdir else sub
+                if not os.path.exists(os.path.join(sub_bin_dir, binary_name)) and os.path.exists(os.path.join(sub, binary_name)):
+                    sub_bin_dir = sub
+
+                if os.path.exists(os.path.join(sub_bin_dir, binary_name)) and sub_bin_dir not in seen_paths:
+                    seen_paths.add(sub_bin_dir)
+                    clean_ver = entry.replace("php-", "").replace("node-", "").replace("python-", "").replace("go", "")
+                    display_ver = clean_ver if clean_ver else entry
+                    found.append({
+                        "version": display_ver,
+                        "path": sub_bin_dir,
+                        "display_name": f"{display_prefix} {display_ver} (VyloServe)"
+                    })
+        except Exception:
+            pass
+        return found
 
     def _scan_versions(
         self,
@@ -159,162 +203,70 @@ class TerminalManager:
             if not os.path.exists(base):
                 continue
 
-            # 1. Cek subdirektori versi (hierarchical structure)
-            has_subdirs = False
-            try:
-                for entry in sorted(os.listdir(base), reverse=True):
-                    sub = os.path.join(base, entry)
-                    if not os.path.isdir(sub):
-                        continue
+            sub_versions = self._scan_hierarchical_versions(base, binary_name, bin_subdir, display_prefix, seen_paths)
+            versions.extend(sub_versions)
 
-                    has_subdirs = True
-                    sub_bin_dir = os.path.join(sub, bin_subdir) if bin_subdir else sub
-                    # Fallback jika bin_subdir tidak ditemukan, cek sub langsung
-                    if not os.path.exists(os.path.join(sub_bin_dir, binary_name)) and os.path.exists(os.path.join(sub, binary_name)):
-                        sub_bin_dir = sub
-
-                    if os.path.exists(os.path.join(sub_bin_dir, binary_name)) and sub_bin_dir not in seen_paths:
-                        seen_paths.add(sub_bin_dir)
-                        clean_ver = entry.replace("php-", "").replace("node-", "").replace("python-", "").replace("go", "")
-                        display_ver = clean_ver if clean_ver else entry
-                        versions.append({
-                            "version": display_ver,
-                            "path": sub_bin_dir,
-                            "display_name": f"{display_prefix} {display_ver} (VyloServe)"
-                        })
-            except Exception:
-                pass
-
-            # 2. Cek langsung di direktori base (flat structure atau empty placeholder)
             target_bin_dir = os.path.join(base, bin_subdir) if bin_subdir else base
             target_exe = os.path.join(target_bin_dir, binary_name)
-            if target_bin_dir not in seen_paths:
-                if os.path.exists(target_exe) or not has_subdirs:
-                    seen_paths.add(target_bin_dir)
-                    versions.append({
-                        "version": "default",
-                        "path": target_bin_dir,
-                        "display_name": f"{display_prefix} (VyloServe)"
-                    })
+            if target_bin_dir not in seen_paths and (os.path.exists(target_exe) or not sub_versions):
+                seen_paths.add(target_bin_dir)
+                versions.append({
+                    "version": "default",
+                    "path": target_bin_dir,
+                    "display_name": f"{display_prefix} (VyloServe)"
+                })
 
         return versions
 
-    def get_runtimes_matrix(self) -> Dict[str, Any]:
-        """
-        Memindai seluruh engine yang terpasang di VyloServe (bin/) serta
-        membandingkannya dengan ketersediaan di Windows OS System PATH.
-        Mengembalikan metadata yang digunakan frontend untuk mengatur profil runtime.
-        """
-        matrix: Dict[str, Any] = {}
-
-        # 1. PHP
-        php_vers = self._scan_versions(
-            base_dirs=[os.path.join(self.bin_dir, "php")],
-            binary_name="php.exe",
-            display_prefix="PHP"
+    def _build_runtime_entry(
+        self,
+        name: str,
+        binary_name: str,
+        base_dirs: List[str],
+        display_prefix: str,
+        bin_subdir: str = "",
+        os_cmd: Optional[str] = None
+    ) -> Dict[str, Any]:
+        vers = self._scan_versions(
+            base_dirs=base_dirs,
+            binary_name=binary_name,
+            bin_subdir=bin_subdir,
+            display_prefix=display_prefix
         )
-        os_php = shutil.which("php")
-        matrix["php"] = {
-            "name": "PHP Engine",
-            "has_vyloserve": len(php_vers) > 0,
-            "has_os": bool(os_php),
-            "os_path": os_php or "",
-            "versions": php_vers,
-            "path": php_vers[0]["path"] if php_vers else "",
-            "default_mode": php_vers[0]["path"] if php_vers else ("os" if os_php else "none")
+        os_binary = shutil.which(os_cmd or binary_name.replace(".exe", ""))
+        return {
+            "name": name,
+            "has_vyloserve": len(vers) > 0,
+            "has_os": bool(os_binary),
+            "os_path": os_binary or "",
+            "versions": vers,
+            "path": vers[0]["path"] if vers else "",
+            "default_mode": self._resolve_default_mode(vers, os_binary)
         }
 
-        # 2. Node.js
-        node_vers = self._scan_versions(
-            base_dirs=[os.path.join(self.bin_dir, "runtimes", "node"), os.path.join(self.bin_dir, "node")],
-            binary_name="node.exe",
-            display_prefix="Node.js"
-        )
-        os_node = shutil.which("node")
-        matrix["node"] = {
-            "name": "Node.js",
-            "has_vyloserve": len(node_vers) > 0,
-            "has_os": bool(os_node),
-            "os_path": os_node or "",
-            "versions": node_vers,
-            "path": node_vers[0]["path"] if node_vers else "",
-            "default_mode": node_vers[0]["path"] if node_vers else ("os" if os_node else "none")
-        }
-
-        # 3. Python
-        py_vers = self._scan_versions(
-            base_dirs=[os.path.join(self.bin_dir, "runtimes", "python"), os.path.join(self.bin_dir, "python")],
-            binary_name="python.exe",
-            display_prefix="Python"
-        )
-        os_py = shutil.which("python")
-        matrix["python"] = {
-            "name": "Python",
-            "has_vyloserve": len(py_vers) > 0,
-            "has_os": bool(os_py),
-            "os_path": os_py or "",
-            "versions": py_vers,
-            "path": py_vers[0]["path"] if py_vers else "",
-            "default_mode": py_vers[0]["path"] if py_vers else ("os" if os_py else "none")
-        }
-
-        # 4. Java JDK
-        java_vers = self._scan_versions(
-            base_dirs=[os.path.join(self.bin_dir, "runtimes", "java"), os.path.join(self.bin_dir, "java")],
-            binary_name="java.exe",
-            bin_subdir="bin",
-            display_prefix="Java JDK"
-        )
-        os_java = shutil.which("java")
-        matrix["java"] = {
-            "name": "Java JDK",
-            "has_vyloserve": len(java_vers) > 0,
-            "has_os": bool(os_java),
-            "os_path": os_java or "",
-            "versions": java_vers,
-            "path": java_vers[0]["path"] if java_vers else "",
-            "default_mode": java_vers[0]["path"] if java_vers else ("os" if os_java else "none")
-        }
-
-        # 5. Go
-        go_vers = self._scan_versions(
-            base_dirs=[os.path.join(self.bin_dir, "runtimes", "go"), os.path.join(self.bin_dir, "go")],
-            binary_name="go.exe",
-            bin_subdir="bin",
-            display_prefix="Go"
-        )
-        os_go = shutil.which("go")
-        matrix["go"] = {
-            "name": "Go",
-            "has_vyloserve": len(go_vers) > 0,
-            "has_os": bool(os_go),
-            "os_path": os_go or "",
-            "versions": go_vers,
-            "path": go_vers[0]["path"] if go_vers else "",
-            "default_mode": go_vers[0]["path"] if go_vers else ("os" if os_go else "none")
-        }
-
-        # 6. Composer
+    def _detect_composer_entry(self) -> Dict[str, Any]:
         comp_dir = os.path.join(self.bin_dir, "composer")
         comp_vers = []
-        if os.path.exists(comp_dir) and (os.path.exists(os.path.join(comp_dir, "composer.phar")) or os.path.exists(os.path.join(comp_dir, "composer.bat"))):
+        if os.path.exists(comp_dir) and (
+            os.path.exists(os.path.join(comp_dir, "composer.phar")) or os.path.exists(os.path.join(comp_dir, "composer.bat"))
+        ):
             comp_vers.append({
                 "version": "VyloServe",
                 "path": comp_dir,
                 "display_name": "Composer (VyloServe)"
             })
         os_composer = shutil.which("composer")
-        matrix["composer"] = {
+        return {
             "name": "Composer",
             "has_vyloserve": len(comp_vers) > 0,
             "has_os": bool(os_composer),
             "os_path": os_composer or "",
             "versions": comp_vers,
             "path": comp_dir if comp_vers else "",
-            "default_mode": comp_vers[0]["path"] if comp_vers else ("os" if os_composer else "none")
+            "default_mode": self._resolve_default_mode(comp_vers, os_composer)
         }
 
-        # 7. Git
+    def _detect_git_entry(self) -> Dict[str, Any]:
         git_vers = []
         for p in (os.path.join(self.bin_dir, "git", "cmd"), os.path.join(self.bin_dir, "git", "bin"), os.path.join(self.bin_dir, "git")):
             if os.path.exists(os.path.join(p, "git.exe")):
@@ -325,67 +277,114 @@ class TerminalManager:
                 })
                 break
         os_git = shutil.which("git")
-        matrix["git"] = {
+        return {
             "name": "Git",
             "has_vyloserve": len(git_vers) > 0,
             "has_os": bool(os_git),
             "os_path": os_git or "",
             "versions": git_vers,
             "path": git_vers[0]["path"] if git_vers else "",
-            "default_mode": git_vers[0]["path"] if git_vers else ("os" if os_git else "none")
+            "default_mode": self._resolve_default_mode(git_vers, os_git)
         }
 
-        # 8. MariaDB / MySQL Client
+    def _parse_installed_db_binaries(self) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         db_cfg_path = os.path.join(self.root_dir, "data", "databases.json")
         mysql_vers = []
         postgres_vers = []
-        if os.path.exists(db_cfg_path):
-            try:
-                from core.utils.file_utils import read_json
-                dbs = read_json(db_cfg_path, list)
-                for db in dbs:
-                    engine_type = db.get("engine", "")
-                    inst_bin = os.path.join(db.get("installDir", ""), "bin")
-                    if engine_type in ("mysql", "mariadb") and os.path.exists(inst_bin):
-                        mysql_vers.append({
-                            "version": db.get("version", "default"),
-                            "path": inst_bin,
-                            "display_name": f"{db.get('name', 'MariaDB/MySQL')} (VyloServe)"
-                        })
-                    elif engine_type == "postgres" and os.path.exists(inst_bin):
-                        postgres_vers.append({
-                            "version": db.get("version", "default"),
-                            "path": inst_bin,
-                            "display_name": f"{db.get('name', 'PostgreSQL')} (VyloServe)"
-                        })
-            except Exception:
-                pass
+        if not os.path.exists(db_cfg_path):
+            return mysql_vers, postgres_vers
+        try:
+            from core.utils.file_utils import read_json
+            dbs = read_json(db_cfg_path, list)
+            for db in dbs:
+                engine_type = db.get("engine", "")
+                inst_bin = os.path.join(db.get("installDir", ""), "bin")
+                if engine_type in ("mysql", "mariadb") and os.path.exists(inst_bin):
+                    mysql_vers.append({
+                        "version": db.get("version", "default"),
+                        "path": inst_bin,
+                        "display_name": f"{db.get('name', 'MariaDB/MySQL')} (VyloServe)"
+                    })
+                elif engine_type == "postgres" and os.path.exists(inst_bin):
+                    postgres_vers.append({
+                        "version": db.get("version", "default"),
+                        "path": inst_bin,
+                        "display_name": f"{db.get('name', 'PostgreSQL')} (VyloServe)"
+                    })
+        except Exception:
+            pass
+        return mysql_vers, postgres_vers
 
-        os_mysql = shutil.which("mysql")
-        if mysql_vers or os_mysql:
-            matrix["mysql"] = {
-                "name": "MariaDB / MySQL Client",
-                "has_vyloserve": len(mysql_vers) > 0,
-                "has_os": bool(os_mysql),
-                "os_path": os_mysql or "",
-                "versions": mysql_vers,
-                "path": mysql_vers[0]["path"] if mysql_vers else "",
-                "default_mode": mysql_vers[0]["path"] if mysql_vers else ("os" if os_mysql else "none")
-            }
+    def _build_db_client_entry(self, name: str, versions: list, cli_name: str) -> Optional[Dict[str, Any]]:
+        os_bin = shutil.which(cli_name)
+        if not versions and not os_bin:
+            return None
+        return {
+            "name": name,
+            "has_vyloserve": len(versions) > 0,
+            "has_os": bool(os_bin),
+            "os_path": os_bin or "",
+            "versions": versions,
+            "path": versions[0]["path"] if versions else "",
+            "default_mode": self._resolve_default_mode(versions, os_bin)
+        }
 
-        os_psql = shutil.which("psql")
-        if postgres_vers or os_psql:
-            matrix["postgres"] = {
-                "name": "PostgreSQL Client",
-                "has_vyloserve": len(postgres_vers) > 0,
-                "has_os": bool(os_psql),
-                "os_path": os_psql or "",
-                "versions": postgres_vers,
-                "path": postgres_vers[0]["path"] if postgres_vers else "",
-                "default_mode": postgres_vers[0]["path"] if postgres_vers else ("os" if os_psql else "none")
-            }
+    def _detect_db_entries(self) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        mysql_vers, postgres_vers = self._parse_installed_db_binaries()
+        mysql_entry = self._build_db_client_entry("MariaDB / MySQL Client", mysql_vers, "mysql")
+        pg_entry = self._build_db_client_entry("PostgreSQL Client", postgres_vers, "psql")
+        return mysql_entry, pg_entry
+
+    def get_runtimes_matrix(self) -> Dict[str, Any]:
+        """
+        Memindai seluruh engine yang terpasang di VyloServe (bin/) serta
+        membandingkannya dengan ketersediaan di Windows OS System PATH.
+        Mengembalikan metadata yang digunakan frontend untuk mengatur profil runtime.
+        """
+        matrix: Dict[str, Any] = {
+            "php": self._build_runtime_entry("PHP Engine", "php.exe", [os.path.join(self.bin_dir, "php")], "PHP"),
+            "node": self._build_runtime_entry(
+                "Node.js", "node.exe", [os.path.join(self.bin_dir, "runtimes", "node"), os.path.join(self.bin_dir, "node")], "Node.js"
+            ),
+            "python": self._build_runtime_entry(
+                "Python", "python.exe", [os.path.join(self.bin_dir, "runtimes", "python"), os.path.join(self.bin_dir, "python")], "Python"
+            ),
+            "java": self._build_runtime_entry(
+                "Java JDK", "java.exe", [os.path.join(self.bin_dir, "runtimes", "java"), os.path.join(self.bin_dir, "java")], "Java JDK", bin_subdir="bin"
+            ),
+            "go": self._build_runtime_entry(
+                "Go", "go.exe", [os.path.join(self.bin_dir, "runtimes", "go"), os.path.join(self.bin_dir, "go")], "Go", bin_subdir="bin"
+            ),
+            "composer": self._detect_composer_entry(),
+            "git": self._detect_git_entry(),
+        }
+
+        mysql_entry, pg_entry = self._detect_db_entries()
+        if mysql_entry:
+            matrix["mysql"] = mysql_entry
+        if pg_entry:
+            matrix["postgres"] = pg_entry
 
         return matrix
+
+    def _resolve_engine_target_path(self, user_choice: Any, item: Dict[str, Any]) -> str:
+        if isinstance(user_choice, str) and os.path.isdir(user_choice):
+            return user_choice
+        if user_choice == "vyloserve":
+            if item.get("versions") and len(item["versions"]) > 0:
+                return item["versions"][0]["path"]
+            if item.get("path") and os.path.isdir(item["path"]):
+                return item["path"]
+        return ""
+
+    def _apply_engine_env_vars(self, engine_key: str, target_path: str, extra_paths: List[str], env: Dict[str, str]) -> None:
+        if engine_key == "python":
+            scripts_dir = os.path.join(target_path, "Scripts")
+            if os.path.exists(scripts_dir) and scripts_dir not in extra_paths:
+                extra_paths.append(scripts_dir)
+        elif engine_key in ("java", "go"):
+            base_home = os.path.dirname(target_path) if os.path.basename(target_path).lower() == "bin" else target_path
+            env["JAVA_HOME" if engine_key == "java" else "GOROOT"] = base_home
 
     def _build_session_env(
         self,
@@ -408,28 +407,10 @@ class TerminalManager:
             if user_choice in ("os", "none"):
                 continue
 
-            target_path = ""
-            if isinstance(user_choice, str) and os.path.isdir(user_choice):
-                target_path = user_choice
-            elif user_choice == "vyloserve":
-                if item.get("versions") and len(item["versions"]) > 0:
-                    target_path = item["versions"][0]["path"]
-                elif item.get("path") and os.path.isdir(item["path"]):
-                    target_path = item["path"]
-
+            target_path = self._resolve_engine_target_path(user_choice, item)
             if target_path and target_path not in extra_paths:
                 extra_paths.append(target_path)
-
-                if engine_key == "python":
-                    scripts_dir = os.path.join(target_path, "Scripts")
-                    if os.path.exists(scripts_dir) and scripts_dir not in extra_paths:
-                        extra_paths.append(scripts_dir)
-                elif engine_key == "java":
-                    java_home = os.path.dirname(target_path) if os.path.basename(target_path).lower() == "bin" else target_path
-                    env["JAVA_HOME"] = java_home
-                elif engine_key == "go":
-                    go_root = os.path.dirname(target_path) if os.path.basename(target_path).lower() == "bin" else target_path
-                    env["GOROOT"] = go_root
+                self._apply_engine_env_vars(engine_key, target_path, extra_paths, env)
 
         if extra_paths:
             current_path = env.get("PATH", "")
@@ -461,6 +442,28 @@ class TerminalManager:
             return home
         return self.root_dir
 
+    def _run_pty_reader_loop(self, pty, session_id: str, stop_event: threading.Event) -> None:
+        try:
+            while not stop_event.is_set():
+                try:
+                    data = pty.read(1024)
+                    if not data:
+                        break
+                    if hasattr(self.api, "emit_terminal_output"):
+                        self.api.emit_terminal_output(session_id, data)
+                except Exception:
+                    break
+        finally:
+            exit_code = 0
+            try:
+                exit_code = pty.exitstatus or 0
+            except Exception:
+                pass
+            if hasattr(self.api, "emit_terminal_exit"):
+                self.api.emit_terminal_exit(session_id, exit_code)
+            with self._lock:
+                self._sessions.pop(session_id, None)
+
     def create_session(
         self,
         shell_id: str = "powershell",
@@ -485,36 +488,16 @@ class TerminalManager:
             from winpty import PtyProcess
             pty = PtyProcess.spawn(cmd_list, cwd=safe_cwd, env=env)
         except Exception as e:
-            self._log("backend.terminal.spawn_failed", "error", {"e": str(e)})
-            return {"status": "error", "message": "backend.terminal.spawn_failed", "args": {"e": str(e)}}
+            self._log(MSG_SPAWN_FAILED, "error", {"e": str(e)})
+            return {"status": "error", "message": MSG_SPAWN_FAILED, "args": {"e": str(e)}}
 
         stop_event = threading.Event()
-
-        def _reader_thread_func():
-            try:
-                while not stop_event.is_set():
-                    try:
-                        data = pty.read(1024)
-                        if not data:
-                            break
-                        if hasattr(self.api, "emit_terminal_output"):
-                            self.api.emit_terminal_output(session_id, data)
-                    except EOFError:
-                        break
-                    except Exception:
-                        break
-            finally:
-                exit_code = 0
-                try:
-                    exit_code = pty.exitstatus or 0
-                except Exception:
-                    pass
-                if hasattr(self.api, "emit_terminal_exit"):
-                    self.api.emit_terminal_exit(session_id, exit_code)
-                with self._lock:
-                    self._sessions.pop(session_id, None)
-
-        reader_thread = threading.Thread(target=_reader_thread_func, daemon=True, name=f"TermReader-{session_id[:8]}")
+        reader_thread = threading.Thread(
+            target=self._run_pty_reader_loop,
+            args=(pty, session_id, stop_event),
+            daemon=True,
+            name=f"TermReader-{session_id[:8]}"
+        )
         reader_thread.start()
 
         session_info = {
@@ -545,19 +528,96 @@ class TerminalManager:
             }
         }
 
+    @staticmethod
+    def _extract_ansi_escape(data: str, i: int) -> Optional[str]:
+        if data[i] == "\x1b":
+            match = ANSI_ESCAPE_RE.match(data, i)
+            if match:
+                return match.group(0)
+        return None
+
+    @staticmethod
+    def _resolve_cmd_pending(ch: str, pending_char: str) -> Tuple[str, str, str]:
+        if ch == ":":
+            return pending_char + ":", pending_char + ":", ":"
+        if ch == "\t":
+            return ".\\" + pending_char + "\t\\", ".\\" + pending_char + "\\", "\\"
+        return ".\\" + pending_char, ".\\" + pending_char, pending_char
+
+    @staticmethod
+    def _resolve_cmd_tab(cmd_line: str) -> Tuple[str, str, str]:
+        words = cmd_line.split()
+        is_dir_cmd = bool(words and words[0].lower() in CMD_DIR_COMMANDS)
+        if is_dir_cmd and cmd_line.endswith(" "):
+            return ".\\\t\\", cmd_line + ".\\", "\\"
+        if is_dir_cmd or "\\" in cmd_line or "/" in cmd_line:
+            if is_dir_cmd and len(words) >= 2:
+                last_arg = words[-1]
+                if not last_arg.startswith((".", "\\", "/", "-")) and ":" not in last_arg:
+                    erase_seq = "\x08" * len(last_arg)
+                    return f"{erase_seq}.\\{last_arg}\t\\", cmd_line[:-len(last_arg)] + f".\\{last_arg}\\", "\\"
+            return "\t\\", cmd_line + "\\", "\\"
+        return "\t", cmd_line, "\t"
+
+    @staticmethod
+    def _normalize_cmd_char(ch: str, last_char: str) -> str:
+        if ch == "/" and (last_char in (".", ":", "/", "\\", "\t") or last_char.isalnum() or last_char in ("_", "-")):
+            return "\\"
+        return ch
+
+    @staticmethod
+    def _should_prefix_relative_dir(cmd_line: str, ch: str) -> bool:
+        words = cmd_line.split()
+        return len(words) == 1 and words[0].lower() in CMD_DIR_COMMANDS and cmd_line.endswith(" ") and (ch.isalnum() or ch in ("_", "-"))
+
+    @staticmethod
+    def _process_cmd_reset(ch: str, pending_char: str, out: list) -> Tuple[str, str, str]:
+        if pending_char:
+            out.append(pending_char)
+        out.append(ch)
+        return "", "", ch
+
+    @staticmethod
+    def _process_cmd_backspace(ch: str, pending_char: str, cmd_line: str, out: list) -> Tuple[str, str, str]:
+        if pending_char:
+            return cmd_line, "", ch
+        out.append(ch)
+        return (cmd_line[:-1] if cmd_line else ""), "", ch
+
+    def _process_cmd_normal_char(
+        self, ch: str, next_ch: Optional[str], cmd_line: str, last_char: str, out: list
+    ) -> Tuple[str, str, str, bool]:
+        if ch in ("/", "\\") and last_char in ("\\", "/"):
+            return cmd_line, "", last_char, False
+        norm_ch = self._normalize_cmd_char(ch, last_char)
+        if self._should_prefix_relative_dir(cmd_line, norm_ch):
+            if next_ch is not None:
+                if next_ch != ":":
+                    out.append(".\\")
+                    cmd_line += ".\\"
+            else:
+                return cmd_line, norm_ch, last_char, True
+        out.append(norm_ch)
+        return cmd_line + norm_ch, "", norm_ch, False
+
+    def _handle_cmd_control_char(
+        self, ch: str, cmd_line: str, pending_char: str, last_char: str, out: list
+    ) -> Tuple[bool, str, str, str]:
+        if ch in ("\r", "\n", "\x03", "\x15"):
+            new_cmd, new_pending, new_last = self._process_cmd_reset(ch, pending_char, out)
+            return True, new_cmd, new_pending, new_last
+        if ch in ("\x08", "\x7f"):
+            new_cmd, new_pending, new_last = self._process_cmd_backspace(ch, pending_char, cmd_line, out)
+            return True, new_cmd, new_pending, new_last
+        return False, cmd_line, pending_char, last_char
+
     def _translate_cmd_input(self, session: dict, data: str) -> str:
         """
         Di Command Prompt (cmd.exe) Windows, ReadConsole tidak otomatis menambahkan prefix
         relative path ('.\\') dan trailing backslash ('\\') pada proses Tab-autocomplete.
         Selain itu, karakter '/' pada path tidak dikenali oleh mesin Tab-autocompletion CMD.
 
-        Fungsi ini menormalkan input untuk sesi CMD:
-        1. Menambahkan prefix '.\\' pada input path relatif awal untuk perintah direktori (cd, dir, dll)
-        2. Memastikan setiap path autocomplete berakhir dengan '\\' (mengirim '\\t\\' pada Tab)
-        3. Menghapus trailing slash ganda ('//' atau '/\\')
-        4. Menerjemahkan '/' menjadi '\\' pada konteks path dengan tetap mempertahankan switch flag ('dir /w', 'cd /d')
-        5. Mengabaikan escape sequence kontrol terminal (seperti \\x1b[I focus-in atau arrow keys) dari pencatatan baris
-        6. Mendukung reactive fallback penggantian last_arg menjadi .\\last_arg\\t\\ jika input belum ber-prefix
+        Fungsi ini menormalkan input untuk sesi CMD.
         """
         cmd_line = session.get("cmd_line", "")
         pending_char = session.get("pending_char", "")
@@ -567,133 +627,40 @@ class TerminalManager:
         n = len(data)
 
         while i < n:
-            # 1. Deteksi escape sequence kontrol terminal (Focus In \x1b[I, Focus Out \x1b[O, arrow keys, dll)
-            # Teruskan langsung ke PTY tanpa mengotori buffer baris perintah pengguna
-            if data[i] == "\x1b":
-                match = ANSI_ESCAPE_RE.match(data, i)
-                if match:
-                    seq = match.group(0)
-                    out.append(seq)
-                    i += len(seq)
-                    continue
+            seq = self._extract_ansi_escape(data, i)
+            if seq:
+                out.append(seq)
+                i += len(seq)
+                continue
 
             ch = data[i]
 
-            # 2. Reset baris pada Enter, Newline, Ctrl+C, Ctrl+U
-            if ch in ("\r", "\n", "\x03", "\x15"):
-                if pending_char:
-                    out.append(pending_char)
-                    pending_char = ""
-                cmd_line = ""
-                out.append(ch)
-                last_char = ch
+            handled, cmd_line, pending_char, last_char = self._handle_cmd_control_char(
+                ch, cmd_line, pending_char, last_char, out
+            )
+            if handled:
                 i += 1
                 continue
 
-            # 3. Backspace
-            if ch in ("\x08", "\x7f"):
-                if pending_char:
-                    pending_char = ""
-                    i += 1
-                    continue
-                if cmd_line:
-                    cmd_line = cmd_line[:-1]
-                out.append(ch)
-                last_char = ch
-                i += 1
-                continue
-
-            # 4. Jika ada pending_char tertahan dari awal argumen perintah direktori
             if pending_char:
-                if ch == ":":
-                    # Drive letter Windows (mis. "D:") -> jangan beri prefix ".\"
-                    out.append(pending_char + ":")
-                    cmd_line += pending_char + ":"
-                    last_char = ":"
-                    pending_char = ""
+                out_chunk, line_add, last_char = self._resolve_cmd_pending(ch, pending_char)
+                out.append(out_chunk)
+                cmd_line += line_add
+                pending_char = ""
+                if ch in (":", "\t"):
                     i += 1
                     continue
-                elif ch == "\t":
-                    # Tab langsung setelah 1 karakter -> prefix ".\" dan akhiri "\"
-                    out.append(".\\" + pending_char + "\t\\")
-                    cmd_line += ".\\" + pending_char + "\\"
-                    last_char = "\\"
-                    pending_char = ""
-                    i += 1
-                    continue
-                else:
-                    # Karakter alfanumerik biasa -> lepaskan prefix ".\" beserta pending_char
-                    out.append(".\\" + pending_char)
-                    cmd_line += ".\\" + pending_char
-                    last_char = pending_char
-                    pending_char = ""
 
-            # 5. Tab Autocomplete
             if ch == "\t":
-                words = cmd_line.split()
-                is_dir_cmd = bool(words and words[0].lower() in CMD_DIR_COMMANDS)
-
-                # Jika pengguna menekan Tab tepat setelah perintah direktori (mis. 'cd ' + Tab)
-                if is_dir_cmd and cmd_line.endswith(" "):
-                    out.append(".\\\t\\")
-                    cmd_line += ".\\"
-                    last_char = "\\"
-                    i += 1
-                    continue
-
-                # Jika autocompleting path pada perintah direktori atau konteks path
-                # Mengirim '\t\' memastikan path direktori yang dilengkapi berakhiran '\'
-                if is_dir_cmd or "\\" in cmd_line or "/" in cmd_line:
-                    # Reactive fallback: jika kata target belum memiliki prefix .\ dan bukan drive letter / flag
-                    if is_dir_cmd and len(words) >= 2:
-                        last_arg = words[-1]
-                        if not last_arg.startswith((".", "\\", "/", "-")) and ":" not in last_arg:
-                            erase_seq = "\x08" * len(last_arg)
-                            out.append(f"{erase_seq}.\\{last_arg}\t\\")
-                            cmd_line = cmd_line[:-len(last_arg)] + f".\\{last_arg}\\"
-                            last_char = "\\"
-                            i += 1
-                            continue
-
-                    out.append("\t\\")
-                    cmd_line += "\\"
-                    last_char = "\\"
-                    i += 1
-                    continue
-
-                out.append("\t")
-                last_char = "\t"
+                out_tab, cmd_line, last_char = self._resolve_cmd_tab(cmd_line)
+                out.append(out_tab)
                 i += 1
                 continue
 
-            # 6. Mencegah duplikasi slash jika karakter sebelumnya sudah berupa slash/backslash
-            if ch in ("/", "\\") and last_char in ("\\", "/"):
-                i += 1
-                continue
-
-            # 7. Menerjemahkan '/' menjadi '\' pada konteks path
-            if ch == "/":
-                if last_char in (".", ":", "/", "\\", "\t") or last_char.isalnum() or last_char in ("_", "-"):
-                    ch = "\\"
-
-            # 8. Deteksi awal argumen direktori relatif untuk perintah navigasi (cd, dir, dll)
-            words = cmd_line.split()
-            if len(words) == 1 and words[0].lower() in CMD_DIR_COMMANDS and cmd_line.endswith(" "):
-                if ch.isalnum() or ch in ("_", "-"):
-                    if i + 1 < n:
-                        if data[i + 1] == ":":
-                            pass
-                        else:
-                            out.append(".\\")
-                            cmd_line += ".\\"
-                    else:
-                        pending_char = ch
-                        i += 1
-                        continue
-
-            out.append(ch)
-            cmd_line += ch
-            last_char = ch
+            next_ch = data[i + 1] if i + 1 < n else None
+            cmd_line, pending_char, last_char, _ = self._process_cmd_normal_char(
+                ch, next_ch, cmd_line, last_char, out
+            )
             i += 1
 
         session["cmd_line"] = cmd_line
@@ -710,7 +677,7 @@ class TerminalManager:
             session = self._sessions.get(session_id)
 
         if not session or not session.get("pty"):
-            return {"status": "error", "message": "backend.terminal.session_not_found"}
+            return {"status": "error", "message": MSG_SESSION_NOT_FOUND}
 
         try:
             # Sinkronisasi baris perintah aktual dari xterm jika dikirim saat Tab autocomplete
@@ -729,7 +696,7 @@ class TerminalManager:
             session["pty"].write(data)
             return {"status": "success", "message": "backend.terminal.input_sent"}
         except Exception as e:
-            return {"status": "error", "message": "backend.terminal.spawn_failed", "args": {"e": str(e)}}
+            return {"status": "error", "message": MSG_SPAWN_FAILED, "args": {"e": str(e)}}
 
     def resize(self, session_id: str, cols: int, rows: int) -> Dict[str, Any]:
         """
@@ -739,7 +706,7 @@ class TerminalManager:
             session = self._sessions.get(session_id)
 
         if not session or not session.get("pty"):
-            return {"status": "error", "message": "backend.terminal.session_not_found"}
+            return {"status": "error", "message": MSG_SESSION_NOT_FOUND}
 
         try:
             safe_rows = max(1, int(rows))
@@ -747,7 +714,7 @@ class TerminalManager:
             session["pty"].setwinsize(safe_rows, safe_cols)
             return {"status": "success", "message": "backend.terminal.resized"}
         except Exception as e:
-            return {"status": "error", "message": "backend.terminal.spawn_failed", "args": {"e": str(e)}}
+            return {"status": "error", "message": MSG_SPAWN_FAILED, "args": {"e": str(e)}}
 
     def close_session(self, session_id: str) -> Dict[str, Any]:
         """
@@ -757,7 +724,7 @@ class TerminalManager:
             session = self._sessions.pop(session_id, None)
 
         if not session:
-            return {"status": "error", "message": "backend.terminal.session_not_found"}
+            return {"status": "error", "message": MSG_SESSION_NOT_FOUND}
 
         session["stop_event"].set()
         try:
@@ -834,6 +801,27 @@ class TerminalManager:
             lines = lines[-1000:]
         return "\n".join(lines)
 
+    @staticmethod
+    def _inspect_process_cwd(pid: int) -> Optional[str]:
+        try:
+            import psutil
+            if not psutil.pid_exists(pid):
+                return None
+            proc = psutil.Process(pid)
+            for child in reversed(proc.children(recursive=True)):
+                try:
+                    child_cwd = child.cwd()
+                    if child_cwd and os.path.isdir(child_cwd):
+                        return child_cwd
+                except Exception:
+                    pass
+            proc_cwd = proc.cwd()
+            if proc_cwd and os.path.isdir(proc_cwd):
+                return proc_cwd
+        except Exception:
+            pass
+        return None
+
     def get_session_cwd(self, session_id: str) -> Dict[str, Any]:
         """
         Mendeteksi direktori kerja terkini (last CWD) dari sesi terminal yang sedang berjalan.
@@ -844,30 +832,10 @@ class TerminalManager:
             session = self._sessions.get(session_id)
 
         if not session:
-            return {"status": "error", "message": "backend.terminal.session_not_found"}
+            return {"status": "error", "message": MSG_SESSION_NOT_FOUND}
 
-        detected_cwd = None
         pid = session.get("pid")
-        if pid:
-            try:
-                import psutil
-                if psutil.pid_exists(pid):
-                    proc = psutil.Process(pid)
-                    children = proc.children(recursive=True)
-                    for child in reversed(children):
-                        try:
-                            child_cwd = child.cwd()
-                            if child_cwd and os.path.isdir(child_cwd):
-                                detected_cwd = child_cwd
-                                break
-                        except Exception:
-                            pass
-                    if not detected_cwd:
-                        proc_cwd = proc.cwd()
-                        if proc_cwd and os.path.isdir(proc_cwd):
-                            detected_cwd = proc_cwd
-            except Exception:
-                pass
+        detected_cwd = self._inspect_process_cwd(pid) if pid else None
 
         if not detected_cwd:
             detected_cwd = session.get("cwd", "")
@@ -901,6 +869,19 @@ class TerminalManager:
         write_json(self.config_file, cfg)
         return {"status": "success", "message": "backend.terminal.config_saved", "config": cfg}
 
+    def _sanitize_setting_value(self, key: str, value: Any) -> Any:
+        if key == "defaultCwd" and value:
+            return self._resolve_cwd(str(value))
+        if key == "fontSize" and isinstance(value, (int, float)):
+            return max(9, min(24, int(value)))
+        if key == "scrollback" and isinstance(value, int):
+            return max(500, min(20000, value))
+        if key in ("cursorStyle", "cursorBlinkStyle") and value in ("block", "underline", "bar", "classic", "smooth", "gradient", "none"):
+            return value
+        if key in ("cursorBlink", "copyOnSelect") and isinstance(value, bool):
+            return value
+        return value
+
     def save_terminal_settings(self, settings: dict) -> Dict[str, Any]:
         """
         Menyimpan preferensi kustomisasi terminal (font, tema, kursor, dll).
@@ -916,22 +897,7 @@ class TerminalManager:
         merged_settings = {**self.DEFAULT_SETTINGS, **current_settings}
         for k, v in settings.items():
             if k in self.DEFAULT_SETTINGS:
-                if k == "defaultCwd" and v:
-                    merged_settings[k] = self._resolve_cwd(str(v))
-                elif k == "fontSize" and isinstance(v, (int, float)):
-                    merged_settings[k] = max(9, min(24, int(v)))
-                elif k == "scrollback" and isinstance(v, int):
-                    merged_settings[k] = max(500, min(20000, v))
-                elif k == "cursorStyle" and v in ("block", "underline", "bar"):
-                    merged_settings[k] = v
-                elif k == "cursorBlinkStyle" and v in ("classic", "smooth", "gradient", "none"):
-                    merged_settings[k] = v
-                elif k == "cursorBlink" and isinstance(v, bool):
-                    merged_settings[k] = v
-                elif k == "copyOnSelect" and isinstance(v, bool):
-                    merged_settings[k] = v
-                else:
-                    merged_settings[k] = v
+                merged_settings[k] = self._sanitize_setting_value(k, v)
 
         cfg["settings"] = merged_settings
         write_json(self.config_file, cfg)
@@ -1027,6 +993,23 @@ class TerminalManager:
 
         return {"status": "success", "message": "backend.terminal.preset_deleted"}
 
+    def _clean_workspace_tab(self, tab: dict) -> Dict[str, Any]:
+        tab_cwd = self._resolve_cwd(tab.get("cwd", ""))
+        tab_last_cwd = self._resolve_cwd(tab.get("lastCwd") or tab_cwd)
+        tab_history = self._sanitize_history_buffer(tab.get("historyBuffer", ""))
+        title = tab.get("title") or tab.get("name") or "Terminal"
+        env_profile = tab.get("envProfile")
+        return {
+            "title": str(title),
+            "shell_id": str(tab.get("shell_id", "powershell")),
+            "cwd": tab_cwd,
+            "lastCwd": tab_last_cwd,
+            "historyBuffer": tab_history,
+            "envProfile": env_profile if isinstance(env_profile, dict) else {},
+            "color": str(tab.get("color", "emerald")),
+            "icon": str(tab.get("icon", "terminal"))
+        }
+
     def save_workspace(self, workspace_data: dict) -> Dict[str, Any]:
         """
         Menyimpan atau memperbarui preset multi-tab workspace.
@@ -1043,23 +1026,7 @@ class TerminalManager:
         if not isinstance(raw_tabs, list) or len(raw_tabs) == 0:
             return {"status": "error", "message": "backend.terminal.workspace_tabs_required"}
 
-        cleaned_tabs = []
-        for tab in raw_tabs:
-            if not isinstance(tab, dict):
-                continue
-            tab_cwd = self._resolve_cwd(tab.get("cwd", ""))
-            tab_last_cwd = self._resolve_cwd(tab.get("lastCwd") or tab_cwd)
-            tab_history = self._sanitize_history_buffer(tab.get("historyBuffer", ""))
-            cleaned_tabs.append({
-                "title": str(tab.get("title") or tab.get("name") or "Terminal"),
-                "shell_id": str(tab.get("shell_id", "powershell")),
-                "cwd": tab_cwd,
-                "lastCwd": tab_last_cwd,
-                "historyBuffer": tab_history,
-                "envProfile": tab.get("envProfile", {}) if isinstance(tab.get("envProfile"), dict) else {},
-                "color": str(tab.get("color", "emerald")),
-                "icon": str(tab.get("icon", "terminal"))
-            })
+        cleaned_tabs = [self._clean_workspace_tab(tab) for tab in raw_tabs if isinstance(tab, dict)]
 
         if len(cleaned_tabs) == 0:
             return {"status": "error", "message": "backend.terminal.workspace_tabs_required"}

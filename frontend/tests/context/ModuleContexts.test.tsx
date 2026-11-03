@@ -30,7 +30,7 @@ describe('Module Contexts error boundaries and initialization', () => {
                 wrapper: ({ children }) => wrapper({ children: <ApacheProvider>{children}</ApacheProvider> })
             });
             expect(result.current.isApacheRunning).toBe(false);
-            expect(result.current.installedApacheVersion).toBe(null);
+            expect(result.current.installedApacheVersion).toBeNull();
             expect(typeof result.current.fetchApacheStatus).toBe('function');
         });
     });

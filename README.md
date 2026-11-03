@@ -17,7 +17,7 @@
 
 ## What is VyloServe?
 
-VyloServe runs Apache, PHP, MySQL/MariaDB, and PostgreSQL on your own Windows machine — without installing Windows Services, editing config files by hand, or juggling separate installers for each piece. Everything is controlled from one dashboard: start and stop services, switch PHP versions, create virtual hosts, install language runtimes, and more.
+VyloServe runs Apache, PHP, MySQL/MariaDB, PostgreSQL, and Redis on your own Windows machine — without installing Windows Services, editing config files by hand, or juggling separate installers for each piece. Everything is controlled from one dashboard: start and stop services, switch PHP versions, create virtual hosts, manage database schemas, install language runtimes, and more.
 
 It's built for web developers who want the convenience of tools like XAMPP or Laragon, with a native desktop app (Python + pywebview) instead of a browser-based control panel.
 
@@ -43,15 +43,18 @@ Get the latest build from the [Releases page](https://github.com/authntcG/vylose
 - Enable or disable PHP extensions from the UI — no manual `php.ini` editing.
 - Change `memory_limit`, `upload_max_filesize`, and other settings from the UI.
 
-### Database (MariaDB & PostgreSQL)
-- Install MariaDB (MySQL-compatible) or PostgreSQL, independently or side by side.
-- Runs silently in the background without Windows Services, and avoids port conflicts with any database already on your machine.
-- Auto-tunes memory settings on install.
+### Database (MariaDB, PostgreSQL, & Redis)
+- Install MariaDB (MySQL-compatible), PostgreSQL, or Redis (In-Memory Key-Value Store & Cache), independently or side by side.
+- Built-in Database Schema Manager: inspect, create, drop, and manage schemas across active database engines without third-party GUI clients.
+- Runs silently in the background without Windows Services, auto-tuning memory settings and avoiding port conflicts with host databases.
+- Optimized release fetching with local caching and atomic auto-rollback on install or update failure.
+- Cancellable operations with real-time progress tracking across all installation wizards.
 
 ### Runtimes Manager
 - Multi-version concurrency per engine: install and manage multiple versions of Node.js (with Corepack), Python (embeddable with pip), Java (Adoptium Temurin JDK), and Go (official portable binary).
 - Centralized `RuntimePathHub`: single-toggle Windows System PATH management per engine, 1-click active version switcher, and in-card native OS detection preventing priority conflicts.
 - Dual layout modes: 100% symmetric inventory cards with standard quick actions (Open Folder, Open Terminal) and high-density Table View.
+- Offline resilience: proactive network probe, smart offline indicators, and instant retry mechanisms.
 
 ### Projects Hub
 - Dedicated top-level project manager supporting multi-runtime framework scaffolding: PHP (Laravel, CodeIgniter 3/4, WordPress, Raw), Node.js (Next.js, Vite/React, Express), Python (FastAPI, Flask, Django), Go (Gin, Fiber, Standard HTTP), and Java (Spring Boot).
@@ -59,11 +62,13 @@ Get the latest build from the [Releases page](https://github.com/authntcG/vylose
 - Automated Windows `hosts` file synchronization (with UAC elevation prompt).
 - Integrated Dev Server process manager with live background log tailing.
 - Interactive CLI installation modal with real-time bidirectional terminal streaming (PTY/stdin/stdout) for frameworks requiring interactive prompt answers.
+- Smart Offline Barrier: allows linking existing directories and scaffolding offline-friendly raw templates when no internet connection is available.
 
 ### Developer Terminal
 - Integrated multi-tab developer terminal powered by `xterm.js` with real-time bidirectional backend subprocess streaming.
 - Shell profile support: PowerShell, Command Prompt (CMD), Git Bash, and custom shells.
-- Environment Presets & Scoping: launch isolated shell sessions injecting specific PHP, Node, Python, Java, Go, or Git paths into session PATH without modifying Windows global PATH.
+- Environment Presets & Scoping: configure scoped profiles (Current Tab vs Global Default, "VyloServe Stack" vs "OS Native Only") injecting specific PHP, Node, Python, Java, Go, or Git paths into session PATH without mutating Windows global PATH.
+- Saved Sessions & Workspaces: save custom tab configurations and launch multi-tab tab groups in a single click.
 - Real-time current working directory (CWD) detection and terminal appearance customization (font family, size, cursor style, blinking, scrollback).
 
 ### Git & SSL
@@ -100,10 +105,10 @@ Get the latest build from the [Releases page](https://github.com/authntcG/vylose
 - **Empirical Tier Probing**: Dynamic model discovery that tests API keys across rate-limited free tiers and automatically selects the highest available tier without hardcoded model constraints.
 
 ### Developer Tools
-- Markdown documentation viewer with OS directory picker, recursive folder tree, custom markdown rendering, and local media preview.
-- Base64 encode/decode, for text and drag-and-drop files.
+- Markdown documentation viewer with OS directory picker, recursive folder tree, custom markdown rendering, outline/TOC jump, and local media preview.
+- Base64 encode/decode for text and drag-and-drop files, featuring URL-safe mode, line wrapping (64/76/none), and direct binary decoding/download.
 - URL encode/decode with a full URI structure breakdown.
-- QR code generator with image download.
+- QR code generator supporting WiFi networks, vCard contacts, Email, SMS, and URL/plain text, complete with styling customization, logo embed, error correction, and SVG/PNG export.
 
 ## Documentation
 

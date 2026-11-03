@@ -31,7 +31,6 @@ export default function ViewModeToggle({
 
     return (
         <div
-            role="group"
             aria-label={t('common.view_mode') || 'View Mode'}
             className={`flex items-center bg-slate-100 dark:bg-slate-800/80 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700/60 shrink-0 ${className}`}
         >

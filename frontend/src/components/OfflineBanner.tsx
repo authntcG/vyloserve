@@ -29,10 +29,8 @@ export default function OfflineBanner({
     }
 
     const handleRetry = async () => {
-        const online = await checkConnectivity();
-        if (online && onRetry) {
-            await onRetry();
-        } else if (onRetry) {
+        await checkConnectivity();
+        if (onRetry) {
             await onRetry();
         }
     };

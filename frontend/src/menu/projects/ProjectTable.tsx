@@ -63,6 +63,32 @@ export default function ProjectTable({
                 const isNonPhp = project.project_type && project.project_type !== 'php';
                 const serverInfo = serverInfoMap[project.id];
 
+                const renderServerStatusBadge = () => {
+                    if (serverInfo?.starting) {
+                        return (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
+                                <span>{t('projects.server_starting')}</span>
+                            </span>
+                        );
+                    }
+                    if (serverInfo?.running) {
+                        return (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                <span>{t('projects.server_running')}</span>
+                                <span className="text-slate-400 font-mono text-[10px]">({serverInfo.pid})</span>
+                            </span>
+                        );
+                    }
+                    return (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 dark:text-slate-500">
+                            <span className="w-1.5 h-1.5 rounded-full bg-slate-400 dark:bg-slate-600" />
+                            <span>{t('projects.server_stopped')}</span>
+                        </span>
+                    );
+                };
+
                 return (
                     <div className="flex flex-col gap-1">
                         <div className="flex items-center gap-1.5 flex-wrap">
@@ -93,23 +119,7 @@ export default function ProjectTable({
 
                         {isNonPhp && (
                             <div className="mt-0.5 flex items-center gap-1.5">
-                                {serverInfo?.starting ? (
-                                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
-                                        <span>{t('projects.server_starting')}</span>
-                                    </span>
-                                ) : serverInfo?.running ? (
-                                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                        <span>{t('projects.server_running')}</span>
-                                        <span className="text-slate-400 font-mono text-[10px]">({serverInfo.pid})</span>
-                                    </span>
-                                ) : (
-                                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 dark:text-slate-500">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-slate-400 dark:bg-slate-600" />
-                                        <span>{t('projects.server_stopped')}</span>
-                                    </span>
-                                )}
+                                {renderServerStatusBadge()}
                             </div>
                         )}
                     </div>

@@ -314,7 +314,6 @@ export interface ShareTargetFieldProps {
     readonly selectedProject: string;
     readonly customTarget: string;
     readonly isStarting: boolean;
-    readonly dropdown?: any;
     readonly onSelectProject: (id: string) => void;
     readonly onCustomTargetChange: (value: string) => void;
 }

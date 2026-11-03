@@ -110,7 +110,7 @@ describe('MarkdownViewer Main', () => {
 
         // Verify all heading buttons have shrink-0 to prevent flex-shrink overlap
         const headingButtons = screen.getAllByRole('button', { name: /Section Heading \d+/ });
-        expect(headingButtons.length).toBe(65);
+        expect(headingButtons).toHaveLength(65);
         for (const btn of headingButtons.slice(0, 5)) {
             expect(btn).toHaveClass('shrink-0');
         }
@@ -126,7 +126,7 @@ describe('MarkdownViewer Main', () => {
 
         // Clear filter
         await user.click(screen.getByRole('button', { name: 'Clear filter' }));
-        expect(screen.getAllByRole('button', { name: /Section Heading \d+/ }).length).toBe(65);
+        expect(screen.getAllByRole('button', { name: /Section Heading \d+/ })).toHaveLength(65);
     });
 
     it('ignores code block comments from being parsed as headings', async () => {

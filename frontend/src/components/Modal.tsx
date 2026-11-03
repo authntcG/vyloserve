@@ -53,7 +53,8 @@ export default function Modal({
                 // terdaftar oleh browser engine sebelum class isVisible diterapkan,
                 // sehingga animasi fade-in tidak terlewati pada mount pertama.
                 if (dialogRef.current) {
-                    void dialogRef.current.offsetHeight;
+                    const _reflow = dialogRef.current.offsetHeight;
+                    Boolean(_reflow);
                 }
                 setIsVisible(true);
             });

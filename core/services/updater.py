@@ -14,6 +14,7 @@ from core.utils.cancellation import InstallationManager, OperationCancelledError
 MSG_DOWNLOADING = "backend.updater.downloading"
 MSG_READY_TO_INSTALL = "backend.updater.ready_to_install"
 MSG_DOWNLOAD_FAILED = "backend.updater.download_failed"
+MSG_DOWNLOAD_CANCELLED = "backend.updater.download_cancelled"
 VERSION_PREFIX_RE = re.compile(r'^v\.?')
 
 class UpdaterManager:
@@ -169,6 +170,32 @@ class UpdaterManager:
         
         return {"status": "success", "message": "backend.updater.downloading", "args": {"file": asset_name}}
 
+    def _download_stream_to_file(self, response, dest_path: str, asset_name: str, token):
+        total_size = int(response.getheader('Content-Length', 0))
+        downloaded = 0
+        chunk_size = 1024 * 1024  # 1MB chunk
+
+        with open(dest_path, 'wb') as f:
+            while True:
+                if token.is_cancelled():
+                    raise OperationCancelledError("Update download cancelled")
+                chunk = response.read(chunk_size)
+                if not chunk:
+                    break
+                f.write(chunk)
+                downloaded += len(chunk)
+                if total_size > 0:
+                    percent = int((downloaded / total_size) * 100)
+                    self.state["progress_percent"] = percent
+                    self.api.emit_progress(percent, MSG_DOWNLOADING, {"file": asset_name})
+
+    def _cleanup_cancelled_dest(self, dest_path: str):
+        if os.path.exists(dest_path):
+            try:
+                os.remove(dest_path)
+            except OSError:
+                pass
+
     def _download_thread(self, asset_url: str, asset_name: str):
         temp_dir = os.path.join(self.base_dir, 'temp')
         os.makedirs(temp_dir, exist_ok=True)
@@ -180,24 +207,7 @@ class UpdaterManager:
                 raise OperationCancelledError("Update download cancelled")
             req = urllib.request.Request(asset_url, headers={'User-Agent': 'VyloServe-Updater'})
             with urllib.request.urlopen(req) as response:
-                total_size = int(response.getheader('Content-Length', 0))
-                downloaded = 0
-                chunk_size = 1024 * 1024 # 1MB chunk
-                
-                with open(dest_path, 'wb') as f:
-                    while True:
-                        if token.is_cancelled():
-                            raise OperationCancelledError("Update download cancelled")
-                        chunk = response.read(chunk_size)
-                        if not chunk:
-                            break
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        if total_size > 0:
-                            percent = int((downloaded / total_size) * 100)
-                            self.state["progress_percent"] = percent
-                            # Emit real-time progress ke UI via event window global
-                            self.api.emit_progress(percent, MSG_DOWNLOADING, {"file": asset_name})
+                self._download_stream_to_file(response, dest_path, asset_name, token)
                             
             self.state["is_ready"] = True
             self.state["is_downloading"] = False
@@ -213,13 +223,11 @@ class UpdaterManager:
 
         except OperationCancelledError:
             self.state["is_downloading"] = False
-            self.state["progress_text"] = "backend.updater.download_cancelled"
+            self.state["progress_text"] = MSG_DOWNLOAD_CANCELLED
             self.state["progress_percent"] = 0
-            if os.path.exists(dest_path):
-                try: os.remove(dest_path)
-                except OSError: pass
-            self.api.emit_log("backend.updater.download_cancelled", "warn")
-            self.api.emit_progress(0, "backend.updater.download_cancelled", {})
+            self._cleanup_cancelled_dest(dest_path)
+            self.api.emit_log(MSG_DOWNLOAD_CANCELLED, "warn")
+            self.api.emit_progress(0, MSG_DOWNLOAD_CANCELLED, {})
 
         except Exception as e:
             self.state["is_downloading"] = False

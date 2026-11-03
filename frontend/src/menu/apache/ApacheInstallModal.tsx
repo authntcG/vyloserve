@@ -57,7 +57,6 @@ export default function ApacheInstallModal() {
                 isFetchingVersions={isFetchingVersions}
                 progress={progress}
                 progressText={progressText}
-                isApacheInstalled={isApacheInstalled}
                 onRetryFetch={fetchAvailableVersions}
                 isCancelling={isCancelling}
                 onCancelInstall={handleCancelInstall}

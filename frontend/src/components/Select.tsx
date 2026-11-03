@@ -28,8 +28,6 @@ export interface SelectProps<T extends string = string> {
     /** @default pencocokan substring pada `label` saja (case-insensitive). */
     readonly filterFn?: (option: SelectOption<T>, query: string) => boolean;
     readonly disabled?: boolean;
-    /** Pratinjau titik warna opsional di samping label (mis. palet [bg, primary, accent] pada pemilih tema). */
-    readonly swatches?: readonly string[];
     readonly loading?: boolean;
     readonly loadingText?: string;
     readonly emptyText?: string;

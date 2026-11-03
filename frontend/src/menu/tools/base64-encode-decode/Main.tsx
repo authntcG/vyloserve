@@ -14,7 +14,12 @@ function getByteLength(str: string): number {
 function applyLineWrap(str: string, wrapLength: number): string {
     if (!str || wrapLength <= 0) return str;
     const regex = new RegExp(`.{1,${wrapLength}}`, 'g');
-    return str.match(regex)?.join('\n') || str;
+    const chunks: string[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(str)) !== null) {
+        chunks.push(match[0]);
+    }
+    return chunks.length > 0 ? chunks.join('\n') : str;
 }
 
 function encodeTextToBase64(inputText: string, isUrlSafe: boolean, lineWrap: number, t: any): string {
@@ -127,16 +132,15 @@ export default function Base64Main() {
 
         if (mode === 'decode') {
             // In decode mode, if user uploads a file, attempt to read as base64 string
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                const text = event.target?.result as string;
+            file.text().then((text) => {
                 if (text) {
                     setInputText(text.trim());
                 } else {
                     setInputText(dataUrl);
                 }
-            };
-            reader.readAsText(file);
+            }).catch(() => {
+                setInputText(dataUrl);
+            });
         }
     };
 
@@ -209,7 +213,7 @@ export default function Base64Main() {
         // Fallback: browser blob download
         try {
             const binStr = atob(pureBase64.replaceAll('-', '+').replaceAll('_', '/'));
-            const bytes = Uint8Array.from(binStr, (c) => c.charCodeAt(0));
+            const bytes = Uint8Array.from(binStr, (c) => c.codePointAt(0) ?? 0);
             const blob = new Blob([bytes]);
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');

@@ -11,30 +11,62 @@ import RuntimePathHub from './RuntimePathHub';
 interface ExternalRuntimeCardProps {
     readonly data: EngineData;
     readonly engineTitle: string;
+    readonly field2Label?: string;
+    readonly field2Value?: string;
 }
 
-export function ExternalRuntimeCard({ data, engineTitle }: ExternalRuntimeCardProps) {
+export function ExternalRuntimeCard({ data, engineTitle, field2Label, field2Value }: ExternalRuntimeCardProps) {
     const { t } = useTranslation();
     const ext = data.external;
     const hasInstalledVersions = Boolean(data.installed_versions && data.installed_versions.length > 0);
     if (!ext?.exists || data.installed || hasInstalledVersions) return null;
 
     return (
-        <Card title={`${engineTitle} (${t('runtimes.native')})`} status={t('runtimes.native_os')} gridCols="grid-cols-1">
-            <div className="flex flex-col gap-1 w-full min-w-0">
-                <span className="text-xs font-medium text-slate-500 uppercase">{t('runtimes.installed_version')}</span>
+        <Card title={`${engineTitle} (${t('runtimes.native')})`} status={t('runtimes.native_os')} gridCols="grid-cols-1 md:grid-cols-2">
+            <div className="flex flex-col gap-1 min-w-0 w-full">
+                <span className="text-xs font-medium text-slate-500 uppercase">{t('runtimes.version')}</span>
                 <span className="font-mono text-sm font-semibold text-slate-900 dark:text-slate-200 truncate">{ext.version}</span>
             </div>
-            <div className="flex flex-col gap-1 mt-3 w-full min-w-0">
-                <span className="text-xs font-medium text-slate-500 uppercase">{t('runtimes.system_path_binary')}</span>
-                <span className="font-mono text-[11px] text-slate-600 dark:text-slate-400 break-all bg-slate-100 dark:bg-slate-800/50 p-2 rounded border border-slate-200 dark:border-slate-700/50 leading-relaxed">
+            <div className="flex flex-col gap-1 min-w-0 w-full">
+                <span className="text-xs font-medium text-slate-500 uppercase">{field2Label || t('runtimes.architecture', 'Architecture')}</span>
+                <span className="font-mono text-sm text-slate-900 dark:text-slate-200 truncate">{field2Value || t('runtimes.native_os')}</span>
+            </div>
+            <div className="flex flex-col gap-1 min-w-0 w-full col-span-1 md:col-span-2">
+                <span className="text-xs font-medium text-slate-500 uppercase">{t('runtimes.th_path')}</span>
+                <span className="font-mono text-xs text-slate-600 dark:text-slate-400 truncate" title={ext.path}>
                     {ext.path}
                 </span>
             </div>
-            <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 w-full min-w-0">
-                <div className="flex items-start gap-2 text-xs font-medium text-amber-600 dark:text-amber-500">
-                    <span className="material-symbols-outlined text-[16px] shrink-0 mt-0.5">lock</span>
-                    <span className="leading-relaxed break-words">{t('runtimes.external_install_locked')}</span>
+            <div className="col-span-1 md:col-span-2 mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 w-full min-w-0">
+                <div
+                    data-testid="external-runtime-warning-alert"
+                    className="flex items-start gap-3 p-3.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs"
+                >
+                    <span className="material-symbols-outlined text-[20px] text-amber-600 dark:text-amber-400 shrink-0 mt-0.5">
+                        warning
+                    </span>
+                    <div className="flex flex-col gap-1 min-w-0">
+                        <span className="font-semibold text-amber-900 dark:text-amber-300">
+                            {t('runtimes.external_overview_title')} (v{ext.version})
+                        </span>
+                        {ext.path && (
+                            <div className="flex items-center gap-1.5 min-w-0">
+                                <span
+                                    className="font-mono text-[11px] text-slate-700 dark:text-slate-300 bg-white/70 dark:bg-slate-950/50 px-2 py-0.5 rounded border border-amber-500/20 truncate"
+                                    title={ext.path}
+                                >
+                                    {ext.path}
+                                </span>
+                            </div>
+                        )}
+                        <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
+                            {t('runtimes.external_overview_desc', { version: ext.version, path: ext.path })}
+                        </p>
+                        <div className="flex items-center gap-1.5 mt-1 text-amber-600 dark:text-amber-500 font-medium">
+                            <span className="material-symbols-outlined text-[16px] shrink-0">lock</span>
+                            <span className="leading-relaxed">{t('runtimes.external_install_locked')}</span>
+                        </div>
+                    </div>
                 </div>
             </div>
         </Card>
@@ -97,7 +129,6 @@ export interface RuntimeEnginePanelProps {
     readonly field2Label: string;
     readonly field2Value: string;
     readonly pathDescKey: string;
-    readonly toggleMarginClass?: string;
     readonly onTogglePath: (checked: boolean) => void;
     readonly onOpenFolder?: () => void;
     readonly onOpenTerminal?: () => void;
@@ -339,7 +370,7 @@ export function RuntimeEnginePanel({
                 />
             )}
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 sm:gap-4.5 w-full min-w-0">
-                <ExternalRuntimeCard data={data} engineTitle={engineTitle} />
+                <ExternalRuntimeCard data={data} engineTitle={engineTitle} field2Label={field2Label} field2Value={field2Value} />
                 {data.installed && (
                     <Card
                         title={cardTitle}

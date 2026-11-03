@@ -30,7 +30,7 @@ export default function DatabaseSchemaModal() {
 
     const fetchSchemas = useCallback(async (pwd?: string) => {
         if (!activeSchemaDb || !api) return;
-        const passwordToUse = pwd !== undefined ? pwd : authPassword;
+        const passwordToUse = pwd ?? authPassword;
         setIsLoading(true);
         try {
             const res = await api.list_database_schemas(activeSchemaDb.id, passwordToUse);
@@ -60,13 +60,13 @@ export default function DatabaseSchemaModal() {
         }
     }, [activeSchemaDb]);
 
-    const handleCreate = async (e: React.FormEvent) => {
+    const handleCreate = async (e: React.SyntheticEvent) => {
         e.preventDefault();
         const trimmed = newSchemaName.trim();
         const api = (window as any).pywebview?.api;
         if (!trimmed || !activeSchemaDb || !api) return;
 
-        if (!/^[a-zA-Z0-9_]{1,64}$/.test(trimmed)) {
+        if (!/^\w{1,64}$/.test(trimmed)) {
             showToast(t('backend.database.schema_name_invalid'), 'error');
             return;
         }
@@ -268,13 +268,14 @@ export default function DatabaseSchemaModal() {
                         )}
                     </div>
                     <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden divide-y divide-slate-100 dark:divide-slate-800 max-h-[320px] overflow-y-auto">
-                        {isLoading ? (
+                        {isLoading && (
                             <div className="p-4 space-y-3">
                                 <Skeleton className="h-8 w-full" />
                                 <Skeleton className="h-8 w-full" />
                                 <Skeleton className="h-8 w-full" />
                             </div>
-                        ) : userSchemas.length === 0 && systemSchemas.length === 0 ? (
+                        )}
+                        {!isLoading && userSchemas.length === 0 && systemSchemas.length === 0 && (
                             <div className="p-8 text-center text-slate-400 space-y-2">
                                 <span className="material-symbols-outlined text-4xl text-slate-300 dark:text-slate-600">
                                     database
@@ -286,7 +287,8 @@ export default function DatabaseSchemaModal() {
                                     {t('database.no_user_schemas_desc')}
                                 </p>
                             </div>
-                        ) : (
+                        )}
+                        {!isLoading && (userSchemas.length > 0 || systemSchemas.length > 0) && (
                             <>
                                 {userSchemas.map((schema) => {
                                     const isRowLoading = actionLoading?.schemaName === schema.name;

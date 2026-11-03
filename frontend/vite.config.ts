@@ -5,6 +5,10 @@ import tailwindcss from '@tailwindcss/vite'
 
 // https://vite.dev/config/
 export default defineConfig({
+  server: {
+    port: 55173,
+    strictPort: true,
+  },
   plugins: [
     tailwindcss(),
     react()

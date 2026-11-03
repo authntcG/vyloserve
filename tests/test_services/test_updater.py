@@ -15,8 +15,9 @@ def api_mock():
     return api
 
 @pytest.fixture
-def updater(api_mock):
-    return UpdaterManager(api_mock)
+def updater(api_mock, tmp_path):
+    with patch('core.services.updater.get_project_root', return_value=str(tmp_path)):
+        return UpdaterManager(api_mock)
 
 def test_parse_version(updater):
     # Testing pre-releases

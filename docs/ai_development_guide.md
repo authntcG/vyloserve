@@ -60,6 +60,11 @@
 | `open_db_config_file(db_id)` | `open_db_config_file()` | `database.open_path(is_file=True)` |
 | `open_db_dir(db_id)` | `open_db_dir()` | `database.open_path(is_file=False)` |
 | `get_database_log_content(db_id, log_type='startup')` | `get_database_log_content()` | `database.get_log_content()` — baca tail `db_startup.log`/`*.err`, lihat `docs/backend_services.md` §11.1 |
+| `list_database_schemas(db_id)` | `list_database_schemas()` | `database.list_schemas()` — daftar database/schema MySQL & Postgres |
+| `create_database_schema(db_id, schema_name)` | `create_database_schema()` | `database.create_schema()` — eksekusi SQL DDL pembuatan skema |
+| `drop_database_schema(db_id, schema_name)` | `drop_database_schema()` | `database.drop_schema()` — eksekusi SQL DDL penghapusan skema |
+| `export_database_schema(db_id, schema, path)` | `export_database_schema()` | `database.export_schema()` — dump SQL schema |
+| `import_database_schema(db_id, schema, path)` | `import_database_schema()` | `database.import_schema()` — import SQL schema |
 
 ### Runtimes Endpoints
 | Endpoint (JS) | Handler Python | Delegasi ke |
@@ -152,6 +157,8 @@
 | `save_base64_file(filename, base64_data, file_types?)` | `save_base64_file()` | `window.create_file_dialog(SAVE_DIALOG)` lalu tulis file hasil decode base64 langsung — satu-satunya endpoint yang tidak melalui Manager manapun |
 | `show_native_notification(message, type)` | `show_native_notification()` | `win11toast.toast()` di thread terpisah — notifikasi native Windows, dipanggil `ToastContext.tsx` saat window backgrounded. Detail: `docs/backend_services.md` §14.4 |
 | `apply_titlebar_theme(theme)` | `apply_titlebar_theme()` | `system_utils.apply_window_titlebar_theme()` — sinkronisasi caption bar dan text titlebar native Windows via DWM API |
+| `check_internet_connection()` | `check_internet_connection()` | `network_utils.check_internet_connection()` — multi-probe internet physical connection |
+| `cancel_installation(task_id)` | `cancel_installation()` | `cancellation.cancel_task(task_id)` — sinyal pembatalan unduhan/ekstraksi berdurasi panjang |
 
 ### Markdown Documentation Viewer Endpoints
 | Endpoint (JS) | Handler Python | Delegasi ke |
@@ -233,7 +240,7 @@ Fitur *public tunnel* — expose project lokal/`localhost:port` apa pun ke inter
 | `core/services/runtimes_manager.py` | ~1200 baris | Multi-version concurrency (Node, Python, Java, Go), Centralized `RuntimePathHub`, isolasi instalasi eksternal, dan Windows Registry PATH injection |
 | `core/services/terminal.py` | ~1110 baris | Developer Terminal: session manager, subprocess reader threads, real-time CWD tracking, environment scoping (`_build_session_env`), saved presets, workspace & settings persistence |
 | `core/services/tunnels.py` | ~867 baris | Public tunnel — **dua provider**: zrok (install/enable/disable/share) DAN Cloudflare Tunnel (install/share) — lihat §1 "Tunnels Endpoints" |
-| `core/services/database.py` | ~780 baris | MySQL/MariaDB dan PostgreSQL daemon management; `tail_new_logs()`/`get_log_content()` untuk System Logs; `update_database()`; `_assert_installer_present()` |
+| `core/services/database.py` | ~1200 baris | Triple-engine (MySQL/MariaDB, PostgreSQL, Redis) daemon management; Database Schema Manager (`list_schemas`, `create_schema`, `drop_schema`); `tail_new_logs()`/`get_log_content()` untuk System Logs; `update_database()`; `_assert_installer_present()`; CLI execution helpers (`_run_mysql_cli`, `_run_pg_cli`) |
 | `core/services/apache.py` | ~555 baris | Instalasi, konfigurasi, dan lifecycle httpd.exe; `tail_new_logs()`/`get_log_content()` untuk System Logs; `get_http_port()` untuk resolusi port HTTP aktif |
 | `core/services/php.py` | ~438 baris | Multi-version PHP-CGI, extensions, php.ini management, `update_version()` |
 | `core/services/git_manager.py` | ~363 baris | PortableGit installer, global git config, dan PATH management |
@@ -244,6 +251,8 @@ Fitur *public tunnel* — expose project lokal/`localhost:port` apa pun ke inter
 | `core/services/dashboard.py` | ~64 baris | CRUD konfigurasi dashboard (JSON) |
 | `core/utils/file_utils.py` | ~291 baris | JSON I/O, download multi-part, ekstraksi ZIP/TAR, `read_log_tail()`/`read_new_lines()` untuk System Logs |
 | `core/utils/system_utils.py` | ~170 baris | subprocess silent, port checker, path resolver, DWM titlebar palette, Named Pipe IPC single-instance |
+| `core/utils/cancellation.py` | ~90 baris | Token pembatalan asinkron thread-safe (`CancellationToken`), registry tugas aktif, pembatalan I/O unduhan/ekstraksi berdurasi panjang |
+| `core/utils/network_utils.py` | ~65 baris | Multi-endpoint socket probe konektivitas internet fisik, deteksi `is_network_error`, dan generator respons offline standar |
 | `main.py` | ~330 baris | Entrypoint: PyWebView window, isolasi mode dev/prod Mutex & IPC, AppLifecycle, System Tray setup, hook DWM titlebar & window state |
 
 ### Frontend Files (Halaman Utama, Domain Contexts, & Sub-Komponen)

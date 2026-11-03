@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { screen, waitFor } from '../../../test-utils';
+import { screen, waitFor, fireEvent } from '../../../test-utils';
 import { renderWithToast } from '../../../test-utils';
 import Base64Main from '../../../../src/menu/tools/base64-encode-decode/Main';
 
@@ -41,7 +41,7 @@ describe('Base64Main', () => {
         const sampleDataUri = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
         await user.click(screen.getByText('tools.base64.tab_decode'));
-        await user.type(screen.getByPlaceholderText('tools.base64.paste_base64_here'), sampleDataUri);
+        fireEvent.change(screen.getByPlaceholderText('tools.base64.paste_base64_here'), { target: { value: sampleDataUri } });
 
         const img = screen.getByAltText('tools.base64.preview_alt');
         expect(img).toBeInTheDocument();
@@ -184,5 +184,52 @@ describe('Base64Main', () => {
         await user.click(downloadBtn);
 
         expect(saveMock).toHaveBeenCalled();
+    });
+
+    it('supports line wrapping output to 76 chars and none', async () => {
+        const user = userEvent.setup();
+        renderWithToast(<Base64Main />);
+
+        const longText = 'The quick brown fox jumps over the lazy dog. A longer text to exceed 76 chars and more.';
+        await user.type(screen.getByPlaceholderText('tools.base64.type_text_here'), longText);
+
+        const wrap76Btn = screen.getByRole('button', { name: /tools\.base64\.wrap_76/i });
+        await user.click(wrap76Btn);
+
+        const textareas = screen.getAllByRole('textbox');
+        const outputVal = (textareas[1] as HTMLTextAreaElement).value;
+        expect(outputVal).toContain('\n');
+
+        const wrapNoneBtn = screen.getByRole('button', { name: /tools\.base64\.wrap_none/i });
+        await user.click(wrapNoneBtn);
+        const outputNoWrap = (textareas[1] as HTMLTextAreaElement).value;
+        expect(outputNoWrap).not.toContain('\n');
+    });
+
+    it('falls back to browser blob download when save_base64_file is unavailable', async () => {
+        const user = userEvent.setup();
+        const originalPywebview = (window as any).pywebview;
+        delete (window as any).pywebview;
+
+        const createObjectURLMock = vi.fn().mockReturnValue('blob:http://localhost/test');
+        const revokeObjectURLMock = vi.fn();
+        window.URL.createObjectURL = createObjectURLMock;
+        window.URL.revokeObjectURL = revokeObjectURLMock;
+
+        renderWithToast(<Base64Main />);
+        await user.click(screen.getByRole('button', { name: 'tools.base64.tab_decode' }));
+
+        const textareas = screen.getAllByRole('textbox');
+        await user.type(textareas[0], 'SGVsbG8gV29ybGQ=');
+
+        // Click download file
+        const downloadBtn = screen.getByRole('button', { name: /tools\.base64\.download_file/i });
+        await user.click(downloadBtn);
+
+        expect(createObjectURLMock).toHaveBeenCalled();
+        expect(revokeObjectURLMock).toHaveBeenCalled();
+        expect(await screen.findByText('tools.base64.download_success')).toBeInTheDocument();
+
+        (window as any).pywebview = originalPywebview;
     });
 });

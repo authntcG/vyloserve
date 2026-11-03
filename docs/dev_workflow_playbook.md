@@ -16,6 +16,7 @@ cd frontend
 ./node_modules/.bin/tsc -b        # BUKAN `tsc --noEmit` -- itu no-op di proyek ini, tidak benar-benar mengecek apa pun
 npx vitest run                     # jalankan 2x berturut-turut kalau ada test yang menyentuh timer/focus/event window --
                                     # lihat §3 soal kenapa test seperti ini rawan flaky-antar-test
+npm run build                      # `tsc -b && vite build` -- WAJIB dijalankan untuk memverifikasi bundle produksi tidak error
 npx eslint src
 ```
 

@@ -8,11 +8,13 @@ vyloserve/
 │   ├── api.py                  # Router / Facade API yang menjembatani React (PyWebView)
 │   ├── utils/                  # Skrip utilitas yang bersifat global (tidak spesifik domain)
 │   │   ├── file_utils.py       # Manipulasi JSON, Unduhan file, Ekstraksi arsip (ZIP/TAR)
-│   │   └── system_utils.py     # Pengecekan Port, Subprocess silent (OS CMD), Registry & DWM
+│   │   ├── system_utils.py     # Pengecekan Port, Subprocess silent (OS CMD), Registry & DWM
+│   │   ├── cancellation.py     # CancellationToken asinkron, pembersihan proses/direktori parsial
+│   │   └── network_utils.py    # Multi-endpoint internet socket probe, deteksi is_network_error
 │   └── services/               # Manajer Domain Spesifik (Menerapkan Single Responsibility)
 │       ├── apache.py           # Logika Web Server Apache
 │       ├── php.py              # Logika instalasi & ekstensi PHP
-│       ├── database.py         # Logika MySQL/PostgreSQL
+│       ├── database.py         # Logika MariaDB/MySQL, PostgreSQL, Redis, & Database Schema Manager
 │       ├── runtimes_manager.py # Logika Node.js, Python, Java, Go, dan Windows Registry
 │       ├── project.py          # Logika pembuatan Virtual Host, UAC Hosts, Scaffolding multi-runtime, & Dev Server
 │       ├── git_manager.py      # Instalasi PortableGit & Global Config
@@ -29,15 +31,18 @@ vyloserve/
 │   │   ├── components/         # Komponen UI Reusable generik (Modal, Card, PageHeader, Select, StatusBadge, ProgressStatusBlock, dll)
 │   │   │   │                   # DataTable.tsx, FilterChips.tsx, ViewModeToggle.tsx, InstalledBadge.tsx, ServiceToggleButton.tsx
 │   │   │   │                   # NotificationBell.tsx (panel histori toast + notifikasi native Windows)
+│   │   │   │                   # CompactFileDropzone.tsx (zona unggah drag-and-drop), OfflineBanner.tsx (peringatan offline & retry)
 │   │   │   └── skeleton/       # Primitif Skeleton Loading (Skeleton, SkeletonCard, SkeletonForm, SkeletonDocument, SkeletonChatMessage, AppSkeletonLayout)
 │   │   ├── context/            # React Context Providers untuk UI global dan logika domain per-modul
 │   │   │   ├── AlertContext.tsx, ToastContext.tsx (dialog confirm & toast notification)
 │   │   │   ├── AiContext.tsx   # AiProvider: state streaming SSE, riwayat chat, usage stats, & dual-layer action states persistence
+│   │   │   ├── NetworkContext.tsx # NetworkProvider: status konektivitas internet online/offline reaktif
 │   │   │   ├── ProjectContext.tsx # ProjectProvider: state proyek, scaffolding multi-runtime, dev servers, & live logs
 │   │   │   └── ApacheContext.tsx, PhpContext.tsx, DatabaseContext.tsx, DashboardContext.tsx, RuntimesContext.tsx, TunnelsContext.tsx, GitContext.tsx
 │   │   ├── locales/            # Berkas i18n JSON untuk bahasa (en, id)
 │   │   ├── menu/                # Halaman utama aplikasi:
-│   │   │   ├── dashboard/, apache/, php/, database/
+│   │   │   ├── dashboard/, apache/, php/
+│   │   │   ├── database/       # Main.tsx, DatabaseTable.tsx, DatabaseSchemaModal.tsx, NewInstance.tsx, Settings.tsx, ChangePassword.tsx
 │   │   │   ├── projects/       # Projects Hub: ProjectsTable.tsx, ProjectCards.tsx, NewProjectModal.tsx, ProjectSettingsModal.tsx, ProjectCliInstallModal.tsx
 │   │   │   ├── runtimes/       # RuntimeEnginePanel.tsx, RuntimePathHub.tsx, RuntimeTable.tsx, InstallNode.tsx, InstallPython.tsx, InstallJava.tsx, InstallGo.tsx
 │   │   │   └── tools/          # ai-assistant/, git/, qr-generator/, base64-encode-decode/, url-encode-decode/, tunnels/, markdown-viewer/, settings/
@@ -48,7 +53,8 @@ vyloserve/
 │   │   │   ├── theme.ts         # applyTheme() — atur data-theme, toggle class dark, sync DWM titlebar native
 │   │   │   └── version.ts       # compareVersions() — bandingkan versi semantik (bukan string !=), dipakai PHP & Database
 │   │   ├── hooks/               # Custom React hooks lintas-komponen (BUKAN komponen React, nol JSX)
-│   │   │   └── useWindowPresence.ts # Deteksi fokus/minimize/hidden-ke-tray window — lihat docs/frontend_ui.md §5.1
+│   │   │   ├── useWindowPresence.ts    # Deteksi fokus/minimize/hidden-ke-tray window — lihat docs/frontend_ui.md §5.1
+│   │   │   └── usePersistedViewMode.ts # Persistensi mode tampilan Card vs Table ke localStorage per modul
 │   │   ├── i18n.ts             # Konfigurasi react-i18next
 │   │   └── App.tsx             # Routing MANUAL via useState (BUKAN React Router) — lihat docs/frontend_ui.md §2
 │   ├── package.json            # Daftar dependensi Frontend (React, Tailwind, i18next)

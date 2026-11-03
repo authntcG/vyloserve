@@ -37,6 +37,49 @@ interface TerminalMainProps {
     readonly isActive?: boolean;
 }
 
+async function loadTerminalConfig(api: any): Promise<{ defaultProfile: RuntimeProfile; settings: TerminalSettings }> {
+    let defaultProfile: RuntimeProfile = {};
+    let settings: TerminalSettings = DEFAULT_TERMINAL_SETTINGS;
+    if (!api?.get_terminal_config) return { defaultProfile, settings };
+    try {
+        const res = await api.get_terminal_config();
+        if (res?.status === "success") {
+            if (res.config?.default_profile) {
+                defaultProfile = res.config.default_profile;
+            }
+            if (res.config?.settings) {
+                settings = { ...DEFAULT_TERMINAL_SETTINGS, ...res.config.settings };
+            }
+        }
+    } catch (e) {
+        console.error("Failed to fetch terminal config:", e);
+    }
+    return { defaultProfile, settings };
+}
+
+async function loadTerminalSavedSessions(api: any): Promise<{ presets?: any[]; workspaces?: any[] }> {
+    if (!api?.get_terminal_saved_sessions) return {};
+    try {
+        const res = await api.get_terminal_saved_sessions();
+        if (res?.status === "success") {
+            return {
+                presets: Array.isArray(res.presets) ? res.presets : undefined,
+                workspaces: Array.isArray(res.workspaces) ? res.workspaces : undefined
+            };
+        }
+    } catch (e) {
+        console.error("Failed to fetch terminal saved sessions:", e);
+    }
+    return {};
+}
+
+function resolveDefaultShellId(loadedSettings: TerminalSettings, shells: ShellInfo[]): string {
+    const fromSettings = loadedSettings.defaultShell && shells.find((s) => s.id === loadedSettings.defaultShell && s.available)?.id;
+    if (fromSettings) return fromSettings;
+    const defaultAvailable = shells.find((s) => s.is_default && s.available)?.id;
+    return defaultAvailable || "powershell";
+}
+
 export default function TerminalMain({ isActive = true }: TerminalMainProps) {
     const { t } = useTranslation();
     const [sessions, setSessions] = useState<TerminalSession[]>([]);
@@ -62,57 +105,30 @@ export default function TerminalMain({ isActive = true }: TerminalMainProps) {
     useEffect(() => {
         const fetchInitialData = async () => {
             const api = (window as any).pywebview?.api;
-            let loadedDefaultProfile: RuntimeProfile = {};
-            let loadedSettings: TerminalSettings = DEFAULT_TERMINAL_SETTINGS;
-
-            if (api?.get_terminal_config) {
-                try {
-                    const res = await api.get_terminal_config();
-                    if (res?.status === "success" && res?.config?.default_profile) {
-                        loadedDefaultProfile = res.config.default_profile;
-                        setDefaultProfile(res.config.default_profile);
-                        setRuntimeProfile(res.config.default_profile);
-                    }
-                    if (res?.status === "success" && res?.config?.settings) {
-                        loadedSettings = { ...DEFAULT_TERMINAL_SETTINGS, ...res.config.settings };
-                        setTerminalSettings(loadedSettings);
-                    }
-                } catch (e) {
-                    console.error("Failed to fetch terminal config:", e);
-                }
+            const { defaultProfile: loadedDefaultProfile, settings: loadedSettings } = await loadTerminalConfig(api);
+            if (Object.keys(loadedDefaultProfile).length > 0) {
+                setDefaultProfile(loadedDefaultProfile);
+                setRuntimeProfile(loadedDefaultProfile);
             }
+            setTerminalSettings(loadedSettings);
 
-            if (api?.get_terminal_saved_sessions) {
-                try {
-                    const res = await api.get_terminal_saved_sessions();
-                    if (res?.status === "success") {
-                        if (Array.isArray(res.presets)) setPresets(res.presets);
-                        if (Array.isArray(res.workspaces)) setWorkspaces(res.workspaces);
-                    }
-                } catch (e) {
-                    console.error("Failed to fetch terminal saved sessions:", e);
-                }
-            }
+            const { presets: loadedPresets, workspaces: loadedWorkspaces } = await loadTerminalSavedSessions(api);
+            if (loadedPresets) setPresets(loadedPresets);
+            if (loadedWorkspaces) setWorkspaces(loadedWorkspaces);
 
-            if (api?.get_terminal_shells) {
-                try {
-                    const shells = await api.get_terminal_shells();
-                    if (Array.isArray(shells) && shells.length > 0) {
-                        setAvailableShells(shells);
-                        if (!isInitializedRef.current && sessions.length === 0) {
-                            isInitializedRef.current = true;
-                            const defaultShell =
-                                (loadedSettings.defaultShell && shells.find((s: ShellInfo) => s.id === loadedSettings.defaultShell && s.available)?.id) ||
-                                shells.find((s: ShellInfo) => s.is_default && s.available)?.id ||
-                                "powershell";
-                            const initialCwd = loadedSettings.defaultCwd || undefined;
-                            handleCreateSession(defaultShell, initialCwd, undefined, loadedDefaultProfile);
-                        }
-                        return;
+            if (!api?.get_terminal_shells) return;
+            try {
+                const shells = await api.get_terminal_shells();
+                if (Array.isArray(shells) && shells.length > 0) {
+                    setAvailableShells(shells);
+                    if (!isInitializedRef.current && sessions.length === 0) {
+                        isInitializedRef.current = true;
+                        const defaultShell = resolveDefaultShellId(loadedSettings, shells);
+                        handleCreateSession(defaultShell, loadedSettings.defaultCwd || undefined, undefined, loadedDefaultProfile);
                     }
-                } catch (e) {
-                    console.error("Failed to fetch terminal shells:", e);
                 }
+            } catch (e) {
+                console.error("Failed to fetch terminal shells:", e);
             }
         };
 
@@ -200,7 +216,7 @@ export default function TerminalMain({ isActive = true }: TerminalMainProps) {
             setSessions((prev) => {
                 const next = prev.filter((s) => s.id !== sessionId);
                 if (activeSessionId === sessionId) {
-                    const nextActive = next.length > 0 ? next[next.length - 1].id : null;
+                    const nextActive = next.at(-1)?.id ?? null;
                     setActiveSessionId(nextActive);
                 }
                 return next;
@@ -225,7 +241,7 @@ export default function TerminalMain({ isActive = true }: TerminalMainProps) {
             }
 
             const effectiveProfile = newProfile ?? target.envProfile ?? defaultProfile ?? runtimeProfile;
-            const effectiveCustom = isCustom !== undefined ? isCustom : target.isCustomEnv;
+            const effectiveCustom = isCustom ?? target.isCustomEnv;
 
             if (api?.create_terminal_session) {
                 try {
@@ -302,7 +318,9 @@ export default function TerminalMain({ isActive = true }: TerminalMainProps) {
                         })
                     );
                 }
-            } catch (_) {}
+            } catch (_) { // NOSONAR typescript:S2486
+                // Ignore transient CWD inspection failure while process is busy or exiting
+            }
         };
 
         checkActiveCwd();

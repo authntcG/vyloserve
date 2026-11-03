@@ -14,7 +14,7 @@ Target spesifikasi untuk menjalankan aplikasi VyloServe secara optimal:
 ## Daftar Isi (Table of Contents)
 
 1. [Fitur Aplikasi (Features)](features.md)
-   Penjelasan mendetail mengenai semua fitur yang dimiliki oleh VyloServe (Apache, PHP, Database, Runtimes multi-versi terpusat, Projects Hub 5 runtime, Developer Terminal, AI Copilot, Tunnels, 15 Tema, dsb).
+   Penjelasan mendetail mengenai semua fitur yang dimiliki oleh VyloServe (Apache, PHP, Database MariaDB/PostgreSQL/Redis, Database Schema Manager, Runtimes multi-versi terpusat, Projects Hub 5 runtime, Developer Terminal dengan presets & workspaces, Developer Tools termasuk QR Generator, AI Copilot, Tunnels, 15 Tema, pembatalan operasi, resiliensi offline, dsb).
 2. [Struktur Proyek (Project Structure)](project_structure.md)
    Penjelasan *Project Tree* dan struktur direktori aplikasi (Backend, Services, dan Frontend Components/Modules).
 3. [Arsitektur & Alur Aplikasi (Architecture & Flow)](architecture_and_flow.md)
@@ -26,7 +26,7 @@ Target spesifikasi untuk menjalankan aplikasi VyloServe secara optimal:
 6. [Pengujian & Pengembangan (Development & Testing)](development_testing.md)
    Panduan mengenai setup proyek, unit testing menggunakan Pytest (dengan autouse fixture safeguard Windows Registry) & Vitest, analisis SonarQube, pipa otomatisasi AutoScan (`scanner.py`), panduan Clean Code & DRY, standar Security, dan proses build executable.
 7. [Bugs & Limitasi Diketahui (Known Bugs)](known_bugs.md)
-   Daftar komprehensif *bug* yang pernah ditemukan beserta root cause & resolusinya (termasuk kasus #1 hingga #74), serta batasan-batasan teknis aplikasi.
+   Daftar komprehensif *bug* yang pernah ditemukan beserta root cause & resolusinya (termasuk kasus #1 hingga #95), serta batasan-batasan teknis aplikasi.
 8. [🤖 Panduan Pengembangan untuk AI (AI Development Guide)](ai_development_guide.md)
    **Bacaan wajib untuk Asisten AI.** Berisi: Peta lengkap seluruh endpoint API Backend↔Frontend (termasuk Terminal, Dev Server, dan Multi-Version Runtimes), lokasi & format data JSON, pola debugging step-by-step, template implementasi fitur baru, panduan troubleshooting frontend, dependency antar service, dan checklist *Definition of Done*.
 9. [🎨 Panduan Konsistensi UI (UI Consistency Guide)](ui_consistency_guide.md)

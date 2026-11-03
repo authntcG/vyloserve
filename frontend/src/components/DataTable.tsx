@@ -164,7 +164,6 @@ export default function DataTable<T>({
                         {headerActions}
                         {showDensityControl && (
                             <div
-                                role="group"
                                 aria-label={t('common.density')}
                                 className="h-8 inline-flex items-center p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700/60 shrink-0"
                             >
@@ -237,7 +236,7 @@ export default function DataTable<T>({
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                        {isLoading ? (
+                        {isLoading && (
                             <tr>
                                 <td colSpan={columns.length} className="py-12 text-center text-slate-400">
                                     <div className="flex items-center justify-center gap-2">
@@ -246,32 +245,32 @@ export default function DataTable<T>({
                                     </div>
                                 </td>
                             </tr>
-                        ) : data.length === 0 ? (
+                        )}
+                        {!isLoading && data.length === 0 && (
                             <tr>
                                 <td colSpan={columns.length} className="py-12 text-center text-slate-400">
                                     {emptyState || <span className="text-xs">No records found</span>}
                                 </td>
                             </tr>
-                        ) : (
-                            data.map((item, index) => (
-                                <tr
-                                    key={keyExtractor(item, index)}
-                                    className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors"
-                                >
-                                    {columns.map((col) => {
-                                        const alignClass = ALIGN_CLASSES[col.align || 'left'];
-                                        return (
-                                            <td
-                                                key={col.id}
-                                                className={`${densityStyle.cell} ${alignClass} align-middle ${col.className || ''}`}
-                                            >
-                                                {col.render(item, index)}
-                                            </td>
-                                        );
-                                    })}
-                                </tr>
-                            ))
                         )}
+                        {!isLoading && data.length > 0 && data.map((item, index) => (
+                            <tr
+                                key={keyExtractor(item, index)}
+                                className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors"
+                            >
+                                {columns.map((col) => {
+                                    const alignClass = ALIGN_CLASSES[col.align || 'left'];
+                                    return (
+                                        <td
+                                            key={col.id}
+                                            className={`${densityStyle.cell} ${alignClass} align-middle ${col.className || ''}`}
+                                        >
+                                            {col.render(item, index)}
+                                        </td>
+                                    );
+                                })}
+                            </tr>
+                        ))}
                     </tbody>
                 </table>
             </div>

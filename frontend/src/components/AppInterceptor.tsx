@@ -71,7 +71,7 @@ export default function GlobalAppInterceptor() {
             // Abaikan klik kanan / tengah
             if (e.button !== 0) return;
             // Abaikan jika klik terjadi di dalam elemen menu konteks
-            if (menuRef.current && menuRef.current.contains(e.target as Node)) return;
+            if (menuRef.current?.contains(e.target as Node)) return;
 
             setMenuState(prev => (prev.visible ? { ...prev, visible: false } : prev));
             // Kosongkan savedSelection jika seleksi DOM memang sudah tidak ada
@@ -115,40 +115,47 @@ export default function GlobalAppInterceptor() {
         };
     }, []);
 
+    const copyFallback = (text: string): boolean => {
+        if (typeof document.execCommand !== 'function') { // NOSONAR typescript:S1874
+            throw new TypeError('execCommand not available');
+        }
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        const successful = document.execCommand('copy'); // NOSONAR typescript:S1874
+        textarea.remove();
+        return successful;
+    };
+
     const handleCopy = async (e?: React.MouseEvent) => {
         if (e) {
             e.stopPropagation();
             e.preventDefault();
         }
-        if (menuState.textToCopy) {
+        if (!menuState.textToCopy) {
+            setMenuState(prev => ({ ...prev, visible: false }));
+            return;
+        }
+
+        const successMsg = menuState.isLogArea
+            ? t('components.interceptor.copy_success')
+            : t('components.interceptor.copy_selection_success');
+
+        try {
+            await navigator.clipboard.writeText(menuState.textToCopy);
+            showToast(successMsg, "success");
+        } catch {
             try {
-                await navigator.clipboard.writeText(menuState.textToCopy);
-                const successMsg = menuState.isLogArea
-                    ? t('components.interceptor.copy_success')
-                    : t('components.interceptor.copy_selection_success');
-                showToast(successMsg, "success");
-            } catch {
-                try {
-                    if (typeof document.execCommand !== 'function') {
-                        throw new Error('execCommand not available');
-                    }
-                    const textarea = document.createElement('textarea');
-                    textarea.value = menuState.textToCopy;
-                    textarea.style.position = 'fixed';
-                    textarea.style.opacity = '0';
-                    document.body.appendChild(textarea);
-                    textarea.select();
-                    const successful = document.execCommand('copy');
-                    document.body.removeChild(textarea);
-                    if (!successful) throw new Error('execCommand failed');
-                    const successMsg = menuState.isLogArea
-                        ? t('components.interceptor.copy_success')
-                        : t('components.interceptor.copy_selection_success');
-                    showToast(successMsg, "success");
-                } catch (err) {
-                    console.error(err);
-                    showToast(t('components.interceptor.copy_error'), "error");
+                if (!copyFallback(menuState.textToCopy)) {
+                    throw new Error('execCommand failed');
                 }
+                showToast(successMsg, "success");
+            } catch (err) {
+                console.error(err);
+                showToast(t('components.interceptor.copy_error'), "error");
             }
         }
         setMenuState(prev => ({ ...prev, visible: false }));

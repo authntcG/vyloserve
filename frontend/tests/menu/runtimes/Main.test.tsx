@@ -88,7 +88,11 @@ describe('RuntimesMain', () => {
         renderWithToast(<RuntimesMain />);
 
         expect(await screen.findByText('Node.js (runtimes.native)')).toBeInTheDocument();
-        expect(screen.getByText('C:/nodejs/node.exe')).toBeInTheDocument();
+        expect(screen.getAllByText('C:/nodejs/node.exe').length).toBeGreaterThanOrEqual(1);
+        const alertBox = screen.getByTestId('external-runtime-warning-alert');
+        expect(alertBox).toBeInTheDocument();
+        expect(alertBox).toHaveTextContent('runtimes.external_overview_title');
+        expect(alertBox).toHaveTextContent('runtimes.external_install_locked');
     });
 
     it('switches tabs, keeping panels in the DOM but toggling visibility', async () => {

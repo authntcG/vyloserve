@@ -1,12 +1,12 @@
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 import sys
 from core.services.php import PhpManager
 
 @pytest.fixture
-def php_manager(mock_api):
-    # Mock OS root to prevent side effects
-    return PhpManager(mock_api)
+def php_manager(mock_api, tmp_path):
+    with patch('core.services.php.get_project_root', return_value=str(tmp_path)):
+        return PhpManager(mock_api)
 
 def test_php_process_ini_line(php_manager):
     """Test line processing for php.ini."""

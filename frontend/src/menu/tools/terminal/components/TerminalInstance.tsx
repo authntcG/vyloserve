@@ -13,7 +13,7 @@ export function getTerminalBufferText(term: Terminal, maxLines: number = 1000): 
         const line = buffer.getLine(i);
         if (line) lines.push(line.translateToString(true));
     }
-    while (lines.length > 0 && lines[lines.length - 1].trim() === "") {
+    while (lines.length > 0 && lines.at(-1)?.trim() === "") {
         lines.pop();
     }
     return lines.join("\n");
@@ -200,6 +200,71 @@ interface ContextMenuState {
     hasSelection: boolean;
 }
 
+function handleTerminalShortcuts(
+    event: KeyboardEvent,
+    term: Terminal,
+    fitAddon: FitAddon,
+    sessionId: string,
+    fontSizeRef: React.RefObject<number>,
+    handleCopy: () => void,
+    handlePaste: () => void
+): boolean {
+    if (event.type !== "keydown") return true;
+
+    if (event.key === "Tab") {
+        event.preventDefault();
+        const api = (window as any).pywebview?.api;
+        const buffer = term.buffer?.active;
+        const lineContext = buffer ? (buffer.getLine(buffer.cursorY)?.translateToString(true) || "") : "";
+        api?.send_terminal_input?.(sessionId, "\t", lineContext);
+        return false;
+    }
+
+    if (!event.ctrlKey && !event.metaKey) return true;
+
+    const key = event.key.toLowerCase();
+    if (key === "c") {
+        if (event.shiftKey || term.hasSelection()) {
+            event.preventDefault();
+            handleCopy();
+            return false;
+        }
+        return true;
+    }
+
+    if (key === "v") {
+        event.preventDefault();
+        handlePaste();
+        return false;
+    }
+
+    if (key === "=" || key === "+") {
+        event.preventDefault();
+        fontSizeRef.current = Math.min(24, fontSizeRef.current + 1);
+        term.options.fontSize = fontSizeRef.current;
+        fitAddon.fit();
+        return false;
+    }
+
+    if (key === "-") {
+        event.preventDefault();
+        fontSizeRef.current = Math.max(9, fontSizeRef.current - 1);
+        term.options.fontSize = fontSizeRef.current;
+        fitAddon.fit();
+        return false;
+    }
+
+    if (key === "0") {
+        event.preventDefault();
+        fontSizeRef.current = 13;
+        term.options.fontSize = 13;
+        fitAddon.fit();
+        return false;
+    }
+
+    return true;
+}
+
 export default function TerminalInstance({
     session,
     isActive,
@@ -258,14 +323,11 @@ export default function TerminalInstance({
         const initialFontSize = effectiveSettings?.fontSize || fontSizeRef.current;
         fontSizeRef.current = initialFontSize;
 
-        const isBlinking =
-            effectiveSettings?.cursorBlinkStyle === "smooth" ||
-            effectiveSettings?.cursorBlinkStyle === "gradient" ||
-            effectiveSettings?.cursorBlinkStyle === "none"
-                ? false
-                : effectiveSettings?.cursorBlink !== undefined
-                ? effectiveSettings.cursorBlink
-                : true;
+        const disabledBlinkStyles = ["smooth", "gradient", "none"];
+        let isBlinking = effectiveSettings?.cursorBlink ?? true;
+        if (effectiveSettings?.cursorBlinkStyle && disabledBlinkStyles.includes(effectiveSettings.cursorBlinkStyle)) {
+            isBlinking = false;
+        }
 
         const term = new Terminal({
             cursorBlink: isBlinking,
@@ -306,84 +368,14 @@ export default function TerminalInstance({
             if (api?.resize_terminal) {
                 api.resize_terminal(session.id, term.cols, term.rows);
             }
-        } catch (_) {}
+        } catch (_) { // NOSONAR typescript:S2486
+            // Initial fit can fail safely if tab is not visible yet
+        }
 
         // Custom Key Event Handler: Intercept Tab, Copy/Paste, and Zoom
-        term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
-            // Only process keydown events for shortcuts; let keyup pass cleanly to xterm to avoid dropping focus/state
-            if (event.type !== "keydown") {
-                return true;
-            }
-
-            // 1. Tab Auto-Completion Trap (Prevent browser focus traversal on keydown)
-            if (event.key === "Tab") {
-                event.preventDefault();
-                const api = (window as any).pywebview?.api;
-                const buffer = term.buffer?.active;
-                const lineContext = buffer ? (buffer.getLine(buffer.cursorY)?.translateToString(true) || "") : "";
-                api?.send_terminal_input?.(session.id, "\t", lineContext);
-                return false;
-            }
-
-            // 2. Clipboard shortcuts (Ctrl+C, Ctrl+Shift+C, Ctrl+V, Ctrl+Shift+V)
-            if (event.ctrlKey || event.metaKey) {
-                const key = event.key.toLowerCase();
-
-                // Ctrl+Shift+C -> Always copy
-                if (event.shiftKey && key === "c") {
-                    event.preventDefault();
-                    handleCopy();
-                    return false;
-                }
-
-                // Ctrl+C -> Copy if selection exists, else let SIGINT pass to shell!
-                if (!event.shiftKey && key === "c") {
-                    if (term.hasSelection()) {
-                        event.preventDefault();
-                        handleCopy();
-                        return false;
-                    }
-                    // No selection: let standard \x03 signal pass to process
-                    return true;
-                }
-
-                // Ctrl+V or Ctrl+Shift+V -> Paste
-                if (key === "v") {
-                    event.preventDefault();
-                    handlePaste();
-                    return false;
-                }
-
-                // Ctrl + '=' (Zoom in)
-                if (key === "=" || key === "+") {
-                    event.preventDefault();
-                    fontSizeRef.current = Math.min(24, fontSizeRef.current + 1);
-                    term.options.fontSize = fontSizeRef.current;
-                    fitAddon.fit();
-                    return false;
-                }
-
-                // Ctrl + '-' (Zoom out)
-                if (key === "-") {
-                    event.preventDefault();
-                    fontSizeRef.current = Math.max(9, fontSizeRef.current - 1);
-                    term.options.fontSize = fontSizeRef.current;
-                    fitAddon.fit();
-                    return false;
-                }
-
-                // Ctrl + '0' (Reset zoom)
-                if (key === "0") {
-                    event.preventDefault();
-                    fontSizeRef.current = 13;
-                    term.options.fontSize = 13;
-                    fitAddon.fit();
-                    return false;
-                }
-            }
-
-            return true;
-        });
+        term.attachCustomKeyEventHandler((event: KeyboardEvent) =>
+            handleTerminalShortcuts(event, term, fitAddon, session.id, fontSizeRef, handleCopy, handlePaste)
+        );
 
         // Listen for user keyboard input -> send to backend PTY
         const dataDisposable = term.onData((data) => {
@@ -406,7 +398,9 @@ export default function TerminalInstance({
             if (effectiveSettings?.copyOnSelect && term.hasSelection()) {
                 const text = term.getSelection();
                 if (text) {
-                    navigator.clipboard.writeText(text).catch(() => {});
+                    navigator.clipboard.writeText(text).catch(() => {
+                        // Ignore clipboard write permission refusal
+                    });
                 }
             }
         });
@@ -435,7 +429,9 @@ export default function TerminalInstance({
                 fitRafId = requestAnimationFrame(() => {
                     try {
                         fitAddon.fit();
-                    } catch (_) {}
+                    } catch (_) {
+                        // Suppress transient render fit error during rapid container resize
+                    }
                     fitRafId = null;
                 });
 
@@ -447,7 +443,9 @@ export default function TerminalInstance({
                         if (api?.resize_terminal && term.cols && term.rows) {
                             api.resize_terminal(session.id, term.cols, term.rows);
                         }
-                    } catch (_) {}
+                    } catch (_) { // NOSONAR typescript:S2486
+                        // Suppress resize IPC error on unmounted or busy session
+                    }
                 }, 100);
             });
             resizeObserver.observe(containerRef.current);
@@ -526,7 +524,9 @@ export default function TerminalInstance({
                 if (api?.resize_terminal && termRef.current) {
                     api.resize_terminal(session.id, termRef.current.cols, termRef.current.rows);
                 }
-            } catch (_) {}
+            } catch (_) { // NOSONAR typescript:S2486
+                // Ignore transient fit/resize error while switching active tab
+            }
         }, 50);
 
         return () => clearTimeout(timer);
@@ -544,12 +544,11 @@ export default function TerminalInstance({
     };
 
     const bgHex = (effectiveSettings?.theme && TERMINAL_THEMES[effectiveSettings.theme]?.background) || "#090d16";
-    const cursorAnimClass =
-        effectiveSettings?.cursorBlinkStyle === "gradient"
-            ? "vylo-cursor-gradient"
-            : effectiveSettings?.cursorBlinkStyle === "smooth"
-            ? "vylo-cursor-smooth"
-            : "";
+    const cursorAnimMap: Record<string, string> = {
+        gradient: "vylo-cursor-gradient",
+        smooth: "vylo-cursor-smooth",
+    };
+    const cursorAnimClass = (effectiveSettings?.cursorBlinkStyle && cursorAnimMap[effectiveSettings.cursorBlinkStyle]) || "";
 
     return (
         <div

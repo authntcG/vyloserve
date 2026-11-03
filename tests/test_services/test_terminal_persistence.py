@@ -1,17 +1,17 @@
 import os
 import shutil
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from core.services.terminal import TerminalManager
 from core.api import Api
 
 @pytest.fixture
 def temp_tm(tmp_path):
     api = MagicMock()
-    tm = TerminalManager(api=api)
-    tm.root_dir = str(tmp_path)
-    os.makedirs(os.path.join(tm.root_dir, "data"), exist_ok=True)
-    return tm
+    with patch('core.services.terminal.get_project_root', return_value=str(tmp_path)):
+        tm = TerminalManager(api=api)
+        os.makedirs(os.path.join(tm.root_dir, "data"), exist_ok=True)
+        return tm
 
 def test_get_terminal_config_default(temp_tm):
     res = temp_tm.get_terminal_config()
@@ -164,8 +164,9 @@ def test_delete_workspace(temp_tm):
     assert del_res["message"] == "backend.terminal.workspace_deleted"
     assert len(temp_tm.get_saved_sessions()["workspaces"]) == 0
 
-def test_api_terminal_delegation():
-    api = Api()
+def test_api_terminal_delegation(tmp_path):
+    with patch('core.utils.system_utils.get_project_root', return_value=str(tmp_path)):
+        api = Api()
     mock_terminal = MagicMock()
     api.terminal = mock_terminal
 

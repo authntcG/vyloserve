@@ -54,6 +54,11 @@ const THEME_OPTIONS = [
     { value: "solarized-light", label: "Solarized Light", swatches: ["#fdf6e3", "#268bd2", "#2aa198"] }
 ];
 
+const ENGINE_ICONS: Record<string, string> = {
+    php: "terminal",
+    node: "javascript",
+};
+
 const CURSOR_OPTIONS = [
     { value: "block", label: "Block (█)" },
     { value: "underline", label: "Underline (_)" },
@@ -359,7 +364,7 @@ export default function TerminalConfigModal({
                                 className="px-2.5 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary/20 text-xs font-medium transition-colors flex items-center gap-1 cursor-pointer"
                             >
                                 <span aria-hidden="true" className="material-symbols-outlined text-[14px]">bolt</span>
-                                VyloServe Stack
+                                <span>VyloServe Stack</span>
                             </button>
                             <button
                                 type="button"
@@ -367,29 +372,29 @@ export default function TerminalConfigModal({
                                 className="px-2.5 py-1 rounded-md bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 text-xs font-medium transition-colors flex items-center gap-1 cursor-pointer"
                             >
                                 <span aria-hidden="true" className="material-symbols-outlined text-[14px]">terminal</span>
-                                OS Native Only
+                                <span>OS Native Only</span>
                             </button>
                         </div>
 
                         {/* 3. Engine List */}
-                        {isLoadingMatrix ? (
+                        {isLoadingMatrix && (
                             <div className="flex items-center justify-center p-8 text-slate-400 gap-2">
                                 <span className="animate-spin material-symbols-outlined text-[20px]">progress_activity</span>
                                 <span className="text-xs">Loading runtime matrix...</span>
                             </div>
-                        ) : Object.keys(matrix).length === 0 ? (
+                        )}
+                        {!isLoadingMatrix && Object.keys(matrix).length === 0 && (
                             <div className="p-4 text-center text-xs text-slate-400">
                                 No runtimes detected in VyloServe.
                             </div>
-                        ) : (
+                        )}
+                        {!isLoadingMatrix && Object.keys(matrix).length > 0 && (
                             <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
                                 {Object.entries(matrix).map(([engineKey, item]) => {
                                     const selectedValue = profile[engineKey] || item.default_mode;
-                                    const isCustomValue = selectedValue === "os"
-                                        ? false
-                                        : item.versions && item.versions.length > 0
-                                        ? selectedValue !== item.versions[0].path
-                                        : false;
+                                    const isCustomValue = selectedValue !== "os" && Boolean(
+                                        item.versions && item.versions.length > 0 && selectedValue !== item.versions[0].path
+                                    );
 
                                     return (
                                         <div
@@ -398,7 +403,7 @@ export default function TerminalConfigModal({
                                         >
                                             <div className="flex items-center gap-2.5 min-w-[140px]">
                                                 <span className="material-symbols-outlined text-primary text-[20px]">
-                                                    {engineKey === "php" ? "terminal" : engineKey === "node" ? "javascript" : "code"}
+                                                    {ENGINE_ICONS[engineKey] || "code"}
                                                 </span>
                                                 <div className="flex flex-col">
                                                     <span className="font-semibold text-slate-800 dark:text-slate-200 text-xs">
@@ -423,17 +428,18 @@ export default function TerminalConfigModal({
                                                     }}
                                                     className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-mono focus:outline-none focus:border-primary cursor-pointer shadow-xs"
                                                 >
-                                                    {item.versions && item.versions.length > 0 ? (
+                                                    {item.versions && item.versions.length > 0 && (
                                                         item.versions.map((ver) => (
                                                             <option key={ver.path} value={ver.path}>
                                                                 {ver.display_name}
                                                             </option>
                                                         ))
-                                                    ) : item.has_vyloserve ? (
+                                                    )}
+                                                    {(!item.versions || item.versions.length === 0) && item.has_vyloserve && (
                                                         <option value={item.path || "vyloserve"}>
                                                             {item.name} (VyloServe)
                                                         </option>
-                                                    ) : null}
+                                                    )}
 
                                                     {item.has_os && (
                                                         <option value="os">

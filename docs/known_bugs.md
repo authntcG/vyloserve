@@ -1184,25 +1184,25 @@ Google telah menghentikan akses (*deprecated / sunset*) ke model `gemini-2.0-fla
 - **Lokasi:**
   - core/api.py
   - main.py
-  - rontend/src/components/AppInterceptor.tsx
-  - rontend/tests/components/AppInterceptor.test.tsx
-  - 	ests/test_main.py
-  - 	ests/test_services/test_api.py
+  - frontend/src/components/AppInterceptor.tsx
+  - frontend/tests/components/AppInterceptor.test.tsx
+  - tests/test_main.py
+  - tests/test_services/test_api.py
 - **Masalah:**
-  1. *AttributeError 'settings_manager':* Ketika window dimaksimalkan atau dikembalikan ke ukuran normal, event listener on_window_maximized dan on_window_restored di main.py memanggil pi.settings_manager.save_settings(...). Objek Api di core/api.py menyimpan instance sebagai self.settings, bukan self.settings_manager. Hal ini menyebabkan AttributeError: 'Api' object has no attribute 'settings_manager' tercetak ke stderr dan preferensi window maximized gagal tersimpan.
+  1. *AttributeError 'settings_manager':* Ketika window dimaksimalkan atau dikembalikan ke ukuran normal, event listener on_window_maximized dan on_window_restored di main.py memanggil api.settings_manager.save_settings(...). Objek Api di core/api.py menyimpan instance sebagai self.settings, bukan self.settings_manager. Hal ini menyebabkan AttributeError: 'Api' object has no attribute 'settings_manager' tercetak ke stderr dan preferensi window maximized gagal tersimpan.
   2. *Kemunculan Menu Konteks Default Edge:* Pengguna dapat memicu klik kanan browser Edge WebView2 bawaan (berisi Refresh, Inspect element, Back, Forward, Print, dll.) di area kosong jendela aplikasi. Karena VyloServe telah menyediakan menu klik kanan kustom pada komponen yang membutuhkan (seperti copy selection pada AppInterceptor dan menu terminal di TerminalInstance), menu bawaan browser menjadi anomali visual dan melanggar prinsip desktop app UI/UX, serta memaparkan opsi inspect/refresh yang tidak diinginkan pada runtime.
 - **Solusi:**
   1. *Property Alias di Api dan Perbaikan Pemanggilan di main.py:*
-     - Di main.py, mengoreksi pemanggilan langsung menjadi pi.settings.save_settings(...).
+     - Di main.py, mengoreksi pemanggilan langsung menjadi api.settings.save_settings(...).
      - Di core/api.py, menambahkan property alias @property def settings_manager(self) (serta 
 untimes dan git) yang merujuk ke instance terkait untuk mencegah regresi jika modul lain memanggil nama tersebut.
   2. *Supresi Native Context Menu Lintas Layer (Frontend DOM + Backend Engine):*
-     - *Frontend Interception:* Pada rontend/src/components/AppInterceptor.tsx, memanggil e.preventDefault() di baris paling awal handleContextMenu. Hal ini secara universal mencegah kemunculan context menu browser default di seluruh DOM, sambil tetap mempertahankan custom copy context menu jika ada teks yang dipilih/area log, serta tidak mengganggu komponen yang menangani context menu sendiri via e.stopPropagation().
+     - *Frontend Interception:* Pada frontend/src/components/AppInterceptor.tsx, memanggil e.preventDefault() di baris paling awal handleContextMenu. Hal ini secara universal mencegah kemunculan context menu browser default di seluruh DOM, sambil tetap mempertahankan custom copy context menu jika ada teks yang dipilih/area log, serta tidak mengganggu komponen yang menangani context menu sendiri via e.stopPropagation().
      - *Backend Engine Level Patch:* Pada main.py di dalam setup_windows_performance_optimizations(), mem-patch webview.platforms.edgechromium.EdgeChrome.on_webview_ready agar mengatur sender.CoreWebView2.Settings.AreDefaultContextMenusEnabled = False. Ini mematikan menu konteks bawaan Edge langsung di level engine WebView2 bahkan ketika pywebview berjalan dalam development mode (_state['debug'] = True).
   3. *Unit Testing & Verifikasi:*
-     - Menambahkan unit test di rontend/tests/components/AppInterceptor.test.tsx untuk memastikan preventDefault selalu dipanggil pada setiap event contextmenu.
-     - Menambahkan unit test di 	ests/test_main.py (	est_setup_windows_performance_optimizations_disables_edge_default_context_menus) untuk memvalidasi patching WebView2 settings AreDefaultContextMenusEnabled = False.
-     - Menambahkan unit test di 	ests/test_services/test_api.py untuk menguji alias settings_manager, 
+     - Menambahkan unit test di frontend/tests/components/AppInterceptor.test.tsx untuk memastikan preventDefault selalu dipanggil pada setiap event contextmenu.
+     - Menambahkan unit test di tests/test_main.py (test_setup_windows_performance_optimizations_disables_edge_default_context_menus) untuk memvalidasi patching WebView2 settings AreDefaultContextMenusEnabled = False.
+     - Menambahkan unit test di tests/test_services/test_api.py untuk menguji alias settings_manager, 
 untimes, dan git.
      - Seluruh 808 tes pytest backend dan 931 tes vitest frontend lulus 100%. Build produksi TypeScript/Vite sukses tanpa error.
 
@@ -1291,3 +1291,106 @@ untimes, dan git.
   3. *Safe Update Check (`DatabaseContext.tsx`):* Menambahkan guard `Boolean(db.version)` pada filter `checkForUpdates` agar tidak memicu pengecekan update pada instance yang versinya tidak tercatat.
   4. *Defensive `DbChips` (`GlobalControlPanel.tsx`):* Menggunakan fallback `const dbName = String(db.name || db.engine || 'Database')` sebelum memanggil `.replaceAll()`, memastikan chip database di dashboard tidak pernah crash.
   5. *Unit Testing:* Menambahkan test regresi backend `test_db_get_installed_handles_sparse_legacy_entry_with_missing_name_and_version` di `tests/test_services/test_database.py` dan memperluas test case di `frontend/tests/utils/version.test.ts`. Seluruh 840 tes pytest dan seluruh tes vitest lulus 100%.
+
+### 89. Pembatalan Instalasi & Pembaruan Asinkron Tanpa Mekanisme Rollback Bersih (`CancellationToken`)
+- **Lokasi:**
+  - `core/utils/cancellation.py`, `core/api.py`
+  - `core/services/apache.py`, `core/services/php.py`, `core/services/database.py`, `core/services/runtimes_manager.py`, `core/services/git_manager.py`, `core/services/tunnels.py`
+  - `frontend/src/components/BackgroundProgressWidget.tsx`, `frontend/src/menu/*`
+  - `tests/test_utils/test_cancellation.py`
+- **Masalah:**
+  Ketika pengguna membatalkan proses instalasi atau pembaruan modul (Apache, PHP, Database, Runtimes, Git, Tunnels), thread latar belakang Python tetap berjalan sampai selesai, atau terputus secara tidak bersih dan meninggalkan file arsip setengah terunduh (`.zip.tmp`), folder ekstrak korup, serta entri setengah jadi di `data/*.json`. Hal ini membuat instalasi ulang gagal karena folder/file parsial sudah ada di disk.
+- **Solusi:**
+  1. *CancellationToken System (`core/utils/cancellation.py`):* Membuat class `CancellationToken` thread-safe dengan registry terpusat `cancellation_manager` dan mekanisme `register_rollback(callback)`.
+  2. *API Endpoint (`core/api.py`):* Mengekspos method publik `cancel_installation(task_id)` untuk memicu pembatalan secara instan dari JavaScript frontend.
+  3. *Cooperative Cancellation Loop:* Mengintegrasikan pengecekan `token.is_cancelled()` pada perulangan chunk unduh `download_file` (setiap 64KB) dan ekstraksi arsip `extract_archive`.
+  4. *Automatic Atomic Rollback:* Jika pembatalan terjadi, eksekutor secara otomatis menghapus file temporer `.tmp`, membersihkan direktori ekstraksi target parsial, dan membatalkan penulisan konfigurasi ke file JSON.
+  5. *UI Integration:* Menambahkan tombol batal ("Cancel") dengan status loading pembatalan pada `BackgroundProgressWidget` dan wizard instalasi di frontend.
+  6. *Unit Testing:* Menambahkan suite test terdedikasi di `tests/test_utils/test_cancellation.py`.
+
+### 90. Latensi Ekstrem (>30 Detik) Saat Memuat Daftar Versi MariaDB dari Mirror Archive (Caching TTL & Timeout)
+- **Lokasi:**
+  - `core/services/database.py` (`_fetch_mariadb_versions`)
+  - `core/api.py` (`get_database_available_versions`)
+  - `tests/test_services/test_database.py`
+- **Masalah:**
+  Membuka modal instalasi database MariaDB membutuhkan waktu lebih dari 30-45 detik karena aplikasi melakukan crawling HTML live dari mirror archive MariaDB (`archive.mariadb.org`) setiap kali modal dibuka. Jika koneksi lambat atau mirror mengalami rate limit, UI mengalami freeze atau modal New Instance tampil kosong dalam durasi yang tidak wajar.
+- **Solusi:**
+  1. *TTL Memory Cache:* Menerapkan caching memori berbatas waktu (*TTL Cache*, 24 jam) untuk daftar versi MariaDB di `DatabaseManager._mariadb_versions_cache`.
+  2. *Network Timeout & Fallback:* Menambahkan batas waktu timeout 5 detik pada `urllib.request.urlopen` dengan fallback ke daftar versi stabil terkurasi yang tertanam (*embedded fallback*) jika server remote lambat atau offline.
+  3. *Force Refresh Parameter:* Menambahkan parameter `force_refresh=False` pada `api.get_database_available_versions()` agar UI dapat memuat seketika dari cache saat dibuka kembali, dengan opsi refresh paksa saat pengguna menekan tombol refresh.
+  4. *Unit Testing:* Menambahkan test case di `tests/test_services/test_database.py` yang mencakup skenario cold fetch, cached hit, remote timeout fallback, dan force refresh.
+
+### 91. Integrasi Engine Database In-Memory Redis (Port 6379) & Database Schema Manager (MariaDB / PostgreSQL)
+- **Lokasi:**
+  - `core/services/database.py`
+  - `core/api.py`
+  - `frontend/src/menu/database/Main.tsx`, `DatabaseSchemaModal.tsx`, `NewInstance.tsx`
+  - `tests/test_services/test_database.py`
+- **Masalah:**
+  1. Sebelumnya VyloServe hanya mendukung 2 engine database relasional (MariaDB & PostgreSQL). Pengembang web modern membutuhkan Redis in-memory cache/store lokal (port 6379) untuk caching sesi dan antrean job (misal Laravel / Node.js).
+  2. Pengembang harus membuka terminal atau phpMyAdmin/DBeaver pihak ketiga hanya untuk melihat daftar skema/database, membuat skema baru, atau menghapus skema uji coba.
+- **Solusi:**
+  1. *Redis Integration:* Mengintegrasikan Redis sebagai database engine ke-3: download binary Windows native (`tporadowski/redis`), auto-generate konfigurasi `redis.windows.conf` (port 6379, maxmemory 256MB, appendonly yes), manajemen lifecycle start/stop silent subprocess, dan status monitor CLI `redis-cli ping`.
+  2. *Database Schema Management System:* Menambahkan endpoint `api.list_database_schemas(instance_id)`, `api.create_database_schema(instance_id, schema_name, charset, collation)`, dan `api.drop_database_schema(instance_id, schema_name)`.
+  3. *Secure CLI Runners (SRP):* Mengekstrak runner CLI deterministik `_run_mysql_cli` dan `_run_pg_cli` dengan passing kredensial aman via environment variable (`PGPASSWORD`) atau file temporer, mencegah kebocoran password di process list OS.
+  4. *Frontend Modal & A11y:* Merancang komponen `DatabaseSchemaModal.tsx` di frontend dengan tabel skema, modal konfirmasi destruktif drop schema, form pembuatan skema dengan charset dropdown, dan translasi i18n lengkap.
+
+### 92. Paritas Tampilan Peringatan Environment PATH Antara Versi Belum Terinstall vs Terinstall (Runtimes & Git) dan Isolasi File Konfigurasi Unit Test
+- **Lokasi:**
+  - `frontend/src/menu/runtimes/RuntimePathHub.tsx`
+  - `frontend/src/menu/tools/git/Main.tsx`
+  - `tests/test_services/test_runtimes_manager.py`, `tests/test_services/test_git_manager.py`
+- **Masalah:**
+  1. Terdapat inkonsistensi visual dan pesan peringatan: ketika runtime/git belum diinstal di VyloServe tetapi versi native OS terdeteksi, antarmuka menampilkan layout/peringatan berbeda secara drastis dibanding saat modul sudah diinstal via VyloServe namun belum dimasukkan ke PATH (sistem path binary vs binary path).
+  2. Pada saat eksekusi unit test tertentu di `test_runtimes_manager.py`, mock cleanup atau eksekusi fungsi secara tidak sengaja memodifikasi/menghapus file `data/runtimes.json` fisik di direktori pengembangan, menyebabkan seluruh daftar runtime yang sudah diinstal pengembang hilang dari antarmuka setelah test dijalankan.
+- **Solusi:**
+  1. *Visual & Notification Parity:* Menstandarkan representasi visual warning card dan kolom info: menyelaraskan label "System Path Binary" dan "Managed Binary Path", serta menyatukan logika deteksi native vs managed environment di `RuntimePathHub.tsx` dan `git/Main.tsx`.
+  2. *Test Data Isolation (Rule 36):* Mengisolasi seluruh operasi I/O file pada `test_runtimes_manager.py` dan `test_git_manager.py` ke fixture `tmp_path` Pytest dan mem-mock `file_utils.read_json`/`write_json` secara ketat agar file fisik di `data/*.json` dan `bin/` tidak pernah termutasi atau terhapus.
+  3. *Regression Verification:* Memvalidasi integritas file konfigurasi lingkungan development tetap utuh 100% setelah seluruh suite pengujian selesai dijalankan.
+
+### 93. Tabrakan Port Server Pengembangan Frontend Vite Default (`5173`) dengan Layanan & Dev Server Proyek Multi-Runtime
+- **Lokasi:**
+  - `main.py`
+  - `frontend/vite.config.ts`
+  - `docs/development_testing.md`, `docs/architecture_and_flow.md`
+- **Masalah:**
+  Vite secara default menggunakan port `5173`. Saat pengembang sedang mengerjakan proyek multi-runtime (seperti proyek Svelte/Vue/React yang dikelola di Projects Hub atau dev server lokal lain), seringkali terjadi tabrakan port (`EADDRINUSE: 5173`). Hal ini menyebabkan PyWebView gagal meload aplikasi desktop atau meload antarmuka proyek pengguna alih-alih UI VyloServe.
+- **Solusi:**
+  1. *Dedicated Isolated Port:* Mengubah port default Vite frontend ke port khusus terisolasi yang tidak umum digunakan: `VITE_PORT = 55173`.
+  2. *Strict Port Setting:* Mengonfigurasi `frontend/vite.config.ts` dengan `server: { port: 55173, strictPort: true }`.
+  3. *Entrypoint Alignment:* Memperbarui `main.py` sehingga saat `IS_PRODUCTION = False`, PyWebView mengarah ke `http://localhost:55173`.
+  4. *Documentation Parity:* Mendokumentasikan port ini di panduan arsitektur dan pengujian agar pengembang dan asisten AI mengetahui port standar aplikasi.
+
+### 94. Pelanggaran SonarQube Quality Gate: Kerentanan ReDoS Catastrophic Backtracking, Kompleksitas Kognitif Tinggi, dan Aksesibilitas Label Form
+- **Lokasi:**
+  - `core/services/database.py`, `core/services/php.py`
+  - `frontend/src/menu/database/NewInstance.tsx`, `frontend/src/menu/projects/NewProject.tsx`, `frontend/src/menu/tools/qr-generator/Main.tsx`, dll.
+- **Masalah:**
+  1. *Catastrophic Backtracking ReDoS (`python:S8786` & `python:S6353`):* Regex parsing key-value pada file konfigurasi menggunakan nested quantifiers ambigu `r"^(\s*)(.*?)\s*=\s*(.*?)\s*$"` yang rentan terhadap eksploitasi ReDoS dengan konsumsi CPU 100%.
+  2. *High Cognitive Complexity (`python:S3776` > 15):* Fungsi runner query database dan sinkronisasi virtual host memiliki tingkat percabangan bersarang yang melebihi batas toleransi SonarQube (mencapai kompleksitas 26-32).
+  3. *Aksesibilitas Label Form (`typescript:S6847`):* Terdapat kontrol input form pada modal dan halaman tools yang me-render `<label>` tanpa atribut `htmlFor` dan `<input>` tanpa atribut `id`, melanggar standar aksesibilitas a11y.
+- **Solusi:**
+  1. *ReDoS Prevention:* Mengganti regex ambigu dengan metode string deterministik `str.partition("=")` dan `str.split("=", 1)` yang linear dan kebal ReDoS.
+  2. *SRP Refactoring:* Memecah fungsi kompleks menjadi helper privat berprinsip Single Responsibility Principle (`_run_mysql_cli`, `_run_pg_cli`, `_execute_db_command`, `_extract_mariadb_version_tags`) sehingga seluruh fungsi memiliki Cognitive Complexity di bawah 15.
+  3. *Accessible Form Controls:* Menghubungkan seluruh elemen `<label htmlFor="id_unik">` dengan `<input id="id_unik">` di seluruh komponen form frontend.
+  4. *Quality Gate Pass:* Hasil scan SonarQube mencapai Quality Gate **🟢 PASSED** dengan 0 Bugs, 0 Vulnerabilities, 0 Security Hotspots, dan 0 Code Smells.
+
+### 95. Kegagalan Kompilasi Build Produksi TypeScript (`tsc -b && vite build`) Akibat Prop Mismatch dan Tipe Overload `TFunction`
+- **Lokasi:**
+  - `frontend/src/menu/apache/ApacheInstallModal.tsx`
+  - `frontend/src/menu/database/Main.tsx`
+  - `frontend/src/menu/projects/ProjectCard.tsx`
+  - `frontend/tests/menu/terminal_instance.test.tsx`
+- **Masalah:**
+  Meskipun unit test terisolasi vitest lulus, menjalankan `npm run build` (`tsc -b && vite build`) gagal dengan 16 galat kompilasi TypeScript:
+  1. `TS2322`: Komponen `ApacheInstallModal.tsx` meneruskan prop `isApacheInstalled` ke `<ApacheInstallWizard>` yang tidak mendefinisikan prop tersebut di antarmukanya.
+  2. `TS2345`: Fungsi helper `getConfigFileLabel` dan `getEngineLabel` di `database/Main.tsx` menerima argumen fungsi `t` dengan tipe `(k: string, d?: string) => string`, yang tidak kompatibel dengan signature overload `TFunction<"translation", undefined>` dari i18next modern.
+  3. `TS2304`: Di `projects/ProjectCard.tsx`, tipe `project: Project` digunakan alih-alih `ProjectData` yang diekspor oleh modul.
+  4. `TS2741`: Pada file test `terminal_instance.test.tsx`, mock object `TerminalSession` dan `ShellInfo` kehilangan properti wajib seperti `cwd`, `icon`, dan `is_default`.
+- **Solusi:**
+  1. Menghapus prop berlebih `isApacheInstalled` pada pemanggilan `<ApacheInstallWizard>`.
+  2. Mengimpor tipe `TFunction` resmi dari `i18next` (`import type { TFunction } from 'i18next'`) dan menyelaraskan pengetikan helper function di `database/Main.tsx`.
+  3. Memperbaiki tipe impor `ProjectData` di `ProjectCard.tsx`.
+  4. Melengkapi seluruh properti wajib pada mock fixture di `terminal_instance.test.tsx`.
+  5. Menetapkan aturan wajib Rule 38 di `AGENTS.md` dan verifikasi playbook agar `npm run build` selalu dijalankan sebelum serah terima fitur.

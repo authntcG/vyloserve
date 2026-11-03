@@ -486,4 +486,77 @@ describe("Terminal Components & Main View", () => {
             );
         });
     });
+
+    it("cancels profile restart modal when clicking cancel button", async () => {
+        render(<TerminalMain isActive={true} />);
+
+        await waitFor(() => {
+            expect((window as any).pywebview.api.create_terminal_session).toHaveBeenCalledTimes(1);
+        });
+
+        // Open config modal
+        fireEvent.click(screen.getByText("VyloServe Stack"));
+        await waitFor(() => {
+            expect(screen.getByText("tools.terminal.config_title")).toBeInTheDocument();
+        });
+
+        // Change profile
+        fireEvent.click(screen.getByText("OS Native Only"));
+        fireEvent.click(screen.getByText("tools.terminal.env_apply"));
+
+        // Expect restart confirmation modal
+        await waitFor(() => {
+            expect(screen.getByText("tools.terminal.env_restart_title")).toBeInTheDocument();
+        });
+
+        // Click Cancel on restart confirmation modal (which is the last cancel button on screen)
+        const cancelButtons = screen.getAllByText("common.cancel");
+        fireEvent.click(cancelButtons[cancelButtons.length - 1]);
+
+        await waitFor(() => {
+            expect(screen.queryByText("tools.terminal.env_restart_title")).not.toBeInTheDocument();
+        });
+
+        // No session close or recreation
+        expect((window as any).pywebview.api.close_terminal_session).not.toHaveBeenCalled();
+        expect((window as any).pywebview.api.create_terminal_session).toHaveBeenCalledTimes(1);
+    });
+
+    it("supports global profile scope and persists default profile via API", async () => {
+        (window as any).pywebview.api.save_terminal_default_profile = vi.fn().mockResolvedValue(undefined);
+
+        render(<TerminalMain isActive={true} />);
+
+        await waitFor(() => {
+            expect((window as any).pywebview.api.create_terminal_session).toHaveBeenCalledTimes(1);
+        });
+
+        // Open config modal
+        fireEvent.click(screen.getByText("VyloServe Stack"));
+        await waitFor(() => {
+            expect(screen.getByText("tools.terminal.config_title")).toBeInTheDocument();
+        });
+
+        // Select global scope button
+        const globalScopeBtn = screen.getByText("tools.terminal.scope_global_default");
+        fireEvent.click(globalScopeBtn);
+
+        // Change preset to OS Native Only
+        fireEvent.click(screen.getByText("OS Native Only"));
+        fireEvent.click(screen.getByText("tools.terminal.env_apply"));
+
+        // Expect restart confirmation modal
+        await waitFor(() => {
+            expect(screen.getByText("tools.terminal.env_restart_title")).toBeInTheDocument();
+        });
+
+        // Click Apply to New Tabs Only
+        fireEvent.click(screen.getByText("tools.terminal.env_restart_later"));
+
+        await waitFor(() => {
+            expect((window as any).pywebview.api.save_terminal_default_profile).toHaveBeenCalledWith(
+                expect.objectContaining({ php: "os", node: "os" })
+            );
+        });
+    });
 });

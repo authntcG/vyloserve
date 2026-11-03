@@ -96,12 +96,21 @@ export default function TerminalTabBar({
             {/* Tab items list + Integrated New Tab Button */}
             <div className="flex items-center gap-1 min-w-0 flex-1">
                 {/* Scrollable Tabs */}
-                <div className="flex items-center gap-1 overflow-x-auto no-scrollbar max-w-full">
+                <div role="tablist" aria-label="Terminal sessions" className="flex items-center gap-1 overflow-x-auto no-scrollbar max-w-full">
                     {sessions.map((session) => {
                         const isActive = session.id === activeSessionId;
                         return (
                             <div
                                 key={session.id}
+                                role="tab"
+                                tabIndex={0}
+                                aria-selected={isActive}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                        e.preventDefault();
+                                        onSelectTab(session.id);
+                                    }
+                                }}
                                 onClick={() => onSelectTab(session.id)}
                                 className={`group flex items-center gap-2 px-3 py-1.5 rounded-t-lg text-xs font-medium cursor-pointer transition-colors max-w-[180px] border-t border-x shrink-0 ${
                                     isActive

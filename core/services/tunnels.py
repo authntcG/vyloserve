@@ -42,6 +42,7 @@ MSG_ZROK_PROCESS_LOG = "backend.zrok.process_log"
 MSG_PROJECT_NOT_FOUND = "backend.project.project_not_found"
 MSG_CF_PROCESS_LOG = "backend.cloudflare.process_log"
 MSG_CF_INSTALL_SUCCESS = "backend.cloudflare.install_success"
+MSG_INSTALL_CANCELLED = "backend.tunnels.install_cancelled"
 
 class TunnelsManager:
     def __init__(self, api_ref):
@@ -331,6 +332,15 @@ class TunnelsManager:
                     percent = int((downloaded / total_size) * 80) # Scale to 0-80%
                     self._progress(percent, "backend.zrok.downloading", {"url": download_url})
 
+    def _cleanup_cancelled_install(self, target_file: Optional[str], target_dir: Optional[str]) -> None:
+        if target_file and os.path.exists(target_file):
+            try:
+                os.remove(target_file)
+            except OSError:
+                pass
+        if target_dir and os.path.exists(target_dir):
+            shutil.rmtree(target_dir, ignore_errors=True)
+
     def _normalize_zrok_exe_name(self, target_dir: str) -> None:
         """Rilis zrok terbaru kadang menamai binari 'zrok2.exe' dsb; samakan jadi zrok.exe."""
         target_exe = os.path.join(target_dir, ZROK_EXE_NAME)
@@ -394,14 +404,10 @@ class TunnelsManager:
             self._log(MSG_ZROK_INSTALL_SUCCESS, "success")
             return {"status": "success", "message": MSG_ZROK_INSTALL_SUCCESS}
         except OperationCancelledError:
-            if archive_path and os.path.exists(archive_path):
-                try: os.remove(archive_path)
-                except OSError: pass
-            if target_dir and os.path.exists(target_dir):
-                shutil.rmtree(target_dir, ignore_errors=True)
-            self._progress(0, "backend.tunnels.install_cancelled")
-            self._log("backend.tunnels.install_cancelled", "warn")
-            return {"status": "cancelled", "message": "backend.tunnels.install_cancelled"}
+            self._cleanup_cancelled_install(archive_path, target_dir)
+            self._progress(0, MSG_INSTALL_CANCELLED)
+            self._log(MSG_INSTALL_CANCELLED, "warn")
+            return {"status": "cancelled", "message": MSG_INSTALL_CANCELLED}
         except Exception as e:
             self._progress(100, MSG_UNEXPECTED_ERROR)
             self._log(MSG_UNEXPECTED_ERROR, "error", {"e": str(e)})
@@ -720,6 +726,24 @@ class TunnelsManager:
             return None, actual_version
         return None, actual_version
 
+    def _download_cf_archive(self, download_url: str, target_exe: str, token) -> None:
+        req = urllib.request.Request(download_url, headers=GITHUB_API_HEADERS)
+        with urllib.request.urlopen(req, timeout=15) as response, open(target_exe, 'wb') as out_file:
+            total_size = int(response.info().get('Content-Length', 0))
+            downloaded = 0
+            block_size = 8192
+            while True:
+                if token.is_cancelled():
+                    raise OperationCancelledError("Cloudflare download cancelled")
+                buffer = response.read(block_size)
+                if not buffer:
+                    break
+                out_file.write(buffer)
+                downloaded += len(buffer)
+                if total_size > 0:
+                    percent = 10 + int((downloaded / total_size) * 80)
+                    self._progress(percent, "backend.cloudflare.downloading", {"url": download_url})
+
     def install_cloudflare(self, version: str = "latest") -> dict:
         token = InstallationManager.get_token("tunnels")
         target_dir = None
@@ -742,36 +766,16 @@ class TunnelsManager:
             target_exe = os.path.join(target_dir, 'cloudflared.exe')
 
             self._log("backend.cloudflare.downloading", "info", {"url": download_url})
-            
-            req = urllib.request.Request(download_url, headers=GITHUB_API_HEADERS)
-            with urllib.request.urlopen(req, timeout=15) as response, open(target_exe, 'wb') as out_file:
-                total_size = int(response.info().get('Content-Length', 0))
-                downloaded = 0
-                block_size = 8192
-                while True:
-                    if token.is_cancelled():
-                        raise OperationCancelledError("Cloudflare download cancelled")
-                    buffer = response.read(block_size)
-                    if not buffer:
-                        break
-                    out_file.write(buffer)
-                    downloaded += len(buffer)
-                    if total_size > 0:
-                        percent = 10 + int((downloaded / total_size) * 80)
-                        self._progress(percent, "backend.cloudflare.downloading", {"url": download_url})
+            self._download_cf_archive(download_url, target_exe, token)
 
             self._progress(100, MSG_CF_INSTALL_SUCCESS)
             self._log(MSG_CF_INSTALL_SUCCESS, "success")
             return {"status": "success", "message": MSG_CF_INSTALL_SUCCESS}
         except OperationCancelledError:
-            if target_exe and os.path.exists(target_exe):
-                try: os.remove(target_exe)
-                except OSError: pass
-            if target_dir and os.path.exists(target_dir):
-                shutil.rmtree(target_dir, ignore_errors=True)
-            self._progress(0, "backend.tunnels.install_cancelled")
-            self._log("backend.tunnels.install_cancelled", "warn")
-            return {"status": "cancelled", "message": "backend.tunnels.install_cancelled"}
+            self._cleanup_cancelled_install(target_exe, target_dir)
+            self._progress(0, MSG_INSTALL_CANCELLED)
+            self._log(MSG_INSTALL_CANCELLED, "warn")
+            return {"status": "cancelled", "message": MSG_INSTALL_CANCELLED}
         except Exception as e:
             self._progress(100, MSG_UNEXPECTED_ERROR)
             self._log(MSG_UNEXPECTED_ERROR, "error", {"e": str(e)})

@@ -286,4 +286,81 @@ describe('QrMain', () => {
 
         await waitFor(() => expect(screen.getByLabelText(/tools\.qr\.logo_scale/)).toBeDisabled());
     });
+
+    it('populates all vCard fields including email, org, and url', async () => {
+        const user = userEvent.setup();
+        renderWithToast(<QrMain />);
+        await user.click(screen.getByRole('button', { name: 'tools.qr.type_contact' }));
+
+        await user.type(screen.getByLabelText('tools.qr.vcard_name'), 'Bob');
+        await user.type(screen.getByLabelText('tools.qr.vcard_email'), 'bob@example.com');
+        await user.type(screen.getByLabelText('tools.qr.vcard_org'), 'Acme Corp');
+        await user.type(screen.getByLabelText('tools.qr.vcard_url'), 'https://acme.org');
+
+        expect(screen.getByText(/EMAIL:bob@example.com/)).toBeInTheDocument();
+        expect(screen.getByText(/ORG:Acme Corp/)).toBeInTheDocument();
+        expect(screen.getByText(/URL:https:\/\/acme.org/)).toBeInTheDocument();
+    });
+
+    it('populates email body field under contact tab', async () => {
+        const user = userEvent.setup();
+        renderWithToast(<QrMain />);
+        await user.click(screen.getByRole('button', { name: 'tools.qr.type_contact' }));
+        await user.click(screen.getByRole('button', { name: 'tools.qr.contact_email' }));
+
+        await user.type(screen.getByLabelText('tools.qr.email_to'), 'boss@corp.com');
+        await user.type(screen.getByLabelText('tools.qr.email_body'), 'Project update');
+
+        expect(screen.getByText(/mailto:boss@corp.com\?subject=&body=Project%20update/)).toBeInTheDocument();
+    });
+
+    it('handles paste, clear, and security selection in WiFi tab', async () => {
+        const user = userEvent.setup();
+        renderWithToast(<QrMain />);
+        await user.click(screen.getByRole('button', { name: 'tools.qr.type_wifi' }));
+
+        await user.type(screen.getByLabelText('tools.qr.wifi_ssid'), 'MyHomeWifi');
+        await user.type(screen.getByLabelText('tools.qr.password'), 'Secret123');
+
+        // Check raw text contains wifi SSID
+        expect(screen.getByText('WIFI:T:WPA;S:MyHomeWifi;P:Secret123;H:false;;')).toBeInTheDocument();
+
+        // Click Paste button
+        await user.click(screen.getByRole('button', { name: /tools\.qr\.paste/ }));
+
+        // Click Clear button
+        await user.click(screen.getByRole('button', { name: /tools\.qr\.clear/ }));
+        expect(screen.getByLabelText('tools.qr.wifi_ssid')).toHaveValue('');
+    });
+
+    it('handles SMS sub-tab with clear and paste under contact tab', async () => {
+        const user = userEvent.setup();
+        renderWithToast(<QrMain />);
+        await user.click(screen.getByRole('button', { name: 'tools.qr.type_contact' }));
+
+        // Switch to SMS
+        await user.click(screen.getByRole('button', { name: 'tools.qr.contact_sms' }));
+        await user.type(screen.getByLabelText('tools.qr.sms_phone'), '+628999999');
+        await user.type(screen.getByLabelText('tools.qr.sms_message'), 'Hello from SMS');
+        expect(screen.getByText('SMSTO:+628999999:Hello from SMS')).toBeInTheDocument();
+
+        // Clear SMS
+        await user.click(screen.getByRole('button', { name: /tools\.qr\.clear/ }));
+        expect(screen.getByLabelText('tools.qr.sms_phone')).toHaveValue('');
+    });
+
+    it('updates wifi encryption via Select dropdown in WiFi tab', async () => {
+        const user = userEvent.setup();
+        renderWithToast(<QrMain />);
+        await user.click(screen.getByRole('button', { name: 'tools.qr.type_wifi' }));
+
+        await user.type(screen.getByLabelText('tools.qr.wifi_ssid'), 'GuestNetwork');
+
+        // Click security Select dropdown button
+        const selectBtn = screen.getByRole('button', { name: 'WPA/WPA2' });
+        await user.click(selectBtn);
+        await user.click(screen.getByRole('option', { name: 'WEP' }));
+
+        expect(screen.getByText('WIFI:T:WEP;S:GuestNetwork;P:;H:false;;')).toBeInTheDocument();
+    });
 });

@@ -9,9 +9,10 @@ def mock_api():
     return api
 
 @pytest.fixture
-def php_mgr(mock_api):
-    with patch('os.makedirs'):
-        return PhpManager(mock_api)
+def php_mgr(mock_api, tmp_path):
+    with patch('core.services.php.get_project_root', return_value=str(tmp_path)):
+        with patch('os.makedirs'):
+            return PhpManager(mock_api)
 
 def test_init(php_mgr):
     assert php_mgr is not None

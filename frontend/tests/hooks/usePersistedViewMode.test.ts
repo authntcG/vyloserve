@@ -33,7 +33,7 @@ describe('usePersistedViewMode', () => {
         const { result } = renderHook(() => usePersistedViewMode('runtimes', 'card'));
         expect(result.current[0]).toBe('card');
 
-        act(() => {
+        act(() => { // NOSONAR typescript:S8980 Required to flush React 18 hook state
             result.current[1]('table');
         });
 
@@ -44,7 +44,7 @@ describe('usePersistedViewMode', () => {
     it('ignores invalid values passed to the setter', () => {
         const { result } = renderHook(() => usePersistedViewMode('projects', 'card'));
 
-        act(() => {
+        act(() => { // NOSONAR typescript:S8980 Required to flush React 18 hook state
             // @ts-expect-error Testing invalid runtime input
             result.current[1]('grid');
         });
@@ -65,7 +65,7 @@ describe('usePersistedViewMode', () => {
             throw new Error('Quota exceeded');
         });
 
-        act(() => {
+        act(() => { // NOSONAR typescript:S8980 Required to flush React 18 hook state
             result.current[1]('table');
         });
 

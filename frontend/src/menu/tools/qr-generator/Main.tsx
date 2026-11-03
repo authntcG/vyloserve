@@ -386,7 +386,7 @@ export default function QrMain() {
                             {topTab === 'contact' && (
                                 <div className="flex flex-col gap-4">
                                     {/* Sub-pill Switcher */}
-                                    <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-900 rounded-lg w-fit border border-slate-200 dark:border-slate-800" role="group" aria-label={t('tools.qr.type_contact')}>
+                                    <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-900 rounded-lg w-fit border border-slate-200 dark:border-slate-800" aria-label={t('tools.qr.type_contact')}>
                                         <button
                                             type="button"
                                             onClick={() => setContactSub('vcard')}

@@ -10,6 +10,8 @@ import threading
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from core.utils.cancellation import OperationCancelledError
 USER_AGENT_MOZILLA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+MSG_EXTRACTION_CANCELLED = "Operasi ekstraksi dibatalkan pengguna."
+MSG_DOWNLOAD_CANCELLED = "Operasi unduhan dibatalkan pengguna."
 
 def read_json(file_path: str, default_type: type = list) -> Any:
     """
@@ -236,7 +238,7 @@ def _extract_zip(file_path: str, extract_to: str, progress_cb: Optional[Callable
 
         for index, member in enumerate(members):
             if cancel_check and cancel_check():
-                raise OperationCancelledError("Operasi ekstraksi dibatalkan pengguna.")
+                raise OperationCancelledError(MSG_EXTRACTION_CANCELLED)
             zip_ref.extract(member, extract_to)
 
             if progress_cb and (index % 50 == 0 or index == total_files - 1):
@@ -256,7 +258,7 @@ def _extract_tar_gz(file_path: str, extract_to: str, progress_cb: Optional[Calla
         if cancel_check:
             for member in members:
                 if cancel_check():
-                    raise OperationCancelledError("Operasi ekstraksi dibatalkan pengguna.")
+                    raise OperationCancelledError(MSG_EXTRACTION_CANCELLED)
                 tar_ref.extract(member, path=extract_to)
         else:
             tar_ref.extractall(extract_to, members=members)
@@ -280,7 +282,7 @@ def extract_archive(file_path: str, extract_to: str,
         bool: True jika ekstraksi sukses.
     """
     if cancel_check and cancel_check():
-        raise OperationCancelledError("Operasi ekstraksi dibatalkan pengguna.")
+        raise OperationCancelledError(MSG_EXTRACTION_CANCELLED)
 
     try:
         if file_path.endswith('.zip'):
@@ -294,8 +296,42 @@ def extract_archive(file_path: str, extract_to: str,
     except Exception as e:
         raise RuntimeError(f"Gagal mengekstrak arsip: {str(e)}")
 
+def _download_chunk_worker(
+    url: str,
+    dest_path: str,
+    start: int,
+    end: int,
+    total_size: int,
+    lock: threading.Lock,
+    shared_state: Dict[str, int],
+    progress_cb: Optional[Callable[[int, str, Optional[dict]], None]],
+    cancel_check: Optional[Callable[[], bool]] = None
+):
+    if cancel_check and cancel_check():
+        raise OperationCancelledError(MSG_DOWNLOAD_CANCELLED)
+
+    req_chunk = urllib.request.Request(url, headers={
+        'User-Agent': USER_AGENT_MOZILLA,
+        'Range': f'bytes={start}-{end}'
+    })
+    with urllib.request.urlopen(req_chunk, timeout=30) as res, open(dest_path, 'r+b') as f:
+        f.seek(start)
+        while True:
+            if cancel_check and cancel_check():
+                raise OperationCancelledError(MSG_DOWNLOAD_CANCELLED)
+            chunk = res.read(32768)
+            if not chunk:
+                break
+            f.write(chunk)
+            with lock:
+                shared_state["downloaded_bytes"] += len(chunk)
+                dl_percent = int((shared_state["downloaded_bytes"] * 100) / total_size)
+                overall_percent = 10 + int(dl_percent * 0.5)
+                if progress_cb and overall_percent != shared_state["last_percent"] and overall_percent <= 60:
+                    progress_cb(overall_percent, "backend.runtimes.downloading_multipart", {"percent": dl_percent})
+                    shared_state["last_percent"] = overall_percent
+
 def _download_multi_part(url, dest_path, total_size, progress_cb, log_cb, cancel_check: Optional[Callable[[], bool]] = None):
-    import urllib.request, threading, concurrent.futures
     if log_cb: log_cb("backend.runtimes.download_multipart_support", "success")
     num_connections = 8
     part_size = total_size // num_connections
@@ -304,46 +340,39 @@ def _download_multi_part(url, dest_path, total_size, progress_cb, log_cb, cancel
         f.seek(total_size - 1)
         f.write(b'\0')
         
-    downloaded_bytes = 0
-    last_percent = -1
+    shared_state = {"downloaded_bytes": 0, "last_percent": -1}
     lock = threading.Lock()
-    
-    def download_chunk(start, end):
-        nonlocal downloaded_bytes, last_percent
-        if cancel_check and cancel_check():
-            raise OperationCancelledError("Operasi unduhan dibatalkan pengguna.")
-
-        req_chunk = urllib.request.Request(url, headers={
-            'User-Agent': USER_AGENT_MOZILLA,
-            'Range': f'bytes={start}-{end}'
-        })
-        with urllib.request.urlopen(req_chunk, timeout=30) as res, open(dest_path, 'r+b') as f:
-            f.seek(start)
-            while True:
-                if cancel_check and cancel_check():
-                    raise OperationCancelledError("Operasi unduhan dibatalkan pengguna.")
-                chunk = res.read(32768)
-                if not chunk: break
-                f.write(chunk)
-                with lock:
-                    downloaded_bytes += len(chunk)
-                    dl_percent = int((downloaded_bytes * 100) / total_size)
-                    overall_percent = 10 + int(dl_percent * 0.5) 
-                    if progress_cb and overall_percent != last_percent and overall_percent <= 60:
-                        progress_cb(overall_percent, "backend.runtimes.downloading_multipart", {"percent": dl_percent})
-                        last_percent = overall_percent
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=num_connections) as executor:
         futures = []
         for i in range(num_connections):
             start = i * part_size
             end = start + part_size - 1 if i < num_connections - 1 else total_size - 1
-            futures.append(executor.submit(download_chunk, start, end))
+            futures.append(executor.submit(
+                _download_chunk_worker, url, dest_path, start, end, total_size, lock, shared_state, progress_cb, cancel_check
+            ))
         for future in concurrent.futures.as_completed(futures):
             future.result()
 
+def _report_single_stream_progress(
+    read_size: int,
+    total_size: int,
+    block_size: int,
+    last_percent: int,
+    progress_cb: Optional[Callable[[int, str, Optional[dict]], None]]
+) -> int:
+    if total_size > 0:
+        dl_percent = int((read_size * 100) / total_size)
+        overall_percent = 10 + int(dl_percent * 0.5)
+        if progress_cb and overall_percent != last_percent and overall_percent <= 60:
+            progress_cb(overall_percent, "backend.runtimes.downloading", {"percent": dl_percent})
+            return overall_percent
+    elif progress_cb and read_size % (1024 * 1024) < block_size:
+        mb_downloaded = read_size / (1024 * 1024)
+        progress_cb(35, "backend.runtimes.downloading_anonymous", {"mb": f"{mb_downloaded:.1f}"})
+    return last_percent
+
 def _download_single_stream(url, dest_path, total_size, progress_cb, log_cb, cancel_check: Optional[Callable[[], bool]] = None):
-    import urllib.request
     if log_cb: log_cb("backend.runtimes.download_single_stream", "warn")
     req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT_MOZILLA})
     with urllib.request.urlopen(req, timeout=15) as response, open(dest_path, 'wb') as out_file:
@@ -353,29 +382,19 @@ def _download_single_stream(url, dest_path, total_size, progress_cb, log_cb, can
         
         while True:
             if cancel_check and cancel_check():
-                raise OperationCancelledError("Operasi unduhan dibatalkan pengguna.")
+                raise OperationCancelledError(MSG_DOWNLOAD_CANCELLED)
             buffer = response.read(block_size)
             if not buffer: break
             out_file.write(buffer)
             read_size += len(buffer)
-            
-            if total_size > 0:
-                dl_percent = int((read_size * 100) / total_size)
-                overall_percent = 10 + int(dl_percent * 0.5) 
-                if progress_cb and overall_percent != last_percent and overall_percent <= 60:
-                    progress_cb(overall_percent, "backend.runtimes.downloading", {"percent": dl_percent})
-                    last_percent = overall_percent
-            else:
-                mb_downloaded = (read_size) / (1024 * 1024)
-                if progress_cb and read_size % (1024 * 1024) < block_size:
-                    progress_cb(35, "backend.runtimes.downloading_anonymous", {"mb": f"{mb_downloaded:.1f}"})
+            last_percent = _report_single_stream_progress(read_size, total_size, block_size, last_percent, progress_cb)
 
 def download_advanced(url: str, dest_path: str, 
                       log_cb: Optional[Callable[[str, str], None]] = None, 
                       progress_cb: Optional[Callable[[int, str], None]] = None,
                       cancel_check: Optional[Callable[[], bool]] = None) -> bool:
     if cancel_check and cancel_check():
-        raise OperationCancelledError("Operasi unduhan dibatalkan pengguna.")
+        raise OperationCancelledError(MSG_DOWNLOAD_CANCELLED)
 
     if log_cb: log_cb("backend.runtimes.checking_capabilities", "info")
     req = urllib.request.Request(url, method='HEAD', headers={'User-Agent': USER_AGENT_MOZILLA})

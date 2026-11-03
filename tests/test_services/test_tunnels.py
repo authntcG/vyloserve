@@ -4,10 +4,11 @@ from unittest.mock import patch, MagicMock
 from core.services.tunnels import TunnelsManager
 
 @pytest.fixture
-def tunnels_manager():
-    manager = TunnelsManager(MagicMock())
-    with patch.object(manager, '_get_tunnel_dir', side_effect=lambda engine: os.path.join(manager.base_dir, 'bin', 'tunnels', engine, 'unknown')):
-        yield manager
+def tunnels_manager(tmp_path):
+    with patch('core.services.tunnels.get_project_root', return_value=str(tmp_path)):
+        manager = TunnelsManager(MagicMock())
+        with patch.object(manager, '_get_tunnel_dir', side_effect=lambda engine: os.path.join(manager.base_dir, 'bin', 'tunnels', engine, 'unknown')):
+            yield manager
 
 # ==========================================
 # uninstall_zrok
@@ -642,13 +643,13 @@ def test_consume_stdout_thread(mock_queue_get, mock_thread, mock_popen, mock_exi
 
 REAL_CLOUDFLARE_JSON_LINE = "INF |  https://random-words.trycloudflare.com                                                    |"
 
-def test_extract_cloudflare_public_url_parses_real_log_line():
-    url = TunnelsManager(MagicMock())._extract_cloudflare_public_url(REAL_CLOUDFLARE_JSON_LINE)
+def test_extract_cloudflare_public_url_parses_real_log_line(tunnels_manager):
+    url = tunnels_manager._extract_cloudflare_public_url(REAL_CLOUDFLARE_JSON_LINE)
     assert url == "https://random-words.trycloudflare.com"
 
-def test_extract_cloudflare_public_url_returns_none_for_unrelated_log_line():
+def test_extract_cloudflare_public_url_returns_none_for_unrelated_log_line(tunnels_manager):
     unrelated = "INF +--------------------------------------------------------------------------------------------+"
-    assert TunnelsManager(MagicMock())._extract_cloudflare_public_url(unrelated) is None
+    assert tunnels_manager._extract_cloudflare_public_url(unrelated) is None
 
 @patch('core.services.tunnels.os.path.exists')
 @patch('core.services.tunnels.subprocess.Popen')

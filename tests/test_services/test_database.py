@@ -12,11 +12,12 @@ def mock_api():
 
 @pytest.fixture
 def db_mgr(mock_api, tmp_path):
-    with patch('os.makedirs'):
-        mgr = DatabaseManager(mock_api)
-        mgr._cache_dir = str(tmp_path / "cache")
-        mgr._mariadb_cache_file = str(tmp_path / "cache" / "mariadb_versions.json")
-        return mgr
+    with patch('core.services.database.get_project_root', return_value=str(tmp_path)):
+        with patch('os.makedirs'):
+            mgr = DatabaseManager(mock_api)
+            mgr._cache_dir = str(tmp_path / "cache")
+            mgr._mariadb_cache_file = str(tmp_path / "cache" / "mariadb_versions.json")
+            return mgr
 
 def test_init(db_mgr):
     assert db_mgr is not None
@@ -1022,18 +1023,21 @@ def test_save_db_config_reports_restart_failure(mock_read_json, mock_write_json,
 # change_db_credentials — cabang postgres & error
 # ==========================================
 
+@patch('core.services.database.write_json')
 @patch('core.services.database.read_json')
 @patch('core.services.database.check_port_in_use', return_value=True)
-def test_change_db_credentials_postgres_dispatch(mock_check_port, mock_read_json, db_mgr):
+def test_change_db_credentials_postgres_dispatch(mock_check_port, mock_read_json, mock_write_json, db_mgr):
     mock_read_json.return_value = [{"id": "db_1", "engine": "postgres", "port": 5432}]
     with patch.object(db_mgr, '_change_postgres_credentials') as mock_change:
         res = db_mgr.change_db_credentials("db_1", "postgres", "old", "new")
     assert res['status'] == 'success'
     mock_change.assert_called_once()
+    mock_write_json.assert_called_once()
 
+@patch('core.services.database.write_json')
 @patch('core.services.database.read_json')
 @patch('core.services.database.check_port_in_use', return_value=True)
-def test_change_db_credentials_parses_runtime_error(mock_check_port, mock_read_json, db_mgr):
+def test_change_db_credentials_parses_runtime_error(mock_check_port, mock_read_json, mock_write_json, db_mgr):
     mock_read_json.return_value = [{"id": "db_1", "engine": "mysql", "port": 3306}]
     with patch.object(db_mgr, '_change_mysql_credentials', side_effect=RuntimeError("backend.database.mysql_fail|Access denied for user")):
         res = db_mgr.change_db_credentials("db_1", "root", "old", "new")
