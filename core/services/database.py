@@ -10,7 +10,13 @@ import subprocess
 from typing import Optional
 
 # ---> IMPORT UTILITIES (DRY PRINCIPLE) <---
-from core.utils.system_utils import get_project_root, check_port_in_use, start_silent_process, run_silent_command
+from core.utils.system_utils import (
+    get_project_root,
+    check_port_in_use,
+    start_silent_process,
+    run_silent_command,
+    open_path_in_file_manager,
+)
 from core.utils.file_utils import (
     read_json, write_json, download_advanced, extract_archive,
     read_log_tail, read_new_lines, parse_ini_key_values
@@ -264,7 +270,40 @@ class DatabaseManager:
                 seen.add(version)
                 results.append({"version": version, "url": link, "name": f"PostgreSQL {version}"})
 
-    def _fetch_postgres_versions(self):
+    def _fetch_postgres_versions_linux(self):
+        import xml.etree.ElementTree as ET
+        url = "https://repo1.maven.org/maven2/io/zonky/test/postgres/embedded-postgres-binaries-linux-amd64/maven-metadata.xml"
+        req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT_MOZILLA})
+        try:
+            xml_data = urllib.request.urlopen(req, timeout=10).read()
+            root = ET.fromstring(xml_data)
+            all_versions = [v.text for v in root.findall('.//version') if v.text]
+        except Exception as e:
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+        grouped = {}
+        for ver in all_versions:
+            parts = ver.split('.')
+            if len(parts) >= 2 and parts[0].isdigit():
+                major = int(parts[0])
+                if major >= 10:
+                    if major not in grouped:
+                        grouped[major] = []
+                    grouped[major].append(ver)
+
+        results = []
+        for major in sorted(grouped.keys(), reverse=True)[:10]:
+            latest_v = grouped[major][-1]
+            dl_url = f"https://repo1.maven.org/maven2/io/zonky/test/postgres/embedded-postgres-binaries-linux-amd64/{latest_v}/embedded-postgres-binaries-linux-amd64-{latest_v}.jar"
+            results.append({
+                "version": latest_v,
+                "url": dl_url,
+                "name": f"PostgreSQL {latest_v}"
+            })
+
+        return {"status": "success", "data": results}
+
+    def _fetch_postgres_versions_enterprisedb(self):
         req = urllib.request.Request("https://www.enterprisedb.com/download-postgresql-binaries", headers={'User-Agent': USER_AGENT_MOZILLA})
         try: html = urllib.request.urlopen(req, timeout=10).read().decode('utf-8')
         except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
@@ -280,11 +319,27 @@ class DatabaseManager:
         results.sort(key=lambda x: [int(i) for i in re.findall(r'\d+', x['version'])], reverse=True)
         return {"status": "success", "data": results}
 
+    def _fetch_postgres_versions(self):
+        if sys.platform.startswith('linux'):
+            return self._fetch_postgres_versions_linux()
+        return self._fetch_postgres_versions_enterprisedb()
+
     def _init_mariadb(self, install_dir: str, db_data_dir: str):
         exe_name = 'mysql_install_db.exe' if sys.platform == 'win32' else 'mysql_install_db'
         installer = os.path.join(install_dir, 'bin', exe_name)
         if not os.path.exists(installer):
+            for candidate in [
+                os.path.join(install_dir, 'scripts', 'mysql_install_db'),
+                os.path.join(install_dir, 'bin', 'mariadb-install-db'),
+            ]:
+                if os.path.exists(candidate):
+                    installer = candidate
+                    break
+        if not os.path.exists(installer):
             raise RuntimeError(f"MariaDB Init Error: installer tidak ditemukan di {installer}")
+        if sys.platform != 'win32' and os.path.exists(installer):
+            try: os.chmod(installer, 0o755)
+            except OSError: pass
         res = run_silent_command([installer, f"--datadir={db_data_dir}"])
         if res.returncode != 0:
             raise RuntimeError(f"MariaDB Init Error: {res.stderr}")
@@ -311,6 +366,29 @@ class DatabaseManager:
             self._init_mariadb(install_dir, db_data_dir)
         else:
             self._init_postgres(install_dir, db_data_dir, root_pass)
+
+    def _extract_db_archive(self, archive_path: str, install_dir: str, progress_cb=None):
+        if archive_path.endswith(".jar"):
+            import zipfile
+            with zipfile.ZipFile(archive_path, 'r') as zf:
+                txz_candidates = [n for n in zf.namelist() if n.endswith(('.txz', '.tar.xz', '.tar.gz'))]
+                if not txz_candidates:
+                    raise RuntimeError("Biner PostgreSQL Linux (.txz) tidak ditemukan di dalam paket JAR.")
+                txz_name = txz_candidates[0]
+                txz_temp = archive_path + "_temp.txz"
+                try:
+                    with open(txz_temp, 'wb') as tf_out, zf.open(txz_name) as tf_in:
+                        shutil.copyfileobj(tf_in, tf_out)
+                    extract_archive(txz_temp, install_dir, progress_cb=progress_cb)
+                finally:
+                    if os.path.exists(txz_temp):
+                        try: os.remove(txz_temp)
+                        except OSError: pass
+        else:
+            extract_archive(archive_path, install_dir, progress_cb=progress_cb)
+        if os.path.exists(archive_path):
+            try: os.remove(archive_path)
+            except OSError: pass
 
     def _unwrap_single_subdir(self, install_dir: str):
         extracted_subdirs = os.listdir(install_dir)
@@ -343,7 +421,13 @@ class DatabaseManager:
         db_id = f"{engine}_{version.replace('.', '_')}"
         install_dir = os.path.join(self.bin_dir, db_id) 
         db_data_dir = os.path.join(self.data_dir, db_id) 
-        zip_path = os.path.join(self.bin_dir, f"{db_id}.zip")
+        if url and url.lower().endswith(".jar"):
+            ext = ".jar"
+        elif url and url.lower().endswith(".tar.gz"):
+            ext = ".tar.gz"
+        else:
+            ext = ".zip"
+        zip_path = os.path.join(self.bin_dir, f"{db_id}{ext}")
 
         is_existing_data = os.path.exists(db_data_dir) and len(os.listdir(db_data_dir)) > 0
 
@@ -355,6 +439,8 @@ class DatabaseManager:
             if engine == 'mysql':
                 self._progress(2, "backend.database.tracking_mariadb")
                 url = self._resolve_mariadb_url(version)
+                if url and url.lower().endswith(".tar.gz") and not zip_path.endswith(".tar.gz"):
+                    zip_path = os.path.join(self.bin_dir, f"{db_id}.tar.gz")
 
             def log_cb(msg, lvl): 
                 self._log(msg, lvl)
@@ -366,8 +452,7 @@ class DatabaseManager:
             self._log("backend.database.download_complete_extracting", "info")
             self._progress(65, "backend.database.extracting_zip")
             
-            extract_archive(zip_path, install_dir, progress_cb=prog_cb)
-            os.remove(zip_path)
+            self._extract_db_archive(zip_path, install_dir, progress_cb=prog_cb)
 
             self._unwrap_single_subdir(install_dir)
 
@@ -411,7 +496,6 @@ class DatabaseManager:
             shutil.move(install_dir_backup, install_dir)
 
     def update_database(self, db_id: str, new_version: str, url: str, backup_data: bool = False):
-        from core.utils.file_utils import download_advanced, extract_archive, write_json
         data = read_json(self.config_path)
         db_obj = next((db for db in data if db['id'] == db_id), None)
         if not db_obj: return {"status": "error", "message": "backend.database.not_found"}
@@ -438,13 +522,22 @@ class DatabaseManager:
             self._log("backend.database.downloading_update", "info")
             if db_obj['engine'] == 'mysql' and not url.startswith('http'):
                 url = self._resolve_mariadb_url(new_version)
+            elif db_obj['engine'] == 'postgres' and sys.platform.startswith('linux') and not url.startswith('http'):
+                url = f"https://repo1.maven.org/maven2/io/zonky/test/postgres/embedded-postgres-binaries-linux-amd64/{new_version}/embedded-postgres-binaries-linux-amd64-{new_version}.jar"
+            
+            if url and url.lower().endswith(".jar"):
+                ext = ".jar"
+            elif url and url.lower().endswith(".tar.gz"):
+                ext = ".tar.gz"
+            else:
+                ext = ".zip"
+            zip_path = os.path.join(self.bin_dir, f"update{ext}")
             
             download_advanced(url, zip_path, log_cb=log_cb, progress_cb=prog_cb)
             
             self._log("backend.database.extracting_update", "info")
             self._progress(65, "backend.database.extracting_zip")
-            extract_archive(zip_path, install_dir, progress_cb=prog_cb)
-            if os.path.exists(zip_path): os.remove(zip_path)
+            self._extract_db_archive(zip_path, install_dir, progress_cb=prog_cb)
             
             self._unwrap_single_subdir(install_dir)
             
@@ -502,10 +595,9 @@ class DatabaseManager:
         if not os.path.exists(target): return {"status": "error", "message": "backend.database.target_not_created"}
 
         try:
-            if sys.platform == 'win32': os.startfile(target)
-            elif sys.platform == 'darwin': subprocess.Popen(['open', target])
-            else: subprocess.Popen(['xdg-open', target])
-            return {"status": "success", "message": "backend.database.opened_success"}
+            if open_path_in_file_manager(target):
+                return {"status": "success", "message": "backend.database.opened_success"}
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR}
         except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
     def get_log_content(self, db_id: str, log_type: str = 'startup'):

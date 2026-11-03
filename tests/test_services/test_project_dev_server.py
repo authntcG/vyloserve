@@ -143,12 +143,12 @@ def test_stop_project_server_success(project_mgr):
         "name": "Stopping App"
     }
 
-    with patch("core.services.project.run_silent_command") as mock_run:
+    with patch("core.services.project.kill_process_tree") as mock_kill:
         result = project_mgr.stop_project_server("proj_stop")
         assert result["status"] == "success"
         assert result["message"] == "backend.project.server_stopped"
         assert "proj_stop" not in project_mgr._running_servers
-        mock_run.assert_called_once()
+        mock_kill.assert_called_once_with(5555)
         mock_file.close.assert_called_once()
         project_mgr.api.emit_project_server_state.assert_called_with({
             "project_id": "proj_stop",

@@ -59,7 +59,7 @@ describe('NewPhpInstance', () => {
 
         await waitFor(() => expect(setVersion).toHaveBeenCalledWith(''));
         expect(setFilename).toHaveBeenCalledWith('');
-        expect(await screen.findByText('php.all_versions_installed')).toBeInTheDocument();
+        expect(await screen.findByText(/php\.(all_versions_installed|no_linux_binaries)/)).toBeInTheDocument();
     });
 
     it('shows the API-provided error message and disables the select when the fetch reports failure', async () => {

@@ -12,6 +12,7 @@ export interface PhpInstance {
     status: 'running' | 'stopped';
     dir: string;
     memory_limit: string;
+    is_system?: boolean;
 }
 
 export interface PhpExtension {
@@ -114,6 +115,10 @@ export function PhpProvider({ children }: { readonly children: React.ReactNode }
             setInstances(data || []);
             if (data?.length > 0) {
                 setInstallPort(Math.max(...data.map((i: any) => i.port)) + 1);
+                if (data.some((i: any) => i.is_system) && isNewInstanceOpen) {
+                    showToast(tRef.current('php.system_installed_success'), 'success');
+                    setIsNewInstanceOpen(false);
+                }
             }
         } catch (e) {
             console.error(e);

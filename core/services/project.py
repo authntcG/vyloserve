@@ -9,7 +9,14 @@ import tempfile
 import time
 from typing import Optional
 
-from core.utils.system_utils import get_project_root, get_silent_flags, check_port_in_use, run_silent_command
+from core.utils.system_utils import (
+    get_project_root,
+    get_silent_flags,
+    check_port_in_use,
+    run_silent_command,
+    open_path_in_file_manager,
+    kill_process_tree,
+)
 from core.utils.file_utils import read_json, write_json, read_log_tail
 
 
@@ -1216,9 +1223,17 @@ public class Main {{
             return {"status": "success", "message": "backend.project.hosts_updated"}
         except PermissionError:
             self._log("backend.project.request_uac", "info")
-            result = ctypes.windll.shell32.ShellExecuteW(None, "runas", "cmd.exe", f'/c copy /Y "{temp_file}" "{hosts_path}"', None, 0)
-            if result > 32: return {"status": "success", "message": "backend.project.uac_granted"}
-            else: return {"status": "error", "message": "backend.project.uac_denied"}
+            if sys.platform == 'win32':
+                result = ctypes.windll.shell32.ShellExecuteW(None, "runas", "cmd.exe", f'/c copy /Y "{temp_file}" "{hosts_path}"', None, 0)
+                if result > 32: return {"status": "success", "message": "backend.project.uac_granted"}
+                return {"status": "error", "message": "backend.project.uac_denied"}
+            else:
+                pkexec = shutil.which("pkexec")
+                if pkexec:
+                    res = subprocess.run([pkexec, "cp", temp_file, hosts_path], capture_output=True)
+                    if res.returncode == 0:
+                        return {"status": "success", "message": "backend.project.uac_granted"}
+                return {"status": "error", "message": "backend.project.uac_denied"}
 
     def _execute_new_framework_install(self, payload: dict) -> dict:
         self._install_cancelled = False
@@ -1468,8 +1483,9 @@ public class Main {{
         try:
             norm_path = os.path.normpath(path)
             if os.path.exists(norm_path):
-                os.startfile(norm_path)
-                return {"status": "success"}
+                if open_path_in_file_manager(norm_path):
+                    return {"status": "success"}
+                return {"status": "error", "message": MSG_UNEXPECTED_ERROR}
             return {"status": "error", "message": "backend.project.dir_not_found"}
         except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
@@ -1647,10 +1663,7 @@ public class Main {{
             file_handle = info.get("file_handle")
 
             if pid:
-                if sys.platform == 'win32':
-                    run_silent_command(['taskkill', '/F', '/T', '/PID', str(pid)])
-                else:
-                    run_silent_command(['kill', '-9', str(pid)])
+                kill_process_tree(pid)
 
             if proc:
                 try:

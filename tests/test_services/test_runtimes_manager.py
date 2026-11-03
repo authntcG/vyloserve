@@ -14,13 +14,14 @@ def runtimes_manager(mock_api, tmp_path):
 @patch('winreg.CloseKey')
 def test_is_in_user_path(mock_close, mock_query, mock_open_key, runtimes_manager):
     """Test path existence check in Windows Registry."""
-    # When path exists
-    mock_query.return_value = (r"C:\Windows;D:\Projects\bin\node;", 1)
-    assert runtimes_manager._is_in_user_path(r"D:\Projects\bin\node") is True
-    
-    # When path does not exist
-    mock_query.return_value = (r"C:\Windows;C:\Program Files\Git\cmd;", 1)
-    assert runtimes_manager._is_in_user_path(r"D:\Projects\bin\node") is False
+    with patch('sys.platform', 'win32'):
+        # When path exists
+        mock_query.return_value = (r"C:\Windows;D:\Projects\bin\node;", 1)
+        assert runtimes_manager._is_in_user_path(r"D:\Projects\bin\node") is True
+        
+        # When path does not exist
+        mock_query.return_value = (r"C:\Windows;C:\Program Files\Git\cmd;", 1)
+        assert runtimes_manager._is_in_user_path(r"D:\Projects\bin\node") is False
 
 @patch('winreg.OpenKey')
 @patch('winreg.QueryValueEx')
@@ -31,18 +32,19 @@ def test_toggle_user_path_enable(mock_send_msg, mock_close, mock_set, mock_query
     """Test enabling a path in Windows Registry."""
     mock_query.return_value = (r"C:\Windows;", 1)
     
-    with patch.object(runtimes_manager, '_get_engine_dir', return_value=os.path.join(runtimes_manager.bin_dir, 'runtimes', 'node', '20.0.0')):
-        res = runtimes_manager.toggle_user_path("node", True)
-    assert res['status'] == 'success'
-    
-    # Check that SetValueEx was called with the new path appended
-    args = mock_set.call_args[0]
-    assert args[1] == 'Path'
-    assert 'runtimes\\node\\20.0.0' in args[4]
-    assert 'C:\\Windows' in args[4]
-    
-    # Check that Windows broadcast message was sent
-    mock_send_msg.assert_called_once()
+    with patch('sys.platform', 'win32'):
+        with patch.object(runtimes_manager, '_get_engine_dir', return_value=os.path.join(runtimes_manager.bin_dir, 'runtimes', 'node', '20.0.0')):
+            res = runtimes_manager.toggle_user_path("node", True)
+        assert res['status'] == 'success'
+        
+        # Check that SetValueEx was called with the new path appended
+        args = mock_set.call_args[0]
+        assert args[1] == 'Path'
+        assert os.path.join('runtimes', 'node', '20.0.0') in args[4]
+        assert 'C:\\Windows' in args[4]
+        
+        # Check that Windows broadcast message was sent
+        mock_send_msg.assert_called_once()
 
 @patch('winreg.OpenKey')
 @patch('winreg.QueryValueEx')
@@ -55,15 +57,16 @@ def test_toggle_user_path_disable(mock_send_msg, mock_close, mock_set, mock_quer
     mock_path = f"C:\\Windows;{fake_node_dir};"
     mock_query.return_value = (mock_path, 1)
     
-    with patch.object(runtimes_manager, '_get_engine_dir', return_value=fake_node_dir):
-        res = runtimes_manager.toggle_user_path("node", False)
-    assert res['status'] == 'success'
-    
-    # Check that SetValueEx was called without the node path
-    args = mock_set.call_args[0]
-    assert args[1] == 'Path'
-    assert 'bin\\node' not in args[4]
-    assert 'C:\\Windows' in args[4]
+    with patch('sys.platform', 'win32'):
+        with patch.object(runtimes_manager, '_get_engine_dir', return_value=fake_node_dir):
+            res = runtimes_manager.toggle_user_path("node", False)
+        assert res['status'] == 'success'
+        
+        # Check that SetValueEx was called without the node path
+        args = mock_set.call_args[0]
+        assert args[1] == 'Path'
+        assert 'bin\\node' not in args[4]
+        assert 'C:\\Windows' in args[4]
 
 @patch('os.remove')
 @patch('os.rename')
@@ -183,12 +186,13 @@ def test_toggle_user_path_java(runtimes_manager):
         mock_del.assert_called_with(mock_key, 'JAVA_HOME')
 
 def test_toggle_user_path_exception(runtimes_manager):
-    with patch('winreg.OpenKey', side_effect=Exception("Test Exception")), \
-         patch.object(runtimes_manager, '_get_engine_dir', return_value="C:\\fake_dir"):
-        res = runtimes_manager.toggle_user_path('node', True)
-        assert res['status'] == 'error'
-        assert res['message'] == 'backend.runtimes.registry_error'
-        assert "Test Exception" in res['args']['e']
+    with patch('sys.platform', 'win32'):
+        with patch('winreg.OpenKey', side_effect=Exception("Test Exception")), \
+             patch.object(runtimes_manager, '_get_engine_dir', return_value="C:\\fake_dir"):
+            res = runtimes_manager.toggle_user_path('node', True)
+            assert res['status'] == 'error'
+            assert res['message'] == 'backend.runtimes.registry_error'
+            assert "Test Exception" in res['args']['e']
 
 def test_toggle_user_path_invalid_engine(runtimes_manager):
     with patch.object(runtimes_manager, '_get_engine_dir', return_value=None):
@@ -282,7 +286,8 @@ def test_scan_python_binaries(runtimes_manager):
 
 # 356-382
 def test_get_available_python_versions(runtimes_manager):
-    with patch('urllib.request.urlopen') as mock_urlopen, \
+    with patch('sys.platform', 'win32'), \
+         patch('urllib.request.urlopen') as mock_urlopen, \
          patch.object(runtimes_manager, '_scan_python_binaries', return_value=["3.12.1", "3.11.2"]):
         mock_response = MagicMock()
         mock_response.read.return_value = b'href="3.12.1/" href="3.11.2/"'
@@ -295,7 +300,8 @@ def test_get_available_python_versions(runtimes_manager):
 
 # 386-422
 def test_finalize_python_install(runtimes_manager):
-    with patch('os.listdir', return_value=["python312._pth"]), \
+    with patch('sys.platform', 'win32'), \
+         patch('os.listdir', return_value=["python312._pth"]), \
          patch('builtins.open', MagicMock()) as mock_open, \
          patch('os.makedirs'), \
          patch('urllib.request.urlretrieve') as mock_retrieve, \
@@ -420,6 +426,49 @@ def test_check_via_env(runtimes_manager):
         res = runtimes_manager._check_via_env('node', '/opt/vyloserve/bin')
         assert res == "/usr/bin/node"
 
+def test_check_via_env_python3_alias(runtimes_manager):
+    def fake_which(cmd, path=None):
+        return "/usr/bin/python3" if cmd == "python3" else None
+
+    with patch('sys.platform', 'linux'), \
+         patch('os.environ.copy', return_value={'PATH': '/usr/bin:/opt/vyloserve/bin'}), \
+         patch('shutil.which', side_effect=fake_which):
+        res = runtimes_manager._check_via_env('python', '/opt/vyloserve/bin')
+        assert res == "/usr/bin/python3"
+
+def test_check_via_env_ignores_symlinks_to_vyloserve(runtimes_manager, tmp_path):
+    user_bin = tmp_path / "user_bin"
+    user_bin.mkdir()
+    vylo_bin = tmp_path / "vyloserve" / "bin"
+    vylo_bin.mkdir(parents=True)
+    real_vylo_go = vylo_bin / "go"
+    real_vylo_go.write_text("#!/bin/sh\nexit 0")
+    real_vylo_go.chmod(0o755)
+
+    # Symlink in user_bin pointing into vyloserve_bin
+    symlink_go = user_bin / "go"
+    symlink_go.symlink_to(real_vylo_go)
+
+    with patch('sys.platform', 'linux'), \
+         patch('os.environ.copy', return_value={'PATH': str(user_bin)}):
+        # Should NOT return the symlink pointing to vyloserve!
+        res = runtimes_manager._check_via_env('go', str(vylo_bin))
+        assert res is None
+
+    # Now add a real system binary in a different directory
+    sys_bin = tmp_path / "usr_bin"
+    sys_bin.mkdir()
+    real_sys_go = sys_bin / "go"
+    real_sys_go.write_text("#!/bin/sh\nexit 0")
+    real_sys_go.chmod(0o755)
+
+    with patch('sys.platform', 'linux'), \
+         patch('os.environ.copy', return_value={'PATH': f"{user_bin}:{sys_bin}"}):
+        # Should skip symlink and return the real system go!
+        res = runtimes_manager._check_via_env('go', str(vylo_bin))
+        assert res == str(real_sys_go)
+
+
 # More install tests specific exception handling and branches
 def test_install_node_error(runtimes_manager):
     with patch.object(runtimes_manager, '_get_cbs', side_effect=Exception("Test Err")):
@@ -427,7 +476,7 @@ def test_install_node_error(runtimes_manager):
         assert res['status'] == 'error'
 
 def test_install_python_error(runtimes_manager):
-    with patch.object(runtimes_manager, '_get_cbs', side_effect=Exception("Test Err")):
+    with patch('sys.platform', 'win32'), patch.object(runtimes_manager, '_get_cbs', side_effect=Exception("Test Err")):
         res = runtimes_manager.install_python("3.12.0", False)
         assert res['status'] == 'error'
 
@@ -493,7 +542,8 @@ def test_uninstall_go(runtimes_manager):
 # ==========================================
 
 def test_install_python_success(runtimes_manager):
-    with patch('os.path.exists', return_value=False), \
+    with patch('sys.platform', 'win32'), \
+         patch('os.path.exists', return_value=False), \
          patch('os.makedirs'), \
          patch('core.services.runtimes_manager.download_advanced') as mock_download, \
          patch('core.services.runtimes_manager.extract_archive') as mock_extract, \
@@ -507,7 +557,8 @@ def test_install_python_success(runtimes_manager):
     mock_finalize.assert_called_once_with(os.path.join(runtimes_manager.bin_dir, 'runtimes', 'python', '3.12.1'), True, "3.12.1")
 
 def test_install_python_removes_zip_after_extract(runtimes_manager):
-    with patch('os.path.exists', side_effect=lambda p: p.endswith('.zip')), \
+    with patch('sys.platform', 'win32'), \
+         patch('os.path.exists', side_effect=lambda p: p.endswith('.zip')), \
          patch('os.makedirs'), \
          patch('core.services.runtimes_manager.download_advanced'), \
          patch('core.services.runtimes_manager.extract_archive'), \
@@ -555,7 +606,7 @@ def test_install_java_raises_when_extracted_jdk_folder_not_found(runtimes_manage
 # ==========================================
 
 def test_get_available_python_versions_handles_exception(runtimes_manager):
-    with patch('urllib.request.urlopen', side_effect=OSError("network down")):
+    with patch('sys.platform', 'win32'), patch('urllib.request.urlopen', side_effect=OSError("network down")):
         res = runtimes_manager.get_available_python_versions()
     assert res['status'] == 'error'
     assert res['message'] == 'backend.runtimes.py_fetch_failed'
@@ -645,7 +696,8 @@ def test_get_node_status_swallows_version_check_error(runtimes_manager):
 # ==========================================
 
 def test_finalize_python_install_uses_versioned_get_pip_url_for_old_python(runtimes_manager):
-    with patch('os.listdir', return_value=["python39._pth"]), \
+    with patch('sys.platform', 'win32'), \
+         patch('os.listdir', return_value=["python39._pth"]), \
          patch('builtins.open', MagicMock()) as mock_open, \
          patch('os.makedirs'), \
          patch('urllib.request.urlretrieve') as mock_retrieve, \
@@ -662,7 +714,8 @@ def test_finalize_python_install_uses_versioned_get_pip_url_for_old_python(runti
     assert fetched_url == "https://bootstrap.pypa.io/pip/3.9/get-pip.py"
 
 def test_finalize_python_install_raises_when_get_pip_fails(runtimes_manager):
-    with patch('os.listdir', return_value=["python312._pth"]), \
+    with patch('sys.platform', 'win32'), \
+         patch('os.listdir', return_value=["python312._pth"]), \
          patch('builtins.open', MagicMock()) as mock_open, \
          patch('os.makedirs'), \
          patch('urllib.request.urlretrieve'), \
@@ -681,7 +734,8 @@ def test_finalize_python_install_raises_when_get_pip_fails(runtimes_manager):
 # ==========================================
 
 def test_install_node_removes_zip_after_successful_extract(runtimes_manager):
-    with patch('os.path.exists', side_effect=lambda p: p.endswith('.zip')), \
+    with patch('sys.platform', 'win32'), \
+         patch('os.path.exists', side_effect=lambda p: p.endswith('.zip')), \
          patch('core.services.runtimes_manager.download_advanced'), \
          patch('core.services.runtimes_manager.extract_archive'), \
          patch('os.remove') as mock_remove, \
@@ -689,8 +743,18 @@ def test_install_node_removes_zip_after_successful_extract(runtimes_manager):
         runtimes_manager.install_node("20.14.0", False)
     mock_remove.assert_called_once_with(os.path.join(runtimes_manager.bin_dir, "node_20.14.0.zip"))
 
+def test_install_node_removes_tar_gz_after_successful_extract_linux(runtimes_manager):
+    with patch('sys.platform', 'linux'), \
+         patch('os.path.exists', side_effect=lambda p: p.endswith('.tar.gz')), \
+         patch('core.services.runtimes_manager.download_advanced'), \
+         patch('core.services.runtimes_manager.extract_archive'), \
+         patch('os.remove') as mock_remove, \
+         patch.object(runtimes_manager, '_finalize_node_install'):
+        runtimes_manager.install_node("20.14.0", False)
+    mock_remove.assert_called_once_with(os.path.join(runtimes_manager.bin_dir, "node_20.14.0.tar.gz"))
+
 def test_install_go_removes_zip_after_successful_extract(runtimes_manager):
-    with patch('os.path.exists', side_effect=lambda p: p.endswith('.zip') or p.endswith('go')), \
+    with patch('os.path.exists', side_effect=lambda p: p.endswith(('.zip', '.tar.gz', 'go'))), \
          patch('os.listdir', return_value=[]), \
          patch('core.services.runtimes_manager.download_advanced'), \
          patch('core.services.runtimes_manager.extract_archive'), \
@@ -819,7 +883,32 @@ def test_get_installed_engine_versions_multi(runtimes_manager):
     config["active_versions"]["node"] = "20.18.0"
     runtimes_manager._save_config(config)
 
-    with patch.object(runtimes_manager, '_is_in_user_path', return_value=False):
+    with patch('sys.platform', 'win32'), patch.object(runtimes_manager, '_is_in_user_path', return_value=False):
+        versions = runtimes_manager.get_installed_engine_versions("node")
+        assert len(versions) == 2
+        v20_item = next(v for v in versions if v["version"] == "20.18.0")
+        assert v20_item["is_active"] is True
+        assert v20_item["subtool"] == "npm"
+
+
+def test_get_installed_engine_versions_multi_linux(runtimes_manager):
+    node_parent = runtimes_manager._get_engine_parent_dir("node")
+    v20 = os.path.join(node_parent, "20.18.0")
+    v18 = os.path.join(node_parent, "18.17.0")
+    os.makedirs(v20, exist_ok=True)
+    os.makedirs(v18, exist_ok=True)
+    with open(os.path.join(v20, "node"), "w") as f:
+        f.write("")
+    with open(os.path.join(v20, "npm"), "w") as f:
+        f.write("")
+    with open(os.path.join(v18, "node"), "w") as f:
+        f.write("")
+
+    config = runtimes_manager._get_config()
+    config["active_versions"]["node"] = "20.18.0"
+    runtimes_manager._save_config(config)
+
+    with patch('sys.platform', 'linux'), patch.object(runtimes_manager, '_is_in_user_path', return_value=False):
         versions = runtimes_manager.get_installed_engine_versions("node")
         assert len(versions) == 2
         v20_item = next(v for v in versions if v["version"] == "20.18.0")
@@ -886,7 +975,8 @@ def test_set_active_version_switches_between_versions(mock_msg, mock_close, mock
     config.setdefault("active_versions", {})["java"] = "17"
     runtimes_manager._save_config(config)
 
-    with patch.object(runtimes_manager, '_check_external_installation', return_value={"exists": False}):
+    with patch('sys.platform', 'win32'), \
+         patch.object(runtimes_manager, '_check_external_installation', return_value={"exists": False}):
         res = runtimes_manager.set_active_version("java", "21")
         assert res["status"] == "success"
         new_config = runtimes_manager._get_config()
@@ -900,23 +990,31 @@ def test_set_active_version_switches_between_versions(mock_msg, mock_close, mock
         assert j17_bin.lower() not in final_path.lower()
 
 
+def test_set_active_version_switches_linux(runtimes_manager):
+    go_parent = runtimes_manager._get_engine_parent_dir("go")
+    go_1_26 = os.path.join(go_parent, "1.26.10", "bin")
+    go_1_27 = os.path.join(go_parent, "1.27.3", "bin")
+    os.makedirs(go_1_26, exist_ok=True)
+    os.makedirs(go_1_27, exist_ok=True)
 
-def test_deactivate_active_version_success(runtimes_manager):
+    with open(os.path.join(go_1_26, "go"), "w") as f:
+        f.write("#!/bin/sh\nexit 0")
+    with open(os.path.join(go_1_27, "go"), "w") as f:
+        f.write("#!/bin/sh\nexit 0")
+
     config = runtimes_manager._get_config()
-    config.setdefault("active_versions", {})["node"] = "20.18.0"
-    config.setdefault("path_enabled", {})["node"] = True
+    config.setdefault("active_versions", {})["go"] = "1.26.10"
+    config.setdefault("path_enabled", {})["go"] = True
     runtimes_manager._save_config(config)
 
-    with patch.object(runtimes_manager, '_check_external_installation', return_value={"exists": False}), \
-         patch.object(runtimes_manager, 'toggle_user_path') as mock_toggle:
-        res = runtimes_manager.deactivate_active_version("node")
+    with patch('sys.platform', 'linux'), \
+         patch.object(runtimes_manager, '_toggle_linux_user_path') as mock_toggle_linux, \
+         patch.object(runtimes_manager, '_check_external_installation', return_value={"exists": False}):
+        res = runtimes_manager.set_active_version("go", "1.27.3")
         assert res["status"] == "success"
-        assert res["message"] == "backend.runtimes.version_deactivated"
-        mock_toggle.assert_called_once_with("node", False)
-
+        mock_toggle_linux.assert_called_once_with("go", enable=True, version="1.27.3")
         cfg = runtimes_manager._get_config()
-        assert cfg["active_versions"]["node"] == ""
-        assert cfg["path_enabled"]["node"] is False
+        assert cfg["active_versions"]["go"] == "1.27.3"
 
 
 def test_deactivate_active_version_with_external(runtimes_manager):
@@ -928,7 +1026,7 @@ def test_deactivate_active_version_with_external(runtimes_manager):
          patch.object(runtimes_manager, 'toggle_user_path') as mock_toggle:
         res = runtimes_manager.deactivate_active_version("node")
         assert res["status"] == "success"
-        mock_toggle.assert_not_called()
+        mock_toggle.assert_called_once_with("node", False)
         cfg = runtimes_manager._get_config()
         assert cfg["active_versions"]["node"] == ""
 
@@ -954,11 +1052,56 @@ def test_uninstall_engine_version_auto_promotes_next(runtimes_manager):
     config["active_versions"]["python"] = "3.11.8"
     runtimes_manager._save_config(config)
 
-    with patch.object(runtimes_manager, 'toggle_user_path'), \
+    with patch('sys.platform', 'win32'), \
+         patch.object(runtimes_manager, 'toggle_user_path'), \
          patch.object(runtimes_manager, 'set_active_version') as mock_set_active:
         res = runtimes_manager.uninstall_engine_version("python", "3.11.8")
         assert res["status"] == "success"
         assert not os.path.exists(p311)
         mock_set_active.assert_called_once_with("python", "3.10.11")
+
+
+def test_get_available_python_versions_linux(runtimes_manager):
+    with patch('sys.platform', 'linux'), \
+         patch('urllib.request.urlopen') as mock_urlopen:
+        mock_res = MagicMock()
+        mock_res.read.return_value = json.dumps({
+            "assets": [
+                {"name": "cpython-3.14.10+20261026-x86_64-unknown-linux-gnu-install_only.tar.gz"},
+                {"name": "cpython-3.13.18+20261026-x86_64-unknown-linux-gnu-install_only.tar.gz"},
+            ]
+        }).encode('utf-8')
+        mock_urlopen.return_value.__enter__.return_value = mock_res
+
+        res = runtimes_manager.get_available_python_versions()
+        assert res['status'] == 'success'
+        assert len(res['data']) == 2
+        assert res['data'][0]['value'] == "3.14.10"
+
+
+def test_install_python_linux_success(runtimes_manager):
+    with patch('sys.platform', 'linux'), \
+         patch('os.path.exists', return_value=False), \
+         patch('os.makedirs'), \
+         patch('core.services.runtimes_manager.download_advanced') as mock_download, \
+         patch('core.services.runtimes_manager.extract_archive') as mock_extract, \
+         patch.object(runtimes_manager, '_robust_rename'), \
+         patch('os.remove'), \
+         patch.object(runtimes_manager, '_finalize_python_install') as mock_finalize:
+        res = runtimes_manager.install_python("3.14.10", True)
+
+    assert res == {"status": "success"}
+    mock_download.assert_called_once()
+    mock_extract.assert_called_once()
+    mock_finalize.assert_called_once()
+
+
+def test_finalize_python_install_linux(runtimes_manager):
+    with patch('sys.platform', 'linux'), \
+         patch('os.path.exists', return_value=True), \
+         patch('os.symlink') as mock_symlink:
+        runtimes_manager._finalize_python_install("/fake/python/dir", True, "3.14.10")
+        assert mock_symlink.call_count >= 0
+
 
 

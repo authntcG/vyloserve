@@ -657,6 +657,7 @@ export default function SettingsModals({ activeModal, defaultTab = 'general', on
                 onApply={() => {
                     const api = (window as any).pywebview?.api;
                     if (api) api.close_app();
+                    onClose();
                 }}
                 applyText={t('common.yes')}
                 isDestructive={true}

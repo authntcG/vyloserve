@@ -1,6 +1,26 @@
-import webview
 import os
 import sys
+
+# Auto-detect dan re-exec menggunakan virtual environment jika dependensi tidak ada di interpreter saat ini
+try:
+    import webview
+except ModuleNotFoundError:
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    venv_py = os.path.join(
+        script_dir,
+        '.venv',
+        'Scripts' if sys.platform == 'win32' else 'bin',
+        'python.exe' if sys.platform == 'win32' else 'python3'
+    )
+    if os.path.exists(venv_py) and os.path.realpath(sys.executable) != os.path.realpath(venv_py):
+        os.execv(venv_py, [venv_py] + sys.argv)
+    print("\n[VyloServe Error] Paket 'pywebview' tidak ditemukan di interpreter Python ini:", sys.executable)
+    print("Silakan aktifkan virtual environment terlebih dahulu:")
+    print("   source .venv/bin/activate (Linux/macOS) atau .venv\\Scripts\\activate (Windows)")
+    print("   python main.py")
+    print("Atau jalankan langsung:")
+    print(f"   {venv_py} main.py\n")
+    sys.exit(1)
 import traceback
 import threading
 import pystray
@@ -12,6 +32,8 @@ from core.utils.system_utils import (
     get_resource_path,
     get_theme_titlebar_palette,
     sync_theme_bootstrap_file,
+    acquire_single_instance_lock,
+    get_ipc_endpoint,
 )
 from PIL import Image
 from pystray import MenuItem as item
@@ -82,25 +104,24 @@ def setup_app_user_model_id(is_production: bool = IS_PRODUCTION):
 def bring_existing_instance_to_front(is_production: bool = IS_PRODUCTION):
     """ 
     Mencari window VyloServe yang sudah berjalan dan memaksanya ke depan (foreground). 
-    Mengutamakan sinyal IPC agar UI loop internal (WinForms) merestore window secara bersih.
-    Jika IPC gagal, fallback ke Windows API ShowWindow.
+    Mengutamakan sinyal IPC agar UI loop internal merestore window secara bersih.
+    Jika IPC gagal di Windows, fallback ke Windows API ShowWindow.
     """
-    pipe_name = get_ipc_pipe_name(is_production)
+    endpoint, family = get_ipc_endpoint(is_production)
     ipc_success = False
 
-    if sys.platform == 'win32':
-        try:
-            from multiprocessing.connection import Client
-            client = Client(pipe_name, 'AF_PIPE')
-            client.send('SHOW')
-            client.close()
-            ipc_success = True
-            print("[DEBUG] Sinyal IPC 'SHOW' berhasil dikirim ke instance utama.")
-        except Exception as e:
-            print(f"[DEBUG] IPC Client gagal ({e}), menggunakan fallback FindWindow.")
+    try:
+        from multiprocessing.connection import Client
+        client = Client(endpoint, family)
+        client.send('SHOW')
+        client.close()
+        ipc_success = True
+        print("[DEBUG] Sinyal IPC 'SHOW' berhasil dikirim ke instance utama.")
+    except Exception as e:
+        print(f"[DEBUG] IPC Client gagal ({e}).")
 
-    window_title = get_window_title(is_production)
     if sys.platform == 'win32':
+        window_title = get_window_title(is_production)
         hwnd = ctypes.windll.user32.FindWindowW(None, window_title)
         if hwnd:
             if not ipc_success:
@@ -127,9 +148,10 @@ def check_single_instance(is_production: bool = IS_PRODUCTION):
 # Independen dari IS_PRODUCTION secara sengaja -- IS_PRODUCTION JUGA mengontrol
 # entrypoint (dist vs dev server Vite) dan flag devtools, jadi tidak bisa dipakai
 # ulang untuk gating tray tanpa ikut mematikan hot-reload/devtools di dev mode.
-# Tray diaktifkan di dev mode JUGA (bukan cuma production) supaya fitur hide-to-
-# tray + notifikasi native bisa langsung dites tanpa build .exe.
-ENABLE_TRAY = True
+# Tray diaktifkan secara default di Windows. Di Linux/macOS dinonaktifkan secara default
+# karena GNOME shell modern tidak memiliki system tray bawaan dan backend appindicator
+# berpotensi konflik event loop dengan GTK WebKit.
+ENABLE_TRAY = sys.platform == 'win32'
 
 # --- FUNGSI RESOLUSI PATH PYINSTALLER ---
 def resource_path(relative_path):
@@ -214,6 +236,13 @@ class AppLifecycle:
             self.ipc_listener.close()
         except Exception:
             pass
+        if sys.platform != 'win32':
+            try:
+                endpoint, family = get_ipc_endpoint(self.is_production)
+                if family == 'AF_UNIX' and os.path.exists(endpoint):
+                    os.remove(endpoint)
+            except Exception:
+                pass
         self.ipc_listener = None
 
     def _stop_all_services(self):
@@ -250,6 +279,10 @@ class AppLifecycle:
         self._exit_in_progress = True
         self.is_real_exit = True
 
+        # Failsafe watchdog timer: pastikan proses benar-benar keluar maksimal dalam 3 detik
+        # meskipun terjadi pemblokiran tak terduga pada library GTK/OS shutdown.
+        threading.Timer(3.0, lambda: os._exit(0)).start()
+
         try:
             # 1. Nonaktifkan emit event UI agar proses shutdown tidak pernah terblokir oleh IPC webview
             if hasattr(self.api, 'set_shutting_down'):
@@ -277,9 +310,9 @@ class AppLifecycle:
         # Jika PyWebView mendeteksi sinyal interrupt (Ctrl+C), lakukan exit bersih
         try:
             wf = sys.modules.get('webview.platforms.winforms')
-            if wf is None:
+            if wf is None and sys.platform == 'win32':
                 import webview.platforms.winforms as wf
-            if getattr(wf, '_sigint_received', False):
+            if wf and getattr(wf, '_sigint_received', False):
                 self.perform_exit()
                 return True
         except Exception:
@@ -305,16 +338,19 @@ class AppLifecycle:
 # --- FUNGSI IPC SERVER (SINGLE INSTANCE RESTORE) ---
 def start_ipc_server(lifecycle: AppLifecycle, is_production: bool = IS_PRODUCTION):
     """
-    Menjalankan background IPC listener via Named Pipe di OS Windows.
+    Menjalankan background IPC listener via Named Pipe (Windows) atau Unix Domain Socket (Linux/macOS).
     Memungkinkan instance baru untuk meminta instance ini kembali ke foreground
     melalui UI thread internal (lifecycle.show_and_bring_to_front).
     """
-    if sys.platform != 'win32':
-        return None
     try:
         from multiprocessing.connection import Listener
-        pipe_name = get_ipc_pipe_name(is_production)
-        listener = Listener(pipe_name, 'AF_PIPE')
+        endpoint, family = get_ipc_endpoint(is_production)
+        if family == 'AF_UNIX' and os.path.exists(endpoint):
+            try:
+                os.remove(endpoint)
+            except Exception:
+                pass
+        listener = Listener(endpoint, family)
         lifecycle.set_ipc_listener(listener)
 
         def ipc_worker():
@@ -329,7 +365,7 @@ def start_ipc_server(lifecycle: AppLifecycle, is_production: bool = IS_PRODUCTIO
                     break
 
         threading.Thread(target=ipc_worker, daemon=True).start()
-        print(f"[DEBUG] IPC Server berhasil berjalan di {pipe_name}")
+        print(f"[DEBUG] IPC Server berhasil berjalan di {endpoint} ({family})")
         return listener
     except Exception as e:
         print(f"[WARNING] Gagal membuat IPC listener: {e}")
@@ -414,7 +450,7 @@ def setup_signal_handlers(lifecycle: AppLifecycle):
     # Windows Console Control Handler (SetConsoleCtrlHandler)
     if sys.platform == 'win32':
         try:
-            handler_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_ulong)
+            handler_type = getattr(ctypes, 'WINFUNCTYPE', ctypes.CFUNCTYPE)(ctypes.c_bool, ctypes.c_ulong)
             def _console_ctrl_handler(ctrl_type: int) -> bool:
                 _clean_exit()
                 return True
@@ -428,17 +464,18 @@ def setup_signal_handlers(lifecycle: AppLifecycle):
     # Hook PyWebView's internal winforms _sigint_handler jika tersedia
     try:
         wf = sys.modules.get('webview.platforms.winforms')
-        if wf is None:
+        if wf is None and sys.platform == 'win32':
             import webview.platforms.winforms as wf
-        _orig_wf_sigint = getattr(wf, '_sigint_handler', None)
-        def _hooked_wf_sigint(signum, frame):
-            if _orig_wf_sigint:
-                try:
-                    _orig_wf_sigint(signum, frame)
-                except Exception:
-                    pass
-            _clean_exit()
-        wf._sigint_handler = _hooked_wf_sigint
+        if wf is not None:
+            _orig_wf_sigint = getattr(wf, '_sigint_handler', None)
+            def _hooked_wf_sigint(signum, frame):
+                if _orig_wf_sigint:
+                    try:
+                        _orig_wf_sigint(signum, frame)
+                    except Exception:
+                        pass
+                _clean_exit()
+            wf._sigint_handler = _hooked_wf_sigint
     except Exception:
         pass
 
@@ -461,7 +498,8 @@ def main():
 
         lifecycle = AppLifecycle(api, IS_PRODUCTION, enable_tray=ENABLE_TRAY)
 
-        icon_path = resource_path(os.path.join('frontend', 'src', 'assets', 'icons-nobg.ico'))
+        icon_filename = 'icons-nobg.ico' if sys.platform == 'win32' else 'icons-nobg.png'
+        icon_path = resource_path(os.path.join('frontend', 'src', 'assets', icon_filename))
         # Notifikasi toast WinRT (win11toast) butuh PNG -- .ico (dipakai window/tray) tidak
         # reliable dirender WIC image pipeline milik toast XML <image>. Aset PNG yang sama
         # persis sudah ada di folder yang sama (lihat frontend/src/assets).
@@ -523,10 +561,11 @@ def main():
 
         # Parameter debug akan otomatis menyesuaikan dengan status IS_PRODUCTION.
         # private_mode=False & storage_path memastikan localStorage dan IndexedDB
-        # tetap tersimpan persisten di WebView2, tidak terhapus saat aplikasi ditutup.
+        # tetap tersimpan persisten di WebView, tidak terhapus saat aplikasi ditutup.
+        gui_engine = 'edgechromium' if sys.platform == 'win32' else 'gtk'
         webview.start(
             debug=not IS_PRODUCTION,
-            gui='edgechromium',
+            gui=gui_engine,
             icon=icon_path,
             private_mode=False,
             storage_path=webview_storage_path

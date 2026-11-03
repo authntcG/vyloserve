@@ -220,12 +220,17 @@ export function RuntimesProvider({ children }: { readonly children: ReactNode })
         try {
             const api = window.pywebview?.api;
             if (api) {
-                const [nodeStatus, pythonStatus, javaStatus, goStatus] = await Promise.all([
+                const [nodeRes, pythonRes, javaRes, goRes] = await Promise.allSettled([
                     api.get_node_status(),
                     api.get_python_status(),
                     api.get_java_status(),
                     api.get_go_status()
                 ]);
+
+                const nodeStatus = nodeRes.status === 'fulfilled' ? nodeRes.value : {};
+                const pythonStatus = pythonRes.status === 'fulfilled' ? pythonRes.value : {};
+                const javaStatus = javaRes.status === 'fulfilled' ? javaRes.value : {};
+                const goStatus = goRes.status === 'fulfilled' ? goRes.value : {};
 
                 setRuntimeData(prev => ({
                     ...prev,

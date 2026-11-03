@@ -32,11 +32,64 @@ class TerminalManager:
 
     def get_available_shells(self) -> List[Dict[str, Any]]:
         """
-        Mendeteksi ketersediaan shell di sistem Windows.
+        Mendeteksi ketersediaan shell di sistem operasi (Windows / Linux / macOS).
         Mengembalikan daftar shell dengan flag availability dan penanda default.
         """
         shells = []
 
+        if sys.platform != "win32":
+            # --- DETEKSI SHELL LINUX / UNIX ---
+            default_user_shell = os.environ.get("SHELL", "")
+            
+            # 1. Bash
+            bash_path = shutil.which("bash") or ("/bin/bash" if os.path.exists("/bin/bash") else "")
+            is_bash_default = bool(not default_user_shell or "bash" in default_user_shell)
+            shells.append({
+                "id": "bash",
+                "name": "Bash",
+                "icon": "terminal",
+                "available": bool(bash_path),
+                "path": bash_path,
+                "is_default": is_bash_default
+            })
+
+            # 2. Zsh
+            zsh_path = shutil.which("zsh") or ("/bin/zsh" if os.path.exists("/bin/zsh") else "")
+            is_zsh_default = bool(default_user_shell and "zsh" in default_user_shell)
+            shells.append({
+                "id": "zsh",
+                "name": "Zsh",
+                "icon": "terminal",
+                "available": bool(zsh_path),
+                "path": zsh_path,
+                "is_default": is_zsh_default and not is_bash_default
+            })
+
+            # 3. Sh (POSIX standard fallback)
+            sh_path = shutil.which("sh") or ("/bin/sh" if os.path.exists("/bin/sh") else "")
+            shells.append({
+                "id": "sh",
+                "name": "POSIX Shell",
+                "icon": "terminal",
+                "available": bool(sh_path),
+                "path": sh_path,
+                "is_default": False
+            })
+
+            # 4. PowerShell Core (pwsh) jika terinstal di Linux
+            pwsh_path = shutil.which("pwsh")
+            shells.append({
+                "id": "powershell",
+                "name": "PowerShell Core",
+                "icon": "terminal",
+                "available": bool(pwsh_path),
+                "path": pwsh_path or "",
+                "is_default": False
+            })
+
+            return shells
+
+        # --- DETEKSI SHELL WINDOWS ---
         # 1. PowerShell Core (pwsh) & Windows PowerShell
         pwsh_path = shutil.which("pwsh")
         powershell_path = shutil.which("powershell")
@@ -112,15 +165,22 @@ class TerminalManager:
 
     def _resolve_shell_command(self, shell_id: str) -> Optional[List[str]]:
         """
-        Menentukan command line executable berdasarkan shell_id yang diminta.
+        Menentukan command line executable berdasarkan shell_id yang diminta lintas-platform.
         """
         available = {s["id"]: s for s in self.get_available_shells()}
         target = available.get(shell_id)
 
+        # Linux Shells
+        if shell_id in ("bash", "zsh", "sh"):
+            if target and target["available"]:
+                return [target["path"]]
+            bin_path = shutil.which(shell_id) or (f"/bin/{shell_id}" if os.path.exists(f"/bin/{shell_id}") else None)
+            return [bin_path] if bin_path else ["/bin/sh"]
+
         if shell_id == "powershell":
             if target and target["available"]:
                 return [target["path"], "-NoLogo"]
-            pwsh = shutil.which("pwsh") or shutil.which("powershell") or "powershell.exe"
+            pwsh = shutil.which("pwsh") or shutil.which("powershell") or ("powershell.exe" if sys.platform == "win32" else "pwsh")
             return [pwsh, "-NoLogo"]
 
         if shell_id == "cmd":
@@ -137,7 +197,11 @@ class TerminalManager:
                 return [target["path"]]
             return None
 
-        # Fallback ke default powershell
+        # Fallback platform-aware
+        if sys.platform != "win32":
+            default_sh = shutil.which("bash") or shutil.which("sh") or "/bin/sh"
+            return [default_sh]
+
         pwsh = shutil.which("pwsh") or shutil.which("powershell") or "powershell.exe"
         return [pwsh, "-NoLogo"]
 
@@ -482,8 +546,12 @@ class TerminalManager:
         display_title = title or shell_id.capitalize()
 
         try:
-            from winpty import PtyProcess
-            pty = PtyProcess.spawn(cmd_list, cwd=safe_cwd, env=env)
+            if sys.platform == 'win32':
+                from winpty import PtyProcess
+                pty = PtyProcess.spawn(cmd_list, cwd=safe_cwd, env=env)
+            else:
+                from ptyprocess import PtyProcessUnicode
+                pty = PtyProcessUnicode.spawn(cmd_list, cwd=safe_cwd, env=env)
         except Exception as e:
             self._log("backend.terminal.spawn_failed", "error", {"e": str(e)})
             return {"status": "error", "message": "backend.terminal.spawn_failed", "args": {"e": str(e)}}

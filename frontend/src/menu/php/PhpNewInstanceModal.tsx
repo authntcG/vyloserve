@@ -19,15 +19,23 @@ export default function PhpNewInstanceModal() {
         usedPorts,
         handleInstallPhp,
         closeNewInstanceModal,
+        fetchInstalledInstances,
     } = usePhp();
+
+    const title = updatingInstance ? t('php.updating_php') : t('php.install_php_version');
+
+    const getIcon = () => {
+        if (updatingInstance) return 'upgrade';
+        return 'download';
+    };
 
     return (
         <Modal
             isOpen={isNewInstanceOpen}
             keepMounted={isInstalling}
             onClose={closeNewInstanceModal}
-            title={updatingInstance ? t('php.updating_php') : t('php.install_php_version')}
-            icon={updatingInstance ? 'upgrade' : 'download'}
+            title={title}
+            icon={getIcon()}
             onApply={updatingInstance ? undefined : handleInstallPhp}
             applyText={isInstalling ? t('php.installing') : t('php.install_and_configure')}
             isApplyDisabled={isFetchingVersions || isInstalling || !installVersion || usedPorts.includes(installPort)}
@@ -42,6 +50,7 @@ export default function PhpNewInstanceModal() {
                 isFetchingVersions={isFetchingVersions}
                 setIsFetchingVersions={setIsFetchingVersions}
                 usedPorts={usedPorts}
+                onRefreshStatus={fetchInstalledInstances}
             />
         </Modal>
     );

@@ -12,17 +12,28 @@ def terminal_manager():
     return tm
 
 def test_get_available_shells(terminal_manager):
-    shells = terminal_manager.get_available_shells()
-    assert isinstance(shells, list)
-    shell_ids = [s["id"] for s in shells]
-    assert "powershell" in shell_ids
-    assert "cmd" in shell_ids
-    assert "git-bash" in shell_ids
-    assert "wsl" in shell_ids
+    with patch("sys.platform", "win32"):
+        shells = terminal_manager.get_available_shells()
+        assert isinstance(shells, list)
+        shell_ids = [s["id"] for s in shells]
+        assert "powershell" in shell_ids
+        assert "cmd" in shell_ids
+        assert "git-bash" in shell_ids
+        assert "wsl" in shell_ids
 
-    # PowerShell should be marked as default
-    ps = next(s for s in shells if s["id"] == "powershell")
-    assert ps["is_default"] is True
+        # PowerShell should be marked as default
+        ps = next(s for s in shells if s["id"] == "powershell")
+        assert ps["is_default"] is True
+
+
+def test_get_available_shells_linux(terminal_manager):
+    with patch("sys.platform", "linux"):
+        shells = terminal_manager.get_available_shells()
+        assert isinstance(shells, list)
+        shell_ids = [s["id"] for s in shells]
+        assert "bash" in shell_ids
+        assert "zsh" in shell_ids
+        assert "sh" in shell_ids
 
 def test_resolve_shell_command(terminal_manager):
     ps_cmd = terminal_manager._resolve_shell_command("powershell")
@@ -105,7 +116,7 @@ def test_create_session_success(terminal_manager, tmp_path):
     mock_pty.read.side_effect = ["hello terminal\n", EOFError()]
     mock_pty.exitstatus = 0
 
-    with patch("winpty.PtyProcess.spawn", return_value=mock_pty) as mock_spawn:
+    with patch("sys.platform", "win32"), patch("winpty.PtyProcess.spawn", return_value=mock_pty) as mock_spawn:
         res = terminal_manager.create_session(
             shell_id="powershell",
             cwd=str(tmp_path),
@@ -120,6 +131,21 @@ def test_create_session_success(terminal_manager, tmp_path):
         # Ensure session stored
         assert session_id in terminal_manager._sessions or True
 
+def test_create_session_success_linux(terminal_manager, tmp_path):
+    mock_pty = MagicMock()
+    mock_pty.read.side_effect = ["hello linux\n", EOFError()]
+    mock_pty.exitstatus = 0
+
+    with patch("sys.platform", "linux"), patch("ptyprocess.PtyProcessUnicode.spawn", return_value=mock_pty) as mock_spawn:
+        res = terminal_manager.create_session(
+            shell_id="bash",
+            cwd=str(tmp_path),
+            title="My Bash"
+        )
+        assert res["status"] == "success"
+        assert res["session"]["title"] == "My Bash"
+        mock_spawn.assert_called_once()
+
 def test_create_session_shell_not_found(terminal_manager):
     with patch.object(terminal_manager, "_resolve_shell_command", return_value=None):
         res = terminal_manager.create_session(shell_id="invalid_shell")
@@ -127,7 +153,7 @@ def test_create_session_shell_not_found(terminal_manager):
         assert res["message"] == "backend.terminal.shell_not_found"
 
 def test_create_session_spawn_exception(terminal_manager, tmp_path):
-    with patch("winpty.PtyProcess.spawn", side_effect=Exception("winpty failed")):
+    with patch("sys.platform", "win32"), patch("winpty.PtyProcess.spawn", side_effect=Exception("winpty failed")):
         res = terminal_manager.create_session(shell_id="powershell", cwd=str(tmp_path))
         assert res["status"] == "error"
         assert res["message"] == "backend.terminal.spawn_failed"

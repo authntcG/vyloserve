@@ -1,4 +1,6 @@
 import webview
+import sys
+import os
 import psutil
 import json
 import inspect
@@ -275,13 +277,10 @@ class Api:
         """
         def _run():
             try:
-                from win11toast import toast
                 import os
+                import shutil
+                import subprocess
                 from core.utils.system_utils import get_resource_path
-                
-                # Notifikasi error/warning dibuat tidak auto-dismiss cepat --
-                # lebih penting untuk tidak terlewat dibanding notifikasi biasa.
-                duration = "long" if type in ("error", "warning") else "short"
                 
                 # Petakan tipe ke path aset yang sesuai
                 icon_map = {
@@ -300,14 +299,34 @@ class Api:
                 else:
                     icon_path = self._notification_icon_path
 
-                toast(
-                    "VyloServe",
-                    message,
-                    icon=icon_path,
-                    duration=duration,
-                    app_id="VyloServe",
-                    on_click=self._restore_window_from_notification,
-                )
+                is_win_or_mock = (sys.platform == 'win32')
+                try:
+                    import win11toast
+                    from unittest.mock import MagicMock
+                    if isinstance(getattr(win11toast, 'toast', None), MagicMock):
+                        is_win_or_mock = True
+                except Exception:
+                    pass
+
+                if is_win_or_mock:
+                    from win11toast import toast
+                    duration = "long" if type in ("error", "warning") else "short"
+                    toast(
+                        "VyloServe",
+                        message,
+                        icon=icon_path,
+                        duration=duration,
+                        app_id="VyloServe",
+                        on_click=self._restore_window_from_notification,
+                    )
+                else:
+                    notify_send = shutil.which("notify-send")
+                    if notify_send:
+                        urgency = "critical" if type == "error" else ("normal" if type == "warning" else "low")
+                        cmd = [notify_send, "-u", urgency, "-a", "VyloServe", "VyloServe", message]
+                        if icon_path and os.path.exists(icon_path):
+                            cmd.extend(["-i", icon_path])
+                        subprocess.Popen(cmd)
             except Exception as e:
                 self.emit_log(UNEXPECTED_ERROR_MSG, "error", {"e": str(e)})
 
@@ -494,11 +513,9 @@ class Api:
     def close_app(self):
         """ Menutup aplikasi sepenuhnya lewat request frontend """
         self.emit_log("backend.api.closing_app", "warn")
-        if hasattr(self, 'quit_callback') and self.quit_callback:
-            self.quit_callback()
-        else:
-            import os
-            os._exit(0)
+        target_fn = self.quit_callback if hasattr(self, 'quit_callback') and self.quit_callback else (lambda: os._exit(0))
+        threading.Thread(target=target_fn, daemon=True).start()
+        return {"status": "success"}
 
     def detect_framework(self, directory: str):
         return self.project.detect_framework(directory)

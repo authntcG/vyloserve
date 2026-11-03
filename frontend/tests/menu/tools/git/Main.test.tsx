@@ -162,7 +162,7 @@ describe('GitMain', () => {
             window.dispatchEvent(new CustomEvent('vylo_progress', { detail: { percent: 10, text: 'downloading' } }));
         });
 
-        await user.click(screen.getAllByLabelText('Close')[0]);
+        await user.click(screen.getAllByRole('button', { name: /close/i })[0]);
         expect(await screen.findByText('tools.git.installing')).toBeInTheDocument();
 
         await user.click(screen.getByRole('button', { name: 'tools.git.installing' }));
@@ -335,13 +335,10 @@ describe('GitMain', () => {
         await user.click(screen.getByText('tools.git.uninstall_git'));
         await screen.findByText('tools.git.uninstall_title');
 
-        await user.click(screen.getAllByLabelText('Close')[0]);
+        const closeButtons = screen.getAllByRole('button', { name: 'Close' });
+        await user.click(closeButtons[closeButtons.length - 1]);
 
         expect(uninstall).not.toHaveBeenCalled();
-        // Modal.tsx menunda unmount ~300ms untuk animasi keluar (lihat Modal.tsx) -- timeout
-        // default waitFor (1000ms) kadang tidak cukup saat SELURUH suite (52 file test) berjalan
-        // bersamaan (kontensi CPU antar worker vitest), menyebabkan flaky. Margin diperbesar jauh
-        // di atas 300ms supaya tahan terhadap beban sistem yang berat, bukan cuma lolos pas-pasan.
         await waitFor(() => {
             expect(screen.queryByText('tools.git.uninstall_title')).not.toBeInTheDocument();
         }, { timeout: 5000 });

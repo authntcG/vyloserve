@@ -1,18 +1,19 @@
 bottle==0.13.4
 certifi==2026.7.22
-cffi==1.17.1
-clr_loader==0.2.10
+cffi>=1.17.1
+clr_loader==0.2.10; sys_platform == 'win32'
 importlib_resources==6.4.5
 Jinja2==3.1.6
-MarkupSafe==2.1.5
-Pillow==12.3.0
+MarkupSafe>=2.1.5
+Pillow>=12.3.0
 proxy_tools==0.1.0
 psutil==7.2.2
-pycparser==2.23
+pycparser>=2.22
 pystray==0.19.5
-pythonnet==3.0.5
+pythonnet==3.0.5; sys_platform == 'win32'
 pywebview==6.2.1
-pywinpty==3.1.0
+pywinpty==3.1.0; sys_platform == 'win32'
+ptyprocess>=0.7.0; sys_platform != 'win32'
 typing_extensions==4.13.2
-win11toast==0.36.3
+win11toast==0.36.3; sys_platform == 'win32'
 zipp==3.20.2

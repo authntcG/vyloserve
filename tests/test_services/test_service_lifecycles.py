@@ -56,8 +56,8 @@ def test_php_start_server(mock_start_silent, php_manager):
         mock_toggle.assert_called_once_with(os.path.join(php_manager.base_dir, "php_8_2"), enable=True)
         
         # Test stop server
-        with patch('core.services.php.run_silent_command') as mock_run:
+        with patch('core.services.php.kill_process_tree') as mock_kill:
             stop_res = php_manager.stop_php("php_8_2")
             assert stop_res['status'] == 'success'
-            mock_run.assert_called_once()
+            mock_kill.assert_called_once()
             assert mock_toggle.call_count == 2

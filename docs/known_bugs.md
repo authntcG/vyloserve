@@ -1015,5 +1015,46 @@ Google telah menghentikan akses (*deprecated / sunset*) ke model `gemini-2.0-fla
   5. *Kartu Blok Kode dengan Tombol Salin Mandiri (`MarkdownPre`):* Menggantikan tag `<pre>` standar dengan kontainer kartu kode interaktif (`MarkdownPre`). Kontainer ini menyajikan header gelap elegan dengan lencana bahasa (misal `JAVASCRIPT`, `PYTHON`, `BASH`, `CODE`) dan tombol salin snippet kode (`tools.docs_reader.copy_code`) dengan status feedback visual instan (`tools.docs_reader.copied`).
   6. *Pengujian Menyeluruh & Paritas i18n:* Menambahkan unit test di `AppInterceptor.test.tsx` (menu konteks untuk seleksi teks pada dokumen), `MarkdownRenderer.test.tsx` (pembersihan komentar RAG dan tombol copy code), serta `Main.test.tsx` (verifikasi breakpoint responsif < 1233px, alignment gap, dan tombol copy markdown). Seluruh 252 tes unit komponen, 25 tes vitest markdown viewer, tes paritas i18n, 20 tes pytest backend, dan build produksi TypeScript lulus 100%.
 
+## 80. Crash / Auto-Logout OS User di Lingkungan Linux saat Eksekusi `stop_server()` Apache & Pengerasan Platform Abstraction Layer (PAL) — SELESAI
+- **Lokasi:**
+  - `core/services/apache.py` (`stop_server`)
+  - `core/utils/system_utils.py` (`kill_process_tree`, `open_path_in_file_manager`, `acquire_single_instance_lock`, `get_ipc_endpoint`)
+  - `tests/conftest.py` (`guard_process_termination` autouse fixture)
+  - `docs/known_bugs.md`
+- **Masalah:**
+  1. *Fatal Logout / Desktop Session Crash via `pkill -`:* Pada modul `core/services/apache.py` method `stop_server()`, perintah shell untuk Linux/macOS awalnya tertulis `['pkill', '-', 'httpd']`. Tanda `-` yang berdiri sendiri tanpa flag valid membuat parser `pkill` di Linux menginterpretasikan argumen berikutnya sebagai sinyal atau target `-1` (seluruh proses yang dapat diakses oleh user session UID saat itu, termasuk desktop display manager Xorg/Wayland, GNOME Shell, dan session manager). Akibatnya, pemanggilan fungsi stop langsung membunuh seluruh proses sesi desktop pengguna, menyebabkan layar mati seketika, auto-logout, dan seluruh aplikasi yang sedang terbuka tertutup paksa.
+  2. *Ketiadaan Sanitasi PID pada `kill_process_tree`:* Helper terminasi pohon proses `kill_process_tree(pid)` belum memverifikasi batas minimal PID. Jika dipanggil dengan PID `0`, `1` (systemd/init), PID negatif, atau PID dari proses itu sendiri (`os.getpid()`), fungsi berpotensi mematikan sistem OS atau dirinya sendiri secara destruktif.
+  3. *Risiko Pengujian Unit terhadap Proses OS Nyata:* Mocking PID pada unit test terkadang menggunakan PID arbitrer (misal PID 1234 atau MagicMock) yang secara kebetulan dapat bertepatan dengan PID proses aktif lain di mesin pengembang, berisiko mengirim sinyal `terminate()` atau `kill()` yang tidak disengaja ke proses OS riil.
+- **Solusi:**
+  1. *Koreksi Flag `pkill -f`:* Mengubah pemanggilan `subprocess.Popen(['pkill', '-', 'httpd'])` menjadi `subprocess.Popen(['pkill', '-f', 'httpd'])` di `core/services/apache.py`. Flag `-f` (full command line pattern match) secara aman hanya mencocokkan proses biner httpd tanpa menyentuh grup proses lain.
+  2. *Pengamanan Defensif PID:* Menambahkan pemeriksaan defensif ketat pada `kill_process_tree` di `core/utils/system_utils.py`: nilai `pid` dikonversi ke integer dengan aman, dan jika `int_pid <= 1 or int_pid == os.getpid()`, fungsi langsung mengembalikan `False` tanpa memproses sinyal apa pun.
+  3. *Fixture Perlindungan Global `guard_process_termination`:* Menambahkan fixture `autouse=True` di `tests/conftest.py` yang mem-monkeypatch `psutil.Process.terminate`, `psutil.Process.kill`, dan `psutil.wait_procs` di seluruh suite pytest, menjamin bahwa eksekusi tes dengan PID tiruan tidak akan pernah menyentuh proses OS sebenarnya.
+  4. *Verifikasi Hasil:* Seluruh 811 unit test pytest backend berjalan mulus dan lulus 100% di lingkungan Linux (Ubuntu 24.04/26.04) dan Windows tanpa efek samping crash sesi desktop.
+
+## 81. False Positive Deteksi External / Native Runtimes di Linux Akibat Symlink User PATH (`~/.local/bin`) & Crash `winreg` pada Pergantian Versi Aktif — SUDAH DIPERBAIKI
+- **Lokasi:**
+  - `core/services/runtimes_manager.py` (`toggle_user_path`, `set_active_version`, `deactivate_active_version`, `_check_via_env`, `_toggle_linux_user_path`)
+  - `core/utils/system_utils.py` (`_find_via_where_cmd`, `_lookup_external_executable`)
+  - `core/services/php.py` (`_check_system_php`)
+  - `core/services/apache.py` (`_check_system_apache`)
+  - `core/services/git_manager.py` (`_find_via_which`, `_find_via_where`)
+  - `tests/test_services/test_runtimes_manager.py`
+  - `docs/known_bugs.md`
+- **Masalah:**
+  1. *False Positive Deteksi Native Runtimes:* Ketika fitur "Set to PATH" diaktifkan di Linux, VyloServe membuat symlink di direktori biner user standar POSIX (`~/.local/bin/go`, `~/.local/bin/java`, dll). Direktori ini berada di dalam `$PATH` lingkungan shell pengguna. Fungsi deteksi eksternal sebelumnya (`_check_via_env`, `find_external_executable`, dsb.) hanya memeriksa string pencarian literal biner pada PATH tanpa memecahkan symlink (`os.path.realpath`). Karena path `~/.local/bin` tidak diawali path direktori `bin/` root proyek VyloServe, symlink internal VyloServe salah dikenali sebagai instalasi *native* bawaan sistem operasi.
+  2. *Dropdown Versi Mengunci & Muncul Kartu Native:* Ketika pengguna mengubah versi aktif dari dropdown (misal Java atau Go), false positive ini menyebabkan status UI menganggap versi biner eksternal ada, sehingga dropdown terkunci atau menampilkan badge native yang salah.
+  3. *Crash `winreg` pada `set_active_version` di Linux:* Method `set_active_version` awalnya mengimpor `import winreg` secara *hardcoded* tanpa perlindungan OS guard `if sys.platform == 'win32':`. Pada Linux, ini memicu `ModuleNotFoundError: No module named 'winreg'`. Selain itu, symlink di `~/.local/bin` tidak diperbarui ke target direktori versi yang baru dipilih.
+  4. *Symlink Menjadi Yatim (Orphan) saat Deaktivasi:* Pada `deactivate_active_version`, pemanggilan `self.toggle_user_path(engine, False)` awalnya dibungkus guard `if not ext.get("exists")`. Karena `ext["exists"]` bernilai `True` akibat false positive di atas, proses penghapusan symlink dilewati secara permanen.
+- **Solusi:**
+  1. *Resolusi Symlink Deterministik via `os.path.realpath`:* Seluruh fungsi deteksi eksternal (`_check_via_env`, `_lookup_external_executable`, `_check_system_php`, `_check_system_apache`, `_find_via_which`) kini menguji `real_target = os.path.realpath(cand_path)`. Jika target riil dari symlink mengarah ke dalam subfolder direktori `bin/` milik VyloServe (`target.startswith(vyloserve_bin)`), biner tersebut dilewati (*skip*), sehingga instalasi internal VyloServe tidak pernah dianggap sebagai biner native sistem OS.
+  2. *Percabangan OS pada `set_active_version`:* Memisahkan logika manipulasi registry Windows (HKCU Environment) dengan guard `if sys.platform == 'win32':`, sementara pada Linux memanggil `_toggle_linux_user_path(engine, enable=True, version=version)` untuk mengarahkan ulang symlink di `~/.local/bin` ke folder biner versi yang baru dipilih secara instan dan aman.
+  3. *Deaktivasi Bersih & Pasti:* Menghapus guard `if not ext.get("exists")` pada `deactivate_active_version` sehingga pemanggilan `toggle_user_path(engine, False)` selalu mengeksekusi penghapusan symlink internal di `~/.local/bin`.
+  4. *Pengujian & Verifikasi Menyeluruh:*
+     - Menambahkan unit test baru `test_check_via_env_ignores_symlinks_to_vyloserve` dan `test_set_active_version_switches_linux` di `tests/test_services/test_runtimes_manager.py`.
+     - 835 tes backend pytest dan 924 tes frontend vitest lulus 100%.
+     - Live smoke test pada lingkungan Linux mengonfirmasi bahwa symlink aktif di `~/.local/bin` dapat berpindah versi secara mulus tanpa memicu false positive deteksi native.
+
+
+
 
 
