@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { screen, waitFor, fireEvent } from '../../../test-utils';
 import { renderWithToast } from '../../../test-utils';
@@ -8,16 +8,49 @@ const qrInstances: Array<{ append: ReturnType<typeof vi.fn>; update: ReturnType<
 
 vi.mock('qr-code-styling', () => ({
     default: vi.fn().mockImplementation(function MockQRCodeStyling(this: unknown) {
-        const instance = { append: vi.fn(), update: vi.fn(), getRawData: vi.fn().mockResolvedValue(new Blob(['dummy'], {type: 'image/png'})) };
+        const instance = {
+            append: vi.fn(),
+            update: vi.fn(),
+            getRawData: vi.fn().mockResolvedValue(new Blob(['dummy'], { type: 'image/png' }))
+        };
         qrInstances.push(instance);
         return instance;
     }),
 }));
 
+if (typeof (globalThis as any).ClipboardItem === 'undefined') {
+    (globalThis as any).ClipboardItem = class ClipboardItem {
+        data: Record<string, Blob>;
+        constructor(data: Record<string, Blob>) {
+            this.data = data;
+        }
+    };
+}
+
 describe('QrMain', () => {
+    let readTextMock: ReturnType<typeof vi.fn>;
+    let writeTextMock: ReturnType<typeof vi.fn>;
+    let writeMock: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+        readTextMock = vi.fn().mockResolvedValue('https://clipboard.vyloserve.com');
+        writeTextMock = vi.fn().mockResolvedValue(undefined);
+        writeMock = vi.fn().mockResolvedValue(undefined);
+
+        Object.defineProperty(navigator, 'clipboard', {
+            value: {
+                readText: readTextMock,
+                writeText: writeTextMock,
+                write: writeMock,
+            },
+            writable: true,
+            configurable: true,
+        });
+    });
+
     it('defaults to URL content type with the default vyloserve.com URL as raw data', () => {
         renderWithToast(<QrMain />);
-        expect(screen.getByText('https://vyloserve.com')).toBeInTheDocument();
+        expect(screen.getAllByText('https://vyloserve.com').length).toBeGreaterThanOrEqual(1);
     });
 
     it('appends the QR instance to the preview container on mount', () => {
@@ -25,42 +58,42 @@ describe('QrMain', () => {
         expect(qrInstances.at(-1)!.append).toHaveBeenCalledTimes(1);
     });
 
-    it('updates the raw data as the URL input changes', async () => {
+    it('updates the raw data as the URL input changes and shows URL badge', async () => {
         const user = userEvent.setup();
         renderWithToast(<QrMain />);
 
-        await user.clear(screen.getByLabelText('tools.qr.enter_url'));
-        await user.type(screen.getByLabelText('tools.qr.enter_url'), 'https://example.com');
+        await user.clear(screen.getByLabelText('tools.qr.type_text_url'));
+        await user.type(screen.getByLabelText('tools.qr.type_text_url'), 'https://example.com');
 
-        expect(screen.getByText('https://example.com')).toBeInTheDocument();
+        expect(screen.getAllByText('https://example.com').length).toBeGreaterThanOrEqual(1);
+        expect(screen.getByText('tools.qr.url_detected')).toBeInTheDocument();
     });
 
-    it('switches to text content type and reflects typed text in the raw data', async () => {
+    it('reflects typed plain text in the raw data and hides URL badge', async () => {
         const user = userEvent.setup();
         renderWithToast(<QrMain />);
 
-        await user.click(screen.getByRole('button', { name: 'tools.qr.type_url' }));
-        await user.click(screen.getByRole('option', { name: 'tools.qr.type_text' }));
-        await user.type(screen.getByRole('textbox'), 'hello world');
+        await user.clear(screen.getByLabelText('tools.qr.type_text_url'));
+        await user.type(screen.getByLabelText('tools.qr.type_text_url'), 'hello world');
 
-        expect(screen.getAllByText('hello world')).toHaveLength(2);
+        expect(screen.getAllByText('hello world').length).toBeGreaterThanOrEqual(1);
+        expect(screen.queryByText('tools.qr.url_detected')).not.toBeInTheDocument();
     });
 
     it('shows the "kosong" placeholder as raw data when the text content type is empty', async () => {
         const user = userEvent.setup();
         renderWithToast(<QrMain />);
 
-        await user.click(screen.getByRole('button', { name: 'tools.qr.type_url' }));
-        await user.click(screen.getByRole('option', { name: 'tools.qr.type_text' }));
+        await user.clear(screen.getByLabelText('tools.qr.type_text_url'));
 
         expect(screen.getByText('kosong')).toBeInTheDocument();
     });
 
-    it('builds a mailto raw data string from the email fields', async () => {
+    it('builds a mailto raw data string from the email fields under contact tab', async () => {
         const user = userEvent.setup();
         renderWithToast(<QrMain />);
-        await user.click(screen.getByRole('button', { name: 'tools.qr.type_url' }));
-        await user.click(screen.getByRole('option', { name: 'tools.qr.type_email' }));
+        await user.click(screen.getByRole('button', { name: 'tools.qr.type_contact' }));
+        await user.click(screen.getByRole('button', { name: 'tools.qr.contact_email' }));
 
         await user.type(screen.getByLabelText('tools.qr.email_to'), 'a@b.com');
         await user.type(screen.getByLabelText('tools.qr.email_subject'), 'Hi');
@@ -71,13 +104,87 @@ describe('QrMain', () => {
     it('builds a WIFI raw data string from the wifi fields', async () => {
         const user = userEvent.setup();
         renderWithToast(<QrMain />);
-        await user.click(screen.getByRole('button', { name: 'tools.qr.type_url' }));
-        await user.click(screen.getByRole('option', { name: 'tools.qr.type_wifi' }));
+        await user.click(screen.getByRole('button', { name: 'tools.qr.type_wifi' }));
 
         await user.type(screen.getByLabelText('tools.qr.wifi_ssid'), 'MyNet');
         await user.type(screen.getByLabelText('tools.qr.password'), 'secret');
 
         expect(screen.getByText('WIFI:T:WPA;S:MyNet;P:secret;H:false;;')).toBeInTheDocument();
+    });
+
+    it('builds a vCard raw data string from the vCard fields under contact tab', async () => {
+        const user = userEvent.setup();
+        renderWithToast(<QrMain />);
+        await user.click(screen.getByRole('button', { name: 'tools.qr.type_contact' }));
+
+        await user.type(screen.getByLabelText('tools.qr.vcard_name'), 'Alice Smith');
+        await user.type(screen.getByLabelText('tools.qr.vcard_phone'), '123456');
+
+        expect(screen.getByText(/BEGIN:VCARD/)).toBeInTheDocument();
+        expect(screen.getByText(/FN:Alice Smith/)).toBeInTheDocument();
+        expect(screen.getByText(/TEL:123456/)).toBeInTheDocument();
+    });
+
+    it('builds an SMS raw data string from the SMS fields under contact tab', async () => {
+        const user = userEvent.setup();
+        renderWithToast(<QrMain />);
+        await user.click(screen.getByRole('button', { name: 'tools.qr.type_contact' }));
+        await user.click(screen.getByRole('button', { name: 'tools.qr.contact_sms' }));
+
+        await user.type(screen.getByLabelText('tools.qr.sms_phone'), '+628123456');
+        await user.type(screen.getByLabelText('tools.qr.sms_message'), 'Hello from VyloServe');
+
+        expect(screen.getByText('SMSTO:+628123456:Hello from VyloServe')).toBeInTheDocument();
+    });
+
+    it('supports sample loading, paste, and clear buttons', async () => {
+        renderWithToast(<QrMain />);
+
+        // Clear URL
+        fireEvent.click(screen.getByRole('button', { name: /tools\.qr\.clear/ }));
+        expect(screen.getByLabelText('tools.qr.type_text_url')).toHaveValue('');
+
+        // Sample URL
+        fireEvent.click(screen.getByRole('button', { name: /tools\.qr\.sample/ }));
+        expect(screen.getByLabelText('tools.qr.type_text_url')).toHaveValue('https://vyloserve.com');
+
+        // Paste URL
+        fireEvent.click(screen.getByRole('button', { name: /tools\.qr\.paste/ }));
+        await waitFor(() => {
+            expect(screen.getByLabelText('tools.qr.type_text_url')).toHaveValue('https://clipboard.vyloserve.com');
+        });
+    });
+
+    it('updates error correction level (ECC) option', async () => {
+        const user = userEvent.setup();
+        renderWithToast(<QrMain />);
+        const instance = qrInstances.at(-1)!;
+
+        await user.click(screen.getByRole('button', { name: 'tools.qr.ecc_m' }));
+        await user.click(screen.getByRole('option', { name: 'tools.qr.ecc_h' }));
+
+        expect(instance.update).toHaveBeenCalledWith(
+            expect.objectContaining({
+                qrOptions: { errorCorrectionLevel: 'H' }
+            })
+        );
+    });
+
+    it('copies QR image to clipboard', async () => {
+        const user = userEvent.setup();
+        renderWithToast(<QrMain />);
+
+        await user.click(screen.getByRole('button', { name: /tools\.qr\.copy_image/ }));
+        expect(await screen.findByText(/tools\.qr\.copy_image_success/)).toBeInTheDocument();
+    });
+
+    it('copies raw text to clipboard', async () => {
+        renderWithToast(<QrMain />);
+
+        fireEvent.click(screen.getByRole('button', { name: /tools\.qr\.copy_raw/ }));
+        await waitFor(() => {
+            expect(writeTextMock).toHaveBeenCalledWith('https://vyloserve.com');
+        });
     });
 
     it('updates the QR instance (not re-creates it) when a visual option changes', async () => {
@@ -107,7 +214,7 @@ describe('QrMain', () => {
 
         await user.click(screen.getByRole('button', { name: 'PNG' }));
         await user.click(screen.getByRole('option', { name: 'SVG' }));
-        await user.click(screen.getByText('tools.qr.download'));
+        await user.click(screen.getByRole('button', { name: 'tools.qr.download' }));
 
         expect(instance.getRawData).toHaveBeenCalledWith('svg');
         expect(await screen.findByText(/backend.common.file_saved/)).toBeInTheDocument();
@@ -163,5 +270,97 @@ describe('QrMain', () => {
         fireEvent.change(logoScale, { target: { value: '0.2' } });
 
         expect(screen.getByText('0.2')).toBeInTheDocument();
+    });
+
+    it('allows clearing an uploaded logo via the delete button', async () => {
+        const user = userEvent.setup();
+        renderWithToast(<QrMain />);
+        const file = new File(['logo'], 'my-brand.png', { type: 'image/png' });
+        const fileInput = document.querySelector('input[type="file"][accept]') as HTMLInputElement;
+        await user.upload(fileInput, file);
+
+        await waitFor(() => expect(screen.getByText('my-brand.png')).toBeInTheDocument());
+
+        const deleteBtn = screen.getByRole('button', { name: /common\.delete/i });
+        await user.click(deleteBtn);
+
+        await waitFor(() => expect(screen.getByLabelText(/tools\.qr\.logo_scale/)).toBeDisabled());
+    });
+
+    it('populates all vCard fields including email, org, and url', async () => {
+        const user = userEvent.setup();
+        renderWithToast(<QrMain />);
+        await user.click(screen.getByRole('button', { name: 'tools.qr.type_contact' }));
+
+        await user.type(screen.getByLabelText('tools.qr.vcard_name'), 'Bob');
+        await user.type(screen.getByLabelText('tools.qr.vcard_email'), 'bob@example.com');
+        await user.type(screen.getByLabelText('tools.qr.vcard_org'), 'Acme Corp');
+        await user.type(screen.getByLabelText('tools.qr.vcard_url'), 'https://acme.org');
+
+        expect(screen.getByText(/EMAIL:bob@example.com/)).toBeInTheDocument();
+        expect(screen.getByText(/ORG:Acme Corp/)).toBeInTheDocument();
+        expect(screen.getByText(/URL:https:\/\/acme.org/)).toBeInTheDocument();
+    });
+
+    it('populates email body field under contact tab', async () => {
+        const user = userEvent.setup();
+        renderWithToast(<QrMain />);
+        await user.click(screen.getByRole('button', { name: 'tools.qr.type_contact' }));
+        await user.click(screen.getByRole('button', { name: 'tools.qr.contact_email' }));
+
+        await user.type(screen.getByLabelText('tools.qr.email_to'), 'boss@corp.com');
+        await user.type(screen.getByLabelText('tools.qr.email_body'), 'Project update');
+
+        expect(screen.getByText(/mailto:boss@corp.com\?subject=&body=Project%20update/)).toBeInTheDocument();
+    });
+
+    it('handles paste, clear, and security selection in WiFi tab', async () => {
+        const user = userEvent.setup();
+        renderWithToast(<QrMain />);
+        await user.click(screen.getByRole('button', { name: 'tools.qr.type_wifi' }));
+
+        await user.type(screen.getByLabelText('tools.qr.wifi_ssid'), 'MyHomeWifi');
+        await user.type(screen.getByLabelText('tools.qr.password'), 'Secret123');
+
+        // Check raw text contains wifi SSID
+        expect(screen.getByText('WIFI:T:WPA;S:MyHomeWifi;P:Secret123;H:false;;')).toBeInTheDocument();
+
+        // Click Paste button
+        await user.click(screen.getByRole('button', { name: /tools\.qr\.paste/ }));
+
+        // Click Clear button
+        await user.click(screen.getByRole('button', { name: /tools\.qr\.clear/ }));
+        expect(screen.getByLabelText('tools.qr.wifi_ssid')).toHaveValue('');
+    });
+
+    it('handles SMS sub-tab with clear and paste under contact tab', async () => {
+        const user = userEvent.setup();
+        renderWithToast(<QrMain />);
+        await user.click(screen.getByRole('button', { name: 'tools.qr.type_contact' }));
+
+        // Switch to SMS
+        await user.click(screen.getByRole('button', { name: 'tools.qr.contact_sms' }));
+        await user.type(screen.getByLabelText('tools.qr.sms_phone'), '+628999999');
+        await user.type(screen.getByLabelText('tools.qr.sms_message'), 'Hello from SMS');
+        expect(screen.getByText('SMSTO:+628999999:Hello from SMS')).toBeInTheDocument();
+
+        // Clear SMS
+        await user.click(screen.getByRole('button', { name: /tools\.qr\.clear/ }));
+        expect(screen.getByLabelText('tools.qr.sms_phone')).toHaveValue('');
+    });
+
+    it('updates wifi encryption via Select dropdown in WiFi tab', async () => {
+        const user = userEvent.setup();
+        renderWithToast(<QrMain />);
+        await user.click(screen.getByRole('button', { name: 'tools.qr.type_wifi' }));
+
+        await user.type(screen.getByLabelText('tools.qr.wifi_ssid'), 'GuestNetwork');
+
+        // Click security Select dropdown button
+        const selectBtn = screen.getByRole('button', { name: 'WPA/WPA2' });
+        await user.click(selectBtn);
+        await user.click(screen.getByRole('option', { name: 'WEP' }));
+
+        expect(screen.getByText('WIFI:T:WEP;S:GuestNetwork;P:;H:false;;')).toBeInTheDocument();
     });
 });

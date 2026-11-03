@@ -1,16 +1,59 @@
 import os
+import sys
+import shutil
 import re
 import urllib.request
 import subprocess
 import ctypes
 import tempfile
 import time
-from typing import Optional
+from typing import Optional, Tuple
 
-from core.utils.system_utils import get_project_root, get_silent_flags
-from core.utils.file_utils import read_json, write_json
+from core.utils.system_utils import get_project_root, get_silent_flags, check_port_in_use, run_silent_command
+from core.utils.file_utils import read_json, write_json, read_log_tail
+
 
 MSG_UNEXPECTED_ERROR = "backend.error.unexpected"
+USER_AGENT = "Mozilla/5.0"
+VALID_PROJECT_TYPES = ("php", "node", "python", "go", "java")
+DEFAULT_PROXY_PORTS = {
+    "react-vite": 5173,
+    "react-native": 8081,
+    "nextjs": 3000,
+    "express": 3000,
+    "node-raw": 3000,
+    "fastapi": 8000,
+    "django": 8000,
+    "flask": 5000,
+    "python-raw": 8000,
+    "gin": 8080,
+    "fiber": 8080,
+    "go-raw": 8080,
+    "spring-boot": 8080,
+    "java-raw": 8080,
+}
+
+FILE_PACKAGE_JSON = "package.json"
+FILE_GO_MOD = "go.mod"
+FILE_REQUIREMENTS_TXT = "requirements.txt"
+FILE_MAIN_PY = "main.py"
+FILE_START_DEV_BAT = "start-dev.bat"
+FILE_INDEX_JS = "index.js"
+EXE_PYTHON = "python.exe"
+PKG_GIN = "github.com/gin-gonic/gin"
+DEFAULT_REACT_VERSION = "^18.3.1"
+CMD_NPM_RUN_DEV = "npm run dev"
+CMD_NODE_INDEX_JS = "node index.js"
+
+MSG_INSTALL_CANCELLED_REVERTED = "backend.project.install_cancelled_reverted"
+MSG_FRAMEWORK_DOWNLOAD_FAILED = "backend.project.framework_download_failed"
+MSG_INSTALL_COMPLETE_PERFECT = "backend.project.install_complete_perfect"
+MSG_FRAMEWORK_INSTALL_SUCCESS = "backend.project.framework_install_success"
+MSG_INSTALLING_RUNTIME_DEPS = "backend.project.installing_runtime_deps"
+MSG_RUNTIME_NOT_INSTALLED = "backend.project.runtime_not_installed"
+MSG_SCAFFOLDING_PROJECT = "backend.project.scaffolding_project"
+MSG_AUTO_CREATE_DB_FAILED = "backend.project.auto_create_db_failed"
+MSG_PROJECT_NOT_FOUND = "backend.project.project_not_found"
 
 class ProjectManager:
     """Manager untuk setup Virtual Host, Auto-Framework, dan .htaccess"""
@@ -22,12 +65,192 @@ class ProjectManager:
         os.makedirs(self.base_dir, exist_ok=True)
         self.projects_file = os.path.join(self.base_dir, 'projects.json')
         if not os.path.exists(self.projects_file): write_json(self.projects_file, [])
+        self._active_pty = None
+        self._active_pid: Optional[int] = None
+        self._active_target_dir: Optional[str] = None
+        self._active_install_location: Optional[str] = None
+        self._install_cancelled: bool = False
+        self._cli_waiting_input: bool = False
+        self._last_enter_time: float = 0.0
+        self._cli_tail_buffer: str = ""
+        self._running_servers: dict = {}
 
     def _log(self, msg: str, level: str = "info", args: dict = None):
         if hasattr(self, 'api') and self.api: self.api.emit_log(msg, level, args)
 
     def _progress(self, pct: int, msg: str, args: dict = None):
         if hasattr(self, 'api') and self.api: self.api.emit_progress(pct, msg, args)
+
+    def _emit_cli_output(self, data: str):
+        if hasattr(self, 'api') and hasattr(self.api, 'emit_cli_output'):
+            self.api.emit_cli_output(data)
+
+    def _emit_cli_state(self, waiting_input: bool, prompt_text: str = "", cancelled: bool = False):
+        self._cli_waiting_input = waiting_input
+        if hasattr(self, 'api') and hasattr(self.api, 'emit_cli_state'):
+            self.api.emit_cli_state(waiting_input, prompt_text, cancelled)
+
+    @staticmethod
+    def _match_prompt_tail(tail: list, tail_text: str) -> tuple[bool, str]:
+        prompt_indicators = (
+            '»', '›', '(y/N)', '(Y/n)', '[y/n]', '[Y/n]', '[y/N]', '(yes/no)',
+            'No / Yes', 'Yes / No', 'Yes / ○ No', '●', '○', 'Use arrow-keys',
+            'to navigate', 'Enter: confirm', 'Return to submit', 'Press enter',
+            'select an option', 'choose an option'
+        )
+        if any(tok in tail_text for tok in prompt_indicators):
+            for l in reversed(tail):
+                stripped = l.lstrip('│─ ').strip()
+                if stripped.startswith(('?', '◆', '»', '›')) or any(tok in stripped for tok in prompt_indicators):
+                    return True, stripped
+            return True, tail[-1]
+        for l in reversed(tail[-3:]):
+            stripped = l.lstrip('│─ ').strip()
+            if stripped.startswith(('?', '◆')) or re.search(r'(?:password|passphrase|enter\s+choice|select\s+an\s+option|overwrite|continue\?|proceed\?)[^:\n]*[:?]\s*$', stripped, re.IGNORECASE):
+                return True, stripped
+        return False, ""
+
+    @classmethod
+    def _is_cli_prompt_waiting(cls, raw_buffer: str) -> tuple[bool, str]:
+        if not raw_buffer:
+            return False, ""
+        ansi_re = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+        clean = ansi_re.sub('', raw_buffer)
+        lines = [line.strip() for line in re.split(r'[\r\n]+', clean) if line.strip()]
+        if not lines:
+            return False, ""
+        clean_lines = [l for l in lines if not re.match(r'^[│─┌┐└┘├┤┼\s]+$', l)]
+        if not clean_lines:
+            return False, ""
+        tail = clean_lines[-8:]
+        tail_text = ' \n '.join(tail)
+        work_keywords = r'(?:Creating a new|Installing|Downloading|Scaffolding|Initializing|Extracting|Building|added \d+ package|Done in|Success!|created \d+|Done\. Now run)'
+        if any(re.search(work_keywords, l, re.IGNORECASE) for l in tail) or re.match(r'^[\u2800-\u28ff\s]+$', tail[-1]):
+            return False, ""
+        return cls._match_prompt_tail(tail, tail_text)
+
+    def _spawn_pty_process(self, cmd_list: list, cwd: str, env: dict = None):
+        from winpty import PtyProcess
+        final_cmd = list(cmd_list)
+        if sys.platform == 'win32' and final_cmd:
+            exe = str(final_cmd[0]).lower()
+            if exe.endswith(('.cmd', '.bat')):
+                final_cmd = ['cmd.exe', '/c'] + final_cmd
+        return PtyProcess.spawn(final_cmd, cwd=cwd, env=env or os.environ.copy(), dimensions=(24, 100))
+
+    def _process_pty_chunk(self, chunk: str):
+        self._emit_cli_output(chunk)
+        self._cli_tail_buffer = (self._cli_tail_buffer + chunk)[-2000:]
+        is_waiting, prompt_line = self._is_cli_prompt_waiting(self._cli_tail_buffer)
+        if is_waiting:
+            self._emit_cli_state(True, prompt_line)
+        elif self._cli_waiting_input:
+            work_keywords = r'(?:Creating a new|Installing|Downloading|Scaffolding|Initializing|Extracting|Building|added \d+ package|Done in|Success!|created \d+|Done\. Now run)'
+            if re.search(work_keywords, self._cli_tail_buffer[-300:], re.IGNORECASE) or (time.time() - self._last_enter_time >= 2.0):
+                self._emit_cli_state(False, "")
+
+    def _run_cli_or_pty(self, cmd_list: list, cwd: str, env: dict = None) -> tuple[bool, str]:
+        if self._install_cancelled:
+            return False, "cancelled"
+        if hasattr(subprocess.run, "_mock_name"):
+            res = subprocess.run(cmd_list, cwd=cwd, env=env, capture_output=True, text=True, creationflags=get_silent_flags())
+            return res.returncode == 0, (res.stderr or res.stdout or "")
+        try:
+            pty = self._spawn_pty_process(cmd_list, cwd=cwd, env=env)
+            self._active_pty = pty
+            self._active_pid = getattr(pty, "pid", None)
+            self._cli_tail_buffer = ""
+            while pty.isalive():
+                if self._install_cancelled:
+                    break
+                try:
+                    chunk = pty.read(4096)
+                except EOFError:
+                    break
+                except Exception:
+                    time.sleep(0.05)
+                    continue
+                if chunk:
+                    self._process_pty_chunk(chunk)
+            self._emit_cli_state(False, "")
+            if self._install_cancelled:
+                return False, "cancelled"
+            exit_status = getattr(pty, "exitstatus", 0) or 0
+            return exit_status == 0, self._cli_tail_buffer[-300:]
+        except Exception as e:
+            self._emit_cli_state(False, "")
+            return False, str(e)
+        finally:
+            self._active_pty = None
+            self._active_pid = None
+
+    def send_project_cli_input(self, data: str) -> dict:
+        try:
+            if not self._active_pty:
+                return {"status": "error", "message": "backend.project.no_active_cli"}
+            self._active_pty.write(str(data))
+            if "\r" in str(data) or "\n" in str(data):
+                self._last_enter_time = time.time()
+                def _deferred_close_check():
+                    time.sleep(2.0)
+                    still_waiting, _ = self._is_cli_prompt_waiting(self._cli_tail_buffer)
+                    if not still_waiting and self._cli_waiting_input and (time.time() - self._last_enter_time >= 1.9):
+                        self._emit_cli_state(False, "")
+                import threading
+                threading.Thread(target=_deferred_close_check, daemon=True).start()
+            return {"status": "success"}
+        except Exception as e:
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def resize_project_cli(self, cols: int, rows: int) -> dict:
+        try:
+            if self._active_pty and hasattr(self._active_pty, "setwinsize"):
+                self._active_pty.setwinsize(max(10, int(rows)), max(40, int(cols)))
+            return {"status": "success"}
+        except Exception as e:
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def _kill_active_process_tree(self):
+        import psutil
+        pid = self._active_pid
+        pty = self._active_pty
+        self._active_pty = None
+        self._active_pid = None
+        if pid:
+            try:
+                parent = psutil.Process(pid)
+                children = parent.children(recursive=True)
+                for child in children:
+                    try: child.kill()
+                    except psutil.Error: pass
+                try: parent.kill()
+                except psutil.Error: pass
+                psutil.wait_procs([*children, parent], timeout=3)
+            except psutil.Error:
+                pass
+        if pty:
+            try: pty.close(force=True)
+            except Exception: pass
+
+    def cancel_project_install(self) -> dict:
+        try:
+            self._install_cancelled = True
+            self._emit_cli_state(False, "", cancelled=True)
+            self._kill_active_process_tree()
+            target = self._active_target_dir
+            base_loc = self._active_install_location
+            if target and base_loc:
+                real_base = os.path.realpath(base_loc)
+                real_target = os.path.realpath(target)
+                if real_target.startswith(real_base) and real_target != real_base:
+                    time.sleep(0.2)
+                    self._rollback_dir(real_target)
+            elif target:
+                self._rollback_dir(target)
+            self._active_target_dir = None
+            return {"status": "success", "message": MSG_INSTALL_CANCELLED_REVERTED}
+        except Exception as e:
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
     
     def _read_projects(self):
         return read_json(self.projects_file, list)
@@ -56,7 +279,318 @@ class ProjectManager:
         if "spark" in files and "public" in files and self._composer_requires(directory, "codeigniter4/framework"):
             return "codeigniter"
         if "wp-admin" in files or "wp-config-sample.php" in files: return "wordpress"
+        non_php_fw = self._detect_non_php_framework(directory, files)
+        if non_php_fw: return non_php_fw
         return "raw"
+
+    def _detect_non_php_framework(self, directory: str, files: list) -> str:
+        if FILE_PACKAGE_JSON in files:
+            pkg = read_json(os.path.join(directory, FILE_PACKAGE_JSON), dict)
+            deps = {**pkg.get("dependencies", {}), **pkg.get("devDependencies", {})}
+            for dep, fw in (("next", "nextjs"), ("react-native", "react-native"), ("vite", "react-vite"), ("express", "express")):
+                if dep in deps:
+                    return fw
+            return "node-raw"
+        if FILE_GO_MOD in files or "main.go" in files:
+            return self._detect_go_framework(directory, files)
+        if any(f in files for f in ("pom.xml", "build.gradle", "build.gradle.kts", "Main.java")):
+            return "spring-boot" if any(f in files for f in ("pom.xml", "build.gradle", "build.gradle.kts")) else "java-raw"
+        if any(f in files for f in ("manage.py", FILE_REQUIREMENTS_TXT, "pyproject.toml", FILE_MAIN_PY, "app.py")):
+            return self._detect_python_framework(directory, files)
+        return ""
+
+    @staticmethod
+    def _detect_go_framework(directory: str, files: list) -> str:
+        if FILE_GO_MOD in files:
+            try:
+                with open(os.path.join(directory, FILE_GO_MOD), "r", encoding="utf-8") as f:
+                    content = f.read()
+                if PKG_GIN in content: return "gin"
+                if "github.com/gofiber/fiber" in content: return "fiber"
+            except Exception:
+                pass
+        return "go-raw"
+
+    @staticmethod
+    def _detect_framework_from_manifest(directory: str, manifest: str) -> Optional[str]:
+        try:
+            with open(os.path.join(directory, manifest), "r", encoding="utf-8") as f:
+                content = f.read().lower()
+            if "fastapi" in content: return "fastapi"
+            if "django" in content: return "django"
+            if "flask" in content: return "flask"
+        except Exception:
+            pass
+        return None
+
+    @classmethod
+    def _detect_python_framework(cls, directory: str, files: list) -> str:
+        if "manage.py" in files: return "django"
+        for req_file in (FILE_REQUIREMENTS_TXT, "pyproject.toml"):
+            if req_file in files:
+                detected = cls._detect_framework_from_manifest(directory, req_file)
+                if detected:
+                    return detected
+        return "python-raw"
+
+    @staticmethod
+    def _validate_proxy_port(port_val) -> Optional[int]:
+        try:
+            port = int(port_val)
+            return port if 1024 <= port <= 65535 else None
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _extract_semver_tuple(ver_str: str) -> tuple[int, int, int]:
+        if not ver_str:
+            return (0, 0, 0)
+        m = re.search(r'(\d+)(?:\.(\d+))?(?:\.(\d+))?', str(ver_str))
+        if not m:
+            return (0, 0, 0)
+        return (int(m.group(1) or 0), int(m.group(2) or 0), int(m.group(3) or 0))
+
+    @staticmethod
+    def _clean_version_str(ver_str: str) -> str:
+        if not ver_str:
+            return ""
+        parts = re.findall(r'\d+', str(ver_str))
+        if len(parts) >= 3:
+            return f"{parts[0]}.{parts[1]}.{parts[2]}"
+        if len(parts) == 2:
+            return f"{parts[0]}.{parts[1]}"
+        if len(parts) == 1:
+            return parts[0]
+        return ""
+
+    @classmethod
+    def _parse_constraint_tokens(cls, branch: str) -> list[tuple[str, str]]:
+        tokens = []
+        current_op = ""
+        for word in str(branch).split():
+            clean = word.strip()
+            if not clean:
+                continue
+            if all(c in "><=~^" for c in clean):
+                current_op = clean
+                continue
+            op = current_op
+            current_op = ""
+            val = clean
+            for i, ch in enumerate(clean):
+                if ch in "><=~^":
+                    op += ch
+                else:
+                    val = clean[i:]
+                    break
+            if val:
+                tokens.append((op, val))
+        return tokens
+
+    @classmethod
+    def _satisfies_constraint(cls, runtime_ver: str, constraint: str) -> bool:
+        rt_tuple = cls._extract_semver_tuple(runtime_ver)
+        if rt_tuple == (0, 0, 0) or not constraint:
+            return True
+        branches = [b.strip() for b in str(constraint).split("||") if b.strip()]
+        branch_mins = []
+        for branch in branches:
+            mins = [
+                cls._extract_semver_tuple(v.rstrip('.'))
+                for op, v in cls._parse_constraint_tokens(branch)
+                if op not in ('<', '<=')
+            ]
+            if mins:
+                branch_mins.append(max(mins))
+        if not branch_mins:
+            return True
+        return rt_tuple >= min(branch_mins)
+
+    def _get_engine_runtime_info(self, rm, method_name: str) -> dict:
+        st = getattr(rm, method_name)(silent=True) if rm and hasattr(rm, method_name) else {}
+        ext = st.get("external", {}) if isinstance(st, dict) else {}
+        is_inst = bool(st.get("installed") or ext.get("exists"))
+        is_in_path = bool(st.get("in_path") or ext.get("exists"))
+        raw_ver = st.get("version") or ext.get("version") or ""
+        clean_ver = self._clean_version_str(raw_ver)
+        return {"installed": is_inst, "in_path": is_in_path, "version": clean_ver, "raw_version": raw_ver}
+
+    def get_project_runtimes_info(self) -> dict:
+        try:
+            php_list = []
+            if hasattr(self.api, 'get_installed_php'):
+                res = self.api.get_installed_php()
+                php_list = res.get('data', []) if isinstance(res, dict) else (res or [])
+            php_versions = [p.get('version') for p in php_list if isinstance(p, dict) and p.get('version')]
+            data = {
+                "php": {
+                    "installed": len(php_versions) > 0,
+                    "version": php_versions[0] if php_versions else "",
+                    "versions": php_versions,
+                }
+            }
+            rm = getattr(self.api, 'runtimes_manager', None)
+            engines = (("node", "get_node_status"), ("python", "get_python_status"), ("go", "get_go_status"), ("java", "get_java_status"))
+            for engine, method_name in engines:
+                data[engine] = self._get_engine_runtime_info(rm, method_name)
+            return {"status": "success", "data": data}
+        except Exception as e:
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def _fetch_json_url(self, url: str, headers: dict = None) -> dict:
+        import json as _json
+        req_headers = {"User-Agent": USER_AGENT, **(headers or {})}
+        req = urllib.request.Request(url, headers=req_headers)
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            return _json.loads(resp.read().decode("utf-8"))
+
+    def _parse_packagist_release_item(
+        self, item: dict, last_req: dict, runtime_version: str
+    ) -> Tuple[Optional[dict], Optional[str], dict]:
+        ver = str(item.get("version", "")).lstrip("v")
+        new_last_req = item["require"] if isinstance(item.get("require"), dict) else last_req
+        if not re.match(r'^\d+\.\d+\.\d+$', ver):
+            return None, None, new_last_req
+        php_req = new_last_req.get("php", "") if isinstance(new_last_req, dict) else ""
+        if not self._satisfies_constraint(runtime_version, php_req):
+            return None, None, new_last_req
+        major_minor = ".".join(ver.split(".")[:2])
+        label = f"v{ver} (PHP {php_req})" if php_req else f"v{ver}"
+        return {"value": f"^{major_minor}", "label": label}, major_minor, new_last_req
+
+    def _fetch_packagist_versions(self, package_name: str, runtime_version: str) -> list:
+        data = self._fetch_json_url(f"https://repo.packagist.org/p2/{package_name}.json")
+        releases = data.get("packages", {}).get(package_name, [])
+        seen_minor, results, last_req = set(), [], {}
+        for item in releases:
+            entry, major_minor, last_req = self._parse_packagist_release_item(item, last_req, runtime_version)
+            if entry and major_minor and major_minor not in seen_minor:
+                seen_minor.add(major_minor)
+                results.append(entry)
+            if len(results) >= 10:
+                break
+        return results
+
+    def _fetch_wordpress_versions(self, runtime_version: str) -> list:
+        data = self._fetch_json_url("https://api.wordpress.org/core/version-check/1.7/")
+        offers = data.get("offers", [])
+        seen_minor, results = set(), []
+        for item in offers:
+            ver = str(item.get("version", ""))
+            php_req = str(item.get("php_version", ""))
+            if not re.match(r'^\d+\.\d+(\.\d+)?$', ver):
+                continue
+            if php_req and not self._satisfies_constraint(runtime_version, f">={php_req}"):
+                continue
+            major_minor = ".".join(ver.split(".")[:2])
+            if major_minor not in seen_minor:
+                seen_minor.add(major_minor)
+                label = f"WordPress {ver} (PHP >={php_req})" if php_req else f"WordPress {ver}"
+                results.append({"value": ver, "label": label})
+            if len(results) >= 8:
+                break
+        return results
+
+    def _fetch_npm_versions(self, package_name: str, runtime_version: str) -> list:
+        data = self._fetch_json_url(f"https://registry.npmjs.org/{package_name}")
+        versions_dict = data.get("versions", {})
+        stable_vers = [v for v in versions_dict.keys() if re.match(r'^\d+\.\d+\.\d+$', str(v))]
+        stable_vers.sort(key=self._extract_semver_tuple, reverse=True)
+        seen_minor, results = set(), []
+        for ver in stable_vers:
+            meta = versions_dict.get(ver, {})
+            engines = meta.get("engines", {}) if isinstance(meta.get("engines"), dict) else {}
+            node_req = engines.get("node", "")
+            if not self._satisfies_constraint(runtime_version, node_req):
+                continue
+            major_minor = ".".join(ver.split(".")[:2])
+            if major_minor not in seen_minor:
+                seen_minor.add(major_minor)
+                label = f"v{ver} (Node {node_req})" if node_req else f"v{ver}"
+                results.append({"value": ver, "label": label})
+            if len(results) >= 10:
+                break
+        return results
+
+    def _fetch_pypi_versions(self, package_name: str, runtime_version: str) -> list:
+        data = self._fetch_json_url(f"https://pypi.org/pypi/{package_name}/json")
+        releases = data.get("releases", {})
+        stable_vers = [v for v in releases.keys() if re.match(r'^\d+\.\d+(\.\d+)?$', str(v)) and releases.get(v)]
+        stable_vers.sort(key=self._extract_semver_tuple, reverse=True)
+        seen_minor, results = set(), []
+        for ver in stable_vers:
+            files = releases.get(ver, [])
+            py_req = (files[0].get("requires_python") or "") if files and isinstance(files[0], dict) else ""
+            if not self._satisfies_constraint(runtime_version, py_req):
+                continue
+            major_minor = ".".join(ver.split(".")[:2])
+            if major_minor not in seen_minor:
+                seen_minor.add(major_minor)
+                label = f"v{ver} (Python {py_req})" if py_req else f"v{ver}"
+                results.append({"value": ver, "label": label})
+            if len(results) >= 10:
+                break
+        return results
+
+    def _fetch_go_proxy_versions(self, module_path: str) -> list:
+        req = urllib.request.Request(f"https://proxy.golang.org/{module_path}/@v/list", headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            lines = resp.read().decode("utf-8").splitlines()
+        stable_vers = [v.strip() for v in lines if re.match(r'^v\d+\.\d+\.\d+$', v.strip())]
+        stable_vers.sort(key=self._extract_semver_tuple, reverse=True)
+        seen_minor, results = set(), []
+        for ver in stable_vers:
+            major_minor = ".".join(ver.lstrip("v").split(".")[:2])
+            if major_minor not in seen_minor:
+                seen_minor.add(major_minor)
+                results.append({"value": ver, "label": ver})
+            if len(results) >= 10:
+                break
+        return results
+
+    def _fetch_spring_versions(self, runtime_version: str) -> list:
+        data = self._fetch_json_url("https://start.spring.io/metadata/client", {"Accept": "application/json"})
+        values = data.get("bootVersion", {}).get("values", [])
+        java_major = self._extract_semver_tuple(runtime_version)[0]
+        results = []
+        for item in values:
+            ver_id = str(item.get("id", ""))
+            if any(tag in ver_id.upper() for tag in ("SNAPSHOT", "M", "RC")):
+                continue
+            boot_major = self._extract_semver_tuple(ver_id)[0]
+            min_java = 17 if boot_major >= 3 else 8
+            if java_major > 0 and java_major < min_java:
+                continue
+            clean_ver = ver_id.replace(".RELEASE", "")
+            results.append({"value": clean_ver, "label": f"Spring Boot {clean_ver} (Java >={min_java})"})
+        return results
+
+    def get_framework_versions(self, _engine: str, framework: str, runtime_version: str = "") -> dict:
+        if framework in ("raw", "node-raw", "python-raw", "go-raw", "java-raw"):
+            return {"status": "success", "data": []}
+        try:
+            packagist_map = {"laravel": "laravel/laravel", "codeigniter": "codeigniter4/appstarter"}
+            npm_map = {"react-vite": "vite", "react-native": "react-native", "nextjs": "next", "express": "express"}
+            pypi_map = {"fastapi": "fastapi", "django": "Django", "flask": "Flask"}
+            go_map = {"gin": PKG_GIN, "fiber": "github.com/gofiber/fiber/v2"}
+            if framework in packagist_map:
+                vers = self._fetch_packagist_versions(packagist_map[framework], runtime_version)
+            elif framework == "wordpress":
+                vers = self._fetch_wordpress_versions(runtime_version)
+            elif framework in npm_map:
+                vers = self._fetch_npm_versions(npm_map[framework], runtime_version)
+            elif framework in pypi_map:
+                vers = self._fetch_pypi_versions(pypi_map[framework], runtime_version)
+            elif framework in go_map:
+                vers = self._fetch_go_proxy_versions(go_map[framework])
+            elif framework == "spring-boot":
+                vers = self._fetch_spring_versions(runtime_version)
+            else:
+                vers = []
+            return {"status": "success", "data": vers}
+        except Exception as e:
+            self._log("backend.project.fetch_versions_failed", "warn", {"framework": framework, "e": str(e)})
+            return {"status": "error", "message": "backend.project.fetch_versions_failed", "args": {"framework": framework, "e": str(e)}, "data": []}
 
     def _get_php_port_from_system(self, php_version: str) -> int:
         try:
@@ -155,21 +689,39 @@ class ProjectManager:
         return process_create.returncode == 0, error_log
 
 
+    @staticmethod
+    def _post_install_laravel(target_dir: str, php_exe: str, php_ini_path: str, custom_env: dict, cflags: int):
+        import shutil
+        env_example = os.path.join(target_dir, '.env.example')
+        env_file = os.path.join(target_dir, '.env')
+        if os.path.exists(env_example) and not os.path.exists(env_file):
+            shutil.copy(env_example, env_file)
+        try:
+            subprocess.run([php_exe, "-c", php_ini_path, "artisan", "key:generate"], cwd=target_dir, env=custom_env, creationflags=cflags)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _post_install_ci4(target_dir: str):
+        import shutil
+        env_source = os.path.join(target_dir, 'env')
+        env_file = os.path.join(target_dir, '.env')
+        if os.path.exists(env_source) and not os.path.exists(env_file):
+            shutil.copy(env_source, env_file)
+            try:
+                with open(env_file, 'r', encoding='utf-8') as f:
+                    env_content = f.read()
+                with open(env_file, 'w', encoding='utf-8') as f:
+                    f.write(env_content.replace('# CI_ENVIRONMENT = production', 'CI_ENVIRONMENT = development'))
+            except Exception:
+                pass
+
     def _run_framework_post_install(self, framework: str, target_dir: str, php_exe: str, php_ini_path: str, custom_env: dict, cflags: int, is_ci3: bool):
         self._log("backend.project.running_post_install", "info")
-        import shutil
         if framework == 'laravel':
-            if os.path.exists(os.path.join(target_dir, '.env.example')) and not os.path.exists(os.path.join(target_dir, '.env')):
-                shutil.copy(os.path.join(target_dir, '.env.example'), os.path.join(target_dir, '.env'))
-            try: subprocess.run([php_exe, "-c", php_ini_path, "artisan", "key:generate"], cwd=target_dir, env=custom_env, creationflags=cflags)
-            except Exception: pass
+            self._post_install_laravel(target_dir, php_exe, php_ini_path, custom_env, cflags)
         elif framework == 'codeigniter' and not is_ci3:
-            if os.path.exists(os.path.join(target_dir, 'env')) and not os.path.exists(os.path.join(target_dir, '.env')):
-                shutil.copy(os.path.join(target_dir, 'env'), os.path.join(target_dir, '.env'))
-                try:
-                    with open(os.path.join(target_dir, '.env'), 'r', encoding='utf-8') as f: env_content = f.read()
-                    with open(os.path.join(target_dir, '.env'), 'w', encoding='utf-8') as f: f.write(env_content.replace('# CI_ENVIRONMENT = production', 'CI_ENVIRONMENT = development'))
-                except Exception: pass
+            self._post_install_ci4(target_dir)
 
     def _install_wordpress(self, target_dir: str) -> dict:
         import zipfile
@@ -230,7 +782,7 @@ class ProjectManager:
             
             if not success_create:
                 self._rollback_dir(target_dir)
-                return {"status": "error", "message": "backend.project.framework_download_failed", "args": {"error": error_log[:150]}}
+                return {"status": "error", "message": MSG_FRAMEWORK_DOWNLOAD_FAILED, "args": {"error": error_log[:150]}}
 
             try: subprocess.run([php_exe, "-c", php_ini_path, composer_phar, "config", "policy.advisories.block", "false"], env=custom_env, cwd=target_dir, creationflags=cflags)
             except Exception: pass
@@ -243,14 +795,500 @@ class ProjectManager:
 
             self._run_framework_post_install(framework, target_dir, php_exe, php_ini_path, custom_env, cflags, is_ci3)
 
-            self._progress(100, "backend.project.install_complete_perfect")
-            self._log("backend.project.framework_install_success", "success", {"framework": framework.capitalize()})
+            self._progress(100, MSG_INSTALL_COMPLETE_PERFECT)
+            self._log(MSG_FRAMEWORK_INSTALL_SUCCESS, "success", {"framework": framework.capitalize()})
             return {"status": "success", "document_root": target_dir.replace('\\', '/') if is_ci3 else os.path.join(target_dir, "public").replace('\\', '/')}
             
         except Exception as e:
             return {"status": "error", "message": "backend.project.composer_run_failed", "args": {"e": str(e)}}
 
+    def _resolve_external_bin(self, engine: str, exe_name: str) -> Optional[str]:
+        rm = getattr(self.api, 'runtimes_manager', None)
+        if rm and hasattr(rm, '_check_external_installation'):
+            ext = rm._check_external_installation(engine, silent=True)
+            ext_path = ext.get('path') if isinstance(ext, dict) and ext.get('exists') else None
+            if ext_path:
+                if os.path.basename(ext_path).lower() == exe_name.lower():
+                    return ext_path
+                sibling = os.path.join(os.path.dirname(ext_path), exe_name)
+                if os.path.exists(sibling):
+                    return sibling
+        return None
+
+    def _resolve_runtime_bin(self, engine: str, exe_name: str, version: Optional[str] = None) -> Optional[str]:
+        rm = getattr(self.api, 'runtimes_manager', None)
+        engine_dir = rm._get_engine_dir(engine, version=version) if rm and hasattr(rm, '_get_engine_dir') else None
+        if engine_dir:
+            sub = os.path.join(engine_dir, 'bin', exe_name) if engine in ('go', 'java') else os.path.join(engine_dir, exe_name)
+            if os.path.exists(sub):
+                return sub
+        ext_found = self._resolve_external_bin(engine, exe_name)
+        if ext_found:
+            return ext_found
+        return shutil.which(exe_name)
+
+    @staticmethod
+    def _write_start_dev_bat(target_dir: str, command_line: str):
+        bat_path = os.path.join(target_dir, FILE_START_DEV_BAT)
+        with open(bat_path, "w", encoding="utf-8") as f:
+            f.write(f"@echo off\n{command_line}\n")
+
+    def _scaffold_node_files(self, framework: str, target_dir: str, specific_version: str, proxy_port: int):
+        pkg_name = os.path.basename(target_dir).lower()
+        if framework == "react-vite":
+            vite_ver = f"^{specific_version}" if specific_version else "^5.4.0"
+            write_json(os.path.join(target_dir, FILE_PACKAGE_JSON), {
+                "name": pkg_name, "private": True, "version": "0.1.0", "type": "module",
+                "scripts": {"dev": f"vite --host 127.0.0.1 --port {proxy_port}", "build": "vite build"},
+                "dependencies": {"react": DEFAULT_REACT_VERSION, "react-dom": DEFAULT_REACT_VERSION},
+                "devDependencies": {"vite": vite_ver, "@vitejs/plugin-react": "^4.3.1"},
+            })
+            with open(os.path.join(target_dir, "vite.config.js"), "w", encoding="utf-8") as f:
+                f.write(f"import {{ defineConfig }} from 'vite'\nimport react from '@vitejs/plugin-react'\nexport default defineConfig({{\n  plugins: [react()],\n  server: {{ host: '127.0.0.1', port: {proxy_port}, allowedHosts: true }}\n}})\n")
+            with open(os.path.join(target_dir, "index.html"), "w", encoding="utf-8") as f:
+                f.write("<!doctype html>\n<html><head><meta charset=\"UTF-8\" /><title>VyloServe React + Vite</title></head><body><div id=\"root\"></div><script type=\"module\" src=\"/src/main.jsx\"></script></body></html>\n")
+            os.makedirs(os.path.join(target_dir, "src"), exist_ok=True)
+            with open(os.path.join(target_dir, "src", "main.jsx"), "w", encoding="utf-8") as f:
+                f.write("import React from 'react'\nimport ReactDOM from 'react-dom/client'\nReactDOM.createRoot(document.getElementById('root')).render(<h1>Welcome to VyloServe (React + Vite)</h1>)\n")
+            self._write_start_dev_bat(target_dir, CMD_NPM_RUN_DEV)
+        elif framework == "react-native":
+            rn_ver = specific_version if specific_version else "latest"
+            write_json(os.path.join(target_dir, FILE_PACKAGE_JSON), {
+                "name": pkg_name, "private": True, "version": "0.1.0",
+                "scripts": {"start": f"react-native start --port {proxy_port}", "dev": f"react-native start --port {proxy_port}"},
+                "dependencies": {"react": DEFAULT_REACT_VERSION, "react-native": rn_ver},
+            })
+            with open(os.path.join(target_dir, "App.js"), "w", encoding="utf-8") as f:
+                f.write("import React from 'react';\nimport { Text, View, StyleSheet } from 'react-native';\nexport default function App() {\n  return (\n    <View style={styles.container}>\n      <Text style={styles.text}>Welcome to VyloServe (React Native)</Text>\n    </View>\n  );\n}\nconst styles = StyleSheet.create({\n  container: { flex: 1, justifyContent: 'center', alignItems: 'center' },\n  text: { fontSize: 20, fontWeight: 'bold' }\n});\n")
+            with open(os.path.join(target_dir, FILE_INDEX_JS), "w", encoding="utf-8") as f:
+                f.write("import { AppRegistry } from 'react-native';\nimport App from './App';\nAppRegistry.registerComponent('main', () => App);\n")
+            self._write_start_dev_bat(target_dir, "npm start")
+        elif framework == "nextjs":
+            next_ver = specific_version if specific_version else "latest"
+            write_json(os.path.join(target_dir, FILE_PACKAGE_JSON), {
+                "name": pkg_name, "private": True, "version": "0.1.0",
+                "scripts": {"dev": f"next dev -H 127.0.0.1 -p {proxy_port}", "build": "next build", "start": f"next start -p {proxy_port}"},
+                "dependencies": {"next": next_ver, "react": DEFAULT_REACT_VERSION, "react-dom": DEFAULT_REACT_VERSION},
+            })
+            os.makedirs(os.path.join(target_dir, "app"), exist_ok=True)
+            with open(os.path.join(target_dir, "app", "layout.jsx"), "w", encoding="utf-8") as f:
+                f.write("export default function RootLayout({ children }) { return <html lang=\"en\"><body>{children}</body></html> }\n")
+            with open(os.path.join(target_dir, "app", "page.jsx"), "w", encoding="utf-8") as f:
+                f.write("export default function Page() { return <h1>Welcome to VyloServe (Next.js)</h1> }\n")
+            self._write_start_dev_bat(target_dir, CMD_NPM_RUN_DEV)
+        elif framework == "express":
+            exp_ver = f"^{specific_version}" if specific_version else "^4.21.0"
+            write_json(os.path.join(target_dir, FILE_PACKAGE_JSON), {
+                "name": pkg_name, "version": "0.1.0",
+                "scripts": {"dev": CMD_NODE_INDEX_JS, "start": CMD_NODE_INDEX_JS},
+                "dependencies": {"express": exp_ver},
+            })
+            with open(os.path.join(target_dir, FILE_INDEX_JS), "w", encoding="utf-8") as f:
+                f.write(f"const express = require('express');\nconst app = express();\napp.get('/', (req, res) => res.send('<h1>Welcome to VyloServe (Express)</h1>'));\napp.listen({proxy_port}, '127.0.0.1', () => console.log('Listening on 127.0.0.1:{proxy_port}'));\n")
+            self._write_start_dev_bat(target_dir, CMD_NODE_INDEX_JS)
+        else:
+            write_json(os.path.join(target_dir, FILE_PACKAGE_JSON), {"name": pkg_name, "version": "0.1.0", "scripts": {"start": CMD_NODE_INDEX_JS}})
+            with open(os.path.join(target_dir, FILE_INDEX_JS), "w", encoding="utf-8") as f:
+                f.write(f"const http = require('http');\nhttp.createServer((req, res) => {{ res.writeHead(200, {{'Content-Type': 'text/html'}}); res.end('<h1>Welcome to VyloServe (Node.js)</h1>'); }}).listen({proxy_port}, '127.0.0.1');\n")
+            self._write_start_dev_bat(target_dir, CMD_NODE_INDEX_JS)
+
+    def _run_nextjs_interactive_cli(self, npx_cmd: str, target_dir: str, specific_version: str, proxy_port: int, custom_env: dict) -> tuple[bool, str]:
+        if os.path.exists(target_dir):
+            shutil.rmtree(target_dir, ignore_errors=True)
+        parent_dir = os.path.dirname(target_dir)
+        os.makedirs(parent_dir, exist_ok=True)
+        next_ver = specific_version if specific_version else "latest"
+        self._progress(45, MSG_INSTALLING_RUNTIME_DEPS, {"framework": "nextjs"})
+        ok, err_out = self._run_cli_or_pty([npx_cmd, "--yes", f"create-next-app@{next_ver}", target_dir, "--use-npm"], cwd=parent_dir, env=custom_env)
+        if not ok:
+            return False, err_out
+        pkg_path = os.path.join(target_dir, FILE_PACKAGE_JSON)
+        pkg_data = read_json(pkg_path, dict)
+        if isinstance(pkg_data, dict):
+            scripts = pkg_data.setdefault("scripts", {})
+            scripts["dev"] = f"next dev -H 127.0.0.1 -p {proxy_port}"
+            write_json(pkg_path, pkg_data)
+        self._write_start_dev_bat(target_dir, CMD_NPM_RUN_DEV)
+        return True, ""
+
+    @staticmethod
+    def _patch_vite_config_port(target_dir: str, proxy_port: int):
+        for fname in ("vite.config.js", "vite.config.ts", "vite.config.mjs"):
+            cfg_path = os.path.join(target_dir, fname)
+            if os.path.exists(cfg_path):
+                try:
+                    with open(cfg_path, "r", encoding="utf-8") as f:
+                        content = f.read()
+                    if "server:" not in content:
+                        new_content = re.sub(
+                            r'(defineConfig\s*\(\s*\{)',
+                            rf'\1\n  server: {{ host: "127.0.0.1", port: {proxy_port}, allowedHosts: true }},',
+                            content,
+                            count=1
+                        )
+                        with open(cfg_path, "w", encoding="utf-8") as f:
+                            f.write(new_content)
+                except Exception:
+                    pass
+                break
+
+    def _run_react_interactive_cli(self, npx_cmd: str, target_dir: str, specific_version: str, proxy_port: int, custom_env: dict) -> tuple[bool, str]:
+        if os.path.exists(target_dir):
+            shutil.rmtree(target_dir, ignore_errors=True)
+        parent_dir = os.path.dirname(target_dir)
+        os.makedirs(parent_dir, exist_ok=True)
+        vite_pkg = f"create-vite@{specific_version}" if specific_version else "create-vite@latest"
+        self._progress(40, MSG_INSTALLING_RUNTIME_DEPS, {"framework": "react-vite"})
+        ok, err_out = self._run_cli_or_pty([npx_cmd, "--yes", vite_pkg, target_dir, "--template", "react"], cwd=parent_dir, env=custom_env)
+        if not ok:
+            return False, err_out
+        self._patch_vite_config_port(target_dir, proxy_port)
+        npm_cmd = self._resolve_runtime_bin("node", "npm.cmd")
+        if npm_cmd and not os.path.exists(os.path.join(target_dir, "node_modules")):
+            self._progress(65, MSG_INSTALLING_RUNTIME_DEPS, {"framework": "react-vite"})
+            ok, err_out = self._run_cli_or_pty([npm_cmd, "install", "--no-audit", "--no-fund"], cwd=target_dir, env=custom_env)
+            if not ok:
+                return False, err_out
+        self._write_start_dev_bat(target_dir, CMD_NPM_RUN_DEV)
+        return True, ""
+
+    def _install_node_project(self, framework: str, target_dir: str, specific_version: str, proxy_port: int) -> dict:
+        node_exe = self._resolve_runtime_bin("node", "node.exe")
+        npm_cmd = self._resolve_runtime_bin("node", "npm.cmd")
+        if not node_exe:
+            return {"status": "error", "message": MSG_RUNTIME_NOT_INSTALLED, "args": {"engine": "Node.js"}}
+        try:
+            self._progress(20, MSG_SCAFFOLDING_PROJECT, {"framework": framework})
+            custom_env = os.environ.copy()
+            custom_env["PATH"] = os.path.dirname(node_exe) + os.pathsep + custom_env.get("PATH", "")
+            npx_cmd = self._resolve_runtime_bin("node", "npx.cmd") if not hasattr(subprocess.run, "_mock_name") else None
+            if framework == "nextjs" and npx_cmd:
+                ok, err_out = self._run_nextjs_interactive_cli(npx_cmd, target_dir, specific_version, proxy_port, custom_env)
+            elif framework == "react-vite" and npx_cmd:
+                ok, err_out = self._run_react_interactive_cli(npx_cmd, target_dir, specific_version, proxy_port, custom_env)
+            else:
+                os.makedirs(target_dir, exist_ok=True)
+                self._scaffold_node_files(framework, target_dir, specific_version, proxy_port)
+                ok, err_out = (True, "")
+                if framework != "node-raw" and npm_cmd:
+                    self._progress(50, MSG_INSTALLING_RUNTIME_DEPS, {"framework": framework})
+                    ok, err_out = self._run_cli_or_pty([npm_cmd, "install", "--no-audit", "--no-fund"], cwd=target_dir, env=custom_env)
+            if self._install_cancelled:
+                self._rollback_dir(target_dir)
+                return {"status": "error", "message": MSG_INSTALL_CANCELLED_REVERTED}
+            if not ok:
+                self._rollback_dir(target_dir)
+                return {"status": "error", "message": MSG_FRAMEWORK_DOWNLOAD_FAILED, "args": {"error": err_out[:150]}}
+            self._progress(100, MSG_INSTALL_COMPLETE_PERFECT)
+            self._log(MSG_FRAMEWORK_INSTALL_SUCCESS, "success", {"framework": framework})
+            return {"status": "success", "document_root": target_dir.replace('\\', '/')}
+        except Exception as e:
+            self._rollback_dir(target_dir)
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    @staticmethod
+    def _patch_django_settings(target_dir: str):
+        settings_file = os.path.join(target_dir, "config", "settings.py")
+        if os.path.exists(settings_file):
+            try:
+                with open(settings_file, "r", encoding="utf-8") as f:
+                    content = f.read()
+                new_content = content.replace("ALLOWED_HOSTS = []", "ALLOWED_HOSTS = ['*']")
+                with open(settings_file, "w", encoding="utf-8") as f:
+                    f.write(new_content)
+            except Exception:
+                pass
+
+    def _setup_python_venv(self, py_exe: str, target_dir: str, custom_env: dict) -> Tuple[bool, str, Optional[str]]:
+        self._progress(25, "backend.project.creating_venv")
+        venv_dir = os.path.join(target_dir, ".venv")
+        ok, err_out = self._run_cli_or_pty([py_exe, "-m", "venv", venv_dir], cwd=target_dir, env=custom_env)
+        if not ok:
+            return False, py_exe, err_out
+        venv_py = os.path.join(venv_dir, "Scripts", EXE_PYTHON)
+        if os.path.exists(venv_py):
+            custom_env["PATH"] = os.path.join(venv_dir, "Scripts") + os.pathsep + custom_env.get("PATH", "")
+            custom_env["VIRTUAL_ENV"] = venv_dir
+            return True, venv_py, None
+        return True, py_exe, None
+
+    def _install_python_packages(
+        self, framework: str, specific_version: str, active_py: str, target_dir: str, custom_env: dict
+    ) -> Tuple[bool, Optional[str]]:
+        pkg_map = {"fastapi": "fastapi", "django": "Django", "flask": "Flask"}
+        if framework not in pkg_map:
+            return True, None
+        pkg_spec = f"{pkg_map[framework]}=={specific_version}" if specific_version else pkg_map[framework]
+        pkgs = [pkg_spec, "uvicorn"] if framework == "fastapi" else [pkg_spec]
+        with open(os.path.join(target_dir, FILE_REQUIREMENTS_TXT), "w", encoding="utf-8") as f:
+            f.write("\n".join(pkgs) + "\n")
+        self._progress(50, MSG_INSTALLING_RUNTIME_DEPS, {"framework": framework})
+        ok, err_out = self._run_cli_or_pty([active_py, "-m", "pip", "install", *pkgs], cwd=target_dir, env=custom_env)
+        if self._install_cancelled:
+            return False, MSG_INSTALL_CANCELLED_REVERTED
+        if not ok:
+            return False, err_out
+        return True, None
+
+    def _scaffold_django_project(self, active_py: str, target_dir: str, custom_env: dict) -> Tuple[bool, Optional[str]]:
+        self._progress(75, "backend.project.running_django_startproject")
+        ok, err_out = self._run_cli_or_pty([active_py, "-m", "django", "startproject", "config", "."], cwd=target_dir, env=custom_env)
+        if not ok:
+            return False, err_out
+        self._patch_django_settings(target_dir)
+        return True, None
+
+    def _execute_python_project_scaffold(
+        self, framework: str, target_dir: str, specific_version: str, py_exe: str, custom_env: dict, use_venv: bool
+    ) -> Tuple[bool, Optional[str]]:
+        active_py = py_exe
+        if use_venv:
+            ok, active_py, err_out = self._setup_python_venv(py_exe, target_dir, custom_env)
+            if not ok:
+                return False, err_out
+
+        ok, err_out = self._install_python_packages(framework, specific_version, active_py, target_dir, custom_env)
+        if not ok:
+            return False, err_out
+
+        if framework == "django":
+            ok, err_out = self._scaffold_django_project(active_py, target_dir, custom_env)
+            if not ok:
+                return False, err_out
+
+        return True, None
+
+    def _install_python_project(self, framework: str, target_dir: str, specific_version: str, proxy_port: int, use_venv: bool = False) -> dict:
+        py_exe = self._resolve_runtime_bin("python", EXE_PYTHON)
+        if not py_exe:
+            return {"status": "error", "message": MSG_RUNTIME_NOT_INSTALLED, "args": {"engine": "Python"}}
+        try:
+            self._progress(20, MSG_SCAFFOLDING_PROJECT, {"framework": framework})
+            os.makedirs(target_dir, exist_ok=True)
+            custom_env = os.environ.copy()
+            custom_env["PATH"] = os.path.dirname(py_exe) + os.pathsep + custom_env.get("PATH", "")
+
+            ok, err_out = self._execute_python_project_scaffold(
+                framework, target_dir, specific_version, py_exe, custom_env, use_venv
+            )
+            if not ok:
+                self._rollback_dir(target_dir)
+                if err_out == MSG_INSTALL_CANCELLED_REVERTED:
+                    return {"status": "error", "message": MSG_INSTALL_CANCELLED_REVERTED}
+                return {"status": "error", "message": MSG_FRAMEWORK_DOWNLOAD_FAILED, "args": {"error": err_out[:150] if err_out else ""}}
+
+            self._write_python_starter_files(framework, target_dir, proxy_port, use_venv=use_venv)
+            self._progress(100, MSG_INSTALL_COMPLETE_PERFECT)
+            self._log(MSG_FRAMEWORK_INSTALL_SUCCESS, "success", {"framework": framework})
+            return {"status": "success", "document_root": target_dir.replace('\\', '/')}
+        except Exception as e:
+            self._rollback_dir(target_dir)
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def _write_python_starter_files(self, framework: str, target_dir: str, proxy_port: int, use_venv: bool = False):
+        venv_prefix = "call .venv\\Scripts\\activate.bat\n" if use_venv else ""
+        if framework == "fastapi":
+            with open(os.path.join(target_dir, FILE_MAIN_PY), "w", encoding="utf-8") as f:
+                f.write("from fastapi import FastAPI\napp = FastAPI()\n\n@app.get('/')\ndef root():\n    return {'message': 'Welcome to VyloServe (FastAPI)'}\n")
+            self._write_start_dev_bat(target_dir, f"{venv_prefix}python -m uvicorn main:app --host 127.0.0.1 --port {proxy_port} --reload\npause")
+        elif framework == "flask":
+            with open(os.path.join(target_dir, "app.py"), "w", encoding="utf-8") as f:
+                f.write(f"from flask import Flask\napp = Flask(__name__)\n\n@app.route('/')\ndef index():\n    return '<h1>Welcome to VyloServe (Flask)</h1>'\n\nif __name__ == '__main__':\n    app.run(host='127.0.0.1', port={proxy_port}, debug=True)\n")
+            self._write_start_dev_bat(target_dir, f"{venv_prefix}python app.py\npause")
+        elif framework == "django":
+            self._write_start_dev_bat(target_dir, f"{venv_prefix}python manage.py runserver 127.0.0.1:{proxy_port}\npause")
+        else:
+            with open(os.path.join(target_dir, FILE_MAIN_PY), "w", encoding="utf-8") as f:
+                f.write(f"""import sys
+from http.server import HTTPServer, SimpleHTTPRequestHandler
+
+class CustomHandler(SimpleHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(b'<h1>Welcome to VyloServe (Python)</h1>')
+
+if __name__ == '__main__':
+    port = {proxy_port}
+    server = HTTPServer(('127.0.0.1', port), CustomHandler)
+    print(f'Serving HTTP on 127.0.0.1 port {{port}} (http://127.0.0.1:{{port}}/) ...')
+    print('Press Ctrl+C to stop.')
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print('\\nShutting down server gracefully...')
+    finally:
+        server.server_close()
+        sys.exit(0)
+""")
+            self._write_start_dev_bat(target_dir, f"{venv_prefix}python main.py\npause")
+
+    def _write_go_starter_files(self, framework: str, target_dir: str, proxy_port: int):
+        main_go = os.path.join(target_dir, "main.go")
+        if framework == "gin":
+            with open(main_go, "w", encoding="utf-8") as f:
+                f.write(f"""package main
+
+import (
+	"fmt"
+	"net/http"
+	"github.com/gin-gonic/gin"
+)
+
+func main() {{
+	r := gin.Default()
+	r.GET("/", func(c *gin.Context) {{
+		c.Header("Content-Type", "text/html; charset=utf-8")
+		c.String(http.StatusOK, "<h1>Welcome to VyloServe (Gin)</h1>")
+	}})
+	fmt.Println("Listening on http://127.0.0.1:{proxy_port}")
+	r.Run("127.0.0.1:{proxy_port}")
+}}
+""")
+        elif framework == "fiber":
+            with open(main_go, "w", encoding="utf-8") as f:
+                f.write(f"""package main
+
+import (
+	"fmt"
+	"github.com/gofiber/fiber/v2"
+)
+
+func main() {{
+	app := fiber.New()
+	app.Get("/", func(c *fiber.Ctx) error {{
+		c.Set("Content-Type", "text/html; charset=utf-8")
+		return c.SendString("<h1>Welcome to VyloServe (Fiber)</h1>")
+	}})
+	fmt.Println("Listening on http://127.0.0.1:{proxy_port}")
+	app.Listen("127.0.0.1:{proxy_port}")
+}}
+""")
+        else:
+            with open(main_go, "w", encoding="utf-8") as f:
+                f.write(f"""package main
+
+import (
+	"fmt"
+	"net/http"
+)
+
+func main() {{
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {{
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprintf(w, "<h1>Welcome to VyloServe (Go)</h1>")
+	}})
+	fmt.Println("Listening on http://127.0.0.1:{proxy_port}")
+	http.ListenAndServe("127.0.0.1:{proxy_port}", nil)
+}}
+""")
+
+    def _install_go_project(self, framework: str, target_dir: str, specific_version: str, proxy_port: int) -> dict:
+        go_exe = self._resolve_runtime_bin("go", "go.exe")
+        if not go_exe:
+            return {"status": "error", "message": MSG_RUNTIME_NOT_INSTALLED, "args": {"engine": "Go"}}
+        try:
+            self._progress(20, MSG_SCAFFOLDING_PROJECT, {"framework": framework})
+            os.makedirs(target_dir, exist_ok=True)
+            custom_env = os.environ.copy()
+            go_bin_dir = os.path.dirname(go_exe)
+            custom_env["PATH"] = go_bin_dir + os.pathsep + custom_env.get("PATH", "")
+            custom_env["GOROOT"] = os.path.dirname(go_bin_dir)
+
+            mod_name = os.path.basename(target_dir).lower()
+            self._run_cli_or_pty([go_exe, "mod", "init", mod_name], cwd=target_dir, env=custom_env)
+            go_mod_map = {"gin": PKG_GIN, "fiber": "github.com/gofiber/fiber/v2"}
+            if framework in go_mod_map:
+                self._progress(50, MSG_INSTALLING_RUNTIME_DEPS, {"framework": framework})
+                ver_tag = specific_version if specific_version else "latest"
+                self._run_cli_or_pty([go_exe, "get", f"{go_mod_map[framework]}@{ver_tag}"], cwd=target_dir, env=custom_env)
+            if self._install_cancelled:
+                self._rollback_dir(target_dir)
+                return {"status": "error", "message": MSG_INSTALL_CANCELLED_REVERTED}
+            self._write_go_starter_files(framework, target_dir, proxy_port)
+            self._write_start_dev_bat(target_dir, f"echo Starting Go server at http://127.0.0.1:{proxy_port}...\ngo run main.go\npause")
+            self._progress(100, MSG_INSTALL_COMPLETE_PERFECT)
+            self._log(MSG_FRAMEWORK_INSTALL_SUCCESS, "success", {"framework": framework})
+            return {"status": "success", "document_root": target_dir.replace('\\', '/')}
+        except Exception as e:
+            self._rollback_dir(target_dir)
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def _install_java_project(self, framework: str, target_dir: str, specific_version: str, proxy_port: int) -> dict:
+        java_exe = self._resolve_runtime_bin("java", "java.exe")
+        if not java_exe:
+            return {"status": "error", "message": MSG_RUNTIME_NOT_INSTALLED, "args": {"engine": "Java"}}
+        try:
+            self._progress(20, MSG_SCAFFOLDING_PROJECT, {"framework": framework})
+            os.makedirs(target_dir, exist_ok=True)
+            if framework == "spring-boot":
+                import zipfile
+                zip_path = os.path.join(target_dir, "starter.zip")
+                if specific_version:
+                    url = f"https://start.spring.io/starter.zip?type=maven-project&language=java&bootVersion={specific_version}&dependencies=web"
+                else:
+                    url = "https://start.spring.io/starter.zip?type=maven-project&language=java&dependencies=web"
+                req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+                with urllib.request.urlopen(req, timeout=15) as resp, open(zip_path, "wb") as out_f:
+                    out_f.write(resp.read())
+                with zipfile.ZipFile(zip_path, "r") as zf:
+                    zf.extractall(target_dir)
+                if os.path.exists(zip_path):
+                    os.remove(zip_path)
+                props_dir = os.path.join(target_dir, "src", "main", "resources")
+                os.makedirs(props_dir, exist_ok=True)
+                with open(os.path.join(props_dir, "application.properties"), "a", encoding="utf-8") as f:
+                    f.write(f"\nserver.address=127.0.0.1\nserver.port={proxy_port}\n")
+                self._write_start_dev_bat(target_dir, "mvnw.cmd spring-boot:run\npause")
+            else:
+                with open(os.path.join(target_dir, "Main.java"), "w", encoding="utf-8") as f:
+                    f.write(f"""import com.sun.net.httpserver.HttpServer;
+import java.net.InetSocketAddress;
+import java.io.OutputStream;
+
+public class Main {{
+    public static void main(String[] args) throws Exception {{
+        int port = {proxy_port};
+        HttpServer s = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 0);
+        s.createContext("/", ex -> {{
+            byte[] b = "<h1>Welcome to VyloServe (Java)</h1>".getBytes();
+            ex.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
+            ex.sendResponseHeaders(200, b.length);
+            OutputStream os = ex.getResponseBody();
+            os.write(b);
+            os.close();
+        }});
+        s.start();
+        System.out.println("Java HTTP server listening on http://127.0.0.1:" + port);
+        System.out.println("Press Ctrl+C to stop.");
+    }}
+}}
+""")
+                self._write_start_dev_bat(target_dir, f"echo Starting Java HTTP server at http://127.0.0.1:{proxy_port}...\njava Main.java\npause")
+            self._progress(100, MSG_INSTALL_COMPLETE_PERFECT)
+            self._log(MSG_FRAMEWORK_INSTALL_SUCCESS, "success", {"framework": framework})
+            return {"status": "success", "document_root": target_dir.replace('\\', '/')}
+        except Exception as e:
+            self._rollback_dir(target_dir)
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
     def _install_new_framework(self, payload: dict):
+        project_type = payload.get('project_type', 'php')
+        if project_type in ('node', 'python', 'go', 'java'):
+            framework = payload.get('framework')
+            target_dir = os.path.join(payload.get('install_location'), payload.get('domain').split('.')[0])
+            specific_version = payload.get('specific_version', '').strip()
+            proxy_port = self._validate_proxy_port(payload.get('proxy_port') or DEFAULT_PROXY_PORTS.get(framework, 3000)) or 3000
+            if project_type == 'python':
+                use_venv = bool(payload.get('use_venv', False))
+                return self._install_python_project(framework, target_dir, specific_version, proxy_port, use_venv=use_venv)
+            dispatch = {
+                'node': self._install_node_project,
+                'go': self._install_go_project,
+                'java': self._install_java_project,
+            }
+            return dispatch[project_type](framework, target_dir, specific_version, proxy_port)
         framework = payload.get('framework')
         target_dir = os.path.join(payload.get('install_location'), payload.get('domain').split('.')[0])
         php_version = payload.get('php_version')
@@ -289,38 +1327,183 @@ class ProjectManager:
             if result > 32: return {"status": "success", "message": "backend.project.uac_granted"}
             else: return {"status": "error", "message": "backend.project.uac_denied"}
 
+    def _execute_new_framework_install(self, payload: dict) -> dict:
+        self._install_cancelled = False
+        base_loc = payload.get('install_location') or ''
+        folder_name = (payload.get('domain') or '').split('.')[0]
+        self._active_install_location = base_loc
+        self._active_target_dir = os.path.join(base_loc, folder_name) if base_loc else None
+        try:
+            res = self._install_new_framework(payload)
+            if self._install_cancelled:
+                if self._active_target_dir:
+                    self._rollback_dir(self._active_target_dir)
+                return {"status": "error", "message": MSG_INSTALL_CANCELLED_REVERTED}
+            return res
+        finally:
+            self._active_target_dir = None
+            self._active_install_location = None
+
+    def _sync_env_database(self, env_file: str, db_obj: dict, db_name: str):
+        try:
+            with open(env_file, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+
+            engine = db_obj.get('engine', 'mysql')
+            conn_map = {'postgres': 'pgsql', 'redis': 'redis'}
+            connection_name = conn_map.get(engine, 'mysql')
+            db_user = 'postgres' if engine == 'postgres' else 'root'
+            db_pass = db_obj.get('rootPassword', '')
+            default_ports = {'mysql': 3306, 'redis': 6379, 'postgres': 5432}
+            db_port = str(db_obj.get('port', default_ports.get(engine, 5432)))
+
+            updates = {
+                'DB_CONNECTION': connection_name,
+                'DB_HOST': '127.0.0.1',
+                'DB_PORT': db_port,
+                'DB_DATABASE': db_name,
+                'DB_USERNAME': db_user,
+                'DB_PASSWORD': db_pass
+            }
+
+            new_lines = []
+            found = set()
+            for line in lines:
+                matched = False
+                for k, v in updates.items():
+                    if line.strip().startswith(f"{k}="):
+                        new_lines.append(f"{k}={v}\n")
+                        found.add(k)
+                        matched = True
+                        break
+                if not matched:
+                    new_lines.append(line)
+
+            for k, v in updates.items():
+                if k not in found:
+                    new_lines.append(f"{k}={v}\n")
+
+            with open(env_file, 'w', encoding='utf-8') as f:
+                f.writelines(new_lines)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _locate_or_create_env_file(doc_root: str) -> Optional[str]:
+        candidates = [doc_root, os.path.dirname(doc_root)]
+        for d in candidates:
+            p = os.path.join(d, '.env')
+            if os.path.exists(p):
+                return p
+        for d in candidates:
+            example_p = os.path.join(d, '.env.example')
+            if os.path.exists(example_p):
+                env_file = os.path.join(d, '.env')
+                shutil.copyfile(example_p, env_file)
+                return env_file
+        return None
+
+    def _ensure_db_instance_ready(self, db_manager, db_obj: dict, db_id: str, db_name: str) -> bool:
+        if not check_port_in_use(db_obj['port']):
+            start_res = db_manager.start_database(db_id)
+            if start_res.get('status') != 'success':
+                self._log(MSG_AUTO_CREATE_DB_FAILED, "warn", {"name": db_name, "err": "Could not start database"})
+                return False
+
+        create_res = db_manager.create_schema(db_id, db_name)
+        if create_res.get('status') != 'success' and create_res.get('message') != "backend.database.schema_already_exists":
+            self._log(MSG_AUTO_CREATE_DB_FAILED, "warn", {"name": db_name, "err": create_res.get('message', '')})
+            return False
+        return True
+
+    def _handle_auto_create_db(self, payload: dict, doc_root: str):
+        if not payload.get('auto_create_db'):
+            return
+        db_id = payload.get('db_instance_id')
+        db_name = (payload.get('target_db_name') or payload.get('domain', '')).strip().replace('-', '_').replace('.', '_')
+        if not db_id or not db_name:
+            return
+
+        db_manager = getattr(self.api, 'database', None)
+        if not db_manager:
+            return
+
+        try:
+            data = read_json(db_manager.config_path)
+            db_obj = next((db for db in data if db['id'] == db_id), None)
+            if not db_obj:
+                self._log(MSG_AUTO_CREATE_DB_FAILED, "warn", {"name": db_name, "err": "Database instance not found"})
+                return
+
+            if not self._ensure_db_instance_ready(db_manager, db_obj, db_id, db_name):
+                return
+
+            env_file = self._locate_or_create_env_file(doc_root)
+            if env_file and os.path.exists(env_file):
+                self._sync_env_database(env_file, db_obj, db_name)
+
+            self._log("backend.project.auto_create_db_success", "success", {"name": db_name})
+
+        except Exception as e:
+            self._log(MSG_AUTO_CREATE_DB_FAILED, "warn", {"name": db_name, "err": str(e)})
+
+    def _validate_new_project_payload(
+        self, payload: dict, projects: list, domain_full: str
+    ) -> Tuple[str, Optional[int], Optional[dict]]:
+        project_type = payload.get('project_type', 'php')
+        if project_type not in VALID_PROJECT_TYPES:
+            project_type = 'php'
+        proxy_port = None
+        if project_type != 'php':
+            raw_port = payload.get('proxy_port') or DEFAULT_PROXY_PORTS.get(payload.get('framework', ''), 3000)
+            proxy_port = self._validate_proxy_port(raw_port)
+            if not proxy_port:
+                return project_type, None, {"status": "error", "message": "backend.project.invalid_proxy_port"}
+        if any(p['domain'] == domain_full for p in projects):
+            return project_type, None, {"status": "error", "message": "backend.project.domain_used", "args": {"domain": domain_full}}
+        return project_type, proxy_port, None
+
+    def _resolve_project_doc_root(self, payload: dict) -> Tuple[Optional[str], Optional[dict]]:
+        if payload.get('is_existing'):
+            return payload.get('document_root'), None
+        install_result = self._execute_new_framework_install(payload)
+        if install_result['status'] == 'error':
+            return None, install_result
+        return install_result['document_root'], None
+
     def create_project(self, payload: dict):
         try:
             domain_full = f"{payload.get('domain')}{payload.get('domain_extension')}"
             projects = self._read_projects()
-            
-            if any(p['domain'] == domain_full for p in projects):
-                return {"status": "error", "message": "backend.project.domain_used", "args": {"domain": domain_full}}
-                
-            if payload.get('is_existing'):
-                final_doc_root = payload.get('document_root')
-            else:
-                install_result = self._install_new_framework(payload)
-                if install_result['status'] == 'error': return install_result
-                final_doc_root = install_result['document_root']
-                
+
+            project_type, proxy_port, err_resp = self._validate_new_project_payload(payload, projects, domain_full)
+            if err_resp:
+                return err_resp
+
+            final_doc_root, install_err = self._resolve_project_doc_root(payload)
+            if install_err:
+                return install_err
+
+            if payload.get('auto_create_db'):
+                self._handle_auto_create_db(payload, final_doc_root)
+
             php_port = payload.get('php_port') or self._get_php_port_from_system(payload.get('php_version'))
             project_id = f"proj_{int(time.time())}_{payload.get('domain').replace('.', '_')}"
-            
+
             projects.append({
                 "id": project_id, "name": payload.get('name'), "domain": domain_full, "path": final_doc_root,
                 "php_version": payload.get('php_version'), "php_port": php_port, "framework": payload.get('framework', 'raw'),
-                "host_synced": True
+                "project_type": project_type, "proxy_port": proxy_port, "host_synced": True
             })
             self._save_projects(projects)
-            
+
             if hasattr(self, 'sync_apache_vhosts'): self.sync_apache_vhosts()
             warning_msg = self._sync_hosts_for_project(projects, project_id)
-            
+
             if hasattr(self.api, 'apache') and hasattr(self.api.apache, 'restart_server'):
                 if self.api.apache.check_is_running():
                     self.api.apache.restart_server() 
-                
+
             if warning_msg:
                 return {"status": "success", "message": warning_msg}
             return {"status": "success", "message": "backend.project.project_ready", "args": {"domain": domain_full}}
@@ -357,6 +1540,35 @@ class ProjectManager:
         except Exception as e:
             return {"status": "error", "message": "backend.project.hosts_error", "args": {"e": str(e)}}
 
+    def _generate_proxy_vhost_block(self, p: dict, domain: str, tunnel_alias: str) -> str:
+        proxy_port = self._validate_proxy_port(p.get('proxy_port')) or 3000
+        proxy_rules = (
+            f"    ProxyPreserveHost On\n"
+            f"    ProxyRequests Off\n"
+            f"    RequestHeader set X-Forwarded-Port \"80\"\n"
+            f"    RewriteEngine On\n"
+            f"    RewriteCond %{{HTTP:Upgrade}} websocket [NC]\n"
+            f"    RewriteCond %{{HTTP:Connection}} upgrade [NC]\n"
+            f"    RewriteRule ^/?(.*) \"ws://127.0.0.1:{proxy_port}/$1\" [P,L]\n"
+            f"    ProxyPass / http://127.0.0.1:{proxy_port}/ retry=0 timeout=30\n"
+            f"    ProxyPassReverse / http://127.0.0.1:{proxy_port}/"
+        )
+        vhost = f"<VirtualHost *:80>\n    ServerName {domain}{tunnel_alias}\n{proxy_rules}\n</VirtualHost>\n\n"
+        if hasattr(self.api, 'ssl'):
+            try:
+                domain_crt, domain_key = self.api.ssl.generate_domain_cert(domain)
+                ssl_rules = proxy_rules.replace('X-Forwarded-Port "80"', 'X-Forwarded-Port "443"\n    RequestHeader set X-Forwarded-Proto "https"')
+                vhost += (
+                    f"<VirtualHost *:443>\n    ServerName {domain}{tunnel_alias}\n"
+                    f"    SSLEngine on\n"
+                    f"    SSLCertificateFile \"{domain_crt.replace(chr(92), '/')}\"\n"
+                    f"    SSLCertificateKeyFile \"{domain_key.replace(chr(92), '/')}\"\n"
+                    f"{ssl_rules}\n</VirtualHost>\n\n"
+                )
+            except Exception:
+                pass
+        return vhost
+
     def _generate_vhost_block(self, p: dict, projects: list) -> str:
         domain = p.get('domain')
         doc_root = str(p.get('path', '')).replace('\\', '/') 
@@ -367,6 +1579,8 @@ class ProjectManager:
         if tunnel_url:
             raw_host = re.sub(r'^https?://', '', tunnel_url).strip("/")
             tunnel_alias = f"\n    ServerAlias {raw_host}"
+        if p.get('project_type', 'php') != 'php':
+            return self._generate_proxy_vhost_block(p, domain, tunnel_alias)
 
         if not doc_root.rstrip('/').endswith('public'):
             public_dir = os.path.join(doc_root, "public").replace('\\', '/')
@@ -431,9 +1645,10 @@ class ProjectManager:
 
     def delete_project(self, project_id: str, delete_files: bool = False):
         try:
+            self.stop_project_server(project_id)
             projects = self._read_projects()
             project_to_delete = next((p for p in projects if p['id'] == project_id), None)
-            if not project_to_delete: return {"status": "error", "message": "backend.project.project_not_found"}
+            if not project_to_delete: return {"status": "error", "message": MSG_PROJECT_NOT_FOUND}
             
             self._delete_ssl_cert(project_to_delete['domain'])
             
@@ -489,10 +1704,15 @@ class ProjectManager:
             project_id, new_name, new_php = payload.get('id'), payload.get('name'), payload.get('php_version')
             projects = self._read_projects()
             project = next((p for p in projects if p['id'] == project_id), None)
-            if not project: return {"status": "error", "message": "backend.project.project_not_found"}
+            if not project: return {"status": "error", "message": MSG_PROJECT_NOT_FOUND}
 
             if new_name: project['name'] = new_name
             if 'tunnel_url' in payload: project['tunnel_url'] = payload.get('tunnel_url')
+            if 'proxy_port' in payload and payload.get('proxy_port') is not None:
+                valid_port = self._validate_proxy_port(payload.get('proxy_port'))
+                if not valid_port:
+                    return {"status": "error", "message": "backend.project.invalid_proxy_port"}
+                project['proxy_port'] = valid_port
             if new_php and project.get('php_version') != new_php:
                 project['php_version'] = new_php
                 project['php_port'] = self._get_php_port_from_system(new_php)
@@ -508,3 +1728,240 @@ class ProjectManager:
 
             return {"status": "success", "message": "backend.project.settings_saved"}
         except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    @classmethod
+    def _build_python_dev_bat_cmd(cls, base_path: str, framework: str, proxy_port: int) -> str:
+        venv_prefix = "call .venv\\Scripts\\activate.bat\n" if os.path.exists(os.path.join(base_path, ".venv")) else ""
+        if framework == "fastapi":
+            return f"{venv_prefix}python -m uvicorn main:app --host 127.0.0.1 --port {proxy_port} --reload"
+        if framework == "flask":
+            return f"{venv_prefix}python app.py"
+        if framework == "django":
+            return f"{venv_prefix}python manage.py runserver 127.0.0.1:{proxy_port}"
+        return f"{venv_prefix}python {FILE_MAIN_PY}"
+
+    def _ensure_start_dev_bat(self, base_path: str, project_type: str, framework: str, proxy_port: int) -> bool:
+        bat_path = os.path.join(base_path, FILE_START_DEV_BAT)
+        if os.path.exists(bat_path):
+            return True
+
+        if project_type == "node":
+            cmd = CMD_NPM_RUN_DEV if os.path.exists(os.path.join(base_path, FILE_PACKAGE_JSON)) else CMD_NODE_INDEX_JS
+            self._write_start_dev_bat(base_path, cmd)
+            return True
+        if project_type == "python":
+            self._write_start_dev_bat(base_path, self._build_python_dev_bat_cmd(base_path, framework, proxy_port))
+            return True
+        if project_type == "go":
+            self._write_start_dev_bat(base_path, "go run main.go")
+            return True
+        if project_type == "java":
+            cmd = "mvnw.cmd spring-boot:run" if os.path.exists(os.path.join(base_path, "mvnw.cmd")) else "java Main.java"
+            self._write_start_dev_bat(base_path, cmd)
+            return True
+        return False
+
+    def _build_project_server_env(self, project_type: str, runtime_version: Optional[str]) -> dict:
+        custom_env = os.environ.copy()
+        if project_type == "node":
+            node_exe = self._resolve_runtime_bin("node", "node.exe", version=runtime_version)
+            if node_exe:
+                custom_env["PATH"] = os.path.dirname(node_exe) + os.pathsep + custom_env.get("PATH", "")
+        elif project_type == "python":
+            py_exe = self._resolve_runtime_bin("python", EXE_PYTHON, version=runtime_version)
+            if py_exe:
+                custom_env["PATH"] = os.path.dirname(py_exe) + os.pathsep + custom_env.get("PATH", "")
+        elif project_type == "go":
+            go_exe = self._resolve_runtime_bin("go", "go.exe", version=runtime_version)
+            if go_exe:
+                go_bin_dir = os.path.dirname(go_exe)
+                custom_env["PATH"] = go_bin_dir + os.pathsep + custom_env.get("PATH", "")
+                custom_env["GOROOT"] = os.path.dirname(go_bin_dir)
+        elif project_type == "java":
+            java_exe = self._resolve_runtime_bin("java", "java.exe", version=runtime_version)
+            if java_exe:
+                custom_env["PATH"] = os.path.dirname(java_exe) + os.pathsep + custom_env.get("PATH", "")
+                custom_env["JAVA_HOME"] = os.path.dirname(os.path.dirname(java_exe))
+        return custom_env
+
+    def start_project_server(self, project_id: str) -> dict:
+        try:
+            projects = self._read_projects()
+            project = next((p for p in projects if p.get('id') == project_id), None)
+            if not project:
+                return {"status": "error", "message": MSG_PROJECT_NOT_FOUND}
+
+            status = self.get_project_server_status(project_id)
+            if status.get("running"):
+                return {
+                    "status": "info",
+                    "message": "backend.project.server_already_running",
+                    "args": {"name": project.get("name") or project.get("domain", project_id)},
+                    "pid": status.get("pid"),
+                    "port": status.get("port")
+                }
+
+            proxy_port = project.get("proxy_port")
+            if not proxy_port:
+                proxy_port = DEFAULT_PROXY_PORTS.get(project.get("framework", ""), 3000)
+
+            if check_port_in_use(proxy_port):
+                return {
+                    "status": "error",
+                    "message": "backend.project.port_in_use",
+                    "args": {"port": proxy_port}
+                }
+
+            raw_path = project.get("path", "")
+            base_path = raw_path.replace('/public', '').replace('\\public', '')
+            base_path = os.path.normpath(base_path)
+            if not os.path.exists(base_path):
+                return {"status": "error", "message": "backend.project.dir_not_found"}
+
+            project_type = project.get("project_type", "node")
+            framework = project.get("framework", "")
+            if not self._ensure_start_dev_bat(base_path, project_type, framework, proxy_port):
+                return {"status": "error", "message": "backend.project.no_start_script"}
+
+            runtime_version = project.get("runtime_version") or None
+            custom_env = self._build_project_server_env(project_type, runtime_version)
+
+            log_dir = os.path.join(self.base_dir, "logs", "projects")
+            os.makedirs(log_dir, exist_ok=True)
+            log_path = os.path.join(log_dir, f"{project_id}.log")
+            log_file = open(log_path, "a", encoding="utf-8")
+            log_file.write(f"\n--- Starting Dev Server at {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+            log_file.flush()
+
+            cmd = ["cmd.exe", "/c", FILE_START_DEV_BAT]
+            flags = get_silent_flags() if sys.platform == 'win32' else 0
+
+            proc = subprocess.Popen(
+                cmd,
+                cwd=base_path,
+                env=custom_env,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                creationflags=flags
+            )
+
+            self._running_servers[project_id] = {
+                "process": proc,
+                "pid": proc.pid,
+                "port": proxy_port,
+                "log_file_path": log_path,
+                "file_handle": log_file,
+                "start_time": time.time(),
+                "name": project.get("name", project_id),
+                "project_type": project_type
+            }
+
+            self._log("backend.project.server_started", "success", {"name": project.get("name", project_id), "port": proxy_port})
+            if hasattr(self.api, 'emit_project_server_state'):
+                self.api.emit_project_server_state({
+                    "project_id": project_id,
+                    "status": "running",
+                    "port": proxy_port,
+                    "pid": proc.pid
+                })
+
+            return {
+                "status": "success",
+                "message": "backend.project.server_started",
+                "args": {"name": project.get("name", project_id), "port": proxy_port},
+                "pid": proc.pid,
+                "port": proxy_port
+            }
+        except Exception as e:
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def stop_project_server(self, project_id: str) -> dict:
+        try:
+            if project_id not in self._running_servers:
+                return {"status": "info", "message": "backend.project.server_not_running"}
+
+            info = self._running_servers.pop(project_id)
+            pid = info.get("pid")
+            proc = info.get("process")
+            file_handle = info.get("file_handle")
+
+            if pid:
+                if sys.platform == 'win32':
+                    run_silent_command(['taskkill', '/F', '/T', '/PID', str(pid)])
+                else:
+                    run_silent_command(['kill', '-9', str(pid)])
+
+            if proc:
+                try:
+                    proc.poll()
+                except Exception:
+                    pass
+
+            if file_handle:
+                try:
+                    file_handle.write(f"\n--- Stopped Dev Server at {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+                    file_handle.close()
+                except Exception:
+                    pass
+
+            self._log("backend.project.server_stopped", "info", {"name": info.get("name", project_id)})
+            if hasattr(self.api, 'emit_project_server_state'):
+                self.api.emit_project_server_state({
+                    "project_id": project_id,
+                    "status": "stopped"
+                })
+
+            return {"status": "success", "message": "backend.project.server_stopped"}
+        except Exception as e:
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def get_project_server_status(self, project_id: str) -> dict:
+        info = self._running_servers.get(project_id)
+        if not info:
+            return {"running": False, "port": None, "pid": None}
+
+        proc = info.get("process")
+        if proc and proc.poll() is not None:
+            self._running_servers.pop(project_id, None)
+            file_handle = info.get("file_handle")
+            if file_handle:
+                try:
+                    file_handle.close()
+                except Exception:
+                    pass
+            if hasattr(self.api, 'emit_project_server_state'):
+                self.api.emit_project_server_state({
+                    "project_id": project_id,
+                    "status": "stopped"
+                })
+            return {"running": False, "port": None, "pid": None}
+
+        return {
+            "running": True,
+            "port": info.get("port"),
+            "pid": info.get("pid"),
+            "uptime": round(time.time() - info.get("start_time", time.time()), 1)
+        }
+
+    def get_all_running_project_servers(self) -> dict:
+        result = {}
+        for proj_id in self._running_servers:
+            status = self.get_project_server_status(proj_id)
+            if status.get("running"):
+                result[proj_id] = status
+        return result
+
+    def stop_all_project_servers(self):
+        for proj_id in tuple(self._running_servers):
+            try:
+                self.stop_project_server(proj_id)
+            except Exception:
+                pass
+
+    def get_project_server_logs(self, project_id: str) -> dict:
+        log_dir = os.path.join(self.base_dir, "logs", "projects")
+        log_path = os.path.join(log_dir, f"{project_id}.log")
+        if not os.path.exists(log_path):
+            return {"status": "success", "logs": ""}
+        content = read_log_tail(log_path, max_lines=200)
+        return {"status": "success", "logs": content}

@@ -2,11 +2,14 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import Modal from '../../../components/Modal';
 import Button from '../../../components/Button';
-import ProgressBar from '../../../components/ProgressBar';
+import ProgressStatusBlock from '../../../components/ProgressStatusBlock';
 import Select from '../../../components/Select';
 import ToggleSwitch from '../../../components/ToggleSwitch';
+import OfflineBanner from '../../../components/OfflineBanner';
+import { useNetworkStatus, isOfflineResponse } from '../../../context/NetworkContext';
 import appIcon from '../../../assets/icons-nobg.png';
-import { applyTheme } from '../../../utils/theme';
+import { applyTheme, getCachedTheme } from '../../../utils/theme';
+
 
 export type SettingsModalType = 'settings' | 'quit' | null;
 
@@ -41,11 +44,13 @@ interface SettingsModalsProps {
 
 function UpdatesTabContent() {
     const { t } = useTranslation();
+    const { isOnline } = useNetworkStatus();
     const [receivePrerelease, setReceivePrerelease] = useState(false);
     const [appVersion, setAppVersion] = useState<string>('');
     const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
     const [updateResult, setUpdateResult] = useState<any>(null);
     const [isDownloadingUpdate, setIsDownloadingUpdate] = useState(false);
+    const [isCancellingUpdate, setIsCancellingUpdate] = useState(false);
     const [isReadyToInstall, setIsReadyToInstall] = useState(false);
     const [downloadProgress, setDownloadProgress] = useState<number>(0);
     const [downloadText, setDownloadText] = useState<string>('');
@@ -144,6 +149,20 @@ function UpdatesTabContent() {
         }
     };
 
+    const handleCancelDownloadUpdate = async () => {
+        if (!window.confirm(t('common.cancel_download_confirm', 'Are you sure you want to cancel the update download?'))) return;
+
+        setIsCancellingUpdate(true);
+        try {
+            await (window as any).pywebview?.api?.cancel_installation('updater');
+            setIsDownloadingUpdate(false);
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setIsCancellingUpdate(false);
+        }
+    };
+
     const handleInstallUpdate = async () => {
         const api = (window as any).pywebview?.api;
         if (!api) return;
@@ -187,11 +206,12 @@ function UpdatesTabContent() {
 
                 {isDownloadingUpdate && (
                     <div className="mt-3 flex flex-col gap-2">
-                        <div className="flex items-center justify-between text-xs font-semibold text-slate-600 dark:text-slate-400">
-                            <span>{(downloadText ? (t(downloadText, downloadTextArgs) as string) : '') || t('ui.update.downloading_fallback', 'Downloading...')}</span>
-                            <span>{Math.round(downloadProgress)}%</span>
-                        </div>
-                        <ProgressBar percent={downloadProgress} />
+                        <ProgressStatusBlock
+                            progressText={(downloadText ? (t(downloadText, downloadTextArgs) as string) : '') || t('ui.update.downloading_fallback', 'Downloading...')}
+                            progress={Math.round(downloadProgress)}
+                            onCancel={handleCancelDownloadUpdate}
+                            isCancelling={isCancellingUpdate}
+                        />
                         <p className="text-xs text-slate-500 mt-1 italic">* {t('ui.update.close_hint_background', 'You can close this modal, the download will continue in the background.')}</p>
                     </div>
                 )}
@@ -216,7 +236,11 @@ function UpdatesTabContent() {
     }
 
     return (
-        <div className="flex flex-col gap-6 w-full max-w-2xl p-8">
+        <div className="flex flex-col gap-6 w-full max-w-2xl p-6 md:p-8 min-w-0">
+            {(!isOnline || isOfflineResponse(updateResult)) && (
+                <OfflineBanner onRetry={handleCheckUpdate} />
+            )}
+
             <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-100 dark:border-slate-800">
                 <div className="flex flex-col">
                     <span className="text-xs text-slate-500 uppercase tracking-wider font-semibold">{t('ui.update.current_version', 'Current Version')}</span>
@@ -226,7 +250,7 @@ function UpdatesTabContent() {
                     variant="primary"
                     icon="search"
                     onClick={handleCheckUpdate}
-                    disabled={isDownloadingUpdate || isReadyToInstall}
+                    disabled={isDownloadingUpdate || isReadyToInstall || !isOnline}
                     loading={isCheckingUpdate}
                     className="shadow-sm active:scale-95"
                 >
@@ -271,7 +295,8 @@ function UpdatesTabContent() {
                     <button
                         type="button"
                         onClick={handleDownloadUpdate}
-                        className="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-600/90 transition-all shadow-sm active:scale-95 flex items-center gap-2"
+                        disabled={!isOnline}
+                        className="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-600/90 transition-[transform,colors] shadow-sm active:scale-95 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         <span className="material-symbols-outlined text-[18px]">download</span>
                         {t('ui.update.download_restart', 'Download & Install')}
@@ -282,7 +307,7 @@ function UpdatesTabContent() {
                     <button
                         type="button"
                         onClick={handleInstallUpdate}
-                        className="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-600/90 transition-all shadow-sm active:scale-95 flex items-center gap-2"
+                        className="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-600/90 transition-[transform,colors] shadow-sm active:scale-95 flex items-center gap-2"
                     >
                         <span className="material-symbols-outlined text-[18px]">system_update_alt</span>
                         <span>{t('ui.update.install_restart', 'Install & Restart')}</span>
@@ -306,8 +331,9 @@ export default function SettingsModals({ activeModal, defaultTab = 'general', on
     
     // General Settings
     const [selectedLang, setSelectedLang] = useState(i18n.language);
-    const [selectedTheme, setSelectedTheme] = useState('vyloserve-dark');
+    const [selectedTheme, setSelectedTheme] = useState(() => getCachedTheme());
     const [enableDesktopNotifications, setEnableDesktopNotifications] = useState(true);
+    const [enableFloatingAi, setEnableFloatingAi] = useState(true);
     
     // Logs Settings
     const [logLevels, setLogLevels] = useState<string[]>(ALL_LOG_LEVEL_KEYS);
@@ -325,8 +351,9 @@ export default function SettingsModals({ activeModal, defaultTab = 'general', on
                 api.get_app_version().then((ver: string) => setAppVersion(ver));
                 api.get_app_settings().then((res: any) => {
                     if (res?.status === 'success') {
-                        setSelectedTheme(res.data?.theme || 'vyloserve-dark');
+                        setSelectedTheme(res.data?.theme || getCachedTheme());
                         setEnableDesktopNotifications(res.data?.enable_desktop_notifications ?? true);
+                        setEnableFloatingAi(res.data?.enable_floating_ai ?? true);
                         setLogLevels(res.data?.system_log_levels ?? ALL_LOG_LEVEL_KEYS);
                         setLogSources(res.data?.system_log_sources ?? ALL_LOG_SOURCE_KEYS);
                     }
@@ -365,6 +392,13 @@ export default function SettingsModals({ activeModal, defaultTab = 'general', on
         window.dispatchEvent(new CustomEvent('vylo_desktop_notifications_changed', { detail: { enabled: newVal } }));
     };
 
+    const handleToggleFloatingAi = () => {
+        const newVal = !enableFloatingAi;
+        setEnableFloatingAi(newVal);
+        saveSettingsInstantly({ enable_floating_ai: newVal });
+        window.dispatchEvent(new CustomEvent('vylo_ai_settings_changed', { detail: { enable_floating_ai: newVal } }));
+    };
+
     const handleToggleLogLevel = (key: string) => {
         const newLevels = logLevels.includes(key) ? logLevels.filter(k => k !== key) : [...logLevels, key];
         setLogLevels(newLevels);
@@ -396,7 +430,7 @@ export default function SettingsModals({ activeModal, defaultTab = 'general', on
                 onClose={onClose}
                 title={t('settings.settings')}
                 icon="settings"
-                maxWidthClass="md:w-[760px] lg:w-[860px] max-w-full"
+                maxWidthClass="sm:w-[720px] md:w-[820px] lg:w-[880px] max-w-[calc(100vw-2rem)]"
                 bodyPaddingClass="p-0"
             >
                 <div className="flex flex-row h-[70vh] min-h-[450px] max-h-[600px] bg-white dark:bg-slate-900 rounded-b-xl overflow-hidden">
@@ -437,11 +471,11 @@ export default function SettingsModals({ activeModal, defaultTab = 'general', on
                     </div>
 
                     {/* TAB CONTENT */}
-                    <div className="flex-1 overflow-y-auto relative flex flex-col">
+                    <div className="flex-1 min-w-0 overflow-y-auto relative flex flex-col">
                         
                         {/* GENERAL TAB */}
                         {activeTab === 'general' && (
-                            <div className="flex flex-col gap-8 w-full max-w-2xl p-8">
+                            <div className="flex flex-col gap-8 w-full max-w-2xl p-6 md:p-8 min-w-0">
                                 <div className="flex flex-col gap-4">
                                     <div>
                                         <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">{t('settings.change_language')}</h3>
@@ -470,18 +504,28 @@ export default function SettingsModals({ activeModal, defaultTab = 'general', on
                                     </div>
                                     <Select
                                         id="theme-select"
-                                        searchable={false}
+                                        searchable={true}
+                                        searchPlaceholder={t('settings.theme_search_placeholder', 'Search theme...')}
+                                        filterFn={(opt, query) =>
+                                            opt.label.toLowerCase().includes(query.toLowerCase()) ||
+                                            opt.value.toLowerCase().includes(query.toLowerCase())
+                                        }
                                         options={[
-                                            { value: 'vyloserve-dark', label: t('settings.theme_vyloserve_dark') },
-                                            { value: 'vyloserve-light', label: t('settings.theme_vyloserve_light') },
-                                            { value: 'darcula-dark', label: t('settings.theme_darcula_dark') },
-                                            { value: 'solarized-dark', label: t('settings.theme_solarized_dark') },
-                                            { value: 'solarized-light', label: t('settings.theme_solarized_light') },
-                                            { value: 'high-contrast-dark', label: t('settings.theme_high_contrast_dark') },
-                                            { value: 'high-contrast-light', label: t('settings.theme_high_contrast_light') },
-                                            { value: 'monokai-dark', label: t('settings.theme_monokai_dark') },
-                                            { value: 'dracula-dark', label: t('settings.theme_dracula_dark') },
-                                            { value: 'nord-dark', label: t('settings.theme_nord_dark') },
+                                            { value: 'vyloserve-dark', label: t('settings.theme_vyloserve_dark'), swatches: ['#0f172a', '#3b82f6', '#10b981'] },
+                                            { value: 'vyloserve-light', label: t('settings.theme_vyloserve_light'), swatches: ['#f8fafc', '#3b82f6', '#10b981'] },
+                                            { value: 'darcula-dark', label: t('settings.theme_darcula_dark'), swatches: ['#2b2b2b', '#2f65ca', '#629755'] },
+                                            { value: 'solarized-dark', label: t('settings.theme_solarized_dark'), swatches: ['#002b36', '#268bd2', '#2aa198'] },
+                                            { value: 'solarized-light', label: t('settings.theme_solarized_light'), swatches: ['#fdf6e3', '#268bd2', '#2aa198'] },
+                                            { value: 'high-contrast-dark', label: t('settings.theme_high_contrast_dark'), swatches: ['#000000', '#00ffff', '#00ff00'] },
+                                            { value: 'high-contrast-light', label: t('settings.theme_high_contrast_light'), swatches: ['#ffffff', '#ff0000', '#0000ff'] },
+                                            { value: 'monokai-dark', label: t('settings.theme_monokai_dark'), swatches: ['#272822', '#66d9ef', '#a6e22e'] },
+                                            { value: 'dracula-dark', label: t('settings.theme_dracula_dark'), swatches: ['#282a36', '#8be9fd', '#bd93f9'] },
+                                            { value: 'nord-dark', label: t('settings.theme_nord_dark'), swatches: ['#2e3440', '#5e81ac', '#88c0d0'] },
+                                            { value: 'xp-luna-light', label: t('settings.theme_xp_luna_light'), swatches: ['#ece9d8', '#0054e3', '#3c9911'] },
+                                            { value: 'xp-zune-dark', label: t('settings.theme_xp_zune_dark'), swatches: ['#1e1e21', '#e85d00', '#22c55e'] },
+                                            { value: 'catppuccin-dark', label: t('settings.theme_catppuccin_dark'), swatches: ['#1e1e2e', '#3b82f6', '#a6e3a1'] },
+                                            { value: 'tokyo-night-dark', label: t('settings.theme_tokyo_night_dark'), swatches: ['#1a1b26', '#2e59b8', '#73daca'] },
+                                            { value: 'gruvbox-dark', label: t('settings.theme_gruvbox_dark'), swatches: ['#282828', '#458588', '#b8bb26'] },
                                         ]}
                                         value={selectedTheme}
                                         onChange={handleThemeChange}
@@ -502,12 +546,26 @@ export default function SettingsModals({ activeModal, defaultTab = 'general', on
                                         label={t('settings.desktop_notifications', 'Desktop Notifications')}
                                     />
                                 </div>
+                                <hr className="border-slate-200 dark:border-slate-800" />
+                                <div className="flex items-center justify-between gap-4">
+                                    <div>
+                                        <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">{t('settings.enable_floating', 'Enable Floating Assistant')}</h3>
+                                        <p className="text-sm text-slate-600 dark:text-slate-400">
+                                            {t('settings.enable_floating_desc', 'Show draggable floating AI icon across all pages')}
+                                        </p>
+                                    </div>
+                                    <ToggleSwitch
+                                        checked={enableFloatingAi}
+                                        onChange={handleToggleFloatingAi}
+                                        label={t('settings.enable_floating', 'Enable Floating Assistant')}
+                                    />
+                                </div>
                             </div>
                         )}
 
                         {/* LOGS TAB */}
                         {activeTab === 'logs' && (
-                            <div className="flex flex-col gap-8 w-full max-w-2xl p-8">
+                            <div className="flex flex-col gap-8 w-full max-w-2xl p-6 md:p-8 min-w-0">
                                 <div>
                                     <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">{t('settings.system_logs')}</h3>
                                     <p className="text-sm text-slate-600 dark:text-slate-400">
@@ -598,6 +656,7 @@ export default function SettingsModals({ activeModal, defaultTab = 'general', on
 
                         {/* UPDATES TAB */}
                         {activeTab === 'updates' && <UpdatesTabContent />}
+
 
                         {/* ABOUT TAB */}
                         {activeTab === 'about' && (

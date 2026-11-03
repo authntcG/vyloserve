@@ -1,6 +1,6 @@
 import os
 import sys
-from typing import Optional
+from typing import Optional, Tuple
 import urllib.request
 import urllib.error
 
@@ -12,15 +12,24 @@ import winreg
 import ctypes
 import concurrent.futures
 
-# ---> IMPORT UTILITIES DARI CORE (DRY PRINCIPLE) <---
-from core.utils.system_utils import get_project_root, run_silent_command
-from core.utils.file_utils import download_advanced, extract_archive
+from core.utils.system_utils import (
+    get_project_root,
+    run_silent_command,
+    get_silent_flags,
+    is_in_user_path,
+    broadcast_environment_change,
+)
+from core.utils.file_utils import download_advanced, extract_archive, read_json, write_json
+from core.utils.network_utils import is_network_error
+from core.utils.cancellation import InstallationManager, OperationCancelledError
 
 USER_AGENT = 'Mozilla/5.0'
 MSG_PREPARE_DL = "backend.runtimes.preparing_download"
 MSG_DL_DONE = "backend.runtimes.download_complete_extracting"
 MSG_INSTALL_FAILED = "backend.runtimes.install_failed"
 MSG_STARTING_BINARY_DOWNLOAD = "backend.runtimes.starting_binary_download"
+EXE_PYTHON = 'python.exe'
+NAME_NODEJS = "Node.js"
 
 
 class RuntimesManager:
@@ -33,11 +42,25 @@ class RuntimesManager:
         self.root_dir = get_project_root()
         # Semua engine akan diinstal secara portable di dalam folder bin/
         self.bin_dir = os.path.join(self.root_dir, 'bin')
+        self.data_dir = os.path.join(self.root_dir, 'data')
         os.makedirs(self.bin_dir, exist_ok=True)
+        os.makedirs(self.data_dir, exist_ok=True)
+        self.config_file = os.path.join(self.data_dir, 'runtimes_config.json')
 
     # ==========================================
-    # UTILITIES REGISTRY WINDOWS
+    # UTILITIES CONFIG & REGISTRY WINDOWS
     # ==========================================
+    def _get_config(self) -> dict:
+        data = read_json(self.config_file, default_type=dict)
+        if not isinstance(data, dict):
+            data = {}
+        data.setdefault("active_versions", {})
+        data.setdefault("path_enabled", {})
+        return data
+
+    def _save_config(self, config: dict):
+        write_json(self.config_file, config)
+
     def _emit_log(self, msg: str, level: str = "info", args: dict = None):
         if hasattr(self, 'api'): self.api.emit_log(msg, level, args)
 
@@ -51,6 +74,17 @@ class RuntimesManager:
         self._emit_progress(-1, MSG_INSTALL_FAILED, {"e": str(e)})
         self._emit_log("backend.runtimes.install_error_named", "error", {"name": name, "e": str(e)})
         return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+
+    def _cleanup_cancelled_install(self, zip_path: str, target_dir: str, name: str):
+        import os, shutil
+        if zip_path and os.path.exists(zip_path):
+            try: os.remove(zip_path)
+            except OSError: pass
+        if target_dir and os.path.exists(target_dir):
+            shutil.rmtree(target_dir, ignore_errors=True)
+        self._emit_progress(0, "backend.runtimes.install_cancelled")
+        self._emit_log("backend.runtimes.install_cancelled_named", "warn", {"name": name})
+        return {"status": "cancelled", "message": "backend.runtimes.install_cancelled"}
 
     def _get_cbs(self, start_pct: int, end_pct: int):
         """
@@ -67,8 +101,88 @@ class RuntimesManager:
             self._emit_progress(clamped, msg, args)
         return log_cb, download_cb
 
+    def _get_paths_for_engine_dir(self, engine: str, engine_dir: str) -> list:
+        paths = []
+        if engine_dir:
+            if engine == 'node': paths.extend([engine_dir])
+            elif engine == 'python': paths.extend([engine_dir, os.path.join(engine_dir, 'Scripts')])
+            elif engine == 'java': paths.extend([os.path.join(engine_dir, 'bin')])
+            elif engine == 'go': paths.extend([os.path.join(engine_dir, 'bin')])
+        return paths
 
-    def _check_external_installation(self, command: str):
+    def _get_engine_parent_dir(self, engine: str) -> str:
+        return os.path.join(self.bin_dir, 'runtimes', engine)
+        
+    def _get_engine_dir(self, engine: str, version: str = None) -> str | None:
+        parent = self._get_engine_parent_dir(engine)
+        if version:
+            target = os.path.join(parent, version)
+            if os.path.isdir(target):
+                return target
+            return None
+
+        # Check config for active version
+        config = self._get_config()
+        active_ver = config.get("active_versions", {}).get(engine)
+        if active_ver:
+            target = os.path.join(parent, active_ver)
+            if os.path.isdir(target):
+                return target
+
+        # Check which directory is in user path
+        if os.path.exists(parent):
+            subdirs = [os.path.join(parent, item) for item in os.listdir(parent) if os.path.isdir(os.path.join(parent, item))]
+            for s in subdirs:
+                paths_to_check = self._get_paths_for_engine_dir(engine, s)
+                if any(self._is_in_user_path(p) for p in paths_to_check):
+                    return s
+            if subdirs:
+                return subdirs[0]
+
+        # Fallback ke hierarki lama untuk backward compatibility
+        old_dir = os.path.join(self.bin_dir, engine)
+        return old_dir if os.path.exists(old_dir) else None
+
+    def open_runtime_directory(self, engine: str, version: str = None):
+        try:
+            target = self._get_engine_dir(engine, version=version)
+            if not target or not os.path.exists(target):
+                parent = self._get_engine_parent_dir(engine)
+                target = parent if os.path.exists(parent) else self.bin_dir
+            if sys.platform == 'win32':
+                os.startfile(target)
+            elif sys.platform == 'darwin':
+                subprocess.Popen(['open', target])
+            else:
+                subprocess.Popen(['xdg-open', target])
+            return {"status": "success"}
+        except Exception as e:
+            return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+
+    def _clear_engine(self, engine: str):
+        for path in [self._get_engine_parent_dir(engine), os.path.join(self.bin_dir, engine)]:
+            if os.path.exists(path):
+                import shutil
+                shutil.rmtree(path, ignore_errors=True)
+
+    def _prepare_install(self, engine: str, version: str = None) -> bool:
+        """ 
+        Membersihkan target instalasi spesifik tanpa menghapus versi lain.
+        Mengembalikan True jika engine sedang aktif di PATH.
+        """
+        was_in_path = False
+        paths_to_check = self._get_paths_to_toggle(engine, for_enable=True)
+        if paths_to_check:
+            was_in_path = any(self._is_in_user_path(p) for p in paths_to_check)
+
+        if version:
+            target_version_dir = os.path.join(self._get_engine_parent_dir(engine), version)
+            if os.path.exists(target_version_dir):
+                import shutil
+                shutil.rmtree(target_version_dir, ignore_errors=True)
+        return was_in_path
+
+    def _check_external_installation(self, command: str, silent: bool = False):
         """
         Mendeteksi instalasi eksternal dengan 3 lapis keamanan (where, registry, env).
         Log Terminal telah dibersihkan dan dialihkan ke UI System Logs secara efisien.
@@ -80,7 +194,8 @@ class RuntimesManager:
         import shutil
 
         # Mengirimkan log ke UI VyloServe (Hanya terpicu saat render halaman)
-        self._emit_log("backend.runtimes.scanning_external", "info", {"engine": command})
+        if not silent:
+            self._emit_log("backend.runtimes.scanning_external", "info", {"engine": command})
 
         vyloserve_bin = os.path.normpath(os.path.join(self.root_dir, 'bin')).lower()
         found_path = None
@@ -104,7 +219,7 @@ class RuntimesManager:
             else:
                 flag = '-v' # Bawaan untuk node
 
-            creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+            creation_flags = get_silent_flags()
             
             result = subprocess.run([found_path, flag], capture_output=True, text=True, creationflags=creation_flags)
             
@@ -113,32 +228,69 @@ class RuntimesManager:
             if version_out:
                 final_version = version_out.split('\n')[0].strip()
                 
-                self._emit_log("backend.runtimes.external_detected", "warn", {"engine": command, "version": final_version})
+                if not silent:
+                    self._emit_log("backend.runtimes.external_detected", "warn", {"engine": command, "version": final_version})
                     
                 return {"exists": True, "path": found_path, "version": final_version}
                 
         except OSError as e:
-            self._emit_log("backend.runtimes.version_check_failed", "warn", {"engine": command, "e": str(e)})
+            if not silent:
+                self._emit_log("backend.runtimes.version_check_failed", "warn", {"engine": command, "e": str(e)})
 
         return {"exists": True, "path": found_path, "version": "Unknown Version"}
 
     def _is_in_user_path(self, target_path: str) -> bool:
         """ Mengecek apakah path sudah ada di System PATH Windows """
+        return is_in_user_path(target_path)
+
+    def _get_paths_to_toggle(self, engine: str, version: str = None, for_enable: bool = True) -> list:
+        paths = []
+        engine_dir = self._get_engine_dir(engine, version=version)
+        if engine_dir:
+            paths.extend(self._get_paths_for_engine_dir(engine, engine_dir))
+            
+        if for_enable:
+            return paths
+            
+        # When disabling, also collect any other installed versions and legacy paths to ensure clean removal
+        parent = self._get_engine_parent_dir(engine)
+        if os.path.exists(parent):
+            try:
+                sub_items = os.listdir(parent)
+            except OSError:
+                sub_items = []
+            for item in sub_items:
+                item_path = os.path.join(parent, item)
+                if os.path.isdir(item_path):
+                    paths.extend(self._get_paths_for_engine_dir(engine, item_path))
+
+        legacy_dir = os.path.join(self.bin_dir, engine)
+        paths.extend(self._get_paths_for_engine_dir(engine, legacy_dir))
+        
+        return list(dict.fromkeys(paths))
+
+    def _set_or_delete_reg_var(self, key, var_name: str, value: str, enable: bool) -> bool:
+        import winreg
+        if enable:
+            winreg.SetValueEx(key, var_name, 0, winreg.REG_SZ, value)
+            return True
         try:
-            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Environment', 0, winreg.KEY_READ)
-            path_value, _ = winreg.QueryValueEx(key, 'Path')
-            winreg.CloseKey(key)
-            paths = [p.lower().rstrip('\\/') for p in path_value.split(';') if p]
-            return target_path.lower().rstrip('\\/') in paths
-        except Exception:
+            winreg.DeleteValue(key, var_name)
+            return True
+        except OSError:
             return False
 
-    def _get_paths_to_toggle(self, engine: str) -> list:
-        if engine == 'node': return [os.path.join(self.bin_dir, 'node')]
-        elif engine == 'python': return [os.path.join(self.bin_dir, 'python'), os.path.join(self.bin_dir, 'python', 'Scripts')]
-        elif engine == 'java': return [os.path.join(self.bin_dir, 'java', 'bin')]
-        elif engine == 'go': return [os.path.join(self.bin_dir, 'go', 'bin')]
-        return []
+    def _toggle_engine_specific_env(self, key, engine: str, enable: bool) -> bool:
+        import os
+        if engine == 'java':
+            engine_dir = self._get_engine_dir('java')
+            java_home = os.path.normpath(engine_dir if engine_dir else os.path.join(self.bin_dir, 'java'))
+            return self._set_or_delete_reg_var(key, 'JAVA_HOME', java_home, enable)
+        if engine == 'go':
+            engine_dir = self._get_engine_dir('go')
+            go_root = os.path.normpath(engine_dir if engine_dir else os.path.join(self.bin_dir, 'go'))
+            return self._set_or_delete_reg_var(key, 'GOROOT', go_root, enable)
+        return False
 
     def _toggle_user_path_env(self, key, paths_to_toggle: list, enable: bool, engine: str) -> bool:
         import winreg, os
@@ -155,30 +307,28 @@ class RuntimesManager:
                 current_paths.remove(normalized_target)
                 modified = True
         
-        if engine == 'java':
-            java_home = os.path.normpath(os.path.join(self.bin_dir, 'java'))
-            if enable:
-                winreg.SetValueEx(key, 'JAVA_HOME', 0, winreg.REG_SZ, java_home)
-                modified = True
-            else:
-                try: winreg.DeleteValue(key, 'JAVA_HOME')
-                except OSError: pass
-                modified = True
+        if self._toggle_engine_specific_env(key, engine, enable):
+            modified = True
                 
         if modified:
             winreg.SetValueEx(key, 'Path', 0, winreg.REG_EXPAND_SZ, ';'.join(current_paths))
         return modified
 
     def toggle_user_path(self, engine: str, enable: bool):
-        paths_to_toggle = self._get_paths_to_toggle(engine)
+        paths_to_toggle = self._get_paths_to_toggle(engine, for_enable=enable)
         if not paths_to_toggle: return {"status": "error", "message": "backend.runtimes.engine_unsupported"}
         try:
-            import winreg, ctypes
+            import winreg
             key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Environment', 0, winreg.KEY_ALL_ACCESS)
             modified = self._toggle_user_path_env(key, paths_to_toggle, enable, engine)
             if modified:
-                ctypes.windll.user32.SendMessageTimeoutW(0xFFFF, 0x001A, 0, 'Environment', 0x0002, 5000, ctypes.byref(ctypes.c_ulong()))
+                broadcast_environment_change()
             winreg.CloseKey(key)
+
+            config = self._get_config()
+            config.setdefault("path_enabled", {})[engine] = enable
+            self._save_config(config)
+
             self._emit_log("backend.runtimes.path_updated", "success", {"engine": engine.upper()})
             return {"status": "success"}
         except Exception as e:
@@ -186,27 +336,242 @@ class RuntimesManager:
             return {"status": "error", "message": "backend.runtimes.registry_error", "args": {"e": str(e)}}
 
     # ==========================================
-    # NODE.JS MANAGER
+    # MULTI-VERSION RUNTIMES LOGIC
     # ==========================================
-    def get_node_status(self):
-        node_dir = os.path.join(self.bin_dir, 'node')
-        node_exe = os.path.join(node_dir, 'node.exe' if sys.platform == 'win32' else 'node')
-        
-        internal_installed = os.path.exists(node_exe)
-        internal_version = ""
-        if internal_installed:
-            try:
-                result = subprocess.run([node_exe, '-v'], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
-                internal_version = result.stdout.strip()
-            except Exception: internal_version = "Unknown"
+    def _check_node_binary_and_subtool(self, item_path: str) -> Tuple[bool, str]:
+        binary_name = 'node.exe' if sys.platform == 'win32' else 'node'
+        npm_name = 'npm.cmd' if sys.platform == 'win32' else 'npm'
+        has_binary = os.path.exists(os.path.join(item_path, binary_name))
+        has_npm = os.path.exists(os.path.join(item_path, npm_name))
+        return has_binary, ("npm" if has_npm else "")
 
-        external_info = self._check_external_installation('node')
+    def _check_python_binary_and_subtool(self, item_path: str) -> Tuple[bool, str]:
+        binary_name = EXE_PYTHON if sys.platform == 'win32' else 'python'
+        has_binary = os.path.exists(os.path.join(item_path, binary_name))
+        has_pip = os.path.exists(os.path.join(item_path, 'Scripts', 'pip.exe'))
+        has_site_packages = os.path.exists(os.path.join(item_path, 'Lib', 'site-packages'))
+        return has_binary, ("pip" if (has_pip or has_site_packages) else "")
+
+    def _check_engine_binary_and_subtool(self, engine: str, item_path: str) -> Tuple[bool, str]:
+        if engine == 'node':
+            return self._check_node_binary_and_subtool(item_path)
+        if engine == 'python':
+            return self._check_python_binary_and_subtool(item_path)
+        if engine == 'java':
+            bin_name = 'java.exe' if sys.platform == 'win32' else 'java'
+            return os.path.exists(os.path.join(item_path, 'bin', bin_name)), "JDK"
+        if engine == 'go':
+            bin_name = 'go.exe' if sys.platform == 'win32' else 'go'
+            return os.path.exists(os.path.join(item_path, 'bin', bin_name)), "Compiler"
+        return False, ""
+
+    def _get_legacy_version_entry(self, engine: str) -> list:
+        legacy_dir = os.path.join(self.bin_dir, engine)
+        if os.path.exists(legacy_dir) and os.path.isdir(legacy_dir):
+            paths_to_check = self._get_paths_for_engine_dir(engine, legacy_dir)
+            in_path = any(self._is_in_user_path(p) for p in paths_to_check)
+            return [{
+                "version": "legacy",
+                "path": legacy_dir.replace("\\", "/"),
+                "subtool": "",
+                "is_active": True,
+                "in_path": in_path,
+            }]
+        return []
+
+    def get_installed_engine_versions(self, engine: str) -> list:
+        parent = self._get_engine_parent_dir(engine)
+        if not os.path.exists(parent):
+            return self._get_legacy_version_entry(engine)
+
+        config = self._get_config()
+        configured_versions = config.get("active_versions", {})
+        is_configured = engine in configured_versions
+        active_ver = configured_versions.get(engine, "")
+        results = []
+
+        try:
+            subdirs = sorted([d for d in os.listdir(parent) if os.path.isdir(os.path.join(parent, d))], reverse=True)
+        except OSError:
+            subdirs = []
+        for item in subdirs:
+            item_path = os.path.join(parent, item)
+            exe_exists, subtool = self._check_engine_binary_and_subtool(engine, item_path)
+            if not exe_exists:
+                continue
+
+            paths_to_check = self._get_paths_for_engine_dir(engine, item_path)
+            in_path = any(self._is_in_user_path(p) for p in paths_to_check)
+            is_active = (item == active_ver) and bool(active_ver)
+
+            results.append({
+                "version": item,
+                "path": item_path.replace("\\", "/"),
+                "subtool": subtool,
+                "is_active": is_active,
+                "in_path": in_path,
+            })
+
+        if results and not is_configured:
+            first_active = next((r["version"] for r in results if r["in_path"]), "")
+            if first_active:
+                config.setdefault("active_versions", {})[engine] = first_active
+                self._save_config(config)
+                for r in results:
+                    r["is_active"] = (r["version"] == first_active)
+
+        return results
+
+    def get_engine_versions(self, engine: str) -> dict:
+        installed = self.get_installed_engine_versions(engine)
+        config = self._get_config()
+        active_ver = config.get("active_versions", {}).get(engine, "")
+        external_info = self._check_external_installation(engine, silent=True)
+        path_enabled = config.get("path_enabled", {}).get(engine, False)
 
         return {
-            'installed': internal_installed, 
+            "status": "success",
+            "engine": engine,
+            "active_version": active_ver,
+            "path_enabled": path_enabled,
+            "versions": installed,
+            "external": external_info,
+        }
+
+    def set_active_version(self, engine: str, version: str) -> dict:
+        target_dir = os.path.join(self._get_engine_parent_dir(engine), version)
+        if not os.path.exists(target_dir):
+            return {"status": "error", "message": "backend.runtimes.version_not_found"}
+
+        ext = self._check_external_installation(engine, silent=True)
+        config = self._get_config()
+        config.setdefault("active_versions", {})[engine] = version
+
+        if not ext.get("exists"):
+            try:
+                paths_to_remove = self._get_paths_to_toggle(engine, for_enable=False)
+                paths_to_add = self._get_paths_for_engine_dir(engine, target_dir)
+
+                import winreg
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Environment', 0, winreg.KEY_ALL_ACCESS)
+                try:
+                    path_val, _ = winreg.QueryValueEx(key, 'Path')
+                except FileNotFoundError:
+                    path_val = ""
+                current_paths = [p for p in path_val.split(';') if p]
+                norm_remove = [os.path.normpath(x).lower() for x in paths_to_remove]
+                filtered_paths = [p for p in current_paths if os.path.normpath(p).lower() not in norm_remove]
+                for p in paths_to_add:
+                    norm = os.path.normpath(p)
+                    if norm.lower() not in [x.lower() for x in filtered_paths]:
+                        filtered_paths.append(norm)
+
+                winreg.SetValueEx(key, 'Path', 0, winreg.REG_EXPAND_SZ, ';'.join(filtered_paths))
+
+                if engine == 'java':
+                    winreg.SetValueEx(key, 'JAVA_HOME', 0, winreg.REG_SZ, os.path.normpath(target_dir))
+                elif engine == 'go':
+                    winreg.SetValueEx(key, 'GOROOT', 0, winreg.REG_SZ, os.path.normpath(target_dir))
+
+                winreg.CloseKey(key)
+                broadcast_environment_change()
+                config.setdefault("path_enabled", {})[engine] = True
+            except Exception as e:
+                self._emit_log("backend.runtimes.path_error_log", "error", {"engine": engine, "e": str(e)})
+                return {"status": "error", "message": "backend.runtimes.registry_error", "args": {"e": str(e)}}
+
+        self._save_config(config)
+        self._emit_log("backend.runtimes.version_activated", "success", {"engine": engine.upper(), "version": version})
+        return {"status": "success", "message": "backend.runtimes.version_activated", "args": {"engine": engine.upper(), "version": version}}
+
+    def deactivate_active_version(self, engine: str) -> dict:
+        config = self._get_config()
+        config.setdefault("active_versions", {})[engine] = ""
+        config.setdefault("path_enabled", {})[engine] = False
+        self._save_config(config)
+
+        ext = self._check_external_installation(engine, silent=True)
+        if not ext.get("exists"):
+            self.toggle_user_path(engine, False)
+
+        self._emit_log("backend.runtimes.version_deactivated", "info", {"engine": engine.upper()})
+        return {"status": "success", "message": "backend.runtimes.version_deactivated", "args": {"engine": engine.upper()}}
+
+    def uninstall_engine_version(self, engine: str, version: str) -> dict:
+        target_dir = os.path.join(self._get_engine_parent_dir(engine), version)
+        if not os.path.exists(target_dir):
+            return {"status": "error", "message": "backend.runtimes.version_not_found"}
+
+        config = self._get_config()
+        active_ver = config.get("active_versions", {}).get(engine, "")
+        was_active = (version == active_ver)
+
+        if was_active:
+            self.toggle_user_path(engine, False)
+
+        import shutil
+        shutil.rmtree(target_dir, ignore_errors=True)
+
+        remaining = self.get_installed_engine_versions(engine)
+        if was_active and remaining:
+            new_active = remaining[0]["version"]
+            self.set_active_version(engine, new_active)
+            self._emit_log("backend.runtimes.auto_promoted_active", "info", {"engine": engine.upper(), "version": new_active})
+        elif was_active:
+            config.setdefault("active_versions", {})[engine] = ""
+            config.setdefault("path_enabled", {})[engine] = False
+            self._save_config(config)
+
+        self._emit_log("backend.runtimes.version_uninstalled", "warn", {"engine": engine.upper(), "version": version})
+        return {"status": "success", "message": "backend.runtimes.version_uninstalled", "args": {"engine": engine.upper(), "version": version}}
+
+
+    # ==========================================
+    # NODE.JS MANAGER
+    # ==========================================
+    def _get_node_subtool(self, node_dir: Optional[str]) -> str:
+        if not node_dir:
+            return ""
+        npm_cmd = os.path.join(node_dir, 'npm.cmd' if sys.platform == 'win32' else 'npm')
+        if os.path.exists(npm_cmd):
+            try:
+                result_npm = subprocess.run([npm_cmd, '-v'], capture_output=True, text=True, creationflags=get_silent_flags(), timeout=5)
+                npm_v = result_npm.stdout.strip()
+                if npm_v:
+                    return f"npm v{npm_v}"
+            except Exception:
+                pass
+        return ""
+
+    def get_node_status(self, silent: bool = False):
+        node_dir = self._get_engine_dir('node')
+        node_exe = None
+        if node_dir:
+            node_exe = os.path.join(node_dir, 'node.exe' if sys.platform == 'win32' else 'node')
+        
+        internal_installed = node_exe is not None and os.path.exists(node_exe)
+        internal_version = ""
+        subtool = ""
+        if internal_installed:
+            try:
+                result = subprocess.run([node_exe, '-v'], capture_output=True, text=True, creationflags=get_silent_flags())
+                internal_version = result.stdout.strip()
+            except Exception:
+                internal_version = "Unknown"
+            subtool = self._get_node_subtool(node_dir)
+
+        external_info = self._check_external_installation('node', silent=silent)
+        installed_versions = self.get_installed_engine_versions('node')
+        active_ver = self._get_config().get("active_versions", {}).get('node', '')
+
+        return {
+            'installed': internal_installed or len(installed_versions) > 0, 
             'version': internal_version, 
-            'in_path': self._is_in_user_path(node_dir),
-            'external': external_info 
+            'subtool': subtool,
+            'in_path': self._is_in_user_path(node_dir) if node_dir else False,
+            'external': external_info,
+            'active_version': active_ver,
+            'installed_versions': installed_versions
         }
 
     def get_available_node_versions(self):
@@ -235,12 +600,19 @@ class RuntimesManager:
                     })
                 return {'status': 'success', 'data': versions}
         except Exception as e:
-            # Ignore SonarQube urllib warning for now, using Exception is fine when bubbling to UI
-            return {'status': 'error', 'message': "backend.runtimes.node_fetch_failed", 'args': {"e": str(e)}}
+            return self._format_fetch_error("backend.runtimes.node_fetch_failed", e)
+
+    @staticmethod
+    def _format_fetch_error(message_key: str, exc: Exception) -> dict:
+        res = {'status': 'error', 'message': message_key, 'args': {"e": str(exc)}}
+        if is_network_error(exc):
+            res['is_offline'] = True
+        return res
 
 
     def _robust_rename(self, src: str, dst: str, max_retries: int = 5, delay: float = 1.0):
         import time, shutil
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
         for attempt in range(max_retries):
             try:
                 if os.path.exists(dst):
@@ -265,9 +637,11 @@ class RuntimesManager:
         self._emit_progress(100, "backend.runtimes.node_install_complete")
         self._emit_log("backend.runtimes.node_ready", "success", {"version": version})
 
-    def install_node(self, version: str, enable_corepack: bool):
-        node_dir = os.path.join(self.bin_dir, 'node')
+    def install_node(self, version: str, enable_corepack: bool, set_as_active: bool = True):
+        was_in_path = self._prepare_install('node', version)
+        node_dir = os.path.join(self._get_engine_parent_dir('node'), version)
         zip_path = os.path.join(self.bin_dir, f"node_{version}.zip")
+        token = InstallationManager.get_token("runtimes")
 
         try:
             # 1. LOG INISIALISASI
@@ -280,10 +654,8 @@ class RuntimesManager:
             # 2. FASE UNDUHAN (5% - 60%)
             log_cb, download_prog_cb = self._get_cbs(5, 60)
 
-            if os.path.exists(node_dir): shutil.rmtree(node_dir, ignore_errors=True)
-
-            log_cb(MSG_STARTING_BINARY_DOWNLOAD, "info", {"engine": "Node.js"})
-            download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb)
+            log_cb(MSG_STARTING_BINARY_DOWNLOAD, "info", {"engine": NAME_NODEJS})
+            download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb, cancel_check=token.is_cancelled)
 
             # 3. FASE EKSTRAKSI (60% - 85%)
             self._emit_log(MSG_DL_DONE, "info")
@@ -291,22 +663,32 @@ class RuntimesManager:
             
             _, extract_prog_cb = self._get_cbs(65, 85)
 
-            extract_archive(zip_path, self.bin_dir, progress_cb=extract_prog_cb)
+            extract_archive(zip_path, self.bin_dir, progress_cb=extract_prog_cb, cancel_check=token.is_cancelled)
             
             if os.path.exists(zip_path):
                 os.remove(zip_path)
 
             self._finalize_node_install(node_dir, enable_corepack, version, zip_filename)
+            if set_as_active:
+                self.set_active_version('node', version)
+            elif was_in_path:
+                self.toggle_user_path('node', True)
             return {"status": "success"}
 
+        except OperationCancelledError:
+            return self._cleanup_cancelled_install(zip_path, node_dir, NAME_NODEJS)
         except Exception as e:
-            return self._cleanup_failed_install(zip_path, e, "Node.js")
+            return self._cleanup_failed_install(zip_path, e, NAME_NODEJS)
+        finally:
+            InstallationManager.reset("runtimes")
 
     def uninstall_node(self):
-        node_dir = os.path.join(self.bin_dir, 'node')
         self.toggle_user_path('node', False)
-        if os.path.exists(node_dir):
-            shutil.rmtree(node_dir, ignore_errors=True)
+        self._clear_engine('node')
+        config = self._get_config()
+        if 'node' in config.get("active_versions", {}):
+            config["active_versions"]["node"] = ""
+            self._save_config(config)
         self._emit_log("backend.runtimes.node_uninstalled", "warn")
         return {"status": "success"}
 
@@ -314,25 +696,49 @@ class RuntimesManager:
     # ==========================================
     # PYTHON MANAGER
     # ==========================================
-    def get_python_status(self):
-        python_dir = os.path.join(self.bin_dir, 'python')
-        python_exe = os.path.join(python_dir, 'python.exe' if sys.platform == 'win32' else 'python')
+    def _get_python_subtool(self, python_exe: Optional[str]) -> str:
+        if not python_exe or not os.path.exists(python_exe):
+            return ""
+        try:
+            res_pip = subprocess.run([python_exe, '-m', 'pip', '--version'], capture_output=True, text=True, creationflags=get_silent_flags(), timeout=5)
+            pip_out = res_pip.stdout.strip()
+            if pip_out:
+                parts = pip_out.split()
+                if len(parts) >= 2:
+                    return f"{parts[0]} v{parts[1]}"
+        except Exception:
+            pass
+        return ""
+
+    def get_python_status(self, silent: bool = False):
+        python_dir = self._get_engine_dir('python')
+        python_exe = None
+        if python_dir:
+            python_exe = os.path.join(python_dir, EXE_PYTHON if sys.platform == 'win32' else 'python')
         
-        internal_installed = os.path.exists(python_exe)
+        internal_installed = python_exe is not None and os.path.exists(python_exe)
         internal_version = ""
+        subtool = ""
         if internal_installed:
             try:
-                res = subprocess.run([python_exe, '--version'], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
+                res = subprocess.run([python_exe, '--version'], capture_output=True, text=True, creationflags=get_silent_flags())
                 internal_version = res.stdout.strip()
-            except Exception: internal_version = "Unknown"
+            except Exception:
+                internal_version = "Unknown"
+            subtool = self._get_python_subtool(python_exe)
 
-        external_info = self._check_external_installation('python')
+        external_info = self._check_external_installation('python', silent=silent)
+        installed_versions = self.get_installed_engine_versions('python')
+        active_ver = self._get_config().get("active_versions", {}).get('python', '')
 
         return {
-            'installed': internal_installed, 
+            'installed': internal_installed or len(installed_versions) > 0, 
             'version': internal_version, 
-            'in_path': self._is_in_user_path(python_dir),
-            'external': external_info
+            'subtool': subtool,
+            'in_path': self._is_in_user_path(python_dir) if python_dir else False,
+            'external': external_info,
+            'active_version': active_ver,
+            'installed_versions': installed_versions
         }
 
 
@@ -396,8 +802,7 @@ class RuntimesManager:
             return {'status': 'success', 'data': results}
             
         except Exception as e:
-            # Ignore SonarQube urllib warning for now, using Exception is fine when bubbling to UI
-            return {'status': 'error', 'message': "backend.runtimes.py_fetch_failed", 'args': {"e": str(e)}}
+            return self._format_fetch_error("backend.runtimes.py_fetch_failed", e)
 
 
     def _finalize_python_install(self, python_dir: str, install_pip: bool, version: str):
@@ -426,12 +831,12 @@ class RuntimesManager:
                 get_pip_url = "https://bootstrap.pypa.io/get-pip.py"
             get_pip_path = os.path.join(python_dir, 'get-pip.py')
             urllib.request.urlretrieve(get_pip_url, get_pip_path)
-            python_exe = os.path.join(python_dir, 'python.exe')
+            python_exe = os.path.join(python_dir, EXE_PYTHON)
             import certifi
             custom_env = os.environ.copy()
             custom_env['SSL_CERT_FILE'] = certifi.where()
             custom_env['REQUESTS_CA_BUNDLE'] = certifi.where()
-            cflags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+            cflags = get_silent_flags()
             res = subprocess.run([python_exe, get_pip_path, '--no-warn-script-location'], cwd=python_dir, creationflags=cflags, env=custom_env, capture_output=True, text=True)
             if res.returncode != 0:
                 raise RuntimeError("Gagal mengeksekusi get-pip.py: {0}".format(res.stderr.strip() or res.stdout.strip()))
@@ -439,9 +844,11 @@ class RuntimesManager:
         self._emit_progress(100, "backend.runtimes.py_install_complete")
         self._emit_log("backend.runtimes.py_ready", "success", {"version": version})
 
-    def install_python(self, version: str, install_pip: bool):
-        python_dir = os.path.join(self.bin_dir, 'python')
+    def install_python(self, version: str, install_pip: bool, set_as_active: bool = True):
+        was_in_path = self._prepare_install('python', version)
+        python_dir = os.path.join(self._get_engine_parent_dir('python'), version)
         zip_path = os.path.join(self.bin_dir, f"python_{version}.zip")
+        token = InstallationManager.get_token("runtimes")
 
         try:
             # 1. LOG INISIALISASI
@@ -454,11 +861,10 @@ class RuntimesManager:
             # 2. FASE UNDUHAN (5% - 50%)
             log_cb, download_prog_cb = self._get_cbs(10, 60)
 
-            if os.path.exists(python_dir): shutil.rmtree(python_dir, ignore_errors=True)
             os.makedirs(python_dir, exist_ok=True)
 
             log_cb(MSG_STARTING_BINARY_DOWNLOAD, "info", {"engine": "Python"})
-            download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb)
+            download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb, cancel_check=token.is_cancelled)
 
             # 3. FASE EKSTRAKSI (50% - 75%)
             self._emit_log(MSG_DL_DONE, "info")
@@ -466,48 +872,82 @@ class RuntimesManager:
             
             _, extract_prog_cb = self._get_cbs(65, 80)
 
-            extract_archive(zip_path, python_dir, progress_cb=extract_prog_cb)
+            extract_archive(zip_path, python_dir, progress_cb=extract_prog_cb, cancel_check=token.is_cancelled)
             
             if os.path.exists(zip_path):
                 os.remove(zip_path)
 
             self._finalize_python_install(python_dir, install_pip, version)
+            if set_as_active:
+                self.set_active_version('python', version)
+            elif was_in_path:
+                self.toggle_user_path('python', True)
             return {"status": "success"}
 
+        except OperationCancelledError:
+            return self._cleanup_cancelled_install(zip_path, python_dir, "Python")
         except Exception as e:
             return self._cleanup_failed_install(zip_path, e, "Python")
+        finally:
+            InstallationManager.reset("runtimes")
 
     def uninstall_python(self):
-        python_dir = os.path.join(self.bin_dir, 'python')
         self.toggle_user_path('python', False)
-        if os.path.exists(python_dir):
-            shutil.rmtree(python_dir, ignore_errors=True)
+        self._clear_engine('python')
+        config = self._get_config()
+        if 'python' in config.get("active_versions", {}):
+            config["active_versions"]["python"] = ""
+            self._save_config(config)
         self._emit_log("backend.runtimes.py_uninstalled", "warn")
         return {"status": "success"}
 
     # ==========================================
     # JAVA (JDK) MANAGER
     # ==========================================
-    def get_java_status(self):
-        java_dir = os.path.join(self.bin_dir, 'java')
-        java_exe = os.path.join(java_dir, 'bin', 'java.exe' if sys.platform == 'win32' else 'java')
+    def _get_java_subtool(self, java_dir: Optional[str]) -> str:
+        if not java_dir:
+            return ""
+        javac_exe = os.path.join(java_dir, 'bin', 'javac.exe' if sys.platform == 'win32' else 'javac')
+        if os.path.exists(javac_exe):
+            try:
+                res_javac = subprocess.run([javac_exe, '-version'], capture_output=True, text=True, creationflags=get_silent_flags(), timeout=5)
+                javac_out = res_javac.stdout.strip() or res_javac.stderr.strip()
+                if javac_out:
+                    return javac_out.split('\n')[0].strip()
+            except Exception:
+                pass
+        return ""
+
+    def get_java_status(self, silent: bool = False):
+        java_dir = self._get_engine_dir('java')
+        java_exe = None
+        if java_dir:
+            java_exe = os.path.join(java_dir, 'bin', 'java.exe' if sys.platform == 'win32' else 'java')
         
-        internal_installed = os.path.exists(java_exe)
+        internal_installed = java_exe is not None and os.path.exists(java_exe)
         internal_version = ""
+        subtool = ""
         if internal_installed:
             try:
-                res = subprocess.run([java_exe, '-version'], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
+                res = subprocess.run([java_exe, '-version'], capture_output=True, text=True, creationflags=get_silent_flags())
                 # Catatan: Java mencetak versinya di stderr, bukan stdout
                 internal_version = res.stderr.strip().split('\n')[0]
-            except Exception: internal_version = "Unknown"
+            except Exception:
+                internal_version = "Unknown"
+            subtool = self._get_java_subtool(java_dir)
 
-        external_info = self._check_external_installation('java')
+        external_info = self._check_external_installation('java', silent=silent)
+        installed_versions = self.get_installed_engine_versions('java')
+        active_ver = self._get_config().get("active_versions", {}).get('java', '')
 
         return {
-            'installed': internal_installed, 
+            'installed': internal_installed or len(installed_versions) > 0, 
             'version': internal_version, 
-            'in_path': self._is_in_user_path(os.path.join(java_dir, 'bin')),
-            'external': external_info
+            'subtool': subtool,
+            'in_path': self._is_in_user_path(os.path.join(java_dir, 'bin')) if java_dir else False,
+            'external': external_info,
+            'active_version': active_ver,
+            'installed_versions': installed_versions
         }
     
     def get_available_java_versions(self):
@@ -541,11 +981,36 @@ class RuntimesManager:
                         
                 return {'status': 'success', 'data': formatted_versions}
         except Exception as e:
-            return {'status': 'error', 'message': "backend.runtimes.java_fetch_failed", 'args': {"e": str(e)}}
+            return self._format_fetch_error("backend.runtimes.java_fetch_failed", e)
 
-    def install_java(self, version: str):
-        java_dir = os.path.join(self.bin_dir, 'java')
+    def _finalize_java_install(self, java_dir: str, version: str, was_in_path: bool, set_as_active: bool) -> dict:
+        self._emit_progress(95, "backend.runtimes.reorganizing_dir")
+
+        extracted_folder = None
+        for item in os.listdir(self.bin_dir):
+            if item.startswith('jdk') and os.path.isdir(os.path.join(self.bin_dir, item)):
+                extracted_folder = os.path.join(self.bin_dir, item)
+                break
+        
+        if extracted_folder:
+            self._robust_rename(extracted_folder, java_dir)
+        else:
+            raise RuntimeError("Folder biner JDK tidak ditemukan setelah diekstrak.")
+
+        self._emit_progress(100, "backend.runtimes.java_install_complete")
+        self._emit_log("backend.runtimes.java_ready", "success", {"version": version})
+
+        if set_as_active:
+            self.set_active_version('java', version)
+        elif was_in_path:
+            self.toggle_user_path('java', True)
+        return {"status": "success"}
+
+    def install_java(self, version: str, set_as_active: bool = True):
+        was_in_path = self._prepare_install('java', version)
+        java_dir = os.path.join(self._get_engine_parent_dir('java'), version)
         zip_path = os.path.join(self.bin_dir, f"java_{version}.zip")
+        token = InstallationManager.get_token("runtimes")
 
         try:
             # 1. LOG INISIALISASI (0% - 5%)
@@ -558,11 +1023,8 @@ class RuntimesManager:
             # 2. FASE UNDUHAN (5% - 60%)
             log_cb, download_prog_cb = self._get_cbs(10, 60)
 
-            if os.path.exists(java_dir): 
-                shutil.rmtree(java_dir, ignore_errors=True)
-
             log_cb(MSG_STARTING_BINARY_DOWNLOAD, "info", {"engine": "Java"})
-            download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb)
+            download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb, cancel_check=token.is_cancelled)
 
             # 3. FASE EKSTRAKSI (60% - 95%)
             self._emit_log(MSG_DL_DONE, "info")
@@ -570,31 +1032,16 @@ class RuntimesManager:
             
             _, extract_prog_cb = self._get_cbs(65, 95)
 
-            extract_archive(zip_path, self.bin_dir, progress_cb=extract_prog_cb)
+            extract_archive(zip_path, self.bin_dir, progress_cb=extract_prog_cb, cancel_check=token.is_cancelled)
             
             if os.path.exists(zip_path):
                 os.remove(zip_path)
 
             # 4. FASE FINALISASI (95% - 100%)
-            self._emit_progress(95, "backend.runtimes.reorganizing_dir")
+            return self._finalize_java_install(java_dir, version, was_in_path, set_as_active)
 
-            extracted_folder = None
-            for item in os.listdir(self.bin_dir):
-                if item.startswith('jdk') and os.path.isdir(os.path.join(self.bin_dir, item)):
-                    extracted_folder = os.path.join(self.bin_dir, item)
-                    break
-            
-            if extracted_folder:
-                self._robust_rename(extracted_folder, java_dir)
-            else:
-                raise RuntimeError("Folder biner JDK tidak ditemukan setelah diekstrak.")
-
-            # SUKSES
-            self._emit_progress(100, "backend.runtimes.java_install_complete")
-            self._emit_log("backend.runtimes.java_ready", "success", {"version": version})
-
-            return {"status": "success"}
-
+        except OperationCancelledError:
+            return self._cleanup_cancelled_install(zip_path, java_dir, "Java")
         except Exception as e:
             # PENANGANAN ERROR & PEMBERSIHAN
             # Sebelumnya hanya "except OSError" -- RuntimeError yang dilempar di atas
@@ -607,38 +1054,56 @@ class RuntimesManager:
             self._emit_log("backend.runtimes.java_install_error", "error", {"e": str(e)})
 
             return {"status": "error", "message": "backend.runtimes.java_install_error", "args": {"e": str(e)}}
+        finally:
+            InstallationManager.reset("runtimes")
 
     def uninstall_java(self):
-        java_dir = os.path.join(self.bin_dir, 'java')
         self.toggle_user_path('java', False)
-        if os.path.exists(java_dir):
-            shutil.rmtree(java_dir, ignore_errors=True)
+        self._clear_engine('java')
+        config = self._get_config()
+        if 'java' in config.get("active_versions", {}):
+            config["active_versions"]["java"] = ""
+            self._save_config(config)
         self._emit_log("backend.runtimes.java_uninstalled", "warn")
         return {"status": "success"}
     
     # ==========================================
     # GO (GOLANG) MANAGER
     # ==========================================
-    def get_go_status(self):
-        go_dir = os.path.join(self.bin_dir, 'go')
-        go_exe = os.path.join(go_dir, 'bin', 'go.exe' if sys.platform == 'win32' else 'go')
+    def get_go_status(self, silent: bool = False):
+        go_dir = self._get_engine_dir('go')
+        go_exe = None
+        if go_dir:
+            go_exe = os.path.join(go_dir, 'bin', 'go.exe' if sys.platform == 'win32' else 'go')
         
-        internal_installed = os.path.exists(go_exe)
+        internal_installed = go_exe is not None and os.path.exists(go_exe)
         internal_version = ""
+        subtool = ""
         if internal_installed:
             try:
-                res = subprocess.run([go_exe, 'version'], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
+                res = subprocess.run([go_exe, 'version'], capture_output=True, text=True, creationflags=get_silent_flags())
                 # Output asli Go: "go version go1.22.3 windows/amd64", kita potong agar rapi
                 internal_version = res.stdout.strip().replace('go version ', '').split(' ')[0]
             except Exception: internal_version = "Unknown"
+            try:
+                res_go = subprocess.run([go_exe, 'env', 'GOARCH'], capture_output=True, text=True, creationflags=get_silent_flags(), timeout=5)
+                arch_out = res_go.stdout.strip()
+                if arch_out:
+                    subtool = f"Target: {arch_out}"
+            except Exception: pass
 
-        external_info = self._check_external_installation('go')
+        external_info = self._check_external_installation('go', silent=silent)
+        installed_versions = self.get_installed_engine_versions('go')
+        active_ver = self._get_config().get("active_versions", {}).get('go', '')
 
         return {
-            'installed': internal_installed, 
+            'installed': internal_installed or len(installed_versions) > 0, 
             'version': internal_version, 
-            'in_path': self._is_in_user_path(os.path.join(go_dir, 'bin')),
-            'external': external_info
+            'subtool': subtool,
+            'in_path': self._is_in_user_path(os.path.join(go_dir, 'bin')) if go_dir else False,
+            'external': external_info,
+            'active_version': active_ver,
+            'installed_versions': installed_versions
         }
     
     def get_available_go_versions(self):
@@ -665,12 +1130,12 @@ class RuntimesManager:
                     })
                 return {'status': 'success', 'data': versions}
         except Exception as e:
-            # Ignore SonarQube urllib warning for now, using Exception is fine when bubbling to UI
-            return {'status': 'error', 'message': "backend.runtimes.go_fetch_failed", 'args': {"e": str(e)}}
+            return self._format_fetch_error("backend.runtimes.go_fetch_failed", e)
 
-    def install_go(self, version: str):
-        go_dir = os.path.join(self.bin_dir, 'go')
+    def install_go(self, version: str, set_as_active: bool = True):
         zip_path = os.path.join(self.bin_dir, "go.zip")
+        token = InstallationManager.get_token("runtimes")
+        go_dir = None
 
         try:
             # 1. LOG INISIALISASI (0% - 10%)
@@ -686,17 +1151,17 @@ class RuntimesManager:
                     data = json.loads(response.read().decode('utf-8'))
                     version = data[0]['version'].replace('go', '')
 
+            was_in_path = self._prepare_install('go', version)
+            go_dir = os.path.join(self._get_engine_parent_dir('go'), version)
+
             zip_filename = f"go{version}.windows-amd64.zip"
             download_url = f"https://go.dev/dl/{zip_filename}"
 
             # 2. FASE UNDUHAN (10% - 60%)
             log_cb, download_prog_cb = self._get_cbs(10, 60)
 
-            if os.path.exists(go_dir): 
-                shutil.rmtree(go_dir, ignore_errors=True)
-
             log_cb(MSG_STARTING_BINARY_DOWNLOAD, "info", {"engine": "Go"})
-            download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb)
+            download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb, cancel_check=token.is_cancelled)
 
             # 3. FASE EKSTRAKSI (60% - 95%)
             self._emit_log(MSG_DL_DONE, "info")
@@ -704,17 +1169,29 @@ class RuntimesManager:
             
             _, extract_prog_cb = self._get_cbs(65, 95)
 
-            extract_archive(zip_path, self.bin_dir, progress_cb=extract_prog_cb)
+            extract_archive(zip_path, self.bin_dir, progress_cb=extract_prog_cb, cancel_check=token.is_cancelled)
             
             if os.path.exists(zip_path):
                 os.remove(zip_path)
+
+            extracted_go = os.path.join(self.bin_dir, 'go')
+            if os.path.exists(extracted_go):
+                self._robust_rename(extracted_go, go_dir)
+            else:
+                raise RuntimeError("Folder biner Go tidak ditemukan setelah diekstrak.")
 
             # 4. FASE FINALISASI
             self._emit_progress(100, "backend.runtimes.go_install_complete")
             self._emit_log("backend.runtimes.go_ready", "success", {"version": version})
 
+            if set_as_active:
+                self.set_active_version('go', version)
+            elif was_in_path:
+                self.toggle_user_path('go', True)
             return {"status": "success"}
 
+        except OperationCancelledError:
+            return self._cleanup_cancelled_install(zip_path, go_dir, "Go")
         except Exception as e:
             # PENANGANAN ERROR & PEMBERSIHAN
             # Konsisten dengan install_node/install_python/install_java: tangkap Exception
@@ -727,12 +1204,16 @@ class RuntimesManager:
             self._emit_log("backend.runtimes.go_install_error", "error", {"e": str(e)})
 
             return {"status": "error", "message": "backend.runtimes.go_install_error", "args": {"e": str(e)}}
+        finally:
+            InstallationManager.reset("runtimes")
 
     def uninstall_go(self):
-        go_dir = os.path.join(self.bin_dir, 'go')
         self.toggle_user_path('go', False)
-        if os.path.exists(go_dir):
-            shutil.rmtree(go_dir, ignore_errors=True)
+        self._clear_engine('go')
+        config = self._get_config()
+        if 'go' in config.get("active_versions", {}):
+            config["active_versions"]["go"] = ""
+            self._save_config(config)
         self._emit_log("backend.runtimes.go_uninstalled", "warn")
         return {"status": "success"}
 
@@ -740,7 +1221,7 @@ class RuntimesManager:
         import os, sys, subprocess
         if sys.platform != 'win32': return None
         try:
-            res = subprocess.run(['where', command], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
+            res = subprocess.run(['where', command], capture_output=True, text=True, creationflags=get_silent_flags())
             if res.returncode == 0:
                 for p in res.stdout.strip().split('\n'):
                     p_clean = os.path.normpath(p.strip())

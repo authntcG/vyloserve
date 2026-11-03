@@ -436,7 +436,7 @@ Implementasi awal menaruh `isBackgrounded`/`desktopNotificationsEnabled` di depe
 - Test lama (`'places the notification bell beside the Settings button'`, sebelumnya `'shows the notification bell ... above the system-load/Settings row'`) ditulis ulang untuk memverifikasi STRUKTUR DOM yang benar (bukan cuma presence) — expanded: `settingsButton.parentElement.contains(bellButton)` (satu grup yang sama); collapsed: `bellButton.compareDocumentPosition(systemLoadIcon) & DOCUMENT_POSITION_FOLLOWING` (bell mendahului system-load di DOM, bukan sebaliknya) — pola yang sama dengan pelajaran di #40 soal `getByText(...)` presence-only memberi false confidence untuk regresi pengelompokan/urutan. **Divalidasi dengan sengaja mengembalikan ke layout lama** (bell baris terpisah di atas, urutan DOM collapsed dibalik) — kedua test baru terbukti gagal, lalu lulus lagi setelah fix dikembalikan.
 **Pelajaran untuk ke depannya:** Permintaan placement UI yang berbeda per breakpoint/mode (di sini: expanded vs collapsed) sering butuh STRUKTUR DOM yang benar-benar berbeda per mode (bukan cuma CSS `flex-direction`/`order` di atas struktur yang sama) terutama saat satu mode butuh elemen digabung ke grup yang sudah ada (bell+Settings) sementara mode lain butuh urutan vertikal independen — pertimbangkan percabangan render eksplisit (`isDesktopCollapsed ? (...) : (...)`) alih-alih mencoba memaksakan satu struktur DOM yang di-style ulang lewat class kondisional saja.
 
-## 48. 🚨 Bug: Kegagalan Evaluasi Cognitive Complexity & String Literals (SonarQube)
+## 48. ✅ Bug: Kegagalan Evaluasi Cognitive Complexity & String Literals (SonarQube) — SUDAH DIPERBAIKI
 **Deskripsi:** Log pipeline SonarQube melaporkan masalah `S3776` (Cognitive Complexity > 15), `S1192` (String literals duplicate), dan `S5869` (Flow control restructuring) pada service tunnels dan utils.
 **Solusi (Fixed):**
 - Mengubah struktur kode `core/services/tunnels.py` dengan mengekstrak method-method baru (seperti `_handle_zrok_install`, `_handle_cloudflare_install`) untuk mengurangi Cognitive Complexity.
@@ -444,16 +444,953 @@ Implementasi awal menaruh `isBackgrounded`/`desktopNotificationsEnabled` di depe
 - Menyederhanakan flow di `core/api.py` dan memperbaiki penamaan variable sesuai kaidah naming Python.
 **Pelajaran untuk ke depannya:** Selalu perhatikan *Cognitive Complexity* dan standar *clean code* saat membuat logika *branching* yang panjang. Gunakan method ekstraksi dan konstanta untuk nilai-nilai yang dipakai berulang.
 
-## 49. 🚨 Bug: Modal Install/Uninstall Tunnels Salah Target Engine & Zrok Fallback Gagal
+## 49. ✅ Bug: Modal Install/Uninstall Tunnels Salah Target Engine & Zrok Fallback Gagal — SUDAH DIPERBAIKI
 **Deskripsi:** Saat Tunnels memiliki dua opsi engine (Zrok dan Cloudflare), menekan tombol install/uninstall di satu modul justru membuka state terkait engine yang salah, atau crash karena engine "zrok" mengalami kegagalan versi fallback.
 **Solusi (Fixed):**
-- Melakukan isolasi state UI: memecah komponen Tunnels menjadi sub-komponen atomik (`InstallTunnel.tsx`, `TunnelsBody.tsx`). Modal instalasi kini secara eksplisit menerima argumen `engine` ("zrok" atau "cloudflare") dari aksi UI.
+- Diekstrak satu komponen generik `InstallTunnel.tsx` (bukan dua sub-komponen `InstallTunnel`+`TunnelsBody` seperti catatan awal — `Main.tsx` tetap satu file, hanya logika form instalasi yang diekstrak) yang TIDAK tahu apa-apa soal engine mana yang dipakai — ia menerima `fetchVersionsApi`/`installApi` sebagai **props berupa fungsi yang SUDAH terikat ke engine tertentu** dari pemanggilnya. `Main.tsx` me-render dua instance `<InstallTunnel>` terpisah (satu untuk Cloudflare dengan `installApi={(v) => api.install_cloudflare(v)}`, satu untuk Zrok dengan `installApi={(v) => api.install_zrok(v)}`) — isolasi dicapai lewat *dependency injection* fungsi yang sudah di-bind, bukan lewat argumen string `engine` yang diteruskan ke dalam komponen.
 - Memperbaiki test coverage dan memastikan `core/api.py` serta `core/services/tunnels.py` memproses engine yang tepat.
-**Pelajaran untuk ke depannya:** Gunakan *Single Source of Truth* untuk argumen `engine` yang spesifik pada sebuah modal interaktif, terutama saat satu komponen dapat menangani banyak varian modul.
+**Pelajaran untuk ke depannya:** Gunakan *Single Source of Truth* untuk argumen `engine` yang spesifik pada sebuah modal interaktif, terutama saat satu komponen dapat menangani banyak varian modul — meneruskan CALLBACK yang sudah terikat ke parameter yang benar (bukan meneruskan parameter mentahnya ke komponen generik) juga valid dan bahkan lebih aman dari salah ketik/salah oper string di titik pemanggilan.
 
-## 50. 🚨 Bug: Tombol Manage di Modul Tunnels Kehilangan Key `common.manage`
+## 50. ✅ Bug: Tombol Manage di Modul Tunnels Kehilangan Key `common.manage` — SUDAH DIPERBAIKI
 **Deskripsi:** Saat *smoke test*, tombol "Manage" pada modul Tunnels tidak menampilkan terjemahan, melainkan menampilkan *fallback key* `common.manage` karena key tersebut belum ditambahkan ke file terjemahan.
 **Solusi (Fixed):**
 - Menambahkan key `manage: "Manage"` di `frontend/src/locales/en/translation.json` di bawah nested object `common`.
 - Menambahkan key `manage: "Kelola"` di `frontend/src/locales/id/translation.json` di bawah nested object `common`.
 **Pelajaran untuk ke depannya:** Sesuai *Golden Rules i18n*, setiap kali menambah teks statis di UI, periksa dan tambahkan selalu ke *kedua* file locale `.json` sebelum menganggap fitur UI tersebut selesai.
+
+## 51. ✅ Database Baru Terinstal Tidak Muncul di List Modul Database
+**Deskripsi:** Setelah proses instalasi database (MySQL/MariaDB atau PostgreSQL) selesai sukses di backend, instance yang baru terpasang tidak muncul di daftar modul Database — UI menutup modal instalasi tapi list tetap kosong/tidak ter-update, seolah instalasi gagal padahal sebenarnya berhasil.
+**Penyebab (Root Cause):** Dua bug terpisah yang saling memperparah:
+1. `DatabaseManager.get_installed()`'s `enrich_status()` memanggil `check_port_in_use(db['port'])` untuk SETIAP entri di `data/database.json` lewat `ThreadPoolExecutor.map()`. Kalau SATU entri saja punya field `port` yang hilang/`None` (mis. entri lama dari skema versi sebelumnya, atau sisa duplikat dari bug #2 di bawah), `check_port_in_use(None)` melempar `TypeError` (`int(None)` di `core/utils/system_utils.py`) yang TIDAK tertangkap oleh `except OSError` internal fungsi itu — exception ini merambat sampai ke `try/except` di level `get_installed()`, membuat **SELURUH** panggilan API mengembalikan `{"status": "error", ...}`, bukan cuma entri yang rusak. Frontend (`fetchDatabases()` di `Main.tsx`) sebelumnya HANYA menangani `status === 'success'` secara eksplisit — pada `status === 'error'` tidak melakukan apa pun (bahkan tanpa toast), sehingga list database yang SEBENARNYA valid (termasuk yang baru selesai diinstal) ikut tidak tampil sama sekali.
+2. `DatabaseManager._register_database()` tidak pernah memeriksa apakah `db_id` yang sama sudah ada di `data/database.json` sebelum `data.append(...)` — kalau sebuah instalasi sempat gagal/terputus di tengah jalan lalu di-retry dengan `db_id` yang sama, hasilnya DUA entri dengan id identik, salah satunya bisa jadi entri "stale" yang tidak lengkap (termasuk `port` kosong) — persis skenario yang memicu bug #1 di atas.
+3. Secara terpisah, `handleInstallDatabase()` di `Main.tsx` sebelumnya TIDAK menangani cabang `status === 'success'` dari hasil `await install_database(...)` sama sekali — refresh list (`fetchDatabases()`) hanya dipicu dari listener event `vylo_progress` terpisah saat `percent` mencapai 100, dengan delay `setTimeout` 3 detik. Ini membuat refresh list bergantung pada SISI LAIN (event progress) yang tidak selalu sinkron sempurna dengan response `await` yang sebenarnya — kalau event progress akhir tidak persis mengirim 100% (race kondisi/urutan event), list tidak pernah ter-refresh meski instalasi backend-nya sendiri sukses.
+**Solusi (Fixed):**
+1. `enrich_status()` sekarang fallback ke port default per engine (`3306` untuk MySQL/MariaDB, `5432` untuk PostgreSQL) kalau `db.get('port')` bernilai `None` — satu entri rusak tidak lagi menjatuhkan seluruh daftar. `fetchDatabases()` di frontend juga sekarang menampilkan toast pada `status === 'error'` (sebelumnya silent).
+2. `_register_database()` sekarang menyaring entri lama dengan `id` yang sama (`data = [db for db in data if db.get('id') != db_id]`) SEBELUM `append`, mencegah duplikat tertinggal di `database.json`.
+3. `handleInstallDatabase()` sekarang memanggil `fetchDatabases()` dan menutup modal LANGSUNG dari cabang sukses hasil `await install_database(...)` — tidak lagi bergantung pada event `vylo_progress` untuk refresh list (event progress itu sekarang murni untuk animasi persentase, lewat `setProgress(0)` saja saat selesai).
+- Ditambahkan 2 test regresi backend (`test_db_get_installed_falls_back_to_default_port_when_missing`, `test_register_database_replaces_existing_entry_with_same_id`) dan 1 test regresi frontend diperkuat (`'installs a new instance...'` di `Main.test.tsx`, sekarang memakai `mockResolvedValueOnce`/`mockResolvedValue` dua tahap untuk benar-benar memverifikasi database baru MUNCUL di list — bukan cuma memverifikasi widget progress tertutup seperti versi sebelumnya). **Divalidasi dengan sengaja mengembalikan ketiga fix ke versi lama satu per satu** — ketiganya terbukti gagal (dua backend dengan pesan error yang cocok persis skenario bug, satu frontend dengan `getInstalled` cuma terpanggil 1x alih-alih 2x), lalu lulus lagi setelah fix dikembalikan.
+**Catatan proses:** Perbaikan ini awalnya dikerjakan sesi Gemini CLI yang terhenti di tengah jalan (token habis) sebelum sempat menulis test regresi atau membersihkan file scratch (`patch_*.py`, `core/api.py.tmp`, dll — belasan file di root repo). Investigasi lanjutan menemukan sesi itu sebenarnya sedang membangun fitur jauh lebih besar ("Update Engine" — kemampuan upgrade versi Apache/PHP/Database/Runtimes/Git/Tunnels tanpa uninstall) yang TIDAK diminta dalam task ini; fitur itu sudah separuh jalan (backend `update_database`/`update_php` lengkap dengan rollback, translation key, 2 test backend) tapi belum ada UI pemicunya sama sekali saat temuan ini pertama kali ditulis. `core/api.py.tmp` yang ditemukan ternyata berisi hasil patch GAGAL/korup (`def get_installed_phpXXX` — sintaks tidak valid) dan dihapus.
+
+**Update susulan (permintaan terpisah dari user, bukan bagian dari bug fix di atas):** UI untuk `update_database` sudah dilengkapi, dan sudah direvisi sekali — percobaan pertama memakai `<InfoBox>` (notice "Update Available" + progress bar terpisah inline di body kartu), tapi user minta disamakan dengan pola modul PHP yang sudah lebih dulu punya UI update serupa (peninggalan sesi Gemini yang sama, belum sempat ditemukan saat catatan di atas pertama ditulis). Hasil akhir: `database/Main.tsx` kini mengecek update tersedia otomatis per engine unik (`checkForUpdates()`, dibandingkan via `compareVersions()` semantik bukan `!==` string mentah), menampilkan badge kecil "Update" di judul kartu instance dan tombol "Update to {versi}" di menu "..." — identik visualnya dengan `php/Main.tsx`. Satu-satunya beda yang dipertahankan (bukan cosmetic, tapi fungsional): Database punya langkah konfirmasi backup tambahan sebelum update (PHP tidak, karena `update_php()` backend tidak punya `backup_data`). `compareVersions()` diekstrak dari `php/Main.tsx` ke `frontend/src/utils/version.ts` (mengikuti preseden `clampPercent()`) supaya tidak terduplikasi di kedua modul. Lihat `docs/features.md` §3 dan `docs/ai_development_guide.md`'s tabel Database Endpoints untuk detail.
+
+Saat menyamakan badge ini, ditemukan juga badge "Update" PHP (sumber yang ditiru Database) masih memakai shade amber stok (`bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300`) — persis anti-pola yang sudah diaudit habis di Fase 4 (`docs/ui_consistency_guide.md` §1, `docs/known_bugs.md` #42), cuma luput karena badge ini ditambahkan Gemini SETELAH audit Fase 4 selesai. Kedua badge (PHP dan Database) dikonversi ke pola opacity-of-covered-shade yang benar: `bg-amber-500/10 dark:bg-amber-500/20 text-amber-600 dark:text-amber-500` (sama seperti tone warning `<InfoBox>`).
+**Pelajaran untuk ke depannya:** (1) Satu entri data yang malformed di sebuah file JSON config bisa menjatuhkan SELURUH operasi baca kalau diproses lewat `executor.map()`/list comprehension tanpa isolasi per-item — pertimbangkan membungkus body `enrich_status`-semacam-ini dengan try/except PER ITEM (bukan cuma di level pemanggil) kalau satu entri rusak seharusnya tidak boleh menjatuhkan entri lain yang valid. (2) Refresh state UI setelah operasi async idealnya dipicu LANGSUNG dari resolusi `await` operasi itu sendiri, bukan dari side-channel event terpisah (seperti progress event) yang punya kontrak timing berbeda — kalau keduanya memang perlu (mis. progress bar visual + refresh data), pisahkan tanggung jawabnya secara eksplisit alih-alih menumpuk keduanya di satu listener yang sama. (3) Saat melanjutkan pekerjaan AI lain yang terhenti, SELALU audit `git status`/`git diff` penuh dulu sebelum asumsi perubahan yang ada hanya mencakup scope yang diminta — sesi ini ternyata menyentuh 6 modul berbeda untuk fitur yang sama sekali tidak diminta di task ini.
+
+## 52. ✅ Instalasi PostgreSQL Gagal: `DB installation failed: [WinError 2] The system cannot find the file specified.`
+**Deskripsi:** User melaporkan instalasi PostgreSQL gagal dengan pesan mentah `[WinError 2] The system cannot find the file specified.` — pesan ini tidak menyebutkan file APA yang hilang, membuatnya nyaris tidak bisa ditindaklanjuti dari sisi user.
+
+**Investigasi:** Format pesan `install_failed_log` (`"DB installation failed: {{e}}"`) TANPA prefix tambahan ("Gagal mengekstrak arsip: ..." dari `extract_archive()`, atau awalan lain) menunjukkan exception ini TIDAK berasal dari proses ekstraksi arsip — artinya terjadi SETELAH ekstraksi+`_unwrap_single_subdir()` selesai tanpa error, di titik `_init_database()` memanggil `initdb.exe` lewat `run_silent_command()`. Format `[WinError N] pesan` TANPA path yang diikutkan (beda dari `FileNotFoundError` hasil operasi file biasa yang SELALU menambahkan `: 'path/nya'`) adalah signature KHAS kegagalan `subprocess`/`CreateProcess` saat executable (`cmd[0]`) itu sendiri tidak ditemukan di path yang diberikan.
+
+Direproduksi penuh secara live: unduh biner resmi EnterpriseDB (~373MB, 21.799 entri zip) untuk 4 versi PostgreSQL yang saat ini ditawarkan (14.24, 15.19, 16.15, 18.6) dan jalankan `download_advanced` → `extract_archive` → `_unwrap_single_subdir` → `initdb.exe` end-to-end nyata (bukan mock) — SEMUA tahap sukses sempurna (`initdb` keluar dengan `returncode 0`, cluster berhasil dibuat), dan struktur arsip ZIP keempat versi tersebut konsisten (satu folder top-level `pgsql/`, sudah ditangani benar oleh `_unwrap_single_subdir()`). Pengecekan Windows Defender (`Get-MpThreatDetection`/`Get-MpThreat`) juga tidak menunjukkan riwayat deteksi/karantina apa pun terkait postgres/initdb di mesin yang sama. **Kesimpulan AWAL (kemudian terbukti kurang tepat, lihat update di bawah): logika inti sudah benar untuk kondisi normal — kegagalan user kemungkinan besar dipicu kondisi transien di lingkungannya sendiri** (unduhan 373MB terputus sebagian, antivirus pihak ketiga/heuristik lain yang mengarantina sebagian hasil ekstraksi tanpa tercatat di Defender, atau proses lain yang mengunci/menghapus file tepat setelah ekstraksi) — akar penyebab PASTI tidak bisa dipastikan 100% karena tidak ada log persisten dari percobaan asli user (Logs Panel bersifat session-only, lihat fitur #45).
+
+**Update — akar penyebab SEBENARNYA ditemukan setelah smoke test ulang user:** Fix defensif `_assert_installer_present()` (lihat "Perbaikan" di bawah) berhasil mengubah error jadi actionable, dan pesan barunya langsung membongkar bug SEBENARNYA: `D:\...\bin\database\postgres_13_1_1\bin\initdb.exe` tidak ditemukan — perhatikan **`postgres_13_1_1`**. PostgreSQL TIDAK PERNAH memakai skema versi 3-segmen (`14.24`, `16.15`, `18.6`, dst — selalu `major.minor`); `13.1.1` justru persis format versi MariaDB (`databases.json` user memang punya entri `"MariaDB 13.1.1"` terinstal sebelumnya). Ini bukti telak `engine`+`version`+`url` yang dikirim ke `install_database()` TIDAK KONSISTEN — engine terkirim benar (`postgres`, makanya `PostgreSQL Init Error` yang muncul, bukan `MariaDB Init Error`), tapi `version`/`url`-nya kebawa dari MariaDB, sehingga arsip yang BENAR-BENAR terunduh & terekstrak adalah MariaDB (isinya `mysql_install_db.exe`, BUKAN `initdb.exe`) — menjelaskan kenapa biner itu "hilang": dia memang tidak pernah ada di arsip yang terunduh.
+
+**Root cause: race condition respons async BASI (stale) di `frontend/src/menu/database/NewInstance.tsx`.** `useEffect(() => { fetchOnlineVersions(engineFamily); }, [engineFamily])` tidak punya guard terhadap urutan resolve yang terbalik. `get_available_databases('mysql')` di backend jauh lebih LAMBAT (`_fetch_mariadb_versions()` resolve URL TIAP versi lewat scraping halaman HTML terpisah via `ThreadPoolExecutor`) dibanding `get_available_databases('postgres')` (`_fetch_postgres_versions()`, satu kali fetch halaman saja). Modal "New Instance" default mount dengan `engineFamily='mysql'` (memicu fetch mysql yang lambat), lalu user mengganti dropdown engine ke "PostgreSQL" (memicu fetch postgres KEDUA yang jauh lebih cepat). Karena TIDAK ADA mekanisme pembatalan/pengabaian untuk request yang sudah usang, fetch mysql yang lebih lambat itu **resolve BELAKANGAN** dan MENIMPA `availableVersions` dengan data MariaDB — padahal `engineFamily` state sudah berubah jadi `'postgres'`. `getFormData()` lalu mengambil `engine` dari state TERKINI (`'postgres'`, benar) tapi `version`/`url` dari `availableVersions` yang sudah basi (MariaDB) — persis kombinasi yang dikirim ke backend dan memicu bug ini.
+**Fix:** `fetchOnlineVersions` dipindah ke dalam `useEffect` dengan flag `ignore` standar pola React (`let ignore = false; ...; return () => { ignore = true; }`) — tiap kali `engineFamily` berubah, efek sebelumnya di-cleanup dan response-nya nanti diabaikan (`if (ignore) return;` sebelum `setAvailableVersions`/`setSelectedVersion`), sehingga HANYA response dari fetch TERAKHIR/TERKINI yang pernah commit ke state, independen dari urutan resolve-nya.
+- Ditambahkan 1 test regresi baru di `NewInstance.test.tsx` (`'ignores a stale engine fetch that resolves AFTER a newer one (out-of-order race)'`) yang menggantung promise mysql secara manual (`resolveMysql` dipanggil belakangan, SETELAH postgres sudah tampil di UI) untuk mereproduksi urutan resolve terbalik secara deterministik, lalu assert `getFormData()` tetap konsisten (engine+version+url postgres, bukan campuran). **Divalidasi dengan sengaja menghapus guard `ignore`** — test terbukti gagal (`"MySQL 8.0"` muncul lagi padahal UI sudah menampilkan PostgreSQL), lalu lulus lagi setelah fix dikembalikan. Full suite frontend (664 test) dan backend (541 test) tetap hijau.
+**Pelajaran untuk ke depannya:** (1) SETIAP `useEffect` yang memicu fetch async berbasis dependency yang bisa berubah CEPAT (toggle/dropdown, bukan cuma mount sekali) WAJIB punya guard against-stale-response (`ignore` flag atau `AbortController`) — tanpa ini, urutan RESOLVE promise TIDAK DIJAMIN sama dengan urutan DIPANGGIL, terutama kalau endpoint-nya punya variabilitas latensi antar-parameter (di sini: mysql vs postgres beda total request HTTP yang dilakukan backend). (2) Fix defensif (pesan error yang actionable) TIDAK MENGGANTIKAN pencarian root cause — tapi di kasus ini pesan error yang lebih baik itu SENDIRI yang jadi petunjuk kunci (`postgres_13_1_1` sebagai nama folder institutsi langsung menunjukkan versi yang salah) begitu user mencoba ulang dan melapor lagi; investasi pada pesan error yang jelas selalu terbayar untuk diagnosis BERIKUTNYA meski tidak langsung menuntaskan root cause saat itu juga. (3) Kesimpulan "kemungkinan transien/lingkungan" HARUS ditandai eksplisit sebagai HIPOTESIS, bukan vonis akhir, kalau investigasi tidak bisa membuktikan/menyangkalnya 100% — di sini hipotesis awal itu ternyata SALAH, dan yang membuktikannya adalah smoke test manual user berikutnya, bukan investigasi tambahan dari AI.
+
+**Perbaikan (defensif, bukan root-cause fix untuk pemicu eksternalnya):** Karena pemicu pastinya di luar kendali kode (tidak bisa mengontrol AV pihak ketiga atau kestabilan jaringan user), perbaikan diarahkan ke mengubah kegagalan dari **cryptic & tidak actionable** menjadi **jelas & actionable**. Ditambahkan `DatabaseManager._assert_installer_present(installer, error_prefix)`, dipanggil di `_init_database()` SEBELUM memanggil `run_silent_command()` untuk kedua engine (MySQL `mysql_install_db.exe` dan PostgreSQL `initdb.exe`) — kalau biner installer tidak ditemukan di path yang diharapkan, melempar `RuntimeError` dengan pesan yang (1) menyebutkan PATH LENGKAP installer yang dicari, (2) menjelaskan dua penyebab paling umum (ekstraksi tidak lengkap / antivirus mengarantina), dan (3) menyarankan install ulang atau menambah exclusion antivirus — jauh lebih actionable dibanding `[WinError 2]` mentah.
+- Ditambahkan 2 test regresi baru (`test_init_database_mysql_raises_when_installer_missing`, `test_init_database_postgres_raises_when_installer_missing`) yang memverifikasi `RuntimeError` dengan pesan jelas dilempar SEBELUM `run_silent_command` sempat dipanggil (`mock_run.assert_not_called()`) ketika installer tidak ada. 4 test `_init_database` existing lainnya diperbarui untuk mem-mock `os.path.exists` secara eksplisit (sebelumnya sebagian mengandalkan path dummy yang kebetulan tidak pernah dicek). **Divalidasi dengan sengaja menghapus kedua pemanggilan `_assert_installer_present()`** — kedua test baru terbukti gagal (satu dengan `FileNotFoundError` pada `open(pw_file)` yang justru lebih cryptic lagi, membuktikan nilai fix ini), lalu lulus lagi setelah fix dikembalikan. Full suite backend (541 test) tetap hijau.
+**Pelajaran untuk ke depannya:** (1) Sebelum memanggil `subprocess`/`CreateProcess` terhadap sebuah biner hasil ekstraksi arsip pihak ketiga (bukan biner yang di-bundle sendiri di repo), SELALU validasi keberadaannya dulu dengan pesan error yang jelas — biner hasil unduhan+ekstraksi punya banyak titik kegagalan di luar kendali kode (jaringan, antivirus, disk) yang sebaiknya terdeteksi SEDINI mungkin dengan pesan actionable, bukan dibiarkan meledak jadi `WinError 2` mentah di titik eksekusi. (2) Format pesan error (ada/tidaknya prefix wrapper, ada/tidaknya path yang disertakan) adalah petunjuk diagnostik yang valid untuk MEMPERSEMPIT lokasi bug tanpa akses log asli — manfaatkan konvensi pesan proyek sendiri (lihat `MSG_UNEXPECTED_ERROR`/`install_failed_log` di `database.py`) sebagai sumber informasi, bukan cuma teks tampilan. (3) Reproduksi end-to-end LANGSUNG terhadap sumber data pihak ketiga asli (bukan mock) adalah validasi paling kuat untuk MENYANGKAL teori root-cause yang salah (di sini: struktur arsip ZIP postgres) sebelum menghabiskan waktu memperbaiki sesuatu yang sebenarnya sudah benar.
+
+## 53. ✅ Asset Path Icon Notifikasi Native Windows & PyInstaller Executable — SUDAH DIPERBAIKI
+**Deskripsi:** Saat aplikasi dikompilasi menggunakan PyInstaller (`.exe` standalone), notifikasi native Windows (`win11toast`) gagal memuat ikon aplikasi atau mengalami fallback tanpa gambar. Selain itu, aset frontend/icon yang diasumsikan berada di relative path `./frontend/src/assets/...` gagal ditemukan saat berjalan dalam mode `sys.frozen`.
+**Penyebab (Root Cause):**
+1. PyInstaller mengekstrak bundle ke temporary directory `sys._MEIPASS` (pada mode OneFile/Frozen). Mengakses file menggunakan `os.path.dirname(os.path.abspath(__file__))` atau relative path langsung dari working directory saat runtime compiled menunjuk ke lokasi yang salah.
+2. Windows WinRT toast image decoder (WIC) memiliki kompatibilitas bermasalah terhadap decoding format `.ico` dengan multi-layer resolusi pada notifikasi native toast, sementara format `.png` (`frontend/src/assets/icons-nobg.png`) didukung penuh secara universal.
+**Solusi (Fixed):**
+- Dibuat helper terpusat `get_resource_path(*relative_path_parts)` di `core/utils/system_utils.py` yang memeriksa apakah aplikasi berjalan di bawah `getattr(sys, 'frozen', False)`: jika frozen, path dibentuk dari `sys._MEIPASS` (atau fallback ke executable root); jika development, path dibentuk dari root repository `get_project_root()`.
+- `api.show_native_notification()` di `core/api.py` dan tray icon di `main.py` dialihkan menggunakan `get_resource_path()` dan memilih file icon `.png` (`frontend/src/assets/icons-nobg.png`) alih-alih path hardcode atau format `.ico`.
+- Konfigurasi `main.spec` dan `vite.config.ts` diperbarui untuk memastikan struktur folder bundle asset (`frontend/dist` dan `frontend/src/assets`) terdistribusi rapi ke dalam packaging.
+- Ditambahkan unit test regresi di `tests/test_utils/test_system_utils.py` (`test_get_resource_path_dev_and_frozen`) dan `tests/test_services/test_api.py`.
+**Pelajaran untuk ke depannya:** Selalu gunakan helper abstraksi resource path (`get_resource_path`) untuk setiap file statis (icon, font, asset bundled) yang harus diakses oleh Python backend, agar kompatibel transparan baik di development maupun packaging PyInstaller. Hindari format `.ico` untuk API Windows modern (WinRT/UWP toast) yang lebih menyukai `.png`.
+
+## 54. ✅ Safeguard Terhadap Respon Basi (Stale Response) dan Race Condition Update Check Antar-Engine — SUDAH DIPERBAIKI
+**Deskripsi:** Saat bernavigasi cepat antar engine/submodul atau saat auto-check update berjalan secara asinkron di modul Runtimes, Tunnels, atau Database, respon fetch dari engine sebelumnya yang lambat (mis. scraping halaman external) dapat me-resolve setelah user beralih ke engine lain. Akibatnya, badge atau state update dari engine lama menimpa state engine yang sedang aktif (race condition out-of-order response).
+**Penyebab (Root Cause):** `useEffect` atau callback asinkron tidak membatalkan atau mengabaikan promise yang masih terbang saat dependency berubah atau saat user berpindah konteks.
+**Solusi (Fixed):**
+- Menerapkan pola React cleanup guard (`let ignore = false; ... return () => { ignore = true; }`) di setiap `useEffect` pemanggilan fetch online version atau update checker di `Main.tsx` modul Database, Runtimes, Git, dan Tunnels.
+- Menstandarkan isolasi penulisan state hanya jika `!ignore` atau jika `selectedEngine === targetEngine`.
+- Menambahkan test regresi di frontend (`NewInstance.test.tsx`, `Main.test.tsx`) yang mensimulasikan resolusi promise lambat yang datang setelah pergantian target.
+**Pelajaran untuk ke depannya:** Setiap panggilan API asinkron yang terpicu oleh interaksi dinamis pengguna (klik tab, dropdown engine, mount) wajib memiliki mekanisme pembatalan/pengabaian stale response untuk menghindari state corrupt di UI.
+
+## 55. ✅ Ketidakselarasan Alur Update Modul Apache dengan Spesifikasi UI/UX — SUDAH DIPERBAIKI
+**Deskripsi:** Tombol update dari burger option (`Card` dropdown menu) pada modul Apache sebelumnya langsung mengeksekusi update tanpa konfirmasi dialog, tidak menampilkan widget progress minimized, dan ketika tombol maximize ditekan tidak merestore form wizard instalasi Apache dengan pre-selected target version.
+**Penyebab (Root Cause):** Implementasi awal update Apache langsung memanggil API backend tanpa mengintegrasikan konfirmasi modal `useAlert().confirm` dan belum menghubungkan state instalasi dengan `BackgroundProgressWidget` serta modal `InstallWizard` yang mem-passing target version ke dropdown form.
+**Solusi (Fixed):**
+- Di `frontend/src/menu/apache/Main.tsx`, tombol update di burger option kini memicu modal konfirmasi `useAlert().confirm({ title: t('apache.update_confirm_title'), message: t('apache.update_confirm_msg', { version: targetVersion }), ... })`.
+- Jika user menyetujui, modal konfirmasi menutup dan progress update berjalan di latar belakang dengan widget progress terminimalisasi (`BackgroundProgressWidget`).
+- Ditambahkan handler `onMaximize` pada `BackgroundProgressWidget` yang membuka kembali modal `InstallWizard` dengan `initialTargetVersion` diset ke versi tujuan update.
+- Menambahkan test regresi komprehensif di `frontend/tests/menu/apache/Main.test.tsx` untuk memverifikasi alur konfirmasi dialog, penolakan cancel, minimasi progress, dan maximize restore wizard modal.
+**Pelajaran untuk ke depannya:** Aksi destruktif atau mutasi besar seperti in-place update engine server lokal wajib melewati dialog konfirmasi eksplisit kepada user, dan state progress multi-langkah harus mendukung siklus minimize/maximize yang terhubung kembali dengan form konteksnya.
+
+## 56. ✅ Bentrokan (Collision) Instance Development dan Production pada Single-Instance Mutex serta Crash Aplikasi Saat Restore dari Tray — SUDAH DIPERBAIKI
+**Deskripsi:** Saat aplikasi versi Production (`.exe`) sedang berjalan di background/tray, menjalankan instance Development (`python main.py`) menyebabkan bentrokan Mutex Windows: instance Development mendeteksi Mutex sudah ada, lalu mencoba mengaktifkan instance Production ke depan. Fatalnya, instance Production yang sedang di-tray/hidden mengalami crash, window tidak bisa di-restore, dan proses menggantung serta tidak bisa ditutup via taskbar.
+**Penyebab (Root Cause):**
+1. Nama Named Mutex Windows (`VyloServe_App_Mutex_v1`) dan AppUserModelID sebelumnya di-hardcode sama untuk Development dan Production. Ketika instance Dev dijalankan saat Prod aktif, Dev mengira dirinya adalah instance kedua dari Prod.
+2. Mekanisme pengaktifan window lama mengandalkan Win32 raw cross-process API (`FindWindowW`, `AttachThreadInput`, `ShowWindow(SW_SHOW)`, `SetForegroundWindow`) yang dijalankan dari thread process Dev terhadap window process Prod. Operasi ini rentan crash/deadlock di Windows jika window target sedang di-hidden (`Hide()` WinForms pywebview) atau berada di thread message loop yang berbeda (terisolasi di System Tray).
+**Solusi (Fixed):**
+- Memisahkan isolasi Mutex, AppUserModelID, dan Window Title berdasarkan mode aplikasi:
+  - Production: Mutex `VyloServe_App_Mutex_v1`, Named Pipe `\\.\pipe\VyloServe_IPC_v1`, Title `VyloServe`.
+  - Development: Mutex `VyloServe_Dev_App_Mutex_v1`, Named Pipe `\\.\pipe\VyloServe_Dev_IPC_v1`, Title `VyloServe (Development)`.
+  Dengan isolasi ini, instance Development dan Production dapat berjalan berdampingan di mesin yang sama tanpa saling mengganggu.
+- Mengganti Win32 cross-process hijack dengan Windows Named Pipe IPC thread-safe:
+  - Instance pertama menjalankan Named Pipe IPC server listener di latar belakang (`_start_ipc_server()`).
+  - Instance kedua yang mendeteksi Mutex terpasang akan menghubungkan diri ke Named Pipe (`_notify_primary_instance_via_ipc()`), mengirim sinyal aktivasi string UTF-8 (`b"SHOW_WINDOW"`), lalu keluar secara bersih (graceful exit code 0).
+  - Saat menerima sinyal IPC, instance pertama memanggil `show_and_bring_to_front()` pada UI thread internalnya sendiri (WinForms `Invoke`/DWM interop), sehingga bebas dari race condition antar-proses dan tidak memicu crash.
+- Menambahkan unit test komprehensif di `tests/test_main.py` (42 test coverage) yang menguji Mutex name resolution, IPC server listener, IPC notification client, fallback handling, dan penanganan graceful exit.
+**Pelajaran untuk ke depannya:** (1) Jangan pernah berbagi Mutex atau identifier single-instance antara environment Development dan Production. (2) Hindari memanipulasi GUI thread proses lain menggunakan raw Win32 cross-process pointer/hook; gunakan mekanisme IPC yang bersih (Named Pipe / socket lokal) agar proses utama sendiri yang mengelola transisi state jendelanya secara thread-safe.
+
+## 57. ✅ Tampilan AI Assistant Terlihat Sempit Secara Horizontal (Mobile-Like Layout di Layar Desktop) — SUDAH DIPERBAIKI
+**Deskripsi:** Saat membuka antarmuka penuh AI Assistant (`ai-assistant`) di layar desktop normal/lebar, tampilan halaman terlihat sangat sempit secara horizontal, terpusat di tengah layar dengan margin kosong yang sangat luas di sisi kiri dan kanan. Kartu empty state yang berisi judul "AI Assistant", subtitle "Asisten pengembang server lokal Anda", dan teks "Secara otomatis memberikan informasi modul aktif ke AI" terhimpit rapat seperti tampilan layar smartphone (mobile screen) di tengah monitor desktop.
+**Penyebab (Root Cause):**
+1. **Restriksi Lebar Artifisial pada Root Komponen & Subtitle Empty State:** Kontainer terluar `frontend/src/menu/tools/ai-assistant/Main.tsx` awalnya dibungkus dengan kelas `max-w-5xl mx-auto`. Lebih lanjut, paragraf teks subtitle di dalam kartu empty state chat (`{t('ai.subtitle')} — {t('settings.ai_auto_context_desc')}`) secara eksplisit dibatasi dengan kelas `max-w-md` (hanya 448px = lebar tipikal layar smartphone), memaksa teks deskripsi desktop yang panjang terpotong menjadi 3-4 baris sempit di tengah kartu.
+2. **Terputusnya Rantai Flexbox di `App.tsx` di Bawah `overflow-y-auto`:** Kontainer induk di `App.tsx` (`<div className="flex-1 min-h-0 overflow-y-auto ...">`) berstatus `display: block` tanpa kelas `h-full` atau `flex flex-col`. Menurut spesifikasi CSS, anak elemen dengan `h-full` di dalam elemen block yang tingginya tidak ditentukan secara eksplisit akan dievaluasi menjadi `height: auto`. Akibatnya, seluruh kartu chat kolaps secara vertikal dan horizontal menjadi kotak stubby kecil alih-alih mengisi viewport desktop secara penuh.
+3. **Empty State Menggunakan Single-Column Stack Sempit:** Tombol Quick Questions dibungkus dalam `w-full max-w-lg flex flex-col gap-2` (512px vertikal bertumpuk), alih-alih memanfaatkan ruang horizontal desktop dengan grid multi-kolom yang seimbang.
+**Solusi (Fixed):**
+- Mengubah kontainer root `AiAssistantMain.tsx` dari `max-w-5xl mx-auto` menjadi `flex flex-col flex-1 min-h-0 w-full h-full min-h-[500px]` agar membentang selaras dengan seluruh modul lain di aplikasi dan memiliki batas tinggi minimum yang kokoh.
+- Memperbaiki rantai flexbox di `App.tsx`: kontainer induk dinamis mengaktifkan `${activeMenu === 'ai-assistant' ? 'flex flex-col h-full' : ''}` dan wrapper halaman AI diset ke `flex-1 min-h-0 flex flex-col w-full` sehingga tinggi dan lebar viewport terisi 100% tanpa kolaps.
+- Menghapus kelas sempit `max-w-md` pada paragraf empty state di `Main.tsx` dan menggantinya dengan `max-w-2xl mx-auto`, serta memperluas kontainer kartu saran menjadi `w-full max-w-5xl mx-auto grid grid-cols-1 sm:grid-cols-3 gap-3` dengan `rounded-xl` selaras standar kartu VyloServe.
+- Menyesuaikan lebar kartu popup `AiFloatingWidget.tsx` dari `sm:w-[410px]` menjadi responsif `sm:w-[420px] md:w-[440px]` untuk memberikan kenyamanan membaca pesan dan cuplikan blok kode.
+- Mendokumentasikan aturan pencegahan layout sempit/mobile-like ini secara permanen sebagai **Golden Rule #32** di `AGENTS.md`.
+**Pelajaran untuk ke depannya:** Antarmuka aplikasi desktop memiliki karakteristik spatial yang berbeda dari web artikel. Jangan pernah menambahkan utility pembatas lebar (`max-w-md`, `max-w-lg`, `max-w-5xl mx-auto`) pada root container modul/halaman desktop maupun teks deskripsi kartu utama karena akan memicu ilusi layout mobile sempit di tengah monitor lebar. Gunakan selalu `w-full` untuk root halaman, pertahankan rantai flexbox (`flex flex-col h-full`) agar tidak kolaps di bawah `overflow-y-auto`, dan gunakan grid responsif multi-kolom untuk elemen-elemen aksi di dalamnya.
+
+## 58. ✅ Model Google Gemini Deprecated / HTTP 404 (`gemini-2.0-flash` Tidak Lagi Tersedia) — SUDAH DIPERBAIKI
+**Deskripsi:** Saat user menghubungkan Google AI Studio / Gemini API Key di Pengaturan AI Assistant, tombol *Test Connection* dan fitur chat mengalami kegagalan dengan pesan error: `HTTP 404: This model models/gemini-2.0-flash is no longer available. Please update your code to use models/gemini-3.8-flash for the latest features and improvements`.
+**Penyebab (Root Cause):**
+Google telah menghentikan akses (*deprecated / sunset*) ke model `gemini-2.0-flash` dan `gemini-1.5-*`. Endpoint API Google Gemini (`v1beta`) secara eksplisit menolak request ke identifier model lama dengan respon HTTP 404. Model flagship terbaru Google adalah generasi Gemini 3 (`gemini-3.8-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`), di mana `gemini-3.5-flash-lite` dan `gemini-3.1-flash-lite` terbukti stabil, cepat, dan tidak terdampak lonjakan antrean (503).
+**Solusi (Fixed):**
+- Memperbarui daftar `PROVIDER_MODELS.gemini` di `frontend/src/menu/tools/settings/AiTabContent.tsx` menjadi:
+  - `gemini-3.5-flash-lite` — *Gemini 3.5 Flash Lite (Fast & Recommended)*
+  - `gemini-3.8-flash` — *Gemini 3.8 Flash (Latest Flagship)*
+  - `gemini-3.1-flash-lite` — *Gemini 3.1 Flash Lite*
+  - `gemini-flash-latest` — *Gemini Flash Latest*
+- Menetapkan `gemini-3.5-flash-lite` sebagai default model baru di `core/services/settings.py`, `core/services/ai_assistant.py`, dan `frontend/src/context/AiContext.tsx`.
+- Menambahkan auto-migration safeguard di backend (`settings.py`, `ai_assistant.py`) dan frontend (`AiTabContent.tsx`, `AiContext.tsx`): jika konfigurasi tersimpan masih menggunakan model lama yang sudah 404 (`gemini-2.0-flash`, `gemini-1.5-flash`, `gemini-1.5-pro`, `gemini-2.5-flash`), sistem secara otomatis memigrasikannya ke `gemini-3.5-flash-lite`.
+- Memperbarui file konfigurasi lokal `data/settings.json` user yang sedang aktif.
+- Menambahkan unit test backend di `tests/test_services/test_ai_assistant.py` (`test_send_message_auto_migrates_deprecated_model`).
+**Pelajaran untuk ke depannya:** Penyedia layanan LLM publik (terutama Google dan OpenAI) memiliki siklus *model deprecation* yang dinamis. Selalu sertakan mekanisme auto-migration fallback untuk model default yang sudah kadaluarsa, sediakan opsi alias *latest* (`gemini-flash-latest`), dan uji latensi/stabilitas endpoint langsung secara empiris sebelum menetapkannya sebagai model default.
+
+## 59. ✅ Pengambilan Daftar Model Dinamis Langsung dari API Provider (Live Models Fetch) — SELESAI
+**Kebutuhan:** Mencegah terjadinya *hardcode model obsolescence* (model kadaluwarsa/deprecated) di masa mendatang pada semua AI provider (Google Gemini, Groq, OpenRouter, Ollama) dengan mengambil daftar model langsung dari API masing-masing penyedia layanan.
+**Solusi:**
+- Backend Python: Menambahkan metode `get_available_models(provider, api_key, base_url)` di `AIAssistantManager` (`core/services/ai_assistant.py`) dan diekspos melalui `api.ai_get_available_models()` di `core/api.py`.
+  - Google Gemini: Mengambil dari endpoint `https://generativelanguage.googleapis.com/v1beta/models?key={key}`, memfilter metode `generateContent`, nama yang mengandung `gemini`, serta menyaring model non-chat/audio/embedding.
+  - Groq Cloud: Mengambil dari endpoint OpenAI-compatible `https://api.groq.com/openai/v1/models`, menyaring model aktif dan mengecualikan whisper.
+  - OpenRouter: Mengambil dari `https://openrouter.ai/api/v1/models` (dapat dipanggil gratis tanpa key), memprioritaskan dan melabeli model `:free`.
+  - Ollama: Mengambil dari `{base_url}/api/tags` untuk mendeteksi model lokal yang terinstal; mendeteksi status offline jika service belum berjalan.
+- Frontend React:
+  - `AiContext.tsx` mengelola state `availableModels`, `isLoadingModels`, dan `fetchAvailableModels(provider, apiKey, baseUrl, silent)` dengan in-memory caching per provider.
+  - `AiTabContent.tsx` menyediakan tombol refresh (🔄) interaktif di samping label *AI Model* serta memicu pengambilan otomatis di latar belakang saat provider atau kunci API berubah.
+  - `Main.tsx` dan `AiFloatingWidget.tsx` mengonsumsi `availableModels` dinamis dari context dan menyediakan tombol refresh cepat di header.
+  - Mekanisme fallback tangguh: Jika pengguna sedang offline atau belum memasukkan API key, dropdown tetap menampilkan starter models bawaan (`PROVIDER_MODELS`) sehingga UI tidak pernah kosong.
+  - Translation key parity di kedua locale `en` dan `id` (`backend.ai.fetch_models_failed`, `backend.ai.ollama_offline`, `ai.refresh_models`, `ai.fetching_models`, `ai.models_refreshed`).
+- Unit Test: 100% lulus di backend (`tests/test_services/test_ai_assistant.py`, `tests/test_services/test_api.py`, `tests/test_i18n_keys.py`) dan frontend Vitest suite (60 test files, 697 passed).
+
+## 60. ✅ Deteksi Akun API Key (Free Tier vs Pro / Pay-As-You-Go) & Penyesuaian Alur Setup AI Assistant — SELESAI
+**Deskripsi & Kebutuhan:**
+1. Dropdown model AI sebelumnya berisiko menampilkan model yang berbayar (paid-only/tier Pro) atau model yang sudah discontinue (HTTP 404/429) ketika pengguna memakai akun Free Tier.
+2. Diperlukan alur setup AI yang terstruktur: `Pilih Provider` -> `Masukkan API Key` (auto-detect tier akun) -> `Menampilkan Model yang Sesuai dengan Tier` -> `Tes Koneksi`.
+3. Diperlukan deteksi otomatis apakah API Key pengguna merupakan Free Tier atau Pro/Pay-As-You-Go, sehingga dropdown model disesuaikan secara presisi.
+
+**Solusi & Implementasi Teknis:**
+- **Empirical Tier Probing:**
+  - Google Gemini: Mengirim ping inferensi ultra-ringan (1 token) ke `gemini-pro-latest`. Akun Free Tier ditandai dengan error kuota eksplisit `limit: 0` (`GenerateContentInputTokensPerModelPerDay-FreeTier` atau HTTP 429). Akun Pro/Pay-As-You-Go merespons HTTP 200. Kunci invalid merespons HTTP 400/403.
+  - OpenRouter: Mengonsumsi endpoint resmi `GET https://openrouter.ai/api/v1/auth/key` dengan header Bearer token, membaca atribut `is_free_tier`, `limit`, dan `usage`.
+  - Groq Cloud: Memvalidasi kunci melalui endpoint `/openai/v1/models` (semua akun Groq saat ini adalah Free Tier dengan kuota LPU).
+  - Ollama: Memvalidasi endpoint `/api/tags` untuk mendeteksi service lokal offline/online.
+- **Backend Python (`core/services/ai_assistant.py` & `core/api.py`):**
+  - Menambahkan metode `detect_account_tier(provider, api_key, base_url)` dan mengeksposnya lewat `api.ai_detect_account_tier()`.
+  - Memperbarui `get_available_models(provider, api_key, base_url, tier)`:
+    - Gemini Free: Hanya memuat model gratis teruji (`gemini-3.5-flash-lite`, `gemini-3.8-flash`, `gemini-3.1-flash-lite`, `gemini-flash-latest`), membuang seluruh model 404 dan model Pro/research/argon.
+    - Gemini Pro: Memuat seluruh model Flash ditambah model Pro (`gemini-3.1-pro-preview`, `gemini-pro-latest`).
+    - OpenRouter Free: Hanya memuat model gratis (`:free` pricing 0).
+    - OpenRouter Pro: Memuat model gratis ditambah 30 model premium unggulan (GPT-4o, Claude 3.5 Sonnet, dll).
+  - Ekstraksi pesan error HTTP menggunakan helper modular `_extract_http_error_detail(e)` untuk kejelasan pesan kesalahan.
+- **Frontend React (`AiContext.tsx`, `AiTabContent.tsx`):**
+  - Mengatur ulang urutan alur setup: `Provider Selection` -> `API Key Input (dengan Tier Status Badge)` -> `Model Selection (terkunci jika API key belum valid)` -> `Test Connection`.
+  - Menampilkan badge visual interaktif:
+    - Spinner: `Memeriksa status akun...`
+    - Free Tier: Badge hijau `[Free Tier]`
+    - Pro Tier: Badge amber/emas `[Pro / Pay-As-You-Go]`
+    - Local: Badge sky/biru `[Lokal Offline]`
+    - Invalid Key: Badge merah `[Kunci Tidak Valid]`
+  - Model selection dropdown otomatis dinonaktifkan (`disabled`) dengan pesan petunjuk jika API key kosong atau invalid pada Gemini/Groq.
+- **Translation & Test Parity:**
+  - Kunci terjemahan lengkap di kedua locale (`en` & `id`): `backend.ai.key_invalid`, `ai.tier_checking`, `ai.tier_free`, `ai.tier_pro`, `ai.tier_local`, `ai.tier_invalid`, `ai.tier_offline`, `ai.api_key_required_hint`.
+  - 100% test lulus di unit test backend Python (85 tests) dan Vitest frontend (61 test files, 702 tests passed).
+
+## 61. ✅ Tindakan Server Ganda, Sinkronisasi Event Status Halaman Modul, dan Persistensi State Action Card pada AI Assistant
+
+- **Deskripsi Bug:**
+  1. Ketika user memerintahkan AI untuk menjalankan 2 service sekaligus (misalnya "hidupkan apache dan database" atau "start all services"), hanya satu service yang tereksekusi.
+  2. Saat service dijalankan melalui konfirmasi tombol AI, service hidup namun tombol di halaman modul terkait (`/apache`, `/php`, `/database`) tidak berubah statusnya dan tetap tersangkut di state "Start" (hanya Dashboard dan Sidebar yang sinkron).
+  3. Ketika bubble chat AI ditutup lalu dibuka kembali, atau user berpindah ke tab `/ai-assistant`, tombol aksi sistem yang sebelumnya telah dieksekusi muncul kembali dalam kondisi belum dieksekusi ("Konfirmasi & Jalankan").
+
+- **Penyebab (Root Cause):**
+  1. **Dual Service Execution:** `extractVyloActions` di `AiChatMessage.tsx` awalnya hanya menerima objek JSON tunggal. Jika model mengembalikan array JSON `[ { "service": "apache", ... }, { "service": "database", ... } ]` dalam blok ````vylo_action ````, `parsed.service` bernilai `undefined` sehingga array diabaikan. Selain itu, handler di `AiActionCard` untuk PHP dan Database mengharuskan parameter `target` terisi atau bertuliskan `'all'`. Jika user meminta start service secara umum tanpa target versi tertentu, handler tidak melakukan pemanggilan API (`res` bernilai `null`).
+  2. **Sinkronisasi Event Modul:** Halaman `apache/Main.tsx`, `php/Main.tsx`, dan `database/Main.tsx` secara ketat mendengarkan event `service_status_changed` dengan payload `{ detail: { service, running } }`. `AiActionCard` sebelumnya hanya men-dispatch `vylo_service_change`, sehingga listener halaman modul tidak ter-trigger.
+  3. **Persistensi State Aksi:** State eksekusi aksi sistem sebelumnya hanya disimpan dalam state lokal React `useState` di dalam `AiActionCard`. Begitu bubble chat ditutup atau unmount karena navigasi menu, state lokal tersebut hilang dan kembali ke default `'proposed'`.
+
+- **Solusi & Perbaikan:**
+  - **Backend Prompt (`core/services/ai_assistant.py`):** Memperbarui `DEFAULT_SYSTEM_PROMPT` dengan instruksi eksplisit dan contoh format array JSON `vylo_action` saat user meminta kontrol lebih dari satu service sekaligus.
+  - **Array Parsing (`AiChatMessage.tsx`):** `extractVyloActions` kini mendukung baik objek tunggal maupun array JSON multi-aksi. Jika terdapat lebih dari 1 aksi, ditampilkan header ringkasan "Proposed System Actions (count)".
+  - **Fallback Execution (`AiActionCard.tsx`):** Menambahkan fallback bila aksi `start` atau `stop` pada PHP/Database tidak menyertakan versi target spesifik, fungsi otomatis memanggil `api.start_service(service)` atau `api.stop_service(service)`.
+  - **Event Bus Parity (`AiActionCard.tsx`):** Men-dispatch event `service_status_changed` dengan detail `{ service: action.service, running: isStarting }` dan `{ service: 'all' }` sehingga seluruh modul (`apache`, `php`, `database`, `sidebar`, `dashboard`, `tunnels`) memperbarui state secara instan.
+  - **Persistensi State di AiContext (`AiContext.tsx`):** Menambahkan `actionStates: Record<string, ActionExecutionState>` dan helper `setActionState(key, state)` di `AiContext`. Setiap `AiActionCard` diberi `actionKey` unik berdasarkan ID pesan dan aksi. Sekali dieksekusi, status aksi tetap tersimpan (`success`, `failed`, `cancelled`) saat bubble dibuka-tutup atau saat berpindah menu.
+
+---
+
+## 62. ✅ Koreksi UX Input Chat Bubble, Tombol New Chat, dan Sinkronisasi Posisi Scroll Percakapan
+
+- **Deskripsi Bug:**
+  1. Pada floating chat bubble, posisi placeholder textarea ("Ask anything about server configs, errors or code...") berada terlalu di bawah, tidak vertikal center dengan tombol Send.
+  2. Pada header menu AI Assistant, tombol "New Chat" terlihat lebih kecil dibanding tombol lain di toolbar header, serta menggunakan ikon `restart_alt` (ikon refresh/restart) yang membingungkan alih-alih ikon chat baru.
+  3. Setiap kali membuka menu AI Assistant di sidebar, tampilan percakapan tidak langsung berada di pesan terbawah/terbaru. Sebaliknya, saat membuka chat bubble floating, terjadi scrolling animasi lambat yang membuat seolah chat bubble me-refresh setiap dibuka.
+
+- **Penyebab (Root Cause):**
+  1. Kontainer input chat bubble menggunakan `items-end` bersama padding dan tombol icon dengan height lebih tinggi, sehingga textarea single-line terdorong ke baseline bawah.
+  2. Tombol New Chat di header menggunakan `size="sm"` tanpa penyeragaman tinggi baris (`h-9`), sementara tombol Settings di sebelahnya menggunakan `size="icon"` dengan padding berbeda. Ikonnya keliru memakai `restart_alt`.
+  3. Menu utama AI Assistant di `App.tsx` dirender dengan CSS hiding (`display: none` saat tidak aktif). Saat un-hide, komponen tidak me-remount sehingga `useEffect` auto-scroll tidak berjalan. Pada floating bubble, dependensi `isFloatingOpen` memicu `scrollIntoView({ behavior: 'smooth' })` setiap kali popup dibuka, menyebabkan efek animasi gulir dari atas ke bawah yang mengganggu.
+
+- **Solusi & Perbaikan:**
+  - **Input Textarea Alignment (`AiFloatingWidget.tsx`):** Mengubah pembungkus input menjadi `items-center` dan menyetel `leading-normal m-0` pada textarea sehingga teks placeholder dan tombol berada tepat di tengah vertikal.
+  - **Ikon & Dimensi Tombol (`ai-assistant/Main.tsx`, `AiFloatingWidget.tsx`):** Mengganti ikon New Chat menjadi `add` di kedua tampilan, dan menetapkan ukuran standar `h-9` seragam pada semua kontrol header (Select, Refresh, New Chat, dan Settings).
+  - **Sinkronisasi Scroll Cerdas (`App.tsx`, `ai-assistant/Main.tsx`, `AiFloatingWidget.tsx`):**
+    - `App.tsx` meneruskan prop `isActive={activeMenu === 'ai-assistant'}` ke `AiAssistantMain`. Saat menu menjadi aktif, dilakukan scroll instan (`behavior: 'auto'`) setelah layout paint (50ms timer) sehingga pesan terbaru langsung terlihat tanpa delay.
+    - Pada `AiFloatingWidget.tsx`, saat popup pertama kali dibuka (`isJustOpened`), scroll dilakukan secara instan (`behavior: 'auto'`). Efek `behavior: 'smooth'` hanya diaktifkan saat streaming respons sedang berjalan atau saat ada pesan baru masuk ketika popup telah terbuka.
+
+---
+
+## 63. ✅ Perbaikan Eksekusi Stop Service PHP/Database, Persistensi Disk Action States Antar Sesi Aplikasi, dan Penyelarasan Input Menu AI Assistant
+
+- **Deskripsi Bug:**
+  1. Ketika pengguna memerintahkan AI untuk menghentikan seluruh layanan ("stop semua service" saat Apache dan PHP aktif), Apache berhasil berhenti, namun PHP memunculkan pesan error `"PHP {{version}} is already running!"` (terjadi juga potensi hal yang sama pada Database).
+  2. Ketika aplikasi ditutup dan dibuka kembali, riwayat pesan AI masih tersimpan tetapi semua tombol Action Card di riwayat chat reset kembali ke kondisi belum dieksekusi ("Confirm & Execute").
+  3. Pada menu utama AI Assistant (`/ai-assistant`), teks placeholder di kolom prompt input terlihat terlalu ke bawah (tidak vertikal center).
+
+- **Penyebab (Root Cause):**
+  1. **Logika Percabangan di `AiActionCard.tsx`:** Pada blok eksekusi aksi PHP dan Database, terdapat kondisi `else if (action.action === 'start' || action.action === 'start_all' || action.target === 'all')`. Ketika AI mengirimkan payload stop dengan target `all` (`{ "service": "php", "action": "stop", "target": "all" }`), evaluasi `action.target === 'all'` bernilai `true` sehingga alur eksekusi justru memanggil `api.start_service('php')` alih-alih `api.stop_service('php')`. Karena PHP sudah berjalan, backend mengembalikan pesan error "already running".
+  2. **Persistensi State Hanya di Memori:** State `actionStates` sebelumnya hanya disimpan dalam memori React (`useState` di `AiContext.tsx`). Ketika aplikasi keluar total (`close_app`), memori terhapus sementara file `data/ai_chat_history.json` tetap memuat pesan lama yang memiliki action proposal tanpa status eksekusinya.
+  3. **Alignment Composer Menu AI:** Kontainer form textarea di `menu/tools/ai-assistant/Main.tsx` menggunakan kelas flexbox `items-end`, sehingga textarea satu baris merapat ke dasar bawah tombol Send.
+
+- **Solusi & Perbaikan:**
+  - **Pemisahan Alur Start vs Stop (`AiActionCard.tsx`):**
+    - Mengisolasi blok logika: `isStart` (`action === 'start' || action === 'start_all'`) vs `isStop` (`action === 'stop' || action === 'stop_all'`).
+    - Bila `isStop` terpenuhi dan target berupa `'all'` atau kosong, secara eksplisit memanggil `api.stop_service('php')` atau `api.stop_service('database')`. Bila target adalah versi spesifik, memanggil `api.stop_php(target)` atau `api.stop_database(target)`.
+  - **Dual-Layer Persistence Action States:**
+    - **Backend (`core/services/ai_assistant.py` & `core/api.py`):** Menambahkan `data/ai_action_states.json` serta metode `get_action_states()`, `save_action_states()`, dan integrasi reset pada `clear_chat_history()`.
+    - **Frontend (`AiContext.tsx`):** Menyimpan dan memuat state secara sinkron via `localStorage` (untuk 0ms initial render) dan sinkronisasi dua arah dengan backend file JSON `data/ai_action_states.json`. Status tombol aksi (`success`, `failed`, `cancelled`) kini awet bahkan setelah aplikasi ditutup dan dibuka kembali.
+  - **Penyelarasan Vertikal Input Box (`ai-assistant/Main.tsx`):**
+    - Mengganti kelas pembungkus input dari `items-end` menjadi `items-center` dan menambahkan `leading-normal m-0 py-1.5 px-2` pada textarea agar teks placeholder berada tepat di tengah vertikal sejajar dengan tombol aksi.
+
+---
+
+## 64. ✅ Ikon System Tray Menjadi Ghost/Tidak Hilang dan Deadlock Saat Terminasi Melalui Ctrl+C di Console/CMD
+
+- **Deskripsi Bug:**
+  Ketika pengguna menjalankan VyloServe via command prompt/terminal (CMD/PowerShell) dan menekan `Ctrl+C` untuk menghentikan proses, aplikasi Python berhenti namun ikon VyloServe di area notifikasi taskbar Windows (System Tray) tetap tertinggal (menjadi ghost icon). Ketika ikon tersebut diklik kanan lalu memilih "Exit Engine", aplikasi tidak merespon dan ikon tetap tidak hilang atau proses mengalami deadlock.
+
+- **Penyebab (Root Cause):**
+  1. **Deadlock IPC `evaluate_js` saat Shutdown:**
+     Saat `AppLifecycle.perform_exit()` mematikan engine (`apache.stop_server()`, `php.stop_all()`), manager service memanggil `self.api.emit_log(...)` yang diteruskan ke `window.evaluate_js(...)`. Pada backend EdgeChromium/WinForms pywebview, `evaluate_js` memanggil `self.webview.Invoke(...)` dan menunggu sinkron (`semaphore.acquire()`). Karena jendela GUI sedang dalam proses penutupan atau disembunyikan di tray, UI message loop WinForms tidak lagi memproses invokasi JavaScript, menyebabkan `semaphore.acquire()` terblokir selamanya (deadlock total) sebelum mencapai baris `tray_icon.stop()` dan `os._exit(0)`.
+  2. **Intersepsi Sinyal SIGINT Dibatalkan oleh `on_closing`:**
+     Ketika user menekan `Ctrl+C`, pywebview menangkap SIGINT di thread WinForms dan memanggil `Application.Exit()`, yang memicu event form closing (`window.events.closing`). Namun `lifecycle.on_closing()` memeriksa `self.is_real_exit == False` dan mengembalikan nilai `False` (membatalkan penutupan form), mengira pengguna menekan tombol (X) jendela biasa untuk hide-to-tray. Akibatnya, `app.Exit()` dibatalkan dan proses tetap berjalan di background tanpa GUI.
+  3. **Uncaught `KeyboardInterrupt` & Hilangnya Cleanup Post-Loop:**
+     Pada `main()`, pemanggilan `webview.start(...)` tidak diikuti oleh `lifecycle.perform_exit()` saat loop GUI selesai. Selain itu, blok error handling hanya menangkap `except Exception:`, sehingga `KeyboardInterrupt` (yang mewarisi `BaseException`, bukan `Exception`) lolos dan tidak mengeksekusi shutdown engine.
+  4. **Pystray Win32 Loop Deadlock pada Callback Tray:**
+     Pada menu tray ("Exit Engine"), `on_exit_clicked` memanggil `lifecycle.perform_exit()` secara sinkron di dalam thread message pump pystray itu sendiri. Ketika `perform_exit` mencoba memanggil `tray_icon.stop()`, terjadi recursive deadlock di message loop pystray Win32.
+
+- **Solusi & Perbaikan:**
+  - **Shutdown Guard di `core/api.py`:**
+    Menambahkan `self._is_shutting_down = False` dan metode `set_shutting_down()`. Seluruh method emitter UI (`emit_log`, `emit_progress`, `emit_window_state`, `emit_ai_chunk`) dijaga dengan `if self._is_shutting_down: return` untuk mencegah pemanggilan `evaluate_js` selama alur shutdown.
+  - **Urutan Shutdown yang Aman di `main.py` (`perform_exit`):**
+    1. Memanggil `api.set_shutting_down()` terlebih dahulu agar pemanggilan stop engine tidak pernah memicu event UI yang memblokir proses.
+    2. Menyetel `tray_icon.visible = False` dan `tray_icon.stop()` secara instan (mengirimkan `NIM_DELETE` ke Windows Explorer untuk segera menghapus ikon dari taskbar sebelum proses berat pematian engine berjalan).
+    3. Menutup IPC Named Pipe listener dan menghentikan thread log watcher.
+    4. Mematikan seluruh engine server (Apache, PHP, Database).
+    5. Menghancurkan jendela GUI (`window.destroy()`).
+    6. Eksekusi `os._exit(0)` di dalam blok `finally:` untuk menjamin proses OS berakhir bersih tanpa thread zombie.
+    7. Dilengkapi proteksi re-entrancy flag `self._exit_in_progress` agar pemanggilan ganda tidak saling tumpang tindih.
+  - **Deteksi Interupsi Terminal & Hooking WinForms (`main.py`):**
+    - Pada `on_closing()`, menambahkan pengecekan `getattr(webview.platforms.winforms, '_sigint_received', False)` sehingga saat interrupt terjadi, form tidak lagi dibatalkan melainkan langsung menjalankan `perform_exit()` dan mengembalikan `True`.
+    - Menambahkan `setup_signal_handlers(lifecycle)` yang meregistrasi handler `SIGINT`, `SIGTERM`, `SIGBREAK`, serta handler konsol native Windows via `ctypes.windll.kernel32.SetConsoleCtrlHandler` (`CTRL_C_EVENT`, `CTRL_CLOSE_EVENT`, dll.) untuk menangkap interupsi terminal bahkan ketika Python sedang terblokir di unmanaged code.
+    - Meng-hook handler internal pywebview `_sigint_handler`.
+    - Pada `setup_systray()`, aksi `on_exit_clicked` dijalankan dalam daemon thread (`threading.Thread(target=lifecycle.perform_exit, daemon=True).start()`) agar tidak memblokir message pump pystray.
+    - Pada `main()`, menambahkan penanganan `except KeyboardInterrupt: lifecycle.perform_exit()` dan pemanggilan `lifecycle.perform_exit()` setelah `webview.start(...)` selesai.
+
+---
+
+## 65. ✅ Perbaikan Glitch Layout Kolom Input Saat Streaming AI, Optimasi Performa Ketikan (Zero-Lag Input), Pemantauan Kuota Token, & Rekomendasi Pertanyaan Lanjutan — SELESAI
+- **Lokasi:**
+  - `frontend/src/menu/tools/ai-assistant/Main.tsx`
+  - `frontend/src/menu/tools/ai-assistant/components/AiFloatingBubble.tsx`
+  - `frontend/src/menu/tools/ai-assistant/components/AiChatInput.tsx`
+  - `frontend/src/menu/tools/ai-assistant/components/AiChatMessage.tsx`
+  - `frontend/src/menu/tools/ai-assistant/components/AiUsageBadge.tsx`
+  - `frontend/src/menu/tools/ai-assistant/components/AiSuggestionChips.tsx`
+  - `frontend/src/context/AiContext.tsx`
+  - `core/services/ai_assistant.py` & `core/api.py`
+- **Masalah:**
+  1. **Glitch Layout Kolom Input Naik ke Atas Saat Streaming AI:**
+     Saat pengguna mengirim pesan dan AI mulai melakukan streaming jawaban, kolom input tiba-tiba berpindah ke bagian atas dan menutupi area chat. Setelah streaming selesai, kolom input kembali ke bawah diikuti lompatan scroll. Penyebab utamanya adalah container flex parent tidak memiliki `min-h-0` dan `overflow-hidden`, serta area input bawah tidak dikunci dengan `shrink-0`, sehingga kalkulasi tinggi flexbox (`flex-1`) kolaps saat child melakukan re-layout cepat selama streaming. Selain itu, pemanggilan `scrollIntoView({ behavior: 'smooth' })` pada setiap chunk streaming memicu *layout thrashing* beruntun di mesin WebView2.
+  2. **Input Lag Saat Mengetik di Kolom Chat AI:**
+     State teks input (`input`) sebelumnya disimpan langsung di komponen induk (`Main.tsx` / `AiFloatingBubble.tsx`). Setiap ketikan satu karakter memicu re-render seluruh daftar riwayat pesan (`messages.map(...)`) beserta parsing Markdown (`MarkdownContent`), sehingga ketikan terasa berat saat percakapan mulai panjang.
+  3. **Visibilitas Penggunaan Token & Kuota API Key:**
+     Pengguna yang menggunakan API Key (Gemini, Groq, OpenRouter) maupun Ollama belum memiliki indikator pemakaian token harian/mingguan atau sisa kuota langsung di UI.
+  4. **Rekomendasi Pertanyaan Lanjutan (Follow-up Suggestions):**
+     Belum tersedia rekomendasi pertanyaan kontekstual yang memudahkan pengguna mengeksplorasi langkah lanjutan setelah AI selesai menjawab.
+- **Solusi:**
+  1. **Stabilisasi Flexbox & Auto-Scroll Tanpa Thrashing:**
+     Menambahkan `min-h-0 overflow-hidden` pada container flex utama, `min-h-0` pada viewport scroll pesan, dan `shrink-0` pada header serta footer input di `Main.tsx` dan `AiFloatingBubble.tsx`. Mengganti `scrollIntoView({ behavior: 'smooth' })` saat streaming aktif menjadi penugasan langsung `scrollContainer.scrollTop = scrollContainer.scrollHeight` via `requestAnimationFrame` agar transisi tinggi selalu instan dan bebas lompatan layout.
+  2. **Isolasi State Ketikan (`AiChatInput.tsx`) & Memoisasi Pesan (`AiChatMessage.tsx`):**
+     Mengekstrak state ketikan lokal (`text`) dan kalkulasi auto-resize `<textarea>` ke komponen mandiri `AiChatInput.tsx` dengan ekspos metode imperatif `setInputText(text)` via `forwardRef`, serta membungkus `AiChatMessage` dengan `React.memo`. Hasilnya, mengetik di kolom chat hanya me-render ulang `<textarea>` itu sendiri (0 ms lag).
+  3. **Pelacakan Penggunaan Token Harian/Mingguan (`data/ai_usage.json` & `AiUsageBadge.tsx`):**
+     Menambahkan pencatatan token (*prompt*, *completion*, *total*) dan jumlah request per provider di `core/services/ai_assistant.py` (dengan ekstraksi `usageMetadata` Gemini, `x-ratelimit-*` headers Groq, `/api/v1/auth/key` OpenRouter, dan `eval_count` Ollama, serta estimasi fallback `len(text) // 4`) yang disimpan secara persisten di `data/ai_usage.json`. Menampilkan lencana & popover `AiUsageBadge` di header chat dengan statistik harian, akumulasi 7 hari terakhir, sisa limit real-time provider, dan tombol reset.
+  4. **Chip Rekomendasi Pertanyaan Lanjutan (`AiSuggestionChips.tsx`):**
+     Memperbarui *system prompt* di `core/services/ai_assistant.py` agar menyertakan blok ```` ```vylo_suggestions ```` berisi 2–3 pertanyaan lanjutan kontekstual di akhir respons. `AiContext.tsx` mengekstrak dan menyembunyikan blok tersebut dari teks gelembung chat utama, lalu merendernya melalui `AiSuggestionChips` tepat di atas kolom input dengan aksi klik-kirim langsung atau klik-edit ke kolom input.
+
+---
+
+## 66. Developer Terminal: Integrasi Backend Subprocess/PTY Bridge, Multi-Tab Streaming xterm.js, & Deteksi CWD Real-Time — SELESAI
+- **Lokasi:**
+  - `core/services/terminal.py` & `core/api.py`
+  - `frontend/src/menu/tools/terminal/Main.tsx`
+  - `frontend/src/menu/tools/terminal/components/TerminalInstance.tsx`
+  - `frontend/src/menu/tools/terminal/components/TerminalTabBar.tsx`
+- **Masalah:**
+  Sebelumnya, VyloServe tidak memiliki terminal pengembang terintegrasi mandiri dan mengandalkan command prompt eksternal Windows yang tidak mewarisi konfigurasi biner runtime portable aplikasi. Selain itu, eksekusi subprocess shell interaktif di Windows sering kali menghadapi buffer blocking dan ketidakmampuan melacak direktori kerja aktif (*Current Working Directory* / CWD) secara dinamis.
+- **Solusi:**
+  1. **Backend Terminal Manager & Reader Threads (`core/services/terminal.py`):**
+     Membangun `TerminalManager` dengan arsitektur multi-sesi independen. Setiap sesi shell diluncurkan via `subprocess.Popen(stdin=PIPE, stdout=PIPE, stderr=STDOUT, bufsize=0)` dengan background thread `_reader_thread_func()` yang terus membaca output dan menembakkannya secara real-time via `api.emit_terminal_output(session_id, data)`.
+  2. **Pelacakan CWD Real-Time:**
+     Mengimplementasikan `get_session_cwd(session_id)` yang memadukan inspeksi handle proses Win32 dan parsing konsol prompt terakhir, memungkinkan tab UI secara otomatis menyelaraskan label direktori aktif saat developer berpindah folder via perintah `cd`.
+  3. **Multi-Tab xterm.js UI:**
+     Menerapkan antarmuka multi-tab berbasis `xterm.js` dengan penanganan keyboard shortcut (`Ctrl+C`, `Ctrl+V`, shortcut tambah tab `+`, tutup tab `x`, dan tombol pembersihan konsol).
+
+---
+
+## 67. Developer Terminal: Kustomisasi Tampilan/Perilaku, Presets & Environment Scoping Modal — SELESAI
+- **Lokasi:**
+  - `frontend/src/menu/tools/terminal/components/TerminalSettingsModal.tsx`
+  - `frontend/src/menu/tools/terminal/components/TerminalPresetsMenu.tsx`
+  - `frontend/src/menu/tools/terminal/components/TerminalSavePresetModal.tsx`
+  - `frontend/src/menu/tools/terminal/components/TerminalEnvModal.tsx`
+  - `core/services/terminal.py`
+- **Masalah:**
+  Pengembang membutuhkan kemampuan menjalankan sesi shell dengan versi bahasa pemrograman tertentu (misal: sesi A membutuhkan Node.js v20, sesi B membutuhkan Python 3.11 dan Go) tanpa mengubah variabel Windows User PATH global yang dapat merusak aplikasi lain di sistem.
+- **Solusi:**
+  1. **Environment Scoping (`_build_session_env`):**
+     Menambahkan metode penyuntikan direktori bin runtime tertentu ke variabel `PATH` lokal sesi terminal tanpa pernah menyentuh registry Windows (`HKCU\Environment\Path`).
+  2. **Saved Presets & Workspaces:**
+     Menyediakan penyimpanan konfigurasi stack favorit pengguna ke `data/terminal_presets.json` dan pemulihan sesi aktif di `data/terminal_sessions.json`.
+  3. **Pengaturan Tampilan & Perilaku Konsol (`TerminalSettingsModal.tsx`):**
+     Menyediakan kustomisasi font family, font size, kursor (`block`, `underline`, `bar`, serta animasi blink), ukuran buffer scrollback, dan opsi *copy on select* yang disimpan persisten di `data/terminal_config.json`.
+
+---
+
+## 68. Migrasi Projects Hub Mandiri, Scaffolding 5 Runtime, Dev Server Management & Modal CLI PTY — SELESAI
+- **Lokasi:**
+  - `frontend/src/menu/projects/` (`Main.tsx`, `ProjectsTable.tsx`, `ProjectCards.tsx`, `NewProjectModal.tsx`, `ProjectSettingsModal.tsx`, `ProjectCliInstallModal.tsx`)
+  - `frontend/src/context/ProjectContext.tsx`
+  - `core/services/project.py` & `core/api.py`
+- **Masalah:**
+  Manajemen proyek sebelumnya tergabung di dalam modul Apache dan hanya mendukung proyek berbasis PHP/Composer. Framework modern (Next.js, Vite/React, Express, FastAPI, Django, Gin, Spring Boot) yang memerlukan server pengembangan tersendiri (*dev server*) dan tanya-jawab CLI interaktif saat instalasi tidak dapat ditangani.
+- **Solusi:**
+  1. **Pemisahan Modul Mandiri:**
+     Membuat menu tingkat atas **Projects Hub** di navigasi utama dengan dukungan tampilan ganda (`ProjectsTable.tsx` dan `ProjectCards.tsx`).
+  2. **Dukungan Scaffolding Multi-Runtime:**
+     Menambahkan pembuatan proyek otomatis untuk 5 engine runtime: PHP, Node.js, Python, Go, dan Java.
+  3. **Dev Server Process Manager & Live Logs:**
+     Menyediakan API `start_project_server`, `stop_project_server`, dan `get_project_server_logs` yang mengontrol proses server dev latar belakang secara mandiri dan mengalirkan log ke `data/logs/projects/<project_id>.log`.
+  4. **Reverse Proxy VHost Otomatis:**
+     Men-generate virtual host Apache dengan konfigurasi `ProxyPass` dan tunneling WebSocket (`ws://` / `wss://`) untuk mendukung HMR.
+  5. **Modal Terminal CLI Interaktif (`ProjectCliInstallModal.tsx`):**
+     Menyediakan jembatan bidirectional PTY (`send_project_cli_input`, `resize_project_cli`, `cancel_project_install`) dengan deteksi prompt otomatis sehingga CLI framework tidak pernah terblokir diam-diam.
+
+---
+
+## 69. Penyelarasan Modul Tunnels: Dual View Mode & Searchable Project Selector — SELESAI
+- **Lokasi:**
+  - `frontend/src/menu/tools/tunnels/Main.tsx`
+  - `frontend/src/menu/tools/tunnels/TunnelsComponents.tsx`
+- **Masalah:**
+  Modul Tunnels sebelumnya hanya memiliki tampilan kartu dengan dropdown statis yang sulit dinavigasi ketika pengguna memiliki banyak proyek terdaftar, serta belum selaras dengan standar densitas tabel di modul lain.
+- **Solusi:**
+  Menerapkan `<ViewModeToggle>` (Card View & Table View) dengan `<DataTable>`, serta mengintegrasikan pemilih proyek pencarian instan (*searchable project selector*) lengkap dengan status zero-state hint saat pencarian tidak menemukan hasil.
+
+---
+
+## 70. Arsitektur Multi-Versi Runtimes: Konkurensi Per-Engine & Portable Go Unpacking — SELESAI
+- **Lokasi:**
+  - `core/services/runtimes_manager.py`
+  - `frontend/src/menu/runtimes/`
+- **Masalah:**
+  Modul Runtimes sebelumnya hanya mengizinkan 1 versi per engine (menimpa instalasi lama saat versi baru diinstal). Selain itu, ekstraksi biner Go versi Google sering kali menyisakan subdirektori root `go/` yang merusak struktur direktori bin.
+- **Solusi:**
+  1. Mengubah struktur penyimpanan menjadi `bin/runtimes/<engine>/<version>/` sehingga pengguna dapat menginstal banyak versi Node.js, Python, Java, dan Go secara berdampingan.
+  2. Menambahkan metode `get_installed_engine_versions`, `get_engine_versions`, `set_active_version`, `deactivate_active_version`, dan `uninstall_engine_version`.
+  3. Menyempurnakan penanganan ekstraksi arsip Go portable agar folder root `go/` otomatis diekstrak langsung ke folder target versi.
+
+---
+
+## 71. Centralized `RuntimePathHub`: Orkestrasi PATH & 100% Simetri Kartu Versi — SELESAI
+- **Lokasi:**
+  - `frontend/src/menu/runtimes/RuntimePathHub.tsx`
+  - `frontend/src/menu/runtimes/RuntimeEnginePanel.tsx`
+  - `frontend/src/menu/runtimes/RuntimeTable.tsx`
+- **Masalah:**
+  Pada implementasi awal multi-versi, kontrol registrasi PATH dan tombol "Set as Active" tersebar di bagian bawah masing-masing kartu versi lokal. Ini memicu asimetri visual yang membingungkan: kartu versi aktif memiliki toggle PATH, sedangkan kartu versi lain memiliki tombol teks "Set as Active", serta tata letak kartu menjadi tidak konsisten.
+- **Solusi:**
+  1. **Pemisahan Level 1 & Level 2 UX:**
+     Mengekstrak kontrol registrasi PATH dan pemilihan versi aktif ke komponen terpusat **`RuntimePathHub`** di bagian atas halaman (berlaku seragam untuk Card View maupun Table View).
+  2. **100% Simetri Kartu Versi:**
+     Seluruh kartu versi lokal kini memiliki struktur visual identik: badge status, detail versi/subtools/path, dan footer standar yang hanya berisi dua tombol aksi primer: `[ Buka Folder ]` dan `[ Buka di Terminal ]`. Aksi mutasi (*Set as Active*, *Deactivate*, *Update*, *Uninstall*) dipindahkan secara teratur ke dropdown menu tiga titik.
+
+---
+
+## 72. Integrasi In-Card Contextual Native OS Alert & Eliminasi Warning Banner Redundan — SELESAI
+- **Lokasi:**
+  - `frontend/src/menu/runtimes/RuntimePathHub.tsx`
+  - `frontend/src/menu/runtimes/RuntimeEnginePanel.tsx`
+- **Masalah:**
+  Ketika runtime native OS terdeteksi, aplikasi merender banner peringatan kuning terpisah (`ExternalWarningBanner`) yang menumpuk di atas konten dan memicu kelelahan visual (*warning fatigue*).
+- **Solusi:**
+  Menghapus `ExternalWarningBanner` terpisah dan mengintegrasikan callout peringatan amber kontekstual langsung di dalam kartu **`RuntimePathHub`** (`data-testid="path-hub-external-alert"`). Menampilkan versi native terdeteksi, path biner di Windows, dan penjelasan penguncian toggle PATH secara transparan dan terpadu.
+
+---
+
+## 73. Pencemaran Registry Windows Pengembang oleh Pytest & Permanent Autouse Winreg Guard — SELESAI
+- **Lokasi:**
+  - `tests/conftest.py`
+  - `tests/test_services/test_runtimes_manager.py`
+  - `tests/test_services/test_service_lifecycles.py`
+  - `tests/test_services/test_php.py`
+- **Masalah:**
+  Ditemukan 9 entri path pengujian unit sementara (seperti `...\pytest-of-Lenovo\pytest-1390\test_install_go_latest0\...`) tersimpan di dalam registry pengguna fisik Windows (`HKCU\Environment\Path`). Hal ini terjadi karena beberapa test service (`install_go`, `start_php`) memanggil fungsi yang memodifikasi registry tanpa melakukan mock terhadap operasi `winreg.SetValueEx`.
+- **Solusi:**
+  1. Membersihkan seluruh path residu `pytest-` dari `HKCU\Environment\Path` menggunakan skrip Python langsung dan mem-broadcast `WM_SETTINGCHANGE`.
+  2. Menambahkan fixture autouse permanen `guard_registry_and_env(monkeypatch)` di `tests/conftest.py` yang mencegat setiap pemanggilan `winreg.SetValueEx`, `winreg.DeleteValue`, dan `winreg.DeleteKey` selama eksekusi test runner, sehingga tidak ada pengujian unit baru apa pun yang dapat memodifikasi registry Windows pengembang.
+  3. Memperbaiki mock eksplisit pada `test_runtimes_manager.py`, `test_service_lifecycles.py`, dan `test_php.py`.
+
+---
+
+## 74. Penyelarasan Modul Git: Status Badge Adaptif & In-Card Alert Box Kontekstual — SELESAI
+- **Lokasi:**
+  - `frontend/src/menu/tools/git/GitComponents.tsx`
+  - `frontend/src/locales/en/translation.json` & `frontend/src/locales/id/translation.json`
+  - `frontend/tests/menu/tools/git/Main.test.tsx`
+- **Masalah:**
+  Tampilan kartu Git Core System sebelumnya menggunakan info box kuning yang memotong konten di atas detail versi biner dan belum selaras dengan pola in-card alert dan status badge adaptif yang telah diadopsi oleh modul Runtimes.
+- **Solusi:**
+  1. Menyelaraskan status badge kartu: menampilkan `Native OS` (`amber`) saat Git terpasang di level OS, `PATH Active` (`emerald`) saat aktif di registry, dan `Isolated` (`primary`) saat berjalan terisolasi.
+  2. Menghapus info box lama dan menambahkan in-card alert box terpadu (`data-testid="git-external-alert"`) di bawah toggle registrasi PATH, menampilkan versi Git native, direktori biner, serta alasan penguncian toggle.
+  3. Menonaktifkan toggle PATH secara visual dan fungsional saat instalasi native terdeteksi dengan subteks deskripsi pelindung (`tools.git.external_locked`).
+  4. Menambahkan translation key `tools.git.external_overview_title` dan `tools.git.external_overview_desc` di kedua file locale.
+
+---
+
+## 75. Flash of Incorrect Theme (FOIT) & Glitch Transisi Tema Saat Restart Aplikasi (WebView2 Private Mode & Skeleton Loading) — SELESAI
+- **Lokasi:**
+  - `frontend/index.html`
+  - `frontend/public/vylo-theme.js` & `frontend/dist/vylo-theme.js`
+  - `frontend/src/utils/theme.ts`
+  - `frontend/src/main.tsx`
+  - `frontend/src/App.tsx`
+  - `frontend/src/menu/tools/settings/SettingsModals.tsx`
+  - `core/utils/system_utils.py`
+  - `core/api.py`
+  - `main.py`
+  - `frontend/tests/utils/theme.test.ts`
+  - `tests/test_main.py`
+  - `tests/test_utils/test_system_utils.py`
+- **Masalah:**
+  Setelah pengguna memilih tema baru (misal: *Gruvbox Dark*, *Tokyo Night*, *Catppuccin*, *XP Luna*, *Darcula*, dll) dan menutup aplikasi, saat aplikasi dibuka kembali (baik dari terminal `python main.py` maupun shortcut desktop), warna komponen skeleton loading (`AppSkeletonLayout`) masih menggunakan palet tema default (`vyloserve-dark`), baru kemudian melompat ke warna tema pilihan setelah antarmuka selesai dimuat. Akar masalah terjadi secara bertingkat:
+  1. **WebView2 InPrivate Mode Purge:** `pywebview.start` secara default berjalan dengan `private_mode=True`. Pada backend `edgechromium`, ini mengaktifkan `IsInPrivateModeEnabled=True` pada WebView2 dan membuat direktori cache sementara yang otomatis dimusnahkan saat aplikasi ditutup. Akibatnya, `localStorage` selalu terhapus setiap kali aplikasi ditutup, sehingga `localStorage.getItem('vylo_theme')` selalu mengembalikan `null` saat aplikasi baru dinyalakan.
+  2. **Jeda Asinkron IPC vs First Contentful Paint (FCP):** Tanpa cache instan, frontend harus menunggu IPC asinkron `pywebview.api.get_app_settings()` dari backend Python untuk mengetahui tema terpilih. Selama jeda rendering awal, browser mengeksekusi `<AppSkeletonLayout>` dengan warna fallback `vyloserve-dark`.
+- **Solusi:**
+  1. **Persistensi WebView2 UserDataFolder di `main.py`:** Mematikan mode InPrivate (`private_mode=False`) dan menentukan direktori penyimpanan persisten (`storage_path=os.path.join(get_project_root(), 'data', 'webview')`). Hal ini menjamin `localStorage`, cookies, dan cache WebView2 tersimpan permanen lintas restart aplikasi.
+  2. **Dual-Layer Bootstrap File (`vylo-theme.js`):** Menambahkan fungsi `sync_theme_bootstrap_file(theme)` di `core/utils/system_utils.py` yang menuliskan `window.__VYLO_INITIAL_THEME__ = "<theme>";` secara langsung ke file statis `frontend/public/vylo-theme.js` dan `frontend/dist/vylo-theme.js`. Fungsi ini dipanggil di dua titik krusial:
+     - Saat user mengganti tema (`api.save_app_settings` di `core/api.py`).
+     - Saat aplikasi pertama kali di-boot di `main.py` sebelum jendela `webview.create_window` dibuat.
+  3. **Pemuatan Sinkron di `<head>` `index.html`:** Memuat `<script src="./vylo-theme.js"></script>` secara sinkron di `<head>`. Skrip inline di `<head>` kemudian memprioritaskan `window.__VYLO_INITIAL_THEME__` disusul `localStorage.getItem('vylo_theme')`, lalu menetapkan atribut `document.documentElement.dataset.theme` dan toggle kelas `dark` pada 0 milidetik sebelum DOM mulai diparsing.
+  4. **Frontend Theme Pre-Mount di `theme.ts` & `main.tsx`:** Mengoptimalkan `getCachedTheme()` untuk membaca `window.__VYLO_INITIAL_THEME__` sebelum `localStorage`, serta mengeksekusi `applyTheme(getCachedTheme())` sebelum React me-mount komponen root di `main.tsx`.
+  5. **Window Background & Titlebar Synchronization di `main.py`:** Mengimplementasikan helper `get_saved_theme()` dan `get_theme_bg_color()` di `main.py` yang membaca `data/settings.json` secara sinkron agar jendela native OS memiliki background awal yang tepat (termasuk `#f4f2e8` untuk *XP Luna Light*).
+  6. **Unit Tests Komprehensif:** Menambahkan pengujian di `theme.test.ts` (verifikasi window state priority, fallback, dan error tolerance), `test_system_utils.py` (verifikasi penulisan target file bootstrap), dan `test_main.py` (verifikasi `get_saved_theme`, sinkronisasi tema saat boot, serta argumen `private_mode=False` dan `storage_path` pada `webview.start`).
+
+---
+
+## 76. Celah Keamanan Path Traversal pada Markdown Viewer Service & Standarisasi UI/UX Seluruh Modul Utilitas — SELESAI
+- **Lokasi:**
+  - `core/services/markdown_viewer.py`
+  - `frontend/src/menu/tools/markdown-viewer/Main.tsx`
+  - `frontend/src/menu/tools/markdown-viewer/FolderTreeView.tsx`
+  - `frontend/src/menu/tools/markdown-viewer/MarkdownRenderer.tsx`
+  - `frontend/src/menu/tools/qr-generator/Main.tsx`
+  - `frontend/src/menu/tools/base64-encode-decode/Main.tsx`
+  - `frontend/src/menu/tools/url-encode-decode/Main.tsx`
+  - `frontend/src/locales/en/translation.json` & `frontend/src/locales/id/translation.json`
+  - `tests/test_services/test_markdown_viewer.py`
+  - `frontend/tests/menu/tools/markdown-viewer/Main.test.tsx`
+  - `frontend/tests/menu/tools/qr-generator/Main.test.tsx`
+  - `frontend/tests/menu/tools/base64-encode-decode/Main.test.tsx`
+  - `frontend/tests/menu/tools/url-encode-decode/Main.test.tsx`
+- **Masalah:**
+  1. **Keamanan Backend (Path Traversal):** Metode `read_markdown_file` dan `get_local_media_base64` di `core/services/markdown_viewer.py` sebelumnya tidak memverifikasi apakah `file_path` yang diminta oleh frontend berada di dalam direktori dokumentasi root yang sedang dibuka (`current_root`). Eksploitasi path traversal (`../`) memungkinkan pembacaan berkas arbitrer di luar direktori dokumentasi (pelanggaran Aturan 12 `AGENTS.md`).
+  2. **Inkonsistensi UI/UX Antar Utilitas:** Empat modul utilitas (`qr-generator`, `base64-encode-decode`, `url-encode-decode`, `markdown-viewer`) memiliki tata letak yang sangat berbeda:
+     - QR Generator memakai dropdown untuk memilih tipe konten alih-alih tab/segmented control standar, tidak memiliki tombol salin gambar ke clipboard, tidak memiliki pemilih tingkat koreksi error (ECC), dan kontrol form belum mematuhi Aturan 6 (`htmlFor`/`id` association).
+     - Base64 belum mendukung URL-Safe encoding RFC 4648, line wrapping MIME, drag-and-drop file langsung ke textarea, dan unduh binary file.
+     - URL Encode/Decode tidak membedakan scope encoding (`encodeURI` vs `encodeURIComponent`), tidak mendukung mode spasi `%20` vs `+`, dan tidak memiliki editor parameter query dua arah (two-way interactive table).
+     - Markdown Viewer memiliki tombol light/dark lokal yang bentrok dengan 15 sistem tema global aplikasi, tidak memiliki pencarian pada pohon berkas (file tree search/filter), tidak memiliki ringkasan statistik baca (word count & reading time), serta tidak memiliki riwayat folder terakhir (recent folders).
+- **Solusi:**
+  1. **Path Traversal Protection di Backend:** Menambahkan validasi `self.current_root` dan metode `_is_safe_path(target_path)` pada `MarkdownViewerManager` menggunakan `os.path.commonpath([real_root, real_target]) == real_root`. Jika path di luar root diminta, kembalikan status error dengan translation key `backend.error.path_traversal`.
+  2. **Penyeragaman Tata Letak & Toolbar Standar:**
+     - Semua utilitas mengadopsi layout grid 12-kolom responsif (split 7:5 pada desktop) dan tab bar standar aplikasi `<Tabs>`.
+     - Toolbar kartu input terstandarisasi dengan tombol aksi cepat: *Sample* (`auto_fix_high`), *Paste* (`content_paste`), dan *Clear* (`clear`).
+     - Kartu output terstandarisasi dengan penghitung karakter/byte, pratinjau langsung, dan tombol aksi salin/unduh.
+  3. **Fitur Baru QR Code Generator:** Menambahkan tab segmented (URL, Teks, Wi-Fi, Email, vCard 3.0, SMS), pemilih Error Correction Level (ECC L/M/Q/H), salin gambar langsung ke Clipboard (`navigator.clipboard.write([new ClipboardItem(...)])`), preset contoh data, dan penyelarasan a11y label `htmlFor`/`id` 100%.
+  4. **Fitur Baru Base64:** Menambahkan mode URL-Safe RFC 4648 (`-`/`_`), pemformatan Line Wrapping (tanpa wrap, 64 karakter MIME, 76 karakter), unduh decoded binary file melalui bridge desktop `save_base64_file`, dan drag-and-drop berkas langsung ke textarea input.
+  5. **Fitur Baru URL Encode/Decode:** Menambahkan toggle Scope (`component` vs `full`), mode encoding spasi (`%20` vs `+`), dan Tabel Interaktif Parameter Query yang mendukung penambahan, pengeditan dua arah secara langsung (live URL sync), dan penghapusan parameter URL.
+  6. **Fitur Baru Markdown Viewer:** Sinkronisasi otomatis dengan 15 tema global melalui MutationObserver DOM, filter pencarian instan pada pohon berkas di `FolderTreeView`, ekstraksi Outline / Daftar Isi (TOC) dinamis dengan smooth scroll anchor jump, kartu riwayat folder terakhir (`localStorage`), serta statistik baca (kata dan estimasi menit membaca).
+  7. **Verifikasi Tes Menyeluruh:** Seluruh 215 tes vitest tools frontend, 19 tes pytest backend markdown viewer, tes paritas i18n dua arah, dan pengecekan build produksi TypeScript berhasil lulus 100% tanpa regresi.
+
+## 77. Simplifikasi Antarmuka Modul QR Generator & Base64 Converter — SELESAI
+- **Lokasi:**
+  - `frontend/src/components/CompactFileDropzone.tsx` (Komponen baru)
+  - `frontend/src/menu/tools/base64-encode-decode/Main.tsx`
+  - `frontend/src/menu/tools/qr-generator/Main.tsx`
+  - `frontend/src/locales/en/translation.json` & `frontend/src/locales/id/translation.json`
+  - `frontend/tests/components/CompactFileDropzone.test.tsx` (Test suite baru)
+  - `frontend/tests/menu/tools/base64-encode-decode/Main.test.tsx`
+  - `frontend/tests/menu/tools/qr-generator/Main.test.tsx`
+- **Masalah:**
+  1. *Fatik Keputusan pada QR Code Generator (Hick's Law):* Pemisahan 6 tab teratas (URL, Teks Bebas, Wi-Fi, Email, vCard, SMS) terlalu granular dan memecah alur pikir pengguna. Input URL pada dasarnya adalah string teks biasa. Selain itu, susunan vertikal 3 kartu di kolom kiri (Data Konten, Desain Visual, Sisipkan Logo) menimbulkan fatik gulir vertikal (~40% tinggi layar terbuang) dan membuat halaman terasa tidak seimbang dengan kartu Live Preview di kolom kanan.
+  2. *Friksi Mode Biner/Teks pada Base64:* Penggunaan toggle biner [Text Input] vs [File Input] memutus alur pengguna karena mengetik teks dan menyeret berkas seharusnya dapat dilakukan secara serentak tanpa saling menghapus teks sebelumnya atau beralih tampilan. Selain itu, mode Decode sebelumnya tidak memiliki fasilitas unggah berkas `.b64` / teks encoded.
+  3. *Duplikasi Kode Pengunggah Berkas:* Kode upload berkas di Base64 dan input logo di QR Generator menggunakan elemen input file native yang tidak seragam dan belum memiliki komponen dropzone visual bersama yang terisolasi dan dapat diuji.
+- **Solusi:**
+  1. *Ekstraksi Komponen Bersama `CompactFileDropzone`:* Membuat komponen dropzone serbaguna dengan dua varian (standar vertikal untuk Base64 dan horizontal ringkas untuk Logo QR), dilengkapi penanganan drag-and-drop, validasi tipe/ukuran, badge file terlampir, tombol hapus (X), dan pemenuhan aksesibilitas `id`/`htmlFor` Aturan 6.
+  2. *Konsolidasi 3 Kategori Tab pada QR Generator:* Menyederhanakan 6 tab menjadi 3 kategori tingkat atas yang intuitif (`text_url`, `wifi`, `contact` dengan sub-pill vCard/Email/SMS). Tab `text_url` memiliki deteksi otomatis format URL dengan badge indikator `tools.qr.url_detected`.
+  3. *Penyatuan Kartu Desain & Logo QR:* Menggabungkan Card 2 (*Visual Design*) dan Card 3 (*Insert Logo*) menjadi 1 kartu seimbang 2-kolom (*Appearance & Logo*), memangkas ~250px tinggi vertikal dan menghadirkan tata letak proporsional berdampingan dengan Live Preview di desktop.
+  4. *Universal Dual-Input Area pada Base64:* Mengeliminasi toggle pemisah Text/File dan menghadirkan input universal di mana pengguna dapat mengetik teks atau menyeret berkas kapan saja, baik pada mode Encode maupun Decode. Pengaturan URL-Safe dan Line Wrap diintegrasikan rapi ke toolbar kartu input.
+  5. *Paritas i18n Dua Arah & Verifikasi Uji:* Seluruh translation key baru terdaftar serentak di `en` dan `id`, 213 pengujian unit tools vitest lulus 100%, 5 pengujian unit `CompactFileDropzone` lulus 100%, 62 pengujian pytest backend lulus, dan build produksi TypeScript bersih tanpa peringatan.
+
+## 78. Glitch Tampilan Outline pada Markdown Viewer saat Jumlah Heading Besar (> 60) — SELESAI
+- **Lokasi:**
+  - `frontend/src/menu/tools/markdown-viewer/Main.tsx`
+  - `frontend/src/menu/tools/markdown-viewer/MarkdownRenderer.tsx`
+  - `frontend/src/locales/en/translation.json` & `frontend/src/locales/id/translation.json`
+  - `frontend/tests/menu/tools/markdown-viewer/Main.test.tsx`
+- **Masalah:**
+  1. *CSS Flexbox Collapse Bug (Text Smudge / Overlap):* Tombol item heading outline berada di dalam flex container berkolom (`flex flex-col gap-1 max-h-56 overflow-y-auto`). Tombol tersebut menerapkan class Tailwind `truncate`, yang menerapkan `overflow: hidden`. Sesuai spesifikasi W3C CSS Flexible Box Layout Module Level 1 §4.5, elemen flex dengan `overflow` selain `visible` memiliki ukuran minimum otomatis `min-height: 0`. Karena tombol tidak memiliki `shrink-0` (`flex-shrink: 0`), saat jumlah heading banyak (misal > 60), total tinggi konten (~1500px) jauh melebihi batas `max-h-56` (224px). Alih-alih membuat scrollbar vertikal, browser Edge WebView2/Blink mengecilkan (*shrink*) ke-60 tombol secara serentak menjadi masing-masing ~3.7px tinggi. Akibatnya, baris-baris teks heading bertumpuk dan saling tumpang tindih (*overlap*) menjadi coretan yang sama sekali tidak terbaca, dan kontainer tidak dapat di-scroll karena tinggi total yang telah diciutkan muat di dalam 224px. Sebaliknya, saat jumlah heading sedikit (misal 3), total tinggi (< 80px) tidak memicu negative space pada flexbox sehingga terlihat normal.
+  2. *Code Block Contamination:* Ekstraksi heading sebelumnya memindai baris markdown dengan regex tanpa mengecualikan blok kode (```` ``` ```` / `~~~`). Akibatnya, baris komentar Python/Bash/Shell (`# ...`) di dalam blok kode ikut terdaftar sebagai heading palsu pada outline, membuat jumlah outline membengkak secara tidak wajar.
+  3. *Ketiadaan Filter & Scroll Offset:* Ketika dokumen memiliki puluhan heading, tinggi kontainer 224px terlalu sempit dan tidak ada kolom pencarian cepat untuk melompat ke seksi tertentu, serta loncatan anchor tidak memiliki margin atas (`scroll-mt`).
+- **Solusi:**
+  1. *Eliminasi Flexbox Shrink:* Menambahkan `shrink-0 w-full` pada setiap tombol heading outline dan memindahkan class `truncate` ke elemen teks internal (`<span>`), sehingga tombol mempertahankan tinggi minimum alami (~28px) dan kontainer memunculkan scrollbar vertikal yang mulus.
+  2. *Exclusion Code Block:* Menambahkan pelacakan state `inCodeBlock` pada parser regex heading untuk mengabaikan seluruh baris komentar di dalam blok kode.
+  3. *Search/Filter Bar Outline:* Menambahkan kolom filter pencarian instan pada outline ketika jumlah heading > 8 dengan indikator pencocokan real-time (misal `1/65`), pembersihan filter instan (X), dan pesan fallback jika tidak ada judul yang cocok.
+  4. *Visual Hierarchy & Scroll Comfort:* Menambahkan lencana level heading (`H1`, `H2`, `H3`), menambah kapasitas ketinggian (`max-h-72 sm:max-h-84`), serta menyematkan `scroll-mt-6` pada elemen heading di `MarkdownRenderer.tsx` agar perpindahan smooth scroll menyisakan jarak baca yang lega di bawah header.
+  5. *Unit Testing & i18n Parity:* Menambahkan unit test komprehensif di `Main.test.tsx` untuk dokumen ber-heading 60+ dengan pengecekan `shrink-0` dan pengabaian komentar blok kode, memastikan seluruh tes lulus 100%.
+
+## 79. Markdown Viewer: Kebocoran Tag Metadata RAG `<!-- section:... -->`, Menu Klik Kanan Salin Teks Seleksi, Gap Penjajaran Toolbar (< 1233px), & Optimasi Performa Resize — SELESAI
+- **Lokasi:**
+  - `frontend/src/components/AppInterceptor.tsx`
+  - `frontend/src/menu/tools/markdown-viewer/MarkdownRenderer.tsx`
+  - `frontend/src/menu/tools/markdown-viewer/FolderTreeView.tsx`
+  - `frontend/src/menu/tools/markdown-viewer/Main.tsx`
+  - `frontend/src/locales/en/translation.json` & `frontend/src/locales/id/translation.json`
+  - `frontend/tests/components/AppInterceptor.test.tsx`
+  - `frontend/tests/menu/tools/markdown-viewer/MarkdownRenderer.test.tsx`
+  - `frontend/tests/menu/tools/markdown-viewer/Main.test.tsx`
+- **Masalah:**
+  1. *Kebocoran Tag Komentar HTML RAG (`<!-- section:... -->`):* Pada dokumen panduan (seperti `docs/user_guide.md`), terdapat baris metadata seperti `<!-- section: getting-started, module: general, tags: [...] -->`. Tag ini bukanlah kesalahan penulisan dokumen, melainkan metadata indeks RAG (Retrieval-Augmented Generation) yang digunakan backend AI Assistant (`core/services/ai_assistant.py` pada class `DocRetriever._parse_sections`). Format komentar HTML (`<!-- ... -->`) sengaja dipilih agar machine-readable bagi parser backend namun invisible bagi pembaca manusia di viewer Markdown standar. Namun, karena `ReactMarkdown` secara default mematikan HTML parsing demi keamanan (XSS protection), tag komentar HTML di luar code block diperlakukan sebagai teks biasa dan bocor ke layar sebagai raw text.
+  2. *Ketiadaan Menu Konteks Klik Kanan untuk Blok Kalimat & Collapse Seleksi pada Chromium:* Komponen `GlobalAppInterceptor` sebelumnya memanggil `e.preventDefault()` pada event `contextmenu` global dan hanya memunculkan menu salin jika target klik berada di dalam `.vylo-log-area`. Akibatnya, ketika pengguna melakukan *text block* (menyeleksi kalimat atau kata) pada Markdown Viewer maupun area dokumen lainnya, klik kanan tidak memunculkan opsi "Salin" (*Copy*) sama sekali. Selain itu, pada WebView2/Chromium, event `mousedown` klik kanan (button 2) dapat membatalkan atau meng-collapse seleksi DOM sebelum event `contextmenu` sempat membaca string seleksi.
+  3. *Glitch Tata Letak & Gap Offset Toolbar Top Bar pada Layar < 1233px:* Baris atas dokumen (*Document Top Bar*) yang memuat judul berkas, statistik kata, estimasi waktu baca, tombol salin markdown, tombol outline, dan tombol switch tema sebelumnya menggunakan `flex flex-wrap items-center justify-between`. Pada lebar layar < 1233px (atau ketika sidebar terbuka), ruang horizontal berkurang sehingga tombol-tombol aksi terdorong sebagian ke bawah secara canggung. Ketika baris dipindahkan ke bawah, muncul gap indentasi horizontal karena tombol aksi pertama (`Button`) memiliki padding default `px-3` (12px), sehingga ikon tombol terlihat tidak rata kiri (tidak sejajar vertikal) dengan ikon judul dokumen di baris atasnya.
+  4. *Lag & Stutter Performa saat Resizing Jendela:* Pada modul Markdown Viewer, saat jendela aplikasi di-resize (diubah ukurannya), UI mengalami stutter/lag berat. Penyebab utamanya adalah kontainer TOC menerapkan utility CSS `transition-all` yang memaksa browser me-recalculate style dan layout reflow ribuan node AST Markdown secara terus menerus selama resize, dikombinasikan dengan ketiadaan memoization (`React.memo`) pada komponen-komponen berat seperti `MarkdownRenderer`, `MermaidBlock`, `MarkdownPre`, dan `FolderTreeView`/`TreeItem`.
+- **Solusi:**
+  1. *Penyaringan Komentar HTML Bertarget (`stripHtmlComments`):* Mengembangkan parser pembersih komentar HTML multi-baris dan sebaris pada fase preprocessing di `MarkdownRenderer.tsx`. Parser ini melacak status code fence (```` ``` ```` dan `~~~`) sehingga seluruh komentar HTML di luar blok kode dibersihkan tuntas dari DOM, sementara komentar HTML di dalam blok kode (misalnya contoh markup HTML/XML) tetap dipertahankan 100% tanpa modifikasi.
+  2. *Menu Konteks Klik Kanan Universal untuk Seleksi Teks & Persistent Selection Ref:* Memperbarui `GlobalAppInterceptor.tsx` dengan listener `selectionchange` pada `document` yang menyelaraskan `savedSelectionRef.current` secara real-time agar seleksi teks tidak pernah hilang akibat mousedown collapse. Ketika pengguna mem-blok kalimat atau teks di area manapun (termasuk Markdown Viewer) dan melakukan klik kanan, menu pop-up konteks "Salin Teks" (`components.interceptor.copy_selection_btn`) muncul secara presisi pada koordinat kursor, menyalin teks terpilih ke clipboard (dengan fallback `document.execCommand`), dan memunculkan notifikasi toast konfirmasi. Jika tidak ada teks yang diblok dan klik kanan dilakukan pada area log, menu tetap menampilkan "Salin Teks Log" secara konsisten.
+  3. *Layout Responsif & Penjajaran Rata Kiri Presisi (< 1233px):* Mengonfigurasi Document Top Bar di `Main.tsx` dengan tata letak adaptif `flex flex-col min-[1233px]:flex-row min-[1233px]:items-center justify-between`. Pada lebar layar < 1233px, baris tombol aksi (Salin Markdown, Outline, dan Pengalih Tema) secara otomatis berpindah ke baris baru di bawah judul dokumen (`w-full`) dengan koreksi offset `-ml-2.5 min-[1233px]:ml-0` dan `gap-2.5 min-[1233px]:gap-3`. Hal ini membuat ikon tombol Salin Markdown berada persis sejajar vertikal di bawah ikon judul berkas tanpa gap.
+  4. *Optimasi Performa Resizing & Pohon Komponen:* Mengganti `transition-all` pada kontainer TOC dengan `transition-colors` untuk menghentikan layout thrashing saat window resizing. Membungkus `FolderTreeView`, `TreeItem`, `MarkdownRenderer`, `MermaidBlock`, dan `MarkdownPre` dengan `React.memo`, serta me-memoize seluruh handler aksi (`handleLinkClick`, `handleFileClick`, `handleCloseFolder`, `handleCopyDoc`, `handleJumpToHeading`) dengan `useCallback`.
+  5. *Kartu Blok Kode dengan Tombol Salin Mandiri (`MarkdownPre`):* Menggantikan tag `<pre>` standar dengan kontainer kartu kode interaktif (`MarkdownPre`). Kontainer ini menyajikan header gelap elegan dengan lencana bahasa (misal `JAVASCRIPT`, `PYTHON`, `BASH`, `CODE`) dan tombol salin snippet kode (`tools.docs_reader.copy_code`) dengan status feedback visual instan (`tools.docs_reader.copied`).
+  6. *Pengujian Menyeluruh & Paritas i18n:* Menambahkan unit test di `AppInterceptor.test.tsx` (menu konteks untuk seleksi teks pada dokumen), `MarkdownRenderer.test.tsx` (pembersihan komentar RAG dan tombol copy code), serta `Main.test.tsx` (verifikasi breakpoint responsif < 1233px, alignment gap, dan tombol copy markdown). Seluruh 252 tes unit komponen, 25 tes vitest markdown viewer, tes paritas i18n, 20 tes pytest backend, dan build produksi TypeScript lulus 100%.
+
+## 80. Optimasi Performa Window Resize: Eliminasi Layout Thrashing CSS (`transition-all`), ConPTY IPC Throttling, W3C CSS Containment & Native WinForms Frame Throttling Tanpa Mematikan Animasi CSS — SELESAI
+- **Lokasi:**
+  - `frontend/src/components/Card.tsx`
+  - `frontend/src/components/Sidebar.tsx`
+  - `frontend/src/components/Modal.tsx`
+  - `frontend/src/components/ProgressBar.tsx`
+  - `frontend/src/components/ToggleSwitch.tsx`
+  - `frontend/src/components/DataTable.tsx`
+  - `frontend/src/components/FilterChips.tsx`
+  - `frontend/src/components/ViewModeToggle.tsx`
+  - `frontend/src/components/ServiceToggleButton.tsx`
+  - `frontend/src/components/CompactFileDropzone.tsx`
+  - `frontend/src/components/NotificationBell.tsx`
+  - `frontend/src/components/Select.tsx`
+  - `frontend/src/menu/dashboard/components/GlobalControlPanel.tsx`
+  - `frontend/src/menu/dashboard/components/RecentProjectsSection.tsx`
+  - `frontend/src/menu/apache/Main.tsx`
+  - `frontend/src/menu/php/Main.tsx`
+  - `frontend/src/menu/php/Settings.tsx`
+  - `frontend/src/menu/projects/Main.tsx`
+  - `frontend/src/menu/projects/NewProject.tsx`
+  - `frontend/src/menu/projects/ProjectCard.tsx`
+  - `frontend/src/menu/projects/ProjectTable.tsx`
+  - `frontend/src/menu/runtimes/InstallJava.tsx`
+  - `frontend/src/menu/runtimes/InstallNode.tsx`
+  - `frontend/src/menu/runtimes/InstallPython.tsx`
+  - `frontend/src/menu/runtimes/RuntimeEnginePanel.tsx`
+  - `frontend/src/menu/tools/ai-assistant/Main.tsx`
+  - `frontend/src/menu/tools/ai-assistant/components/AiActionCard.tsx`
+  - `frontend/src/menu/tools/ai-assistant/components/AiChatInput.tsx`
+  - `frontend/src/menu/tools/ai-assistant/components/AiFloatingWidget.tsx`
+  - `frontend/src/menu/tools/ai-assistant/components/AiSuggestionChips.tsx`
+  - `frontend/src/menu/tools/git/GitComponents.tsx`
+  - `frontend/src/menu/tools/qr-generator/Main.tsx`
+  - `frontend/src/menu/tools/settings/SettingsModals.tsx`
+  - `frontend/src/menu/tools/terminal/components/TerminalConfigModal.tsx`
+  - `frontend/src/menu/tools/terminal/components/TerminalEnvModal.tsx`
+  - `frontend/src/menu/tools/terminal/components/TerminalSettingsModal.tsx`
+  - `frontend/src/menu/tools/terminal/components/TerminalPresetsMenu.tsx`
+  - `frontend/src/menu/tools/terminal/components/TerminalTabBar.tsx`
+  - `frontend/src/menu/tools/terminal/components/TerminalInstance.tsx`
+  - `frontend/src/menu/tools/tunnels/TunnelsComponents.tsx`
+  - `frontend/src/menu/tools/tunnels/TunnelsInstallModal.tsx`
+  - `frontend/src/index.css`
+  - `frontend/src/App.tsx`
+  - `main.py`
+  - `tests/test_main.py`
+- **Masalah:**
+  1. *Forced Reflow & Layout Thrashing akibat `transition-all` Global:* Pada seluruh aplikasi, utility Tailwind CSS `transition-all` diterapkan secara bebas pada kontainer struktural utama (seperti `Card`, `Sidebar`, modal overlay/dialog, `GlobalControlPanel`, form input collapse, dan tombol-tombol modul). Saat pengguna melakukan drag resize pada jendela aplikasi, engine Chromium WebView2 memicu kalkulasi ulang style (*forced reflow/layout*) pada setiap perubahan ukuran piksel untuk semua properti geometris (`width`, `height`, `padding`, `margin`, `box-shadow`, dll). Pada layout lebar dan kompleks dengan puluhan elemen bersarang, hal ini menyebabkan CPU spike dan visual stuttering/lag yang sangat terasa saat memperbesar atau memperkecil jendela.
+  2. *ConPTY Pseudoconsole IPC Flooding saat Window Resizing:* Pada modul Terminal, callback `ResizeObserver` memanggil `fitAddon.fit()` dan langsung mengeksekusi panggilan IPC `api.resize_terminal(sessionId, cols, rows)` secara sinkron tanpa jeda/debounce pada setiap perubahan fraksi dimensi container. Selama drag window resize (yang dapat menembakkan puluhan event per detik), antrean IPC backend Python ke Windows ConPTY pseudoconsole (`ptyprocess` / `winpty`) mengalami saturasi thread lock contention (`TerminalManager._lock`), menyebabkan bottleneck berat di proses Python dan UI freeze sekilas pada xterm.js.
+  3. *Unthrottled `window.addEventListener('resize')` pada Pop-up & Dropdown Floating:* Sejumlah komponen portal dan pop-up mengambang (`NotificationBell`, `Select`, `TerminalTabBar`, `TerminalPresetsMenu`) memasang listener event `resize` pada `window` untuk memperbarui koordinat posisi (`updatePosition`). Panggilan `getBoundingClientRect()` yang dieksekusi terus-menerus tanpa pembatas frame menyebabkan style recalculation berulang-ulang di tengah proses rendering browser.
+  4. *Saturasi Message Pump Win32 & Synchronous COM IPC `put_Bounds` saat Drag Frame Jendela:* Ketika pengguna melakukan drag resize pada border native jendela Windows, Windows masuk ke modal sizing loop (`WM_ENTERSIZEMOVE` / `WM_SIZING`). Kontrol WebView2 di WinForms terpasang dengan `Dock = DockStyle.Fill`, memicu panggilan COM sinkron `ICoreWebView2Controller::put_Bounds()` di setiap piksel pergeseran mouse (100-200 kali per detik). Panggilan COM sinkron ini memblokir main UI thread Windows, sehingga kursor mouse bergerak mendahului border jendela dan menimbulkan delay/stutter fisik yang berat.
+- **Solusi:**
+  1. *Eliminasi Total `transition-all` & Pergantian ke Transisi Bertarget:* Menghapus 100% kemunculan utility `transition-all` di seluruh source code frontend (`frontend/src/`). Menggantikannya dengan transisi spesifik yang GPU-friendly dan tidak memicu layout reflow:
+     - Efek warna/tema: `transition-colors` (atau `transition-[colors,border-color]`).
+     - Efek interaksi hover/press: `transition-[transform,colors]` atau `transition-transform`.
+     - Efek shadow: `transition-shadow`.
+     - Efek modal/overlay dan visibility: `transition-[opacity,visibility]`.
+     - Indikator progress bar: `transition-[width] ease-out`.
+     - Accordion/collapse expand: `transition-[max-height,opacity]` atau `transition-[max-width,opacity]`.
+     - Sidebar container width: `transition-[width,transform]`.
+  2. *Pemisahan Render Fit & ConPTY Debouncing pada `TerminalInstance.tsx`:*
+     - Membungkus kalkulasi visual `fitAddon.fit()` di dalam `requestAnimationFrame` dengan guard status frame (`isRafScheduledRef`), membatasi eksekusi layout xterm.js maksimal 1 kali per vsync frame (60/120 Hz).
+     - Menerapkan debouncing 100ms dengan trailing edge untuk IPC backend `api.resize_terminal()`, sehingga ConPTY Windows pseudoconsole hanya menerima pembaruan ukuran baris/kolom ketika gerakan resize pengguna telah stabil atau selesai, menghapus thread contention sepenuhnya.
+     - Membersihkan seluruh timer rAF dan timeout secara aman saat unmount komponen (`cleanup`).
+  3. *Throttling Event Listener Viewport via `requestAnimationFrame`:* Membungkus fungsi `updatePosition` pada event listener `resize` di `NotificationBell`, `Select`, `TerminalTabBar`, dan `TerminalPresetsMenu` dengan rAF throttling. Hal ini memastikan pembacaan `getBoundingClientRect()` dan penyesuaian posisi floating dropdown hanya berjalan satu kali per animation frame.
+  4. *Direct GPU Painting, Eliminasi GDI+ DoubleBuffering & Pemeliharaan Animasi CSS Live (`main.py`):*
+     - Menghapus penggunaan `self.SuspendLayout()` dan throttling layout form pada saat resizing. Penangguhan layout (`SuspendLayout`) sebelumnya menyebabkan WinForms menghentikan *paint dispatching* ke kontrol anak, yang memicu Chromium menahan (*pause*) loop `requestAnimationFrame` dan timer animasi CSS selama mouse bergerak. Tanpa `SuspendLayout`, seluruh animasi CSS, keyframe spinner, dan transisi UI tetap hidup dan berputar 100% *live* saat jendela di-drag.
+     - Mematikan `self.DoubleBuffered = False` pada `BrowserForm`. Pada WinForms, `DoubleBuffered = True` memaksa Form mengalokasikan bitmap GDI+ CPU berukuran penuh yang berbenturan dengan DirectX DirectComposition swapchain milik WebView2 dan memicu lonjakan penggunaan CPU.
+     - Menyetel style WinForms host secara selektif:
+       ```python
+       self.SetStyle(cs.AllPaintingInWmPaint, True)
+       ```
+       Hal ini mengabaikan `WM_ERASEBKGND` dan mengurangi flicker tanpa mematikan `UserPaint` bawaan WinForms (`UserPaint=True`). CATATAN PENTING: `UserPaint=False` atau `Opaque=True` dilarang disetel di sini karena membatalkan lukisan `self.BackColor` tema gelap WinForms dan memicu Windows `DefWindowProc` melukis kuas `COLOR_WINDOW` (putih polos), yang sempat menimbulkan regresi *Flash of White* (FOIT) selama 100–300ms saat startup.
+     - Untuk evaluasi masa depan bila antarmuka bertambah kompleks dan limitasi jembatan COM WinForms membutuhkan fluiditas 144Hz selevel aplikasi native/VS Code, roadmap migrasi shell desktop ke **Electron + Python Sidecar Architecture** telah didokumentasikan di `docs/architecture_and_flow.md` §13.
+  5. *Akselerasi Grafis Chromium & Eliminasi Occlusion Stall Tanpa Mematikan Animasi CSS:*
+     - Mengabaikan pendekatan penonaktifan CSS (`transition: none !important` / `html.is-resizing`) agar seluruh animasi antarmuka, hover button, badge, dan transisi UI tetap hidup dan interaktif 100% setiap saat.
+     - Menyetel flag hardware acceleration Chromium via `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`:
+       `--enable-gpu-rasterization --ignore-gpu-blocklist --enable-zero-copy --disable-features=CalculateNativeWinOcclusion`.
+       Flag `--disable-features=CalculateNativeWinOcclusion` secara khusus menghentikan algoritma kalkulasi oklusi native Windows di Chromium yang sering menyebabkan render stall dan stutter ketika jendela di-drag/di-resize pada wrapper desktop.
+  6. *Pengujian & Verifikasi Menyeluruh:* Seluruh 252 tes unit komponen (`tests/components/`), 15 tes terminal vitest, 569 tes modul menu (`tests/menu/`), tes paritas i18n (`tests/i18n.test.ts`), 67 tes backend pytest (`test_main.py`, `test_terminal.py`, `test_i18n_keys.py`), serta build produksi TypeScript (`tsc -b && vite build`) lulus 100% tanpa error maupun regresi.
+
+## 81. Modal Viewport Trapping Akibat CSS Containment & Diskoneksi Warna Header/Startup Tema Baru — SELESAI
+- **Lokasi:**
+  - `frontend/src/App.tsx`
+  - `frontend/src/index.css`
+  - `core/utils/system_utils.py`
+  - `tests/test_utils/test_system_utils.py`
+- **Masalah:**
+  1. *Modal Terperangkap di Area Konten (`fixed inset-0` Viewport Clipping):* Pada pengujian sebelumnya, utility `.contain-content { contain: content; }` diterapkan pada kontainer scrollable utama di `App.tsx`. Sesuai spesifikasi W3C CSS Containment, `contain: content` (yang mencakup `contain: paint`) menciptakan *containing block* baru bagi seluruh elemen turunan berposisi `position: fixed`. Akibatnya, seluruh modal aplikasi (`<Modal>` di `Modal.tsx`, modal settings, form wizard, alert dialog, dsb.) yang menggunakan `fixed inset-0 z-[100]` terperangkap di dalam area konten utama (terjepit di antara sidebar navigasi dan panel log) dan gagal menutupi seluruh layar viewport.
+  2. *Inkonsistensi Warna Header (Titlebar DWM) & Background Startup pada 4 Tema Baru:* Pada 4 preset tema baru (`tokyo-night-dark`, `gruvbox-dark`, `xp-zune-dark`, `catppuccin-dark`), nilai `"bg"` pada `THEME_TITLEBAR_CONFIGS` di `system_utils.py` menggunakan warna `slate-950` yang lebih gelap daripada warna latar kanvas aplikasi (`slate-900`). Hal ini menciptakan diskoneksi kontras visual: titlebar jendela native Windows dan warna kanvas awal saat aplikasi dibuka lebih gelap dibanding warna antarmuka aplikasi, berbeda dari tema-tema sebelumnya (`vyloserve-dark`, `darcula-dark`, `solarized-dark`, `monokai-dark`, `dracula-dark`, `nord-dark`) yang selalu 100% identik dengan warna latar aplikasi.
+- **Solusi:**
+  1. *Eliminasi `contain-content` dari Layout App & CSS:* Menghapus kelas `contain-content` dari elemen pembungkus utama di `App.tsx` dan menghapus definisinya dari `index.css`. Seluruh modal aplikasi kini kembali menutupi seluruh viewport jendela secara penuh di atas Sidebar, HeaderMobile, dan LogsPanel.
+  2. *Penyelarasan Palet Header & Startup Tema Baru:*
+     - Di `core/utils/system_utils.py`, menyelaraskan nilai `"bg"` pada `THEME_TITLEBAR_CONFIGS` agar identik dengan warna kanvas aplikasi (`slate-900`):
+       - `tokyo-night-dark`: `"bg": "#1a1b26"` (sebelumnya `#16161e`)
+       - `gruvbox-dark`: `"bg": "#282828"` (sebelumnya `#1d2021`)
+       - `xp-zune-dark`: `"bg": "#1e1e21"` (sebelumnya `#1b1b1d`)
+       - `catppuccin-dark`: `"bg": "#1e1e2e"` (sebelumnya `#181825`)
+     - Di `frontend/src/index.css`, menyelaraskan `--theme-slate-900` pada `catppuccin-dark` ke `#1e1e2e` (Catppuccin Mocha Base, sesuai dengan swatch di pengaturan) dan `--theme-slate-800` ke `#313244` (Surface0 untuk border).
+  3. *Pembaruan Unit Test & Verifikasi:* Memperbarui nilai ekspektasi pada `test_get_theme_titlebar_palette_presets` di `tests/test_utils/test_system_utils.py`. Seluruh 93 tes pytest backend, 38 tes vitest Modal/Sidebar, tes paritas i18n, serta build produksi TypeScript/Vite lulus 100% tanpa error. Format baris LF murni (`\n`) terjaga pada semua berkas.
+## 82. Glitch Animasi Fade-In Modal Pertama Kali, Visibilitas Floating AI, & Persistensi Status Maximized/View Mode — SELESAI
+- **Lokasi:**
+  - `frontend/src/components/Modal.tsx`
+  - `frontend/src/menu/tools/ai-assistant/components/AiFloatingWidget.tsx`
+  - `frontend/src/context/AiContext.tsx`
+  - `frontend/src/menu/tools/settings/SettingsModals.tsx`
+  - `frontend/src/hooks/usePersistedViewMode.ts`
+  - `frontend/src/menu/projects/Main.tsx`
+  - `frontend/src/menu/database/Main.tsx`
+  - `frontend/src/menu/php/Main.tsx`
+  - `frontend/src/context/RuntimesContext.tsx`
+  - `core/services/settings.py`
+  - `main.py`
+  - `tests/test_services/test_settings.py`
+  - `frontend/tests/hooks/usePersistedViewMode.test.ts`
+  - `frontend/tests/menu/tools/settings/SettingsModals.test.tsx`
+- **Masalah:**
+  1. *Modal Fade-In Glitch pada Pembukaan Pertama Kali:* Ketika modal dibuka untuk pertama kali pada setiap modul, animasi fade-in & scale-up terlewati (modal muncul kaku/abrupt). Pada penutupan dan pembukaan berikutnya, animasi berjalan normal. Hal ini terjadi akibat commit DOM React 18 yang baru memasang elemen ke render tree dan memproses `requestAnimationFrame` tanpa layout reflow paksa (`offsetHeight`), sehingga Chromium/WebView2 tidak memiliki computed style awal (`opacity: 0`) dan langsung melompat ke style akhir. Selain itu, kotak dialog modal sebelumnya hanya memiliki `transition-transform` tanpa `opacity`.
+  2. *Floating AI Widget Tidak Muncul Saat Diaktifkan:* Pengguna menyalakan opsi "Enable Floating Assistant" (`enable_floating_ai`) di modal pengaturan AI, namun widget tidak muncul di layar. Masalah ini disebabkan oleh:
+     - Guard `activeScreen === 'ai-assistant'` di `AiFloatingWidget.tsx` yang secara sengaja menyembunyikan widget saat berada di layar penuh AI Assistant (tempat modal pengaturan AI dibuka).
+     - Koordinat default saat inisialisasi belum di-clamp terhadap viewport, dan widget tidak memiliki window `resize` listener sehingga koordinat lama di `localStorage` dapat berada di luar batas layar (misal setelah jendela diperkecil dari maximized) dan terpotong oleh `overflow: hidden`.
+     - Ketiadaan kontrol pengaturan Floating AI di modal Pengaturan Utama (`SettingsModals.tsx`).
+  3. *Tidak Ada Persistensi Status Maximized:* Jendela desktop selalu terbuka dalam ukuran normal (1200x800) setiap kali restart aplikasi, meskipun pengguna sebelumnya meninggalkannya dalam mode Maximized.
+  4. *Tidak Ada Persistensi Pilihan View Mode (Table vs Card):* Pilihan tampilan Table vs Card di Projects Hub, Database, PHP, dan Runtimes selalu kembali ke default saat navigasi menu atau restart.
+- **Solusi:**
+  1. *Forced Reflow & Transisi Opacity Modal:* Menambahkan `containerRef` dan `void dialogRef.current.offsetHeight` di dalam `requestAnimationFrame` pada `Modal.tsx` sebelum kelas `isVisible` diaktifkan, serta menambahkan transisi `opacity` pada kotak modal (`transition-[transform,opacity] duration-250 ease-out`).
+  2. *Viewport Clamping & Sinkronisasi Pengaturan Floating AI:*
+     - Membuat fungsi `clampFloatingPosition` yang menjamin koordinat FAB selalu berada dalam rentang aman (`[16, innerWidth - 64]`, `[16, innerHeight - 64]`) baik saat inisialisasi, perubahan state, maupun event window `resize`.
+     - Memvalidasi pembacaan posisi dari `localStorage` agar kebal terhadap data korup atau non-finite.
+     - Menambahkan kontrol toggle "Enable Floating Assistant" pada tab `General` di modal Pengaturan Utama (`SettingsModals.tsx`) yang tersinkronisasi instan via event `vylo_ai_settings_changed`.
+  3. *Persistensi Mode Jendela Maximized Native WinForms:*
+     - Menambahkan konfigurasi default `"window_maximized": False` di `core/services/settings.py`.
+     - Di `main.py`, membaca preferensi `get_saved_window_maximized()` dan meneruskannya ke parameter `maximized` pada `webview.create_window(...)`.
+     - Mendengarkan event WinForms `window.events.maximized` dan `window.events.restored` untuk memperbarui `window_maximized` ke `settings.json` secara real-time.
+  4. *Hook `usePersistedViewMode` Terdedikasi:*
+     - Membuat custom hook `frontend/src/hooks/usePersistedViewMode.ts` dengan validasi whitelist ketat (`'card' | 'table'`).
+     - Mengintegrasikan hook ini ke modul Projects (`'projects'`, default `'table'`), Database (`'database'`, default `'card'`), PHP (`'php'`, default `'card'`), dan Runtimes (`'runtimes'`, default `'card'`).
+  5. *Pengujian & Verifikasi Menyeluruh:*
+     - Menambahkan unit test baru `frontend/tests/hooks/usePersistedViewMode.test.ts` (6 tes lulus).
+     - Menambahkan unit test toggle Floating AI di `frontend/tests/menu/tools/settings/SettingsModals.test.tsx` (23 tes lulus).
+     - Memperbarui `tests/test_services/test_settings.py` di backend pytest (5 tes lulus).
+     - Seluruh 923 tes unit Vitest frontend dan 93 tes pytest backend lulus 100%. Build produksi TypeScript/Vite sukses tanpa error. Seluruh berkas mempertahankan format baris LF (`\n`).
+
+### 83. WinForms UI Thread Deadlock pada Window Close, Edge WebView2 Watchdog Crash, dan Terbentuknya Python/WebView2 Zombie Processes
+- **Lokasi:**
+  - `core/api.py`
+  - `main.py`
+  - `tests/test_main.py`
+  - `tests/test_services/test_api.py`
+- **Masalah:**
+  1. *WinForms UI Thread Deadlock:* Di `main.py`, event penutupan jendela `window.events.closing` (`on_closing()`) berjalan secara sinkron langsung di WinForms UI thread (`should_lock=True`). Ketika jendela ditutup, `on_closing()` memanggil `self.api.emit_window_state(hidden=True)` yang mengeksekusi `evaluate_js()`. Di pywebview backend `edgechromium`, `evaluate_js()` memanggil `semaphore.acquire()` pada thread pemanggil (WinForms STA UI thread, yang di Python terdeteksi sebagai `_DummyThread` / `Dummy-X`, BUKAN `threading.main_thread()`) sambil menunggu kelanjutan skrip (`ContinueWith`) yang dijadwalkan pada `self.syncContextTaskScheduler` (yang juga WinForms UI thread). Karena UI thread terblokir menunggu semaphore, message pump terhenti, continuation tidak pernah dieksekusi, dan aplikasi mengalami deadlock total permanen sehingga jendela menjadi "Not Responding".
+  2. *Edge WebView2 Watchdog Crash:* Karena proses host UI thread membeku dan tidak memompa pesan Windows, watchdog internal IPC Chromium menganggap host macet dan menerminasi proses pembantu WebView2 (`msedgewebview2.exe`). Selain itu, flag `--disable-features=CalculateNativeWinOcclusion` melarang Chromium mendeteksi oklusi native secara wajar, sehingga unmapping HWND saat `window.hide()` memicu crash DXGI swapchain / DirectComposition.
+  3. *Zombie Processes (Python & WebView2):* Karena Python terhenti di `semaphore.acquire()`, aplikasi tidak pernah mencapai alur shutdown bersih di `lifecycle.perform_exit()` atau `os._exit(0)`. Saat jendela disembunyikan (`window.hide()`), visual jendela dan ikon taskbar hilang dari pandangan, tetapi proses `python.exe` dan proses anak `msedgewebview2.exe` tetap hidup di latar belakang Windows Task Manager sebagai proses zombie.
+- **Solusi:**
+  1. *Helper Evaluasi JS Asinkron & Non-Blocking (`_safe_eval_js`):* Menambahkan metode `_safe_eval_js(self, script: str)` di `core/api.py`. Pada runtime pywebview nyata (bukan mock), seluruh evaluasi skrip selalu dialihkan ke background daemon thread (`threading.Thread(target=_execute, daemon=True).start()`) tanpa mempedulikan thread pemanggil (karena WinForms STA UI thread adalah .NET dummy thread dan pemanggilan sinkron dari thread mana pun yang memegang kaitan UI berisiko deadlock). Untuk lingkungan pengujian (`MagicMock`), evaluasi tetap berjalan sinkron agar asersi unit test terpenuhi tanpa race condition.
+  2. *Penghapusan Flag `--disable-features=CalculateNativeWinOcclusion`:* Menghapus flag ini dari argumen browser WebView2 di `main.py` dan tetap mempertahankan flag akselerasi GPU (`--enable-gpu-rasterization --ignore-gpu-blocklist --enable-zero-copy`). Hal ini memungkinkan Chromium mendeteksi status oklusi dan unmapping HWND secara native tanpa memicu crash swapchain GPU.
+  3. *Urutan Non-Blocking pada `AppLifecycle.on_closing()`:* Memanggil `self.api.emit_window_state(hidden=True)` sebelum `self.window.hide()` secara non-blocking sehingga event terkirim selagi kontrol WebView2 masih aktif.
+  4. *Reaping Child Processes pada `AppLifecycle.perform_exit()`:* Menambahkan metode `_cleanup_child_processes(self)` yang mencari dan mematikan seluruh proses anak yang di-spawn oleh PID saat ini menggunakan `psutil.Process(os.getpid()).children(recursive=True)` dengan timeout dan kill paksa sebelum `os._exit(0)`.
+  5. *Pengujian Unit & Verifikasi:*
+     - Menambahkan test di `tests/test_main.py` untuk `_cleanup_child_processes()` dan pemanggilan pada `perform_exit()`.
+     - Memperbarui `test_setup_windows_performance_optimizations_sets_chromium_flags` untuk memastikan flag disable occlusion tidak lagi digunakan.
+     - Menambahkan test di `tests/test_services/test_api.py` untuk memverifikasi `_safe_eval_js` mendispatch daemon thread pada window nyata.
+     - Seluruh 804 tes pytest backend dan 930 tes vitest frontend lulus 100%. Build produksi TypeScript/Vite sukses tanpa error. Seluruh berkas mempertahankan format baris LF (`\n`).
+
+### 84. AttributeError: 'Api' object has no attribute 'settings_manager' saat Window Maximize/Restore, dan Kemunculan Native Edge Context Menu di Seluruh Jendela Aplikasi
+- **Lokasi:**
+  - core/api.py
+  - main.py
+  - frontend/src/components/AppInterceptor.tsx
+  - frontend/tests/components/AppInterceptor.test.tsx
+  - tests/test_main.py
+  - tests/test_services/test_api.py
+- **Masalah:**
+  1. *AttributeError 'settings_manager':* Ketika window dimaksimalkan atau dikembalikan ke ukuran normal, event listener on_window_maximized dan on_window_restored di main.py memanggil api.settings_manager.save_settings(...). Objek Api di core/api.py menyimpan instance sebagai self.settings, bukan self.settings_manager. Hal ini menyebabkan AttributeError: 'Api' object has no attribute 'settings_manager' tercetak ke stderr dan preferensi window maximized gagal tersimpan.
+  2. *Kemunculan Menu Konteks Default Edge:* Pengguna dapat memicu klik kanan browser Edge WebView2 bawaan (berisi Refresh, Inspect element, Back, Forward, Print, dll.) di area kosong jendela aplikasi. Karena VyloServe telah menyediakan menu klik kanan kustom pada komponen yang membutuhkan (seperti copy selection pada AppInterceptor dan menu terminal di TerminalInstance), menu bawaan browser menjadi anomali visual dan melanggar prinsip desktop app UI/UX, serta memaparkan opsi inspect/refresh yang tidak diinginkan pada runtime.
+- **Solusi:**
+  1. *Property Alias di Api dan Perbaikan Pemanggilan di main.py:*
+     - Di main.py, mengoreksi pemanggilan langsung menjadi api.settings.save_settings(...).
+     - Di core/api.py, menambahkan property alias @property def settings_manager(self) (serta 
+untimes dan git) yang merujuk ke instance terkait untuk mencegah regresi jika modul lain memanggil nama tersebut.
+  2. *Supresi Native Context Menu Lintas Layer (Frontend DOM + Backend Engine):*
+     - *Frontend Interception:* Pada frontend/src/components/AppInterceptor.tsx, memanggil e.preventDefault() di baris paling awal handleContextMenu. Hal ini secara universal mencegah kemunculan context menu browser default di seluruh DOM, sambil tetap mempertahankan custom copy context menu jika ada teks yang dipilih/area log, serta tidak mengganggu komponen yang menangani context menu sendiri via e.stopPropagation().
+     - *Backend Engine Level Patch:* Pada main.py di dalam setup_windows_performance_optimizations(), mem-patch webview.platforms.edgechromium.EdgeChrome.on_webview_ready agar mengatur sender.CoreWebView2.Settings.AreDefaultContextMenusEnabled = False. Ini mematikan menu konteks bawaan Edge langsung di level engine WebView2 bahkan ketika pywebview berjalan dalam development mode (_state['debug'] = True).
+  3. *Unit Testing & Verifikasi:*
+     - Menambahkan unit test di frontend/tests/components/AppInterceptor.test.tsx untuk memastikan preventDefault selalu dipanggil pada setiap event contextmenu.
+     - Menambahkan unit test di tests/test_main.py (test_setup_windows_performance_optimizations_disables_edge_default_context_menus) untuk memvalidasi patching WebView2 settings AreDefaultContextMenusEnabled = False.
+     - Menambahkan unit test di tests/test_services/test_api.py untuk menguji alias settings_manager, 
+untimes, dan git.
+     - Seluruh 808 tes pytest backend dan 931 tes vitest frontend lulus 100%. Build produksi TypeScript/Vite sukses tanpa error.
+
+### 85. Inkonsistensi Pembungkusan Teks Tombol 'Open in Browser' pada ProjectCard (PHP Card Wrapping ke 2 Baris)
+- **Lokasi:**
+  - `frontend/src/menu/projects/ProjectCard.tsx`
+  - `frontend/tests/menu/projects/ProjectCard.test.tsx`
+  - `frontend/src/menu/apache/Main.tsx`
+  - `frontend/src/menu/database/Main.tsx`
+  - `frontend/src/menu/php/Main.tsx`
+  - `frontend/src/menu/runtimes/RuntimeEnginePanel.tsx`
+  - `frontend/src/menu/dashboard/components/RecentProjectsSection.tsx`
+  - `frontend/src/components/ServiceToggleButton.tsx`
+- **Masalah:**
+  Pada card projek PHP di menu Projects (`ProjectCard.tsx`), tombol "Buka di Peramban" (`apache.open_in_browser`) dan "Pengaturan" (`apache.setup`) tidak dibungkus dalam `<span className="truncate">`, menggunakan padding `px-4` (lebih lebar), dan gap `gap-2`, tanpa `min-w-0`. Akibatnya, pada breakpoint resolusi layar tertentu atau saat grid card menyempit (misalnya resolusi laptop dengan scaling DPI Windows 125%), teks string multi-kata yang memiliki spasi ("Buka di Peramban" / "Open in Browser") terpecah menjadi 2 baris (line wrap), menyebabkan tinggi tombol membesar secara vertikal (~54px dibanding normal ~38px). Sebaliknya, pada card projek non-PHP (Node.js, Python, Go, Java), tombol "Open in Browser" telah dibungkus dalam `<span className="truncate">` dengan padding `px-3` dan `gap-1.5`, sehingga teks terpotong rapi dengan ellipsis dan tombol mempertahankan ukuran tinggi 1 baris normal. Anomali serupa juga ditemukan di tombol aksi footer pada modul Apache, Database, PHP, Runtimes, dan Dashboard.
+- **Solusi:**
+  1. *Standardisasi Tombol Aksi di `ProjectCard.tsx`:*
+     - Mengekstrak kelas tombol sekunder bersama `secondaryBtnClass` (`flex-1 min-w-0 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-3 rounded-lg transition-[transform,colors] active:scale-95 flex items-center justify-center gap-1.5 shadow-sm`).
+     - Membungkus seluruh teks label tombol footer pada projek PHP maupun non-PHP di dalam `<span className="truncate">` dan menambahkan `shrink-0` pada ikon.
+     - Menambahkan atribut `title` dan `aria-label` yang sesuai agar pengguna tetap dapat melihat teks lengkap saat terjadi truncation via tooltip native/screen reader.
+  2. *Standardisasi Pencegahan Line-Wrap di Komponen Terkait:*
+     - Menerapkan pola `min-w-0`, `px-3`, `gap-1.5`, `shrink-0` pada ikon, dan `<span className="truncate">` pada tombol footer di `apache/Main.tsx`, `database/Main.tsx`, `php/Main.tsx`, `runtimes/RuntimeEnginePanel.tsx`, `RecentProjectsSection.tsx`, dan `ServiceToggleButton.tsx`.
+  3. *Unit Testing & Verifikasi:*
+     - Membuat berkas unit test baru `frontend/tests/menu/projects/ProjectCard.test.tsx` (6 tes lulus) yang menguji kedua jenis card (PHP & Node) dalam kondisi stopped, starting, running, un-synced domain, dan memastikan keberadaan kelas `min-w-0` serta elemen `.truncate`.
+     - Seluruh 937 tes unit Vitest frontend (93 file) dan seluruh tes pytest backend lulus 100%. Build produksi TypeScript/Vite sukses tanpa error.
+
+### 86. Kemunculan Popup Konfirmasi Izin Edge WebView2 (Clipboard Paste) dan Dialog Skrip Browser Native
+- **Lokasi:**
+  - `main.py`
+  - `tests/test_main.py`
+- **Masalah:**
+  Pada eksekusi aksi di antarmuka pengguna seperti tombol Paste (`navigator.clipboard.readText()`) di modul Base64, QR Generator, URL Encoder/Decoder, atau Terminal, Microsoft Edge WebView2 secara default menerapkan model keamanan peramban web dan menampilkan popup konfirmasi izin native: *"localhost wants to see text and images copied to the clipboard [Allow] [Block]"*. Selain itu, jika terdapat dialog skrip browser (`window.confirm`, `window.alert`, autofill), Edge memunculkan modal dialog bawaan peramban yang merusak pengalaman desktop app native.
+- **Solusi:**
+  1. *Hooking CoreWebView2.PermissionRequested (Auto-Accept Permissions):*
+     - Di `main.py` pada hook `_clean_on_webview_ready`, mengikat event listener `sender.CoreWebView2.PermissionRequested`.
+     - Handler secara otomatis menyetel `args.State = CoreWebView2PermissionState.Allow` (1), `args.Handled = True`, dan `args.SavesInProfile = True`. Hal ini mengizinkan seluruh permintaan izin webview (terutama pembacaan clipboard secara asinkron) secara otomatis tanpa pernah menampilkan popup izin browser ke pengguna.
+  2. *Supresi Dialog Skrip Native Browser (`ScriptDialogOpening` & Settings):*
+     - Mengatur `sender.CoreWebView2.Settings.AreDefaultScriptDialogsEnabled = False`, `IsGeneralAutofillEnabled = False`, dan `IsPasswordAutosaveEnabled = False`.
+     - Mengikat listener `sender.CoreWebView2.ScriptDialogOpening` yang secara otomatis memanggil `args.Accept()`, mencegah dialog browser memblokir jalannya aplikasi.
+     - Seluruh alur konfirmasi pengguna di VyloServe tetap aman dan terkontrol penuh melalui custom React modal dialog (`useAlert().confirm(...)` dan `Modal.tsx`).
+  3. *Unit Testing & Verifikasi:*
+     - Memperbarui pengujian unit di `tests/test_main.py` (`test_setup_windows_performance_optimizations_configures_edge_webview2`) untuk memverifikasi pengaturan settings, event listener `PermissionRequested` (Allow & SavesInProfile), dan auto-accept pada `ScriptDialogOpening`.
+     - Seluruh 808 tes pytest backend dan 937 tes vitest frontend lulus 100%. Format baris terjaga strict LF (`\n`).
+
+
+### 87. Inkonsistensi Penanganan Kondisi Offline (No Internet Connection) Lintas Modul & Anomali Fallback Apache/PHP
+- **Lokasi:**
+  - `core/utils/network_utils.py`, `core/api.py`
+  - `core/services/apache.py`, `core/services/php.py`, `core/services/database.py`, `core/services/runtimes_manager.py`, `core/services/git_manager.py`, `core/services/tunnels.py`, `core/services/updater.py`
+  - `frontend/src/context/NetworkContext.tsx`, `frontend/src/components/OfflineBanner.tsx`
+  - `frontend/src/menu/apache/InstallWizard.tsx`, `ApacheInstallModal.tsx`
+  - `frontend/src/menu/php/NewInstance.tsx`
+  - `frontend/src/menu/database/NewInstance.tsx`, `DatabaseNewInstanceModal.tsx`
+  - `frontend/src/menu/runtimes/RuntimeVersionSelect.tsx`, `RuntimeInstallModal.tsx`, `InstallNode.tsx`, `InstallPython.tsx`, `InstallJava.tsx`, `InstallGo.tsx`
+  - `frontend/src/menu/tools/git/InstallGitModal.tsx`
+  - `frontend/src/menu/tools/tunnels/InstallTunnel.tsx`, `TunnelsInstallModal.tsx`, `Main.tsx`, `TunnelsComponents.tsx`
+  - `frontend/src/menu/projects/NewProject.tsx`
+  - `frontend/src/menu/tools/ai-assistant/Main.tsx`, `components/AiFloatingWidget.tsx`, `components/AiChatInput.tsx`
+  - `frontend/src/menu/tools/settings/SettingsModals.tsx`
+  - `tests/test_utils/test_network_utils.py`, `frontend/tests/context/NetworkContext.test.tsx`
+- **Masalah:**
+  Ketika VyloServe dijalankan tanpa koneksi internet (offline), sejumlah modul mengalami anomali UI/UX dan pelanggaran prinsip HCI:
+  1. *Apache Fake Success Fallback:* `ApacheManager.get_available_versions()` menangkap semua exception `urlopen` dan mengembalikan `"status": "success"` berisi versi hardcode `2.4.68`, sehingga pengguna tetap bisa menekan Install lalu gagal di tengah proses download.
+  2. *PHP Misleading Placeholder:* `php/NewInstance.tsx` menampilkan placeholder `"All PHP versions are already installed!"` (`php.all_versions_installed`) saat `availableVersions.length === 0`, padahal daftar versi kosong karena gagal mengambil data dari internet.
+  3. *Tidak Ada Barrier Proaktif (Error Prevention) & Recovery Terkontekstualisasi:* Modul Projects (`NewProject.tsx`), Tunnels (`Zrok` & `Cloudflare`), AI Assistant (Cloud Providers vs Local Ollama), dan Settings > Updates belum membedakan fitur yang 100% lokal dari fitur yang wajib internet, serta belum menyediakan aksi pemulihan 1-klik (`Retry`, `Use Raw Template (Offline)`, `Switch to Ollama (Local)`).
+- **Solusi:**
+  1. *Backend Network Probe & Klasifikasi Error (`core/utils/network_utils.py`):* Membuat helper `check_internet_connection()`, `is_network_error(exc)`, dan `build_offline_error_response()`, mengekspos `api.check_internet_connection()`, menghapus fallback palsu `2.4.68` saat `urlopen` melempar network error di `apache.py`, serta menyematkan flag `"is_offline": True` pada respons error jaringan di seluruh service terkait.
+  2. *Frontend `<NetworkProvider>` & Komponen `<OfflineBanner>`:* Menggabungkan event browser `online`/`offline` dengan verifikasi backend `api.check_internet_connection()` dan membuat komponen `<OfflineBanner>` reusable dengan tombol Retry dan slot `actionButton` kontekstual.
+  3. *Contextual Smart Barrier di 9 Modul:* Menerapkan barrier proaktif di seluruh modal instalasi, *Smart Partial Barrier* di `NewProject.tsx` (mengizinkan Link Existing & Raw Template saat offline + tombol 1-klik beralih ke Raw Template), membedakan Cloud AI vs Local Ollama di AI Assistant, serta menonaktifkan aksi jaringan di Tunnels dan App Updater saat offline.
+  4. *Unit Testing & Verifikasi:* Menambahkan `tests/test_utils/test_network_utils.py` dan `frontend/tests/context/NetworkContext.test.tsx`. Seluruh unit test (`pytest` & `vitest`) dan build produksi (`npm run build`) lulus tanpa error dengan format baris strict LF (`\n`).
+
+### 88. TypeError 'Cannot read properties of undefined' (`split` pada `compareVersions` dan `replaceAll` pada `GlobalControlPanel`) akibat Entri Database Kosong/Legacy
+- **Lokasi:**
+  - `core/services/database.py` (`_enrich_db_status`)
+  - `frontend/src/utils/version.ts` (`compareVersions`)
+  - `frontend/src/context/DatabaseContext.tsx` (`checkForUpdates`)
+  - `frontend/src/menu/dashboard/components/GlobalControlPanel.tsx` (`DbChips`)
+- **Masalah:**
+  Ketika pengguna membuka aplikasi dengan file `data/databases.json` yang berisi entri sparse/legacy (misalnya hasil instalasi manual atau struktur lawas yang hanya menyimpan `id`, `engine`, dan `port` tanpa field `name`, `version`, atau `dataDir`), aplikasi mengalami crash frontend:
+  1. `compareVersions` di `version.ts` langsung memanggil `.split('.')` pada kedua argumen tanpa guard `undefined`/`null`, menyebabkan `TypeError: Cannot read properties of undefined (reading 'split')` saat `DatabaseContext.tsx` membandingkan versi database terhadap rilis terbaru.
+  2. `GlobalControlPanel.tsx` memanggil `db.name.replaceAll(...)` secara langsung tanpa memeriksa apakah `db.name` terdefinisi, sehingga melempar `Uncaught TypeError: Cannot read properties of undefined (reading 'replaceAll')`.
+  3. `_enrich_db_status` di Python backend tidak menetapkan default yang lengkap untuk `name`, `version`, `dataDir`, dan sanitasi `port` saat entri database tidak memiliki atribut-atribut tersebut.
+- **Solusi:**
+  1. *Backend Normalization (`_enrich_db_status`):* Menjamin setiap entri database yang dikembalikan oleh `get_installed()` selalu memiliki nilai default aman: `engine` (lowercase string), `version` (string kosong jika tidak ada), `name` (fallback nama engine yang diformat rapi, mis. "PostgreSQL" / "MySQL" / "Redis"), `id` (string valid), `dataDir` (path default ke `bin/database/<id>`), dan `port` (integer valid dengan fallback port default per engine).
+  2. *Defensive `compareVersions` (`version.ts`):* Menambahkan validasi `undefined`, `null`, dan string kosong pada `compareVersions` sehingga aman dipanggil dengan nilai falsy tanpa melempar exception (mengembalikan `0` jika keduanya kosong, `-1` jika `v1` kosong, `1` jika `v2` kosong).
+  3. *Safe Update Check (`DatabaseContext.tsx`):* Menambahkan guard `Boolean(db.version)` pada filter `checkForUpdates` agar tidak memicu pengecekan update pada instance yang versinya tidak tercatat.
+  4. *Defensive `DbChips` (`GlobalControlPanel.tsx`):* Menggunakan fallback `const dbName = String(db.name || db.engine || 'Database')` sebelum memanggil `.replaceAll()`, memastikan chip database di dashboard tidak pernah crash.
+  5. *Unit Testing:* Menambahkan test regresi backend `test_db_get_installed_handles_sparse_legacy_entry_with_missing_name_and_version` di `tests/test_services/test_database.py` dan memperluas test case di `frontend/tests/utils/version.test.ts`. Seluruh 840 tes pytest dan seluruh tes vitest lulus 100%.
+
+### 89. Pembatalan Instalasi & Pembaruan Asinkron Tanpa Mekanisme Rollback Bersih (`CancellationToken`)
+- **Lokasi:**
+  - `core/utils/cancellation.py`, `core/api.py`
+  - `core/services/apache.py`, `core/services/php.py`, `core/services/database.py`, `core/services/runtimes_manager.py`, `core/services/git_manager.py`, `core/services/tunnels.py`
+  - `frontend/src/components/BackgroundProgressWidget.tsx`, `frontend/src/menu/*`
+  - `tests/test_utils/test_cancellation.py`
+- **Masalah:**
+  Ketika pengguna membatalkan proses instalasi atau pembaruan modul (Apache, PHP, Database, Runtimes, Git, Tunnels), thread latar belakang Python tetap berjalan sampai selesai, atau terputus secara tidak bersih dan meninggalkan file arsip setengah terunduh (`.zip.tmp`), folder ekstrak korup, serta entri setengah jadi di `data/*.json`. Hal ini membuat instalasi ulang gagal karena folder/file parsial sudah ada di disk.
+- **Solusi:**
+  1. *CancellationToken System (`core/utils/cancellation.py`):* Membuat class `CancellationToken` thread-safe dengan registry terpusat `cancellation_manager` dan mekanisme `register_rollback(callback)`.
+  2. *API Endpoint (`core/api.py`):* Mengekspos method publik `cancel_installation(task_id)` untuk memicu pembatalan secara instan dari JavaScript frontend.
+  3. *Cooperative Cancellation Loop:* Mengintegrasikan pengecekan `token.is_cancelled()` pada perulangan chunk unduh `download_file` (setiap 64KB) dan ekstraksi arsip `extract_archive`.
+  4. *Automatic Atomic Rollback:* Jika pembatalan terjadi, eksekutor secara otomatis menghapus file temporer `.tmp`, membersihkan direktori ekstraksi target parsial, dan membatalkan penulisan konfigurasi ke file JSON.
+  5. *UI Integration:* Menambahkan tombol batal ("Cancel") dengan status loading pembatalan pada `BackgroundProgressWidget` dan wizard instalasi di frontend.
+  6. *Unit Testing:* Menambahkan suite test terdedikasi di `tests/test_utils/test_cancellation.py`.
+
+### 90. Latensi Ekstrem (>30 Detik) Saat Memuat Daftar Versi MariaDB dari Mirror Archive (Caching TTL & Timeout)
+- **Lokasi:**
+  - `core/services/database.py` (`_fetch_mariadb_versions`)
+  - `core/api.py` (`get_database_available_versions`)
+  - `tests/test_services/test_database.py`
+- **Masalah:**
+  Membuka modal instalasi database MariaDB membutuhkan waktu lebih dari 30-45 detik karena aplikasi melakukan crawling HTML live dari mirror archive MariaDB (`archive.mariadb.org`) setiap kali modal dibuka. Jika koneksi lambat atau mirror mengalami rate limit, UI mengalami freeze atau modal New Instance tampil kosong dalam durasi yang tidak wajar.
+- **Solusi:**
+  1. *TTL Memory Cache:* Menerapkan caching memori berbatas waktu (*TTL Cache*, 24 jam) untuk daftar versi MariaDB di `DatabaseManager._mariadb_versions_cache`.
+  2. *Network Timeout & Fallback:* Menambahkan batas waktu timeout 5 detik pada `urllib.request.urlopen` dengan fallback ke daftar versi stabil terkurasi yang tertanam (*embedded fallback*) jika server remote lambat atau offline.
+  3. *Force Refresh Parameter:* Menambahkan parameter `force_refresh=False` pada `api.get_database_available_versions()` agar UI dapat memuat seketika dari cache saat dibuka kembali, dengan opsi refresh paksa saat pengguna menekan tombol refresh.
+  4. *Unit Testing:* Menambahkan test case di `tests/test_services/test_database.py` yang mencakup skenario cold fetch, cached hit, remote timeout fallback, dan force refresh.
+
+### 91. Integrasi Engine Database In-Memory Redis (Port 6379) & Database Schema Manager (MariaDB / PostgreSQL)
+- **Lokasi:**
+  - `core/services/database.py`
+  - `core/api.py`
+  - `frontend/src/menu/database/Main.tsx`, `DatabaseSchemaModal.tsx`, `NewInstance.tsx`
+  - `tests/test_services/test_database.py`
+- **Masalah:**
+  1. Sebelumnya VyloServe hanya mendukung 2 engine database relasional (MariaDB & PostgreSQL). Pengembang web modern membutuhkan Redis in-memory cache/store lokal (port 6379) untuk caching sesi dan antrean job (misal Laravel / Node.js).
+  2. Pengembang harus membuka terminal atau phpMyAdmin/DBeaver pihak ketiga hanya untuk melihat daftar skema/database, membuat skema baru, atau menghapus skema uji coba.
+- **Solusi:**
+  1. *Redis Integration:* Mengintegrasikan Redis sebagai database engine ke-3: download binary Windows native (`tporadowski/redis`), auto-generate konfigurasi `redis.windows.conf` (port 6379, maxmemory 256MB, appendonly yes), manajemen lifecycle start/stop silent subprocess, dan status monitor CLI `redis-cli ping`.
+  2. *Database Schema Management System:* Menambahkan endpoint `api.list_database_schemas(instance_id)`, `api.create_database_schema(instance_id, schema_name, charset, collation)`, dan `api.drop_database_schema(instance_id, schema_name)`.
+  3. *Secure CLI Runners (SRP):* Mengekstrak runner CLI deterministik `_run_mysql_cli` dan `_run_pg_cli` dengan passing kredensial aman via environment variable (`PGPASSWORD`) atau file temporer, mencegah kebocoran password di process list OS.
+  4. *Frontend Modal & A11y:* Merancang komponen `DatabaseSchemaModal.tsx` di frontend dengan tabel skema, modal konfirmasi destruktif drop schema, form pembuatan skema dengan charset dropdown, dan translasi i18n lengkap.
+
+### 92. Paritas Tampilan Peringatan Environment PATH Antara Versi Belum Terinstall vs Terinstall (Runtimes & Git) dan Isolasi File Konfigurasi Unit Test
+- **Lokasi:**
+  - `frontend/src/menu/runtimes/RuntimePathHub.tsx`
+  - `frontend/src/menu/tools/git/Main.tsx`
+  - `tests/test_services/test_runtimes_manager.py`, `tests/test_services/test_git_manager.py`
+- **Masalah:**
+  1. Terdapat inkonsistensi visual dan pesan peringatan: ketika runtime/git belum diinstal di VyloServe tetapi versi native OS terdeteksi, antarmuka menampilkan layout/peringatan berbeda secara drastis dibanding saat modul sudah diinstal via VyloServe namun belum dimasukkan ke PATH (sistem path binary vs binary path).
+  2. Pada saat eksekusi unit test tertentu di `test_runtimes_manager.py`, mock cleanup atau eksekusi fungsi secara tidak sengaja memodifikasi/menghapus file `data/runtimes.json` fisik di direktori pengembangan, menyebabkan seluruh daftar runtime yang sudah diinstal pengembang hilang dari antarmuka setelah test dijalankan.
+- **Solusi:**
+  1. *Visual & Notification Parity:* Menstandarkan representasi visual warning card dan kolom info: menyelaraskan label "System Path Binary" dan "Managed Binary Path", serta menyatukan logika deteksi native vs managed environment di `RuntimePathHub.tsx` dan `git/Main.tsx`.
+  2. *Test Data Isolation (Rule 36):* Mengisolasi seluruh operasi I/O file pada `test_runtimes_manager.py` dan `test_git_manager.py` ke fixture `tmp_path` Pytest dan mem-mock `file_utils.read_json`/`write_json` secara ketat agar file fisik di `data/*.json` dan `bin/` tidak pernah termutasi atau terhapus.
+  3. *Regression Verification:* Memvalidasi integritas file konfigurasi lingkungan development tetap utuh 100% setelah seluruh suite pengujian selesai dijalankan.
+
+### 93. Tabrakan Port Server Pengembangan Frontend Vite Default (`5173`) dengan Layanan & Dev Server Proyek Multi-Runtime
+- **Lokasi:**
+  - `main.py`
+  - `frontend/vite.config.ts`
+  - `docs/development_testing.md`, `docs/architecture_and_flow.md`
+- **Masalah:**
+  Vite secara default menggunakan port `5173`. Saat pengembang sedang mengerjakan proyek multi-runtime (seperti proyek Svelte/Vue/React yang dikelola di Projects Hub atau dev server lokal lain), seringkali terjadi tabrakan port (`EADDRINUSE: 5173`). Hal ini menyebabkan PyWebView gagal meload aplikasi desktop atau meload antarmuka proyek pengguna alih-alih UI VyloServe.
+- **Solusi:**
+  1. *Dedicated Isolated Port:* Mengubah port default Vite frontend ke port khusus terisolasi yang tidak umum digunakan: `VITE_PORT = 55173`.
+  2. *Strict Port Setting:* Mengonfigurasi `frontend/vite.config.ts` dengan `server: { port: 55173, strictPort: true }`.
+  3. *Entrypoint Alignment:* Memperbarui `main.py` sehingga saat `IS_PRODUCTION = False`, PyWebView mengarah ke `http://localhost:55173`.
+  4. *Documentation Parity:* Mendokumentasikan port ini di panduan arsitektur dan pengujian agar pengembang dan asisten AI mengetahui port standar aplikasi.
+
+### 94. Pelanggaran SonarQube Quality Gate: Kerentanan ReDoS Catastrophic Backtracking, Kompleksitas Kognitif Tinggi, dan Aksesibilitas Label Form
+- **Lokasi:**
+  - `core/services/database.py`, `core/services/php.py`
+  - `frontend/src/menu/database/NewInstance.tsx`, `frontend/src/menu/projects/NewProject.tsx`, `frontend/src/menu/tools/qr-generator/Main.tsx`, dll.
+- **Masalah:**
+  1. *Catastrophic Backtracking ReDoS (`python:S8786` & `python:S6353`):* Regex parsing key-value pada file konfigurasi menggunakan nested quantifiers ambigu `r"^(\s*)(.*?)\s*=\s*(.*?)\s*$"` yang rentan terhadap eksploitasi ReDoS dengan konsumsi CPU 100%.
+  2. *High Cognitive Complexity (`python:S3776` > 15):* Fungsi runner query database dan sinkronisasi virtual host memiliki tingkat percabangan bersarang yang melebihi batas toleransi SonarQube (mencapai kompleksitas 26-32).
+  3. *Aksesibilitas Label Form (`typescript:S6847`):* Terdapat kontrol input form pada modal dan halaman tools yang me-render `<label>` tanpa atribut `htmlFor` dan `<input>` tanpa atribut `id`, melanggar standar aksesibilitas a11y.
+- **Solusi:**
+  1. *ReDoS Prevention:* Mengganti regex ambigu dengan metode string deterministik `str.partition("=")` dan `str.split("=", 1)` yang linear dan kebal ReDoS.
+  2. *SRP Refactoring:* Memecah fungsi kompleks menjadi helper privat berprinsip Single Responsibility Principle (`_run_mysql_cli`, `_run_pg_cli`, `_execute_db_command`, `_extract_mariadb_version_tags`) sehingga seluruh fungsi memiliki Cognitive Complexity di bawah 15.
+  3. *Accessible Form Controls:* Menghubungkan seluruh elemen `<label htmlFor="id_unik">` dengan `<input id="id_unik">` di seluruh komponen form frontend.
+  4. *Quality Gate Pass:* Hasil scan SonarQube mencapai Quality Gate **🟢 PASSED** dengan 0 Bugs, 0 Vulnerabilities, 0 Security Hotspots, dan 0 Code Smells.
+
+### 95. Kegagalan Kompilasi Build Produksi TypeScript (`tsc -b && vite build`) Akibat Prop Mismatch dan Tipe Overload `TFunction`
+- **Lokasi:**
+  - `frontend/src/menu/apache/ApacheInstallModal.tsx`
+  - `frontend/src/menu/database/Main.tsx`
+  - `frontend/src/menu/projects/ProjectCard.tsx`
+  - `frontend/tests/menu/terminal_instance.test.tsx`
+- **Masalah:**
+  Meskipun unit test terisolasi vitest lulus, menjalankan `npm run build` (`tsc -b && vite build`) gagal dengan 16 galat kompilasi TypeScript:
+  1. `TS2322`: Komponen `ApacheInstallModal.tsx` meneruskan prop `isApacheInstalled` ke `<ApacheInstallWizard>` yang tidak mendefinisikan prop tersebut di antarmukanya.
+  2. `TS2345`: Fungsi helper `getConfigFileLabel` dan `getEngineLabel` di `database/Main.tsx` menerima argumen fungsi `t` dengan tipe `(k: string, d?: string) => string`, yang tidak kompatibel dengan signature overload `TFunction<"translation", undefined>` dari i18next modern.
+  3. `TS2304`: Di `projects/ProjectCard.tsx`, tipe `project: Project` digunakan alih-alih `ProjectData` yang diekspor oleh modul.
+  4. `TS2741`: Pada file test `terminal_instance.test.tsx`, mock object `TerminalSession` dan `ShellInfo` kehilangan properti wajib seperti `cwd`, `icon`, dan `is_default`.
+- **Solusi:**
+  1. Menghapus prop berlebih `isApacheInstalled` pada pemanggilan `<ApacheInstallWizard>`.
+  2. Mengimpor tipe `TFunction` resmi dari `i18next` (`import type { TFunction } from 'i18next'`) dan menyelaraskan pengetikan helper function di `database/Main.tsx`.
+  3. Memperbaiki tipe impor `ProjectData` di `ProjectCard.tsx`.
+  4. Melengkapi seluruh properti wajib pada mock fixture di `terminal_instance.test.tsx`.
+  5. Menetapkan aturan wajib Rule 38 di `AGENTS.md` dan verifikasi playbook agar `npm run build` selalu dijalankan sebelum serah terima fitur.

@@ -1,17 +1,37 @@
 import { useState, useEffect, forwardRef, useImperativeHandle, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import Select from '../../components/Select';
-import ProgressBar from '../../components/ProgressBar';
+import ProgressStatusBlock from '../../components/ProgressStatusBlock';
 import OsCompatibilityCard from '../../components/OsCompatibilityCard';
 import FieldLabel from '../../components/FieldLabel';
 import InfoBox from '../../components/InfoBox';
+import OfflineBanner from '../../components/OfflineBanner';
+import { useNetworkStatus, isOfflineResponse } from '../../context/NetworkContext';
+
+export type DatabaseEngineType = 'mysql' | 'postgres' | 'redis';
+
+const DEFAULT_ENGINE_PORTS: Record<DatabaseEngineType, number> = {
+    postgres: 5432,
+    redis: 6379,
+    mysql: 3306,
+};
+
+const getDefaultPort = (engine: string): number =>
+    DEFAULT_ENGINE_PORTS[engine as DatabaseEngineType] ?? 3306;
 
 interface Props {
-    activeTab: 'all' | 'mysql' | 'postgres';
+    activeTab: 'all' | DatabaseEngineType;
     usedPorts: number[];
     isInstalling: boolean;
+    isCancelling?: boolean;
+    onCancelInstall?: () => void;
     progress: number;
     progressText: string;
+    targetUpdate?: {
+        engine: DatabaseEngineType;
+        version: string;
+        port: number;
+    };
 }
 
 export interface NewDbInstanceRef {
@@ -24,16 +44,33 @@ interface OnlineVersion {
     url: string;
 }
 
-const NewDbInstance = forwardRef<NewDbInstanceRef, Props>(({ activeTab, usedPorts, isInstalling, progress, progressText }, ref) => {
+const NewDbInstance = forwardRef<NewDbInstanceRef, Props>(({
+    activeTab, usedPorts, isInstalling, isCancelling = false, onCancelInstall, progress, progressText, targetUpdate
+}, ref) => {
     const { t } = useTranslation();
-    const [engineFamily, setEngineFamily] = useState<'mysql' | 'postgres'>(
-        activeTab === 'postgres' ? 'postgres' : 'mysql'
-    );
-    const [port, setPort] = useState(activeTab === 'postgres' ? 5432 : 3306);
+    const { isOnline, reportOffline, reportOnline } = useNetworkStatus();
+    const [retryTick, setRetryTick] = useState(0);
+
+    const getInitialEngine = (): 'mysql' | 'postgres' | 'redis' => {
+        if (targetUpdate) return targetUpdate.engine;
+        if (activeTab === 'postgres') return 'postgres';
+        if (activeTab === 'redis') return 'redis';
+        return 'mysql';
+    };
+
+    const getInitialPort = (): number => {
+        if (targetUpdate) return targetUpdate.port;
+        if (activeTab === 'postgres') return 5432;
+        if (activeTab === 'redis') return 6379;
+        return 3306;
+    };
+
+    const [engineFamily, setEngineFamily] = useState<'mysql' | 'postgres' | 'redis'>(getInitialEngine);
+    const [port, setPort] = useState<number>(getInitialPort);
     const [rootPass, setRootPass] = useState('');
 
     const [availableVersions, setAvailableVersions] = useState<OnlineVersion[]>([]);
-    const [selectedVersion, setSelectedVersion] = useState<string>('');
+    const [selectedVersion, setSelectedVersion] = useState<string>(targetUpdate ? targetUpdate.version : '');
     const [isFetchingVersions, setIsFetchingVersions] = useState(false);
 
     // ---> DETEKSI OS DARI FRONTEND <---
@@ -62,34 +99,56 @@ const NewDbInstance = forwardRef<NewDbInstanceRef, Props>(({ activeTab, usedPort
         }
     }, [isInstalling]);
 
-    const fetchOnlineVersions = async (engine: string) => {
-        setIsFetchingVersions(true);
-        try {
-            const api = window.pywebview?.api;
-            if (api && typeof api.get_available_databases === 'function') {
-                const res = await api.get_available_databases(engine);
-                if (res.status === 'success') {
-                    setAvailableVersions(res.data);
-                    if (res.data.length > 0) setSelectedVersion(res.data[0].version);
-                } else setAvailableVersions([]);
+    useEffect(() => {
+        let ignore = false;
+
+        const handleVersionResponse = (res: any) => {
+            if (res.status === 'success') {
+                reportOnline();
+                setAvailableVersions(res.data);
+                if (res.data.length > 0 && !targetUpdate) setSelectedVersion(res.data[0].version);
+            } else {
+                if (isOfflineResponse(res)) {
+                    reportOffline();
+                }
+                setAvailableVersions([]);
             }
-        } catch (error){ console.error(error);
-            console.error("Gagal menarik versi DB online", error);
-        } finally {
-            setIsFetchingVersions(false);
-        }
-    };
+        };
 
-    useEffect(() => {
+        const fetchOnlineVersions = async (engine: string) => {
+            setIsFetchingVersions(true);
+            try {
+                const api = window.pywebview?.api;
+                if (typeof api?.get_available_databases !== 'function') return;
+                const res = await api.get_available_databases(engine);
+                if (ignore) return;
+                handleVersionResponse(res);
+            } catch (error) {
+                if (!ignore) console.error("Gagal menarik versi DB online", error);
+            } finally {
+                if (!ignore) setIsFetchingVersions(false);
+            }
+        };
+
         fetchOnlineVersions(engineFamily);
-    }, [engineFamily]);
+        return () => { ignore = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [engineFamily, retryTick]);
 
     useEffect(() => {
-        if (activeTab !== 'all') {
-            setEngineFamily(activeTab);
-            setPort(activeTab === 'postgres' ? 5432 : 3306);
+        if (targetUpdate) {
+            setEngineFamily(targetUpdate.engine);
+            setPort(targetUpdate.port);
+            setSelectedVersion(targetUpdate.version);
         }
-    }, [activeTab]);
+    }, [targetUpdate]);
+
+    useEffect(() => {
+        if (activeTab !== 'all' && !targetUpdate) {
+            setEngineFamily(activeTab);
+            setPort(getDefaultPort(activeTab));
+        }
+    }, [activeTab, targetUpdate]);
 
     useImperativeHandle(ref, () => ({
         getFormData: () => {
@@ -106,8 +165,16 @@ const NewDbInstance = forwardRef<NewDbInstanceRef, Props>(({ activeTab, usedPort
     const needsPostgresPasswordWarning = engineFamily === 'postgres' && !rootPass;
     const rootPassInputClass = needsPostgresPasswordWarning ? warningInputClass : normalInputClass;
 
+    const showOfflineBanner = !isFetchingVersions && (!isOnline || availableVersions.length === 0);
+
     return (
         <div className="flex flex-col gap-5 relative">
+            {showOfflineBanner && (
+                <OfflineBanner
+                    onRetry={() => setRetryTick(prev => prev + 1)}
+                    forceShow={showOfflineBanner}
+                />
+            )}
 
             {/* ---> INFO SISTEM (Mengikuti gaya PHP) <--- */}
             <OsCompatibilityCard
@@ -125,11 +192,12 @@ const NewDbInstance = forwardRef<NewDbInstanceRef, Props>(({ activeTab, usedPort
                     options={[
                         { value: 'mysql', label: t('database.mysql_mariadb') },
                         { value: 'postgres', label: t('database.postgres') },
+                        { value: 'redis', label: t('database.redis', 'Redis') },
                     ]}
                     value={engineFamily}
-                    onChange={(eng) => {
+                    onChange={(eng: any) => {
                         setEngineFamily(eng);
-                        setPort(eng === 'postgres' ? 5432 : 3306);
+                        setPort(getDefaultPort(eng));
                     }}
                     placeholder={t('database.database_engine_label')}
                     disabled={isInstalling}
@@ -156,8 +224,9 @@ const NewDbInstance = forwardRef<NewDbInstanceRef, Props>(({ activeTab, usedPort
                 />
 
                 <div className="flex flex-col gap-2">
-                    <FieldLabel>{t('database.tcp_port_bind')}</FieldLabel>
+                    <FieldLabel htmlFor="new_instance_port">{t('database.tcp_port_bind')}</FieldLabel>
                     <input
+                        id="new_instance_port"
                         type="number"
                         disabled={isInstalling}
                         value={port}
@@ -170,42 +239,47 @@ const NewDbInstance = forwardRef<NewDbInstanceRef, Props>(({ activeTab, usedPort
                 </div>
             </div>
 
-            <div className="flex flex-col gap-4 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700/50">
-                <h4 className="text-sm font-semibold text-slate-900 dark:text-white">{t('database.initial_setup')}</h4>
+            {engineFamily !== 'redis' ? (
+                <div className="flex flex-col gap-4 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700/50">
+                    <h4 className="text-sm font-semibold text-slate-900 dark:text-white">{t('database.initial_setup')}</h4>
 
-                {engineFamily === 'postgres' && (
-                    <InfoBox tone="warning" icon="security" className="mb-1 animate-in fade-in">{t('database.postgres_password_req')}</InfoBox>
-                )}
+                    {engineFamily === 'postgres' && (
+                        <InfoBox tone="warning" icon="security" className="mb-1 animate-in fade-in">{t('database.postgres_password_req')}</InfoBox>
+                    )}
 
-                <div className="flex flex-col gap-2">
-                    <FieldLabel size="xs">
-                        {engineFamily === 'postgres' ? t('database.superuser_password') : t('database.root_password')}
-                    </FieldLabel>
-                    <input
-                        type="password"
-                        disabled={isInstalling}
-                        value={rootPass}
-                        onChange={(e) => setRootPass(e.target.value)}
-                        placeholder={engineFamily === 'postgres' ? t('database.required_password_placeholder') : t('database.empty_password_placeholder')}
-                        className={`${rootPassInputClass} ${isInstalling ? 'opacity-50 cursor-not-allowed bg-slate-50 dark:bg-slate-900/50' : ''}`}
-                    />
+                    <div className="flex flex-col gap-2">
+                        <FieldLabel htmlFor="new_instance_password" size="xs">
+                            {engineFamily === 'postgres' ? t('database.superuser_password') : t('database.root_password')}
+                        </FieldLabel>
+                        <input
+                            id="new_instance_password"
+                            type="password"
+                            disabled={isInstalling}
+                            value={rootPass}
+                            onChange={(e) => setRootPass(e.target.value)}
+                            placeholder={engineFamily === 'postgres' ? t('database.required_password_placeholder') : t('database.empty_password_placeholder')}
+                            className={`${rootPassInputClass} ${isInstalling ? 'opacity-50 cursor-not-allowed bg-slate-50 dark:bg-slate-900/50' : ''}`}
+                        />
+                    </div>
                 </div>
-            </div>
+            ) : (
+                <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700/50">
+                    <InfoBox tone="info" icon="memory">
+                        {t('database.redis_desc', 'In-memory data structure store, used as a database, cache, and message broker.')}
+                    </InfoBox>
+                </div>
+            )}
 
             {/* --- PROGRESS BAR DENGAN GAP YANG DIRAPATKAN --- */}
             <div ref={bottomRef} className="pt-1 mt-1">
                 {isInstalling && (
-                    <div className="p-3.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg flex flex-col gap-2 animate-in fade-in duration-300 shadow-sm">
-                        <div className="flex justify-between items-center">
-                            <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                                {progressText || t('database.starting_process')}
-                            </span>
-                            <span className="text-xs font-bold text-primary">
-                                {progress}%
-                            </span>
-                        </div>
-                        <ProgressBar percent={progress} />
-                    </div>
+                    <ProgressStatusBlock
+                        progressText={progressText || t('database.starting_process')}
+                        progress={progress}
+                        onCancel={onCancelInstall}
+                        isCancelling={isCancelling}
+                        className="shadow-sm"
+                    />
                 )}
             </div>
         </div>

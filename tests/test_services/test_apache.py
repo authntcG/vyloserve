@@ -569,12 +569,19 @@ def test_get_available_versions_falls_back_when_parsing_yields_nothing(mock_urlo
     assert res['status'] == 'success'
     assert res['data'][0]['version'] == '2.4.68'
 
-def test_get_available_versions_swallows_network_error_and_falls_back(apache_manager):
+def test_get_available_versions_returns_offline_error_on_network_failure(apache_manager):
+    import urllib.error
     with patch('sys.platform', 'win32'):
-        with patch('core.services.apache.urllib.request.urlopen', side_effect=OSError("no internet")):
+        with patch('core.services.apache.urllib.request.urlopen', side_effect=urllib.error.URLError("getaddrinfo failed")):
             res = apache_manager.get_available_versions()
-    assert res['status'] == 'success'
-    assert res['data'][0]['version'] == '2.4.68'
+    assert res == {"status": "error", "message": "backend.error.no_internet", "is_offline": True}
+
+def test_get_available_versions_returns_unknown_error_on_non_network_exception(apache_manager):
+    with patch('sys.platform', 'win32'):
+        with patch('core.services.apache.urllib.request.urlopen', side_effect=ValueError("bad html")):
+            res = apache_manager.get_available_versions()
+    assert res["status"] == "error"
+    assert res["message"] == "backend.apache.unknown_error"
 
 # ==========================================
 # install_version — rollback saat download gagal
@@ -582,14 +589,30 @@ def test_get_available_versions_swallows_network_error_and_falls_back(apache_man
 
 @patch('core.services.apache.download_advanced', side_effect=OSError("network down"))
 @patch('core.services.apache.os.remove')
-@patch('core.services.apache.os.path.exists', side_effect=[False, True])
 @patch('core.services.apache.shutil.rmtree')
-def test_install_version_rolls_back_on_download_failure(mock_rmtree, mock_exists, mock_remove, mock_download, apache_manager):
-    res = apache_manager.install_version("2.4.60", "http://example.com/apache.zip", 8080)
+def test_install_version_rolls_back_on_download_failure(mock_rmtree, mock_remove, mock_download, apache_manager):
+    with patch.object(apache_manager, 'get_status', return_value={"installed": False}), \
+         patch('core.services.apache.os.path.exists', side_effect=lambda path: "apache-2.4.60.zip" in path):
+        # We need os.path.exists(target_dir) to be False, and os.path.exists(zip_path) to be True in the except block
+        res = apache_manager.install_version("2.4.60", "http://example.com/apache.zip", 8080)
 
     assert res['status'] == 'error'
     assert res['message'] == 'backend.apache.install_failed'
     mock_download.assert_called_once()
+    mock_remove.assert_called_once()
+    assert mock_rmtree.call_count == 2
+
+def test_install_version_cancelled_cleans_up_and_returns_cancelled(apache_manager):
+    from core.utils.cancellation import OperationCancelledError
+    with patch.object(apache_manager, 'get_status', return_value={"installed": False}), \
+         patch('core.services.apache.os.path.exists', side_effect=lambda path: "apache-2.4.60.zip" in path), \
+         patch('core.services.apache.download_advanced', side_effect=OperationCancelledError("Cancelled")), \
+         patch('core.services.apache.os.remove') as mock_remove, \
+         patch('core.services.apache.shutil.rmtree') as mock_rmtree:
+        res = apache_manager.install_version("2.4.60", "http://example.com/apache.zip", 8080)
+
+    assert res['status'] == 'cancelled'
+    assert res['message'] == 'backend.apache.install_cancelled'
     mock_remove.assert_called_once()
     assert mock_rmtree.call_count == 2
 
@@ -803,3 +826,60 @@ def test_stop_server_uses_pkill_on_non_windows(apache_manager):
             res = apache_manager.stop_server()
     assert res['status'] == 'success'
     mock_run.assert_called_once_with(['pkill', '-', 'httpd'])
+
+# ==========================================
+# Pintasan Direktori & Status Port
+# ==========================================
+
+def test_apache_open_htdocs(apache_manager):
+    with patch.object(apache_manager, '_ensure_default_htdocs', return_value="C:\\test\\www"), \
+         patch.object(apache_manager, '_open_path_os', return_value={"status": "success"}) as mock_open:
+        res = apache_manager.open_htdocs()
+        assert res['status'] == 'success'
+        mock_open.assert_called_once_with("C:\\test\\www")
+
+def test_apache_open_conf_dir(apache_manager):
+    with patch.object(apache_manager, 'get_status', return_value={"installed": True, "path": "C:\\apache"}), \
+         patch.object(apache_manager, '_open_path_os', return_value={"status": "success"}) as mock_open, \
+         patch('os.makedirs'):
+        res = apache_manager.open_conf_dir()
+        assert res['status'] == 'success'
+        mock_open.assert_called_once_with(os.path.join("C:\\apache", "conf"))
+
+def test_apache_open_conf_dir_not_installed(apache_manager):
+    with patch.object(apache_manager, 'get_status', return_value={"installed": False}):
+        res = apache_manager.open_conf_dir()
+        assert res['status'] == 'error'
+        assert res['message'] == 'backend.apache.not_installed'
+
+def test_apache_open_logs_dir(apache_manager):
+    with patch.object(apache_manager, 'get_status', return_value={"installed": True, "path": "C:\\apache"}), \
+         patch.object(apache_manager, '_open_path_os', return_value={"status": "success"}) as mock_open, \
+         patch('os.makedirs'):
+        res = apache_manager.open_logs_dir()
+        assert res['status'] == 'success'
+        mock_open.assert_called_once_with(os.path.join("C:\\apache", "logs"))
+
+def test_apache_open_logs_dir_not_installed(apache_manager):
+    with patch.object(apache_manager, 'get_status', return_value={"installed": False}):
+        res = apache_manager.open_logs_dir()
+        assert res['status'] == 'error'
+        assert res['message'] == 'backend.apache.not_installed'
+
+def test_apache_get_ports_status(apache_manager):
+    with patch.object(apache_manager, 'get_http_port', return_value=80), \
+         patch.object(apache_manager, 'check_is_running', return_value=True), \
+         patch('core.services.apache.check_port_in_use', side_effect=lambda p: True if p in (80, 443) else False):
+        res = apache_manager.get_ports_status()
+        assert res['status'] == 'success'
+        assert res['data']['http']['status'] == 'listening'
+        assert res['data']['https']['status'] == 'listening'
+
+    # When Apache not running but port in use -> conflict
+    with patch.object(apache_manager, 'get_http_port', return_value=80), \
+         patch.object(apache_manager, 'check_is_running', return_value=False), \
+         patch('core.services.apache.check_port_in_use', side_effect=lambda p: True if p == 80 else False):
+        res = apache_manager.get_ports_status()
+        assert res['status'] == 'success'
+        assert res['data']['http']['status'] == 'conflict'
+        assert res['data']['https']['status'] == 'ready'

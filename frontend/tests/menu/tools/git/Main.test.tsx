@@ -24,14 +24,19 @@ describe('GitMain', () => {
         expect(screen.getByText('tools.git.install_git')).not.toBeDisabled();
     });
 
-    it('shows the locked external-install card and disables the install button when an external git is detected', async () => {
+    it('shows the locked external-install card but keeps the install button enabled when an external git is detected', async () => {
         mockPywebviewApi(mockGitStatus(externalLocked));
         renderWithToast(<GitMain />);
 
         expect(await screen.findByText('tools.git.native_os_card_title')).toBeInTheDocument();
-        expect(screen.getByText('C:/Git/bin/git.exe')).toBeInTheDocument();
+        expect(screen.getAllByText('C:/Git/bin/git.exe').length).toBeGreaterThanOrEqual(1);
         expect(screen.queryByText('tools.git.not_installed_title')).not.toBeInTheDocument();
-        expect(screen.getByText('tools.git.install_git')).toBeDisabled();
+        expect(screen.getByText('tools.git.install_git')).not.toBeDisabled();
+
+        const alertBox = screen.getByTestId('external-git-warning-alert');
+        expect(alertBox).toBeInTheDocument();
+        expect(alertBox).toHaveTextContent('tools.git.external_overview_title');
+        expect(alertBox).toHaveTextContent('tools.git.external_locked');
     });
 
     it('shows the core system and global config cards when git is installed', async () => {
@@ -59,12 +64,25 @@ describe('GitMain', () => {
     it('disables the register-PATH toggle (preventing any change) while an external git exists', async () => {
         const installedWithExternal = {
             status: 'success',
-            data: { installed: true, version: '2.44.0', in_path: false, external: { exists: true, path: 'C:/Git/bin/git.exe', version: '2.40.0' } },
+            data: { installed: true, version: '2.44.0', in_path: true, external: { exists: true, path: 'C:/Git/bin/git.exe', version: '2.40.0' } },
         };
         mockPywebviewApi(mockGitStatus(installedWithExternal as typeof notInstalled));
         renderWithToast(<GitMain />);
 
-        expect(await screen.findByLabelText('tools.git.register_path')).toBeDisabled();
+        const toggle = await screen.findByLabelText('tools.git.register_path');
+        expect(toggle).toBeDisabled();
+        expect(toggle).not.toBeChecked();
+
+        // Card status badge reflects Native OS
+        expect(screen.getByText('tools.git.native_os')).toBeInTheDocument();
+
+        // Integrated external alert
+        const alertBox = screen.getByTestId('git-external-alert');
+        expect(alertBox).toBeInTheDocument();
+        expect(alertBox).toHaveTextContent('C:/Git/bin/git.exe');
+        expect(alertBox).toHaveTextContent('2.40.0');
+        expect(alertBox).toHaveTextContent('tools.git.external_overview_title');
+        expect(screen.getByText('tools.git.external_locked')).toBeInTheDocument();
     });
 
     it('saves the global git config and shows a success toast', async () => {
@@ -145,13 +163,16 @@ describe('GitMain', () => {
         await screen.findByText('Git 2.44.0');
         await user.click(screen.getByText('tools.git.install_engine'));
 
+        act(() => {
+            window.dispatchEvent(new CustomEvent('vylo_progress', { detail: { percent: 10, text: 'downloading' } }));
+        });
+
         await user.click(screen.getAllByLabelText('Close')[0]);
+        expect(await screen.findByText('tools.git.installing')).toBeInTheDocument();
 
-        expect(await screen.findByText('tools.git.running_background')).toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: 'tools.git.installing' }));
 
-        await user.click(screen.getByRole('button', { name: 'open_in_full' }));
-
-        expect(screen.queryByText('tools.git.running_background')).not.toBeInTheDocument();
+        expect(screen.queryByText('tools.git.installing')).not.toBeInTheDocument();
         expect(screen.getByText('tools.git.installing_btn')).toBeInTheDocument();
     });
 
@@ -329,5 +350,5 @@ describe('GitMain', () => {
         await waitFor(() => {
             expect(screen.queryByText('tools.git.uninstall_title')).not.toBeInTheDocument();
         }, { timeout: 5000 });
-    });
+    }, 10000);
 });

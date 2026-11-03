@@ -1,4 +1,6 @@
 import os
+import json
+import time
 import pytest
 from unittest.mock import MagicMock, patch, mock_open
 from core.services.database import DatabaseManager
@@ -9,9 +11,13 @@ def mock_api():
     return api
 
 @pytest.fixture
-def db_mgr(mock_api):
-    with patch('os.makedirs'):
-        return DatabaseManager(mock_api)
+def db_mgr(mock_api, tmp_path):
+    with patch('core.services.database.get_project_root', return_value=str(tmp_path)):
+        with patch('os.makedirs'):
+            mgr = DatabaseManager(mock_api)
+            mgr._cache_dir = str(tmp_path / "cache")
+            mgr._mariadb_cache_file = str(tmp_path / "cache" / "mariadb_versions.json")
+            return mgr
 
 def test_init(db_mgr):
     assert db_mgr is not None
@@ -228,6 +234,65 @@ def test_db_fetch_mariadb_versions_network_error_returns_real_message(db_mgr):
         assert res['message'] == 'backend.error.unexpected'
         assert res['args']['e'] == 'connection refused'
 
+def test_db_fetch_mariadb_versions_cache_hit(db_mgr):
+    with patch('core.services.database.urllib.request.urlopen') as mock_urlopen:
+        mock_resp = MagicMock()
+        mock_resp.read.return_value.decode.return_value = '<a href="mariadb-10.6.0/">10.6.0/</a>'
+        mock_urlopen.return_value = mock_resp
+        with patch.object(db_mgr, '_resolve_mariadb_url', return_value="some_url"):
+            res1 = db_mgr._fetch_mariadb_versions()
+            assert len(res1['data']) == 1
+
+    # Second call should not call urlopen at all because of in-memory cache
+    with patch('core.services.database.urllib.request.urlopen', side_effect=AssertionError("Should not touch network")):
+        res2 = db_mgr._fetch_mariadb_versions()
+        assert res2['status'] == 'success'
+        assert res2['data'] == res1['data']
+
+def test_db_fetch_mariadb_versions_disk_cache(db_mgr, tmp_path):
+    cache_file = str(tmp_path / "mariadb.json")
+    db_mgr._mariadb_cache_file = cache_file
+    db_mgr._mariadb_cache = None
+    db_mgr._mariadb_cache_time = 0.0
+
+    mock_data = [{"version": "11.4.0", "url": "http://pkg.zip", "name": "MariaDB 11.4.0"}]
+    with open(cache_file, "w") as f:
+        json.dump({"timestamp": time.time(), "data": mock_data}, f)
+
+    with patch('core.services.database.urllib.request.urlopen', side_effect=AssertionError("Should not touch network")):
+        res = db_mgr._fetch_mariadb_versions()
+        assert res['status'] == 'success'
+        assert res['data'] == mock_data
+
+def test_db_fetch_mariadb_versions_offline_stale_cache_fallback(db_mgr, tmp_path):
+    cache_file = str(tmp_path / "mariadb.json")
+    db_mgr._mariadb_cache_file = cache_file
+    db_mgr._mariadb_cache = None
+    db_mgr._mariadb_cache_time = 0.0
+
+    stale_data = [{"version": "10.11.5", "url": "http://stale.zip", "name": "MariaDB 10.11.5"}]
+    with open(cache_file, "w") as f:
+        json.dump({"timestamp": time.time() - 100000, "data": stale_data}, f)
+
+    with patch('core.services.database.urllib.request.urlopen', side_effect=OSError("Offline")):
+        res = db_mgr._fetch_mariadb_versions()
+        assert res['status'] == 'success'
+        assert res['data'] == stale_data
+
+def test_resolve_mariadb_url_memoization(db_mgr):
+    with patch('core.services.database.urllib.request.urlopen') as mock_urlopen:
+        mock_resp = MagicMock()
+        mock_resp.read.return_value.decode.return_value = '<a href="mariadb-10.6.5-winx64.zip">pkg</a>'
+        mock_urlopen.return_value = mock_resp
+        with patch('sys.platform', 'win32'):
+            url1 = db_mgr._resolve_mariadb_url("10.6.5")
+            assert "mariadb-10.6.5-winx64.zip" in url1
+
+        # Second call returns from memoized cache without urlopen
+        with patch('core.services.database.urllib.request.urlopen', side_effect=AssertionError("Should not touch network")):
+            url2 = db_mgr._resolve_mariadb_url("10.6.5")
+            assert url2 == url1
+
 def test_db_uninstall_database(db_mgr):
     with patch('core.services.database.read_json', return_value=[{"id": "db_1", "port": 3306, "installDir": "C:\\db", "dataDir": "C:\\data", "name": "MySQL"}]):
         with patch('core.services.database.check_port_in_use', return_value=True):
@@ -403,6 +468,59 @@ def test_db_get_installed_handles_exception(db_mgr):
         res = db_mgr.get_installed()
     assert res == {"status": "error", "message": "backend.error.unexpected", "args": {"e": "json corrupt"}}
 
+def test_db_get_installed_falls_back_to_default_port_when_missing(db_mgr):
+    """
+    Regresi: entri lama/korup tanpa field 'port' (mis. dari instalasi yang gagal
+    sebagian, atau sisa duplikat sebelum fix dedupe di _register_database)
+    sebelumnya membuat check_port_in_use(None) melempar TypeError di dalam
+    enrich_status() -- karena enrich_status dijalankan lewat
+    ThreadPoolExecutor.map() dan exception-nya ditangkap oleh try/except di
+    level get_installed(), SATU entri rusak membuat SELURUH daftar gagal
+    dimuat (status 'error'), bukan cuma entri itu saja -- termasuk database
+    LAIN yang baru saja selesai diinstal dengan benar, sehingga tidak pernah
+    muncul di UI meski instalasinya sendiri sukses. Lihat docs/known_bugs.md.
+    """
+    with patch('core.services.database.read_json', return_value=[
+        {"id": "legacy_mysql", "engine": "mysql", "name": "MySQL legacy", "version": "5.7", "installDir": "C:/db", "dataDir": "C:/data"},
+        {"id": "legacy_pg", "engine": "postgres", "name": "Postgres legacy", "version": "14", "installDir": "C:/db2", "dataDir": "C:/data2", "port": None},
+    ]):
+        with patch('core.services.database.check_port_in_use', return_value=False) as mock_check:
+            res = db_mgr.get_installed()
+
+    assert res['status'] == 'success'
+    assert len(res['data']) == 2
+    mock_check.assert_any_call(3306)  # default MySQL saat 'port' tidak ada sama sekali
+    mock_check.assert_any_call(5432)  # default PostgreSQL saat 'port' eksplisit None
+
+def test_db_get_installed_handles_sparse_legacy_entry_with_missing_name_and_version(db_mgr):
+    """
+    Regresi: Entri databases.json yang hanya punya id dan engine (tanpa name, version, dataDir)
+    harus diisi default yang aman oleh _enrich_db_status agar UI tidak crash karena
+    undefined properties (mis. replaceAll pada name atau split pada version).
+    """
+    with patch('core.services.database.read_json', return_value=[
+        {"id": "db_sparse", "engine": "postgres", "port": 5432, "rootPassword": "new"},
+        {"id": "db_redis_sparse", "engine": "redis"},
+    ]):
+        with patch('core.services.database.check_port_in_use', return_value=False):
+            res = db_mgr.get_installed()
+
+    assert res['status'] == 'success'
+    assert len(res['data']) == 2
+    
+    pg_item = res['data'][0]
+    assert pg_item['name'] == 'PostgreSQL'
+    assert pg_item['version'] == ''
+    assert pg_item['dataDir'].endswith('db_sparse')
+    assert pg_item['port'] == 5432
+    assert pg_item['status'] == 'stopped'
+
+    redis_item = res['data'][1]
+    assert redis_item['name'] == 'Redis'
+    assert redis_item['version'] == ''
+    assert redis_item['port'] == 6379
+    assert redis_item['status'] == 'stopped'
+
 # ==========================================
 # _wait_for_startup — deteksi crash proses
 # ==========================================
@@ -489,7 +607,7 @@ def test_db_get_available_versions_handles_unexpected_exception(db_mgr):
     assert res['args']['e'] == 'boom'
 
 def test_db_get_available_versions_unsupported_engine(db_mgr):
-    res = db_mgr.get_available_versions("redis")
+    res = db_mgr.get_available_versions("oracle")
     assert res['status'] == 'error'
     assert res['message'] == 'backend.database.engine_unsupported'
 
@@ -561,19 +679,29 @@ def test_fetch_postgres_versions_uses_linux_os_target(db_mgr):
 # ==========================================
 
 @patch('core.services.database.os.makedirs')
+@patch('core.services.database.os.path.exists', return_value=True)
 @patch('core.services.database.run_silent_command')
-def test_init_database_mysql_success(mock_run, mock_makedirs, db_mgr):
+def test_init_database_mysql_success(mock_run, mock_exists, mock_makedirs, db_mgr):
     mock_run.return_value = MagicMock(returncode=0, stderr="")
     db_mgr._init_database("mysql", "C:\\install", "C:\\data", "rootpass")
     mock_run.assert_called_once()
     assert "mysql_install_db" in mock_run.call_args[0][0][0]
 
 @patch('core.services.database.os.makedirs')
+@patch('core.services.database.os.path.exists', return_value=True)
 @patch('core.services.database.run_silent_command')
-def test_init_database_mysql_raises_on_failure(mock_run, mock_makedirs, db_mgr):
+def test_init_database_mysql_raises_on_failure(mock_run, mock_exists, mock_makedirs, db_mgr):
     mock_run.return_value = MagicMock(returncode=1, stderr="disk full")
     with pytest.raises(RuntimeError, match="MariaDB Init Error"):
         db_mgr._init_database("mysql", "C:\\install", "C:\\data", "rootpass")
+
+@patch('core.services.database.os.makedirs')
+@patch('core.services.database.os.path.exists', return_value=False)
+@patch('core.services.database.run_silent_command')
+def test_init_database_mysql_raises_when_installer_missing(mock_run, mock_exists, mock_makedirs, db_mgr):
+    with pytest.raises(RuntimeError, match="MariaDB Init Error.*tidak ditemukan"):
+        db_mgr._init_database("mysql", "C:\\install", "C:\\data", "rootpass")
+    mock_run.assert_not_called()  # subprocess tidak boleh dipanggil kalau binary-nya sendiri tidak ada
 
 @patch('core.services.database.os.makedirs')
 @patch('core.services.database.os.remove')
@@ -591,13 +719,23 @@ def test_init_database_postgres_writes_and_cleans_up_pwfile(mock_run, mock_exist
     assert "initdb" in mock_run.call_args[0][0][0]
 
 @patch('core.services.database.os.makedirs')
-@patch('core.services.database.os.path.exists', return_value=False)
+@patch('core.services.database.os.path.exists')
 @patch('core.services.database.run_silent_command')
 def test_init_database_postgres_raises_on_failure(mock_run, mock_exists, mock_makedirs, db_mgr):
+    # installer ADA (lolos pre-flight check), tapi pw.txt dianggap tidak ada (skip os.remove)
+    mock_exists.side_effect = lambda p: p.endswith('initdb.exe')
     mock_run.return_value = MagicMock(returncode=1, stderr="init failed")
     with patch('builtins.open', mock_open()):
         with pytest.raises(RuntimeError, match="PostgreSQL Init Error"):
             db_mgr._init_database("postgres", "C:\\install", "C:\\data", "")
+
+@patch('core.services.database.os.makedirs')
+@patch('core.services.database.os.path.exists', return_value=False)
+@patch('core.services.database.run_silent_command')
+def test_init_database_postgres_raises_when_installer_missing(mock_run, mock_exists, mock_makedirs, db_mgr):
+    with pytest.raises(RuntimeError, match="PostgreSQL Init Error.*tidak ditemukan"):
+        db_mgr._init_database("postgres", "C:\\install", "C:\\data", "")
+    mock_run.assert_not_called()  # subprocess tidak boleh dipanggil kalau binary-nya sendiri tidak ada
 
 # ==========================================
 # _register_database
@@ -611,6 +749,33 @@ def test_register_database_appends_entry(mock_read_json, mock_write_json, db_mgr
     assert written[0]["id"] == "mysql_8_0"
     assert written[0]["port"] == 3306
     assert written[0]["name"] == "MariaDB 8.0"
+
+@patch('core.services.database.write_json')
+@patch('core.services.database.read_json')
+def test_register_database_replaces_existing_entry_with_same_id(mock_read_json, mock_write_json, db_mgr):
+    """
+    Regresi: me-register ulang id yang sama (mis. retry instalasi setelah
+    percobaan sebelumnya gagal/terputus di tengah jalan) dulu menghasilkan DUA
+    entri dengan id yang sama di database.json -- entri lama yang kadang tidak
+    lengkap (field 'port' kosong/None) tertinggal berdampingan dengan entri
+    baru yang valid, memicu bug "satu entri rusak = seluruh daftar gagal
+    dimuat" (lihat test_db_get_installed_falls_back_to_default_port_when_missing
+    di atas). Register ulang sekarang WAJIB menggantikan entri lama, bukan
+    menumpuknya.
+    """
+    mock_read_json.return_value = [
+        {"id": "mysql_8_0", "engine": "mysql", "version": "8.0-old", "port": None, "name": "stale"},
+        {"id": "other_db", "engine": "postgres", "version": "14", "port": 5432, "name": "untouched"},
+    ]
+
+    db_mgr._register_database("mysql_8_0", "mysql", "8.0", "3306", "C:\\data", "C:\\install")
+
+    written = mock_write_json.call_args[0][1]
+    matching = [db for db in written if db["id"] == "mysql_8_0"]
+    assert len(matching) == 1
+    assert matching[0]["version"] == "8.0"
+    assert matching[0]["port"] == 3306
+    assert any(db["id"] == "other_db" for db in written)
 
 # ==========================================
 # install_database — guard & rollback saat gagal
@@ -636,6 +801,18 @@ def test_install_database_rolls_back_on_download_failure(mock_download, db_mgr):
     assert res['args']['e'] == 'network down'
     mock_cleanup.assert_called_once()
     db_mgr.api.emit_progress.assert_any_call(-1, "network down")
+
+def test_install_database_cancelled_rolls_back(db_mgr):
+    from core.utils.cancellation import OperationCancelledError
+    with patch.object(db_mgr, '_resolve_mariadb_url', return_value="http://resolved"), \
+         patch('core.services.database.os.path.exists', return_value=False), \
+         patch('core.services.database.download_advanced', side_effect=OperationCancelledError("Cancelled")), \
+         patch.object(db_mgr, '_cleanup_install_failure') as mock_cleanup:
+        res = db_mgr.install_database("mysql", "8.0", "http://x", 3306, "pass")
+
+    assert res['status'] == 'cancelled'
+    assert res['message'] == 'backend.database.install_cancelled'
+    mock_cleanup.assert_called_once()
 
 # ==========================================
 # uninstall_database — error path
@@ -846,18 +1023,21 @@ def test_save_db_config_reports_restart_failure(mock_read_json, mock_write_json,
 # change_db_credentials — cabang postgres & error
 # ==========================================
 
+@patch('core.services.database.write_json')
 @patch('core.services.database.read_json')
 @patch('core.services.database.check_port_in_use', return_value=True)
-def test_change_db_credentials_postgres_dispatch(mock_check_port, mock_read_json, db_mgr):
+def test_change_db_credentials_postgres_dispatch(mock_check_port, mock_read_json, mock_write_json, db_mgr):
     mock_read_json.return_value = [{"id": "db_1", "engine": "postgres", "port": 5432}]
     with patch.object(db_mgr, '_change_postgres_credentials') as mock_change:
         res = db_mgr.change_db_credentials("db_1", "postgres", "old", "new")
     assert res['status'] == 'success'
     mock_change.assert_called_once()
+    mock_write_json.assert_called_once()
 
+@patch('core.services.database.write_json')
 @patch('core.services.database.read_json')
 @patch('core.services.database.check_port_in_use', return_value=True)
-def test_change_db_credentials_parses_runtime_error(mock_check_port, mock_read_json, db_mgr):
+def test_change_db_credentials_parses_runtime_error(mock_check_port, mock_read_json, mock_write_json, db_mgr):
     mock_read_json.return_value = [{"id": "db_1", "engine": "mysql", "port": 3306}]
     with patch.object(db_mgr, '_change_mysql_credentials', side_effect=RuntimeError("backend.database.mysql_fail|Access denied for user")):
         res = db_mgr.change_db_credentials("db_1", "root", "old", "new")
@@ -905,3 +1085,337 @@ def test_check_is_running_cleans_up_dead_processes(db_mgr):
     db_mgr.processes["db_1"] = mock_proc
     assert db_mgr.check_is_running() is False
     assert "db_1" not in db_mgr.processes
+
+@patch('core.services.database.DatabaseManager.stop_database')
+@patch('core.services.database.os.path.exists')
+@patch('core.services.database.os.makedirs')
+@patch('core.utils.file_utils.download_advanced')
+@patch('core.utils.file_utils.extract_archive')
+@patch('core.services.database.os.remove')
+@patch('core.utils.file_utils.write_json')
+@patch('core.services.database.read_json')
+@patch('core.services.database.shutil')
+def test_update_database_success(mock_shutil, mock_read_json, mock_write_json, mock_remove, mock_extract, mock_download, mock_makedirs, mock_exists, mock_stop, db_mgr):
+    import builtins
+    from unittest.mock import MagicMock
+    
+    mock_read_json.return_value = [{"id": "mysql_10", "engine": "mysql", "version": "10.0", "installDir": "/bin/mysql_10", "dataDir": "/data/mysql_10"}]
+    mock_exists.return_value = True
+
+    db_mgr._unwrap_single_subdir = MagicMock()
+    db_mgr._resolve_mariadb_url = MagicMock(return_value="resolved_url")
+    
+    res = db_mgr.update_database("mysql_10", "10.1", "http://url", backup_data=True)
+
+    assert res['status'] == 'success'
+    mock_stop.assert_called_once_with("mysql_10")
+    assert mock_shutil.move.called
+    assert mock_shutil.copytree.called
+    mock_download.assert_called_once()
+    mock_extract.assert_called_once()
+    
+    written_data = mock_write_json.call_args[0][1]
+    assert written_data[0]['version'] == '10.1'
+
+@patch('core.services.database.read_json')
+@patch('core.services.database.os.path.exists')
+@patch('core.services.database.shutil')
+@patch('core.utils.file_utils.download_advanced')
+def test_update_database_rollback_on_failure(mock_download, mock_shutil, mock_exists, mock_read_json, db_mgr):
+    from unittest.mock import MagicMock
+    mock_read_json.return_value = [{"id": "mysql_10", "engine": "mysql", "version": "10.0", "installDir": "/bin/mysql_10", "dataDir": "/data/mysql_10"}]
+    mock_exists.return_value = True
+    
+    db_mgr.stop_database = MagicMock()
+    
+    mock_download.side_effect = Exception("Download failed")
+    
+    res = db_mgr.update_database("mysql_10", "10.1", "http://url", backup_data=False)
+    
+    assert res['status'] == 'error'
+    assert res['message'] == 'backend.database.update_failed_rollback'
+    
+    assert mock_shutil.move.called
+    assert mock_shutil.rmtree.called
+
+def test_update_database_cancelled_rolls_back(db_mgr):
+    from core.utils.cancellation import OperationCancelledError
+    with patch('core.services.database.read_json', return_value=[{"id": "mysql_10", "engine": "mysql", "version": "10.0", "installDir": "/bin/mysql_10", "dataDir": "/data/mysql_10"}]), \
+         patch('core.services.database.os.path.exists', return_value=True), \
+         patch('core.services.database.os.makedirs'), \
+         patch('core.services.database.os.remove'), \
+         patch('core.services.database.shutil') as mock_shutil, \
+         patch.object(db_mgr, 'stop_database'), \
+         patch('core.utils.file_utils.download_advanced', side_effect=OperationCancelledError("Cancelled")):
+        res = db_mgr.update_database("mysql_10", "10.1", "http://url", backup_data=False)
+
+    assert res['status'] == 'cancelled'
+    assert res['message'] == 'backend.database.update_cancelled'
+    assert mock_shutil.move.called
+    assert mock_shutil.rmtree.called
+
+def test_install_database_cancelled(db_mgr):
+    from core.utils.cancellation import OperationCancelledError
+    db_mgr._resolve_mariadb_url = MagicMock(return_value="http://resolved-mariadb.zip")
+    with patch('core.services.database.os.path.exists', side_effect=lambda p: False), \
+         patch('core.services.database.os.listdir', return_value=[]), \
+         patch('core.services.database.shutil') as mock_shutil, \
+         patch('core.services.database.download_advanced', side_effect=OperationCancelledError("Cancelled")):
+        res = db_mgr.install_database("mysql", "10.5", "http://fake-mariadb.tar.gz", 3306, "secret")
+
+    assert res['status'] == 'cancelled'
+    assert res['message'] == 'backend.database.install_cancelled'
+
+
+# ==========================================
+# REDIS ENGINE TESTS
+# ==========================================
+
+@patch('core.services.database.urllib.request.urlopen')
+def test_fetch_redis_versions_success(mock_urlopen, db_mgr):
+    import json
+    fake_json = json.dumps([
+        {
+            "tag_name": "v5.0.14.1",
+            "prerelease": False,
+            "draft": False,
+            "assets": [
+                {"name": "Redis-x64-5.0.14.1.zip", "browser_download_url": "https://example.com/redis-5.0.14.1.zip"}
+            ]
+        },
+        {
+            "tag_name": "v6.0.0-rc1",
+            "prerelease": True,
+            "draft": False,
+            "assets": [{"name": "Redis-x64-6.0.0.zip", "browser_download_url": "https://example.com/redis-6.zip"}]
+        }
+    ])
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = fake_json.encode('utf-8')
+    mock_resp.__enter__.return_value = mock_resp
+    mock_urlopen.return_value = mock_resp
+
+    res = db_mgr.get_available_versions("redis")
+    assert res['status'] == 'success'
+    assert len(res['data']) == 1
+    assert res['data'][0]['version'] == '5.0.14.1'
+    assert res['data'][0]['name'] == 'Redis 5.0.14.1'
+
+@patch('core.services.database.urllib.request.urlopen')
+def test_fetch_redis_versions_network_error(mock_urlopen, db_mgr):
+    mock_urlopen.side_effect = OSError("Connection refused")
+    res = db_mgr.get_available_versions("redis")
+    assert res['status'] == 'error'
+    assert res.get('is_offline') is True
+
+def test_init_redis_creates_default_conf(tmp_path, db_mgr):
+    data_dir = str(tmp_path / "redis_data")
+    db_mgr._init_redis("/install/dir", data_dir)
+    conf_file = os.path.join(data_dir, "redis.conf")
+    assert os.path.exists(conf_file)
+    with open(conf_file, 'r', encoding='utf-8') as f:
+        content = f.read()
+    assert "bind 127.0.0.1" in content
+    assert "port 6379" in content
+
+def test_build_startup_cmd_redis(db_mgr):
+    db_obj = {
+        "engine": "redis",
+        "installDir": "/bin/redis",
+        "dataDir": "/data/redis",
+        "port": 6379
+    }
+    with patch.object(db_mgr, '_resolve_db_cli', return_value="/bin/redis/redis-server.exe"), \
+         patch('core.services.database.os.path.exists', return_value=True):
+        exe, cmd = db_mgr._build_startup_cmd(db_obj)
+        assert "redis-server" in exe
+        assert "--port" in cmd
+        assert "6379" in cmd
+        assert "--dir" in cmd
+
+@patch('core.services.database.run_silent_command')
+def test_graceful_shutdown_redis(mock_run, db_mgr):
+    db_obj = {
+        "engine": "redis",
+        "installDir": "/bin/redis",
+        "dataDir": "/data/redis",
+        "port": 6379
+    }
+    with patch.object(db_mgr, '_resolve_db_cli', return_value="/bin/redis/redis-cli.exe"), \
+         patch('core.services.database.os.path.exists', return_value=True):
+        db_mgr._graceful_shutdown(db_obj)
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert "shutdown" in cmd
+        assert "nosave" in cmd
+
+def test_get_and_save_redis_config(tmp_path, db_mgr):
+    data_dir = str(tmp_path / "redis_cfg")
+    os.makedirs(data_dir, exist_ok=True)
+    conf_file = os.path.join(data_dir, "redis.conf")
+    with open(conf_file, 'w', encoding='utf-8') as f:
+        f.write("bind 127.0.0.1\nmaxmemory 128mb\nmaxmemory-policy noeviction\ndatabases 16\nappendonly no\n")
+
+    db_obj = {"id": "redis_5", "name": "Redis 5", "engine": "redis", "port": 6379, "dataDir": data_dir, "installDir": "/bin/redis"}
+    with patch('core.services.database.read_json', return_value=[db_obj]):
+        cfg_res = db_mgr.get_db_config("redis_5")
+        assert cfg_res['status'] == 'success'
+        assert cfg_res['config']['maxmemory'] == '128mb'
+
+    with patch('core.services.database.read_json', return_value=[db_obj]), \
+         patch('core.services.database.write_json') as mock_write, \
+         patch('core.services.database.check_port_in_use', return_value=False):
+        save_res = db_mgr.save_db_config("redis_5", {
+            "port": 6380,
+            "bind": "0.0.0.0",
+            "maxmemory": "512mb",
+            "maxmemory_policy": "allkeys-lru",
+            "databases": "32",
+            "appendonly": "yes"
+        })
+        assert save_res['status'] == 'success'
+        with open(conf_file, 'r', encoding='utf-8') as f:
+            updated_content = f.read()
+        assert "maxmemory 512mb" in updated_content
+        assert "bind 0.0.0.0" in updated_content
+        assert "maxmemory-policy allkeys-lru" in updated_content
+
+# ==========================================
+# SCHEMA MANAGEMENT TESTS
+# ==========================================
+
+def test_list_schemas_redis_rejected(db_mgr):
+    db_obj = {"id": "redis_1", "engine": "redis", "port": 6379}
+    with patch('core.services.database.read_json', return_value=[db_obj]):
+        res = db_mgr.list_schemas("redis_1")
+        assert res['status'] == 'error'
+        assert res['message'] == 'backend.database.redis_not_supported_for_schemas'
+
+def test_list_schemas_must_be_running(db_mgr):
+    db_obj = {"id": "mysql_1", "engine": "mysql", "port": 3306}
+    with patch('core.services.database.read_json', return_value=[db_obj]), \
+         patch('core.services.database.check_port_in_use', return_value=False):
+        res = db_mgr.list_schemas("mysql_1")
+        assert res['status'] == 'error'
+        assert res['message'] == 'backend.database.must_be_running'
+
+def test_list_schemas_mysql_success(db_mgr):
+    db_obj = {"id": "mysql_1", "engine": "mysql", "port": 3306, "installDir": "/bin/mysql"}
+    mock_cmd_res = MagicMock(returncode=0, stdout="information_schema\nmysql\nmy_app_db\nperformance_schema\n")
+    with patch('core.services.database.read_json', return_value=[db_obj]), \
+         patch('core.services.database.check_port_in_use', return_value=True), \
+         patch.object(db_mgr, '_resolve_db_cli', return_value="/bin/mysql/mysql.exe"), \
+         patch('core.services.database.run_silent_command', return_value=mock_cmd_res):
+        res = db_mgr.list_schemas("mysql_1")
+        assert res['status'] == 'success'
+        names = [s['name'] for s in res['data']]
+        assert 'my_app_db' in names
+        assert 'mysql' in names
+        my_app = next(s for s in res['data'] if s['name'] == 'my_app_db')
+        mysql_sys = next(s for s in res['data'] if s['name'] == 'mysql')
+        assert my_app['is_system'] is False
+        assert mysql_sys['is_system'] is True
+
+def test_list_schemas_postgres_success(db_mgr):
+    db_obj = {"id": "pg_1", "engine": "postgres", "port": 5432, "installDir": "/bin/pg"}
+    mock_cmd_res = MagicMock(returncode=0, stdout="postgres\ncustom_project\n")
+    with patch('core.services.database.read_json', return_value=[db_obj]), \
+         patch('core.services.database.check_port_in_use', return_value=True), \
+         patch.object(db_mgr, '_resolve_db_cli', return_value="/bin/pg/psql.exe"), \
+         patch('core.services.database.run_silent_command', return_value=mock_cmd_res):
+        res = db_mgr.list_schemas("pg_1")
+        assert res['status'] == 'success'
+        custom = next(s for s in res['data'] if s['name'] == 'custom_project')
+        pg_sys = next(s for s in res['data'] if s['name'] == 'postgres')
+        assert custom['is_system'] is False
+        assert pg_sys['is_system'] is True
+
+def test_create_schema_invalid_name(db_mgr):
+    db_obj = {"id": "mysql_1", "engine": "mysql", "port": 3306}
+    with patch('core.services.database.read_json', return_value=[db_obj]):
+        res = db_mgr.create_schema("mysql_1", "invalid-name!with-dashes")
+        assert res['status'] == 'error'
+        assert res['message'] == 'backend.database.schema_name_invalid'
+
+def test_create_schema_system_protected_conflict(db_mgr):
+    db_obj = {"id": "mysql_1", "engine": "mysql", "port": 3306}
+    with patch('core.services.database.read_json', return_value=[db_obj]):
+        res = db_mgr.create_schema("mysql_1", "information_schema")
+        assert res['status'] == 'error'
+        assert res['message'] == 'backend.database.schema_already_exists'
+
+def test_create_schema_mysql_success(db_mgr):
+    db_obj = {"id": "mysql_1", "engine": "mysql", "port": 3306, "installDir": "/bin/mysql"}
+    mock_cmd_res = MagicMock(returncode=0)
+    with patch('core.services.database.read_json', return_value=[db_obj]), \
+         patch('core.services.database.check_port_in_use', return_value=True), \
+         patch.object(db_mgr, '_resolve_db_cli', return_value="/bin/mysql/mysql.exe"), \
+         patch('core.services.database.run_silent_command', return_value=mock_cmd_res):
+        res = db_mgr.create_schema("mysql_1", "test_new_db")
+        assert res['status'] == 'success'
+        assert res['message'] == 'backend.database.schema_created_success'
+
+def test_create_schema_already_exists_error(db_mgr):
+    db_obj = {"id": "mysql_1", "engine": "mysql", "port": 3306, "installDir": "/bin/mysql"}
+    mock_cmd_res = MagicMock(returncode=1, stderr="ERROR 1007 (HY000): Can't create database 'test_db'; database exists")
+    with patch('core.services.database.read_json', return_value=[db_obj]), \
+         patch('core.services.database.check_port_in_use', return_value=True), \
+         patch.object(db_mgr, '_resolve_db_cli', return_value="/bin/mysql/mysql.exe"), \
+         patch('core.services.database.run_silent_command', return_value=mock_cmd_res):
+        res = db_mgr.create_schema("mysql_1", "test_db")
+        assert res['status'] == 'error'
+        assert res['message'] == 'backend.database.schema_already_exists'
+
+def test_drop_schema_system_protection(db_mgr):
+    db_obj = {"id": "mysql_1", "engine": "mysql", "port": 3306}
+    with patch('core.services.database.read_json', return_value=[db_obj]):
+        res = db_mgr.drop_schema("mysql_1", "mysql")
+        assert res['status'] == 'error'
+        assert res['message'] == 'backend.database.schema_system_protected'
+
+def test_drop_schema_mysql_success(db_mgr):
+    db_obj = {"id": "mysql_1", "engine": "mysql", "port": 3306, "installDir": "/bin/mysql"}
+    mock_cmd_res = MagicMock(returncode=0)
+    with patch('core.services.database.read_json', return_value=[db_obj]), \
+         patch('core.services.database.check_port_in_use', return_value=True), \
+         patch.object(db_mgr, '_resolve_db_cli', return_value="/bin/mysql/mysql.exe"), \
+         patch('core.services.database.run_silent_command', return_value=mock_cmd_res):
+        res = db_mgr.drop_schema("mysql_1", "old_scratch_db")
+        assert res['status'] == 'success'
+        assert res['message'] == 'backend.database.schema_dropped_success'
+
+def test_export_schema_mysql_success(tmp_path, db_mgr):
+    db_obj = {"id": "mysql_1", "engine": "mysql", "port": 3306, "installDir": "/bin/mysql"}
+    target_sql = str(tmp_path / "dump.sql")
+    mock_proc_res = MagicMock(returncode=0)
+    with patch('core.services.database.read_json', return_value=[db_obj]), \
+         patch('core.services.database.check_port_in_use', return_value=True), \
+         patch.object(db_mgr, '_resolve_db_cli', return_value="/bin/mysql/mysqldump.exe"), \
+         patch('core.services.database.subprocess.run', return_value=mock_proc_res):
+        res = db_mgr.export_schema("mysql_1", "my_app", target_path=target_sql)
+        assert res['status'] == 'success'
+        assert res['message'] == 'backend.database.schema_export_success'
+
+def test_import_schema_invalid_file(db_mgr):
+    db_obj = {"id": "mysql_1", "engine": "mysql", "port": 3306}
+    with patch('core.services.database.read_json', return_value=[db_obj]), \
+         patch('core.services.database.check_port_in_use', return_value=True):
+        res = db_mgr.import_schema("mysql_1", "my_app", "/nonexistent/file.sql")
+        assert res['status'] == 'error'
+        assert res['message'] == 'backend.database.schema_sql_file_invalid'
+
+def test_import_schema_mysql_success(tmp_path, db_mgr):
+    db_obj = {"id": "mysql_1", "engine": "mysql", "port": 3306, "installDir": "/bin/mysql"}
+    source_sql = str(tmp_path / "restore.sql")
+    with open(source_sql, 'w') as f:
+        f.write("CREATE TABLE users (id int);")
+
+    mock_proc_res = MagicMock(returncode=0)
+    with patch('core.services.database.read_json', return_value=[db_obj]), \
+         patch('core.services.database.check_port_in_use', return_value=True), \
+         patch.object(db_mgr, '_resolve_db_cli', return_value="/bin/mysql/mysql.exe"), \
+         patch.object(db_mgr, 'create_schema', return_value={"status": "success"}), \
+         patch('core.services.database.subprocess.run', return_value=mock_proc_res):
+        res = db_mgr.import_schema("mysql_1", "my_app", source_sql)
+        assert res['status'] == 'success'
+        assert res['message'] == 'backend.database.schema_import_success'

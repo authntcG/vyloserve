@@ -16,6 +16,7 @@ interface SidebarProps {
     readonly onToggleDesktop: () => void;
     readonly activeMenu: string;
     readonly onSelectMenu: (id: string) => void;
+    readonly enableAi?: boolean;
 }
 
 interface NavItemConfig {
@@ -29,7 +30,8 @@ interface ServiceConfig extends NavItemConfig {
 }
 
 const MAIN_MENU: NavItemConfig[] = [
-    { id: 'dashboard', name: 'Dashboard', icon: 'space_dashboard' }
+    { id: 'dashboard', name: 'Dashboard', icon: 'space_dashboard' },
+    { id: 'projects', name: 'Projects', icon: 'folder_open' }
 ];
 
 // Services = punya status running/stopped + toggle switch nyata di backend
@@ -50,8 +52,10 @@ const SERVICES: ServiceConfig[] = [
 // Git lebih jarang (cuma "handler" status, tidak bisa menjalankan perintah git
 // dari VyloServe).
 const TOOLS: NavItemConfig[] = [
+    { id: 'ai-assistant', name: 'AI Assistant', icon: 'smart_toy' },
+    { id: 'terminal', name: 'Terminal', icon: 'terminal' },
     { id: 'tunnels', name: 'Tunnels', icon: 'router' },
-    { id: 'runtimes', name: 'Runtimes', icon: 'terminal' },
+    { id: 'runtimes', name: 'Runtimes', icon: 'layers' },
     { id: 'git', name: 'Git', icon: 'merge' },
 ];
 
@@ -61,6 +65,7 @@ const UTILITIES: NavItemConfig[] = [
     { id: 'qr', name: 'QR Generator', icon: 'qr_code_2' },
     { id: 'base64', name: 'Base64 Encoder', icon: 'code_blocks' },
     { id: 'url-encode-decode', name: 'URL Encode/Decode', icon: 'link' },
+    { id: 'docs-reader', name: 'Markdown Viewer', icon: 'menu_book' },
 ];
 
 interface SidebarHeaderProps {
@@ -72,7 +77,7 @@ interface SidebarHeaderProps {
 function SidebarHeader({ isDesktopCollapsed, onToggleDesktop, onCloseMobile }: SidebarHeaderProps) {
     return (
         <div className={`flex items-center border-b border-slate-200 dark:border-slate-800 h-[72px] ${isDesktopCollapsed ? 'justify-center px-1 py-2' : 'justify-between px-4 py-4'}`}>
-            <div className={`transition-all duration-300 overflow-hidden flex items-center shrink-0 ${isDesktopCollapsed ? 'max-w-0 opacity-0 h-0 ml-0 hidden' : 'max-w-[150px] opacity-100 ml-1'}`}>
+            <div className={`transition-[max-width,opacity] duration-300 overflow-hidden flex items-center shrink-0 ${isDesktopCollapsed ? 'max-w-0 opacity-0 h-0 ml-0 hidden' : 'max-w-[150px] opacity-100 ml-1'}`}>
                 <img src={brandNavLight} alt="VyloServe" className="h-7 w-auto object-contain block dark:hidden" draggable="false" />
                 <img src={brandNavDark} alt="VyloServe" className="h-7 w-auto object-contain hidden dark:block" draggable="false" />
             </div>
@@ -104,11 +109,11 @@ function ServiceNavItem({ service, isSelected, isDesktopCollapsed, isChecked, on
         <div className={`flex items-center justify-between gap-3 rounded-md px-3 py-2.5 transition-colors ${isSelected ? 'bg-slate-100 dark:bg-slate-800 text-primary' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
             <button type="button" onClick={onSelect} className="flex items-center gap-3 min-w-0 flex-1 text-left cursor-pointer">
                 <span className="material-symbols-outlined shrink-0" style={{ fontVariationSettings: isSelected ? "'FILL' 1" : "'FILL' 0" }}>{service.icon}</span>
-                <span className={`font-medium text-sm truncate transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[150px] opacity-100'}`}>{t(`sidebar.menu_${service.id}`, service.name)}</span>
+                <span className={`font-medium text-sm truncate transition-[max-width,opacity] duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[150px] opacity-100'}`}>{t(`sidebar.menu_${service.id}`, service.name)}</span>
             </button>
 
             {service.hasToggle && (
-                <div className={`transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0 overflow-hidden' : 'max-w-[40px] opacity-100'}`}>
+                <div className={`transition-[max-width,opacity] duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0 overflow-hidden' : 'max-w-[40px] opacity-100'}`}>
                     <ToggleSwitch
                         checked={isChecked}
                         onChange={() => {}}
@@ -146,7 +151,7 @@ function PlainNavItem({ item, isSelected, isDesktopCollapsed, onSelect, t }: Pla
             <span className="material-symbols-outlined shrink-0" style={{ fontVariationSettings: isSelected ? "'FILL' 1" : "'FILL' 0" }}>
                 {item.icon}
             </span>
-            <span className={`font-medium text-sm whitespace-nowrap overflow-hidden transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[150px] opacity-100'}`}>
+            <span className={`font-medium text-sm whitespace-nowrap overflow-hidden transition-[max-width,opacity] duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[150px] opacity-100'}`}>
                 {t(`sidebar.menu_${item.id}`, item.name)}
             </span>
         </button>
@@ -183,7 +188,7 @@ function SidebarFooter({ isDesktopCollapsed, systemLoad, systemLoadColorClass, i
                 <>
                     <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
                         <span className={`material-symbols-outlined text-[20px] ${systemLoadColorClass}`}>memory</span>
-                        <span className="text-xs font-medium uppercase tracking-wider transition-all duration-300 overflow-hidden whitespace-nowrap max-w-[150px] opacity-100">
+                        <span className="text-xs font-medium uppercase tracking-wider transition-[max-width,opacity] duration-300 overflow-hidden whitespace-nowrap max-w-[150px] opacity-100">
                             {t('sidebar.system_load')} <span className={systemLoad > 80 ? 'text-red-500 font-bold' : ''}>{systemLoad}%</span>
                         </span>
                     </div>
@@ -229,7 +234,8 @@ export default function Sidebar({
     onCloseMobile,
     onToggleDesktop,
     activeMenu,
-    onSelectMenu
+    onSelectMenu,
+    enableAi = true,
 }: SidebarProps) {
     const { t } = useTranslation();
     const [searchQuery, setSearchQuery] = useState('');
@@ -274,9 +280,14 @@ export default function Sidebar({
         const customEvent = e as CustomEvent;
         if (customEvent.detail?.modal) {
             const m = customEvent.detail.modal;
-            if (m === 'updates' || m === 'about' || m === 'logs' || m === 'general') {
+            if (m === 'ai' || customEvent.detail.tab === 'ai') {
+                window.dispatchEvent(new CustomEvent('vylo_open_ai_settings'));
+            } else if (m === 'updates' || m === 'about' || m === 'logs' || m === 'general') {
                 setActiveSettingsTab(m);
                 setActiveSettingsModal('settings');
+            } else if (customEvent.detail.tab && ['general', 'logs', 'updates', 'about'].includes(customEvent.detail.tab)) {
+                setActiveSettingsTab(customEvent.detail.tab as 'general' | 'logs' | 'updates' | 'about');
+                setActiveSettingsModal(m);
             } else {
                 setActiveSettingsModal(m);
             }
@@ -354,7 +365,8 @@ export default function Sidebar({
 
     const filteredMain = MAIN_MENU.filter(filterQuery);
     const filteredServices = SERVICES.filter(filterQuery);
-    const filteredTools = TOOLS.filter(filterQuery);
+    const availableTools = enableAi ? TOOLS : TOOLS.filter(item => item.id !== 'ai-assistant');
+    const filteredTools = availableTools.filter(filterQuery);
     const filteredUtilities = UTILITIES.filter(filterQuery);
 
     return (
@@ -368,12 +380,12 @@ export default function Sidebar({
                 />
             )}
 
-            <nav className={`bg-surface dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col h-[calc(100vh-64px)] md:h-screen fixed left-0 top-[64px] md:top-0 z-50 transition-all duration-300 ease-in-out md:translate-x-0 ${sidebarWidthClass} ${mobileTranslateClass}`}>
+            <nav className={`bg-surface dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col h-[calc(100vh-64px)] md:h-screen fixed left-0 top-[64px] md:top-0 z-50 transition-[width,transform] duration-300 ease-in-out md:translate-x-0 ${sidebarWidthClass} ${mobileTranslateClass}`}>
 
                 <SidebarHeader isDesktopCollapsed={isDesktopCollapsed} onToggleDesktop={onToggleDesktop} onCloseMobile={onCloseMobile} />
 
                 {/* Search Bar */}
-                <div className={`transition-all duration-300 overflow-hidden ${isDesktopCollapsed ? 'max-h-0 opacity-0' : 'max-h-[80px] opacity-100'}`}>
+                <div className={`transition-[max-height,opacity] duration-300 overflow-hidden ${isDesktopCollapsed ? 'max-h-0 opacity-0' : 'max-h-[80px] opacity-100'}`}>
                     <div className="px-4 py-4">
                         <div className="relative group">
                             <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors text-[20px]">search</span>
@@ -382,7 +394,7 @@ export default function Sidebar({
                                 placeholder={t('sidebar.search')}
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-primary focus:ring-1 focus:ring-primary text-slate-900 dark:text-slate-100 rounded-md py-2 pl-10 pr-3 text-sm transition-all outline-none"
+                                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-primary focus:ring-1 focus:ring-primary text-slate-900 dark:text-slate-100 rounded-md py-2 pl-10 pr-3 text-sm transition-colors outline-none"
                             />
                         </div>
                     </div>
@@ -400,13 +412,13 @@ export default function Sidebar({
                             className={`w-full text-left flex items-center gap-3 rounded-md px-3 py-2.5 cursor-pointer transition-colors ${activeMenu === menu.id ? 'bg-slate-100 dark:bg-slate-800 text-primary' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
                         >
                             <span className="material-symbols-outlined shrink-0" style={{ fontVariationSettings: activeMenu === menu.id ? "'FILL' 1" : "'FILL' 0" }}>{menu.icon}</span>
-                            <span className={`font-medium text-sm whitespace-nowrap overflow-hidden transition-all duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[150px] opacity-100'}`}>{t(`sidebar.menu_${menu.id}`, menu.name)}</span>
+                            <span className={`font-medium text-sm whitespace-nowrap overflow-hidden transition-[max-width,opacity] duration-300 ${isDesktopCollapsed ? 'max-w-0 opacity-0' : 'max-w-[150px] opacity-100'}`}>{t(`sidebar.menu_${menu.id}`, menu.name)}</span>
                         </button>
                     ))}
 
                     {/* Services */}
                     {filteredServices.length > 0 && (
-                        <div className={`px-3 pb-1 text-xs font-semibold text-slate-400 uppercase tracking-wider transition-all ${isDesktopCollapsed ? 'hidden' : 'pt-4 border-t border-slate-200 dark:border-slate-800 mt-2'}`}>
+                        <div className={`px-3 pb-1 text-xs font-semibold text-slate-400 uppercase tracking-wider transition-opacity ${isDesktopCollapsed ? 'hidden' : 'pt-4 border-t border-slate-200 dark:border-slate-800 mt-2'}`}>
                             {t('sidebar.services')}
                         </div>
                     )}
@@ -425,7 +437,7 @@ export default function Sidebar({
 
                     {/* Tools */}
                     {filteredTools.length > 0 && (
-                        <div className={`px-3 pb-1 text-xs font-semibold text-slate-400 uppercase tracking-wider transition-all ${isDesktopCollapsed ? 'hidden' : 'pt-4 border-t border-slate-200 dark:border-slate-800 mt-2'}`}>
+                        <div className={`px-3 pb-1 text-xs font-semibold text-slate-400 uppercase tracking-wider transition-opacity ${isDesktopCollapsed ? 'hidden' : 'pt-4 border-t border-slate-200 dark:border-slate-800 mt-2'}`}>
                             {t('sidebar.tools')}
                         </div>
                     )}
@@ -442,7 +454,7 @@ export default function Sidebar({
 
                     {/* Utilities */}
                     {filteredUtilities.length > 0 && (
-                        <div className={`px-3 pb-1 text-xs font-semibold text-slate-400 uppercase tracking-wider transition-all ${isDesktopCollapsed ? 'hidden' : 'pt-4 border-t border-slate-200 dark:border-slate-800 mt-2'}`}>
+                        <div className={`px-3 pb-1 text-xs font-semibold text-slate-400 uppercase tracking-wider transition-opacity ${isDesktopCollapsed ? 'hidden' : 'pt-4 border-t border-slate-200 dark:border-slate-800 mt-2'}`}>
                             {t('sidebar.utilities')}
                         </div>
                     )}

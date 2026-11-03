@@ -1,3 +1,4 @@
+import os
 import pytest
 from unittest.mock import patch, MagicMock
 from core.services.apache import ApacheManager
@@ -42,19 +43,21 @@ def test_php_start_server(mock_start_silent, php_manager):
     mock_start_silent.return_value = mock_proc
     
     # Mock get config
-    with patch.object(php_manager, 'get_config', return_value={"status": "success", "config": {"port": 9005}}):
-        with patch('os.path.exists', return_value=True):
-            # Also patch the ini verifier so it doesn't fail
-            with patch.object(php_manager, '_verify_and_patch_ini'):
-                with patch.object(php_manager, '_get_port_from_ini', return_value=9005):
-                    res = php_manager.start_php("php_8_2")
-                    
-                    assert res['status'] == 'success'
-                    assert 'php_8_2' in php_manager.processes
-                    mock_start_silent.assert_called_once()
-                    
-                    # Test stop server
-                    with patch('core.services.php.run_silent_command') as mock_run:
-                        stop_res = php_manager.stop_php("php_8_2")
-                        assert stop_res['status'] == 'success'
-                        mock_run.assert_called_once()
+    with patch.object(php_manager, 'get_config', return_value={"status": "success", "config": {"port": 9005}}), \
+         patch.object(php_manager, 'toggle_global_path') as mock_toggle, \
+         patch('os.path.exists', return_value=True), \
+         patch.object(php_manager, '_verify_and_patch_ini'), \
+         patch.object(php_manager, '_get_port_from_ini', return_value=9005):
+        res = php_manager.start_php("php_8_2")
+        
+        assert res['status'] == 'success'
+        assert 'php_8_2' in php_manager.processes
+        mock_start_silent.assert_called_once()
+        mock_toggle.assert_called_once_with(os.path.join(php_manager.base_dir, "php_8_2"), enable=True)
+        
+        # Test stop server
+        with patch('core.services.php.run_silent_command') as mock_run:
+            stop_res = php_manager.stop_php("php_8_2")
+            assert stop_res['status'] == 'success'
+            mock_run.assert_called_once()
+            assert mock_toggle.call_count == 2

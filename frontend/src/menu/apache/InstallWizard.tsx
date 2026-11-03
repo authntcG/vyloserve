@@ -1,10 +1,12 @@
 // src/menu/apache/InstallWizard.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import ProgressBar from '../../components/ProgressBar';
+import ProgressStatusBlock from '../../components/ProgressStatusBlock';
 import OsCompatibilityCard from '../../components/OsCompatibilityCard';
 import Select from '../../components/Select';
 import FieldLabel from '../../components/FieldLabel';
+import OfflineBanner from '../../components/OfflineBanner';
+import { useNetworkStatus } from '../../context/NetworkContext';
 
 export interface ApacheVersionData {
     version: string;
@@ -25,6 +27,9 @@ interface ApacheInstallWizardProps {
     readonly isFetchingVersions: boolean;
     readonly progress: number;
     readonly progressText: string;
+    readonly onRetryFetch?: () => void;
+    readonly isCancelling?: boolean;
+    readonly onCancelInstall?: () => void;
 }
 
 export default function ApacheInstallWizard({
@@ -39,10 +44,14 @@ export default function ApacheInstallWizard({
     isInstalling,
     isFetchingVersions,
     progress,
-    progressText
+    progressText,
+    onRetryFetch,
+    isCancelling = false,
+    onCancelInstall,
 }: ApacheInstallWizardProps) {
 
     const { t } = useTranslation();
+    const { isOnline } = useNetworkStatus();
     const [osInfo, setOsInfo] = useState({ name: 'Windows', arch: 'x64', icon: 'window' });
     const bottomRef = useRef<HTMLDivElement>(null); // Ref untuk auto-scroll
 
@@ -76,8 +85,16 @@ export default function ApacheInstallWizard({
         }
     };
 
+    const isOfflineOrUnavailable = !isOnline;
+
     return (
         <div className="flex flex-col gap-6 relative">
+            {isOfflineOrUnavailable && (
+                <OfflineBanner
+                    onRetry={onRetryFetch}
+                    forceShow={isOfflineOrUnavailable}
+                />
+            )}
 
             {/* --- INFO SISTEM & PEMILIHAN VERSI --- */}
             <div className="flex flex-col gap-4">
@@ -90,10 +107,10 @@ export default function ApacheInstallWizard({
                 />
 
                 <div className="flex flex-col gap-2">
-                    <label className="text-sm font-medium text-slate-900 dark:text-white flex items-center gap-2">
+                    <span className="text-sm font-medium text-slate-900 dark:text-white flex items-center gap-2">
                         <span className="material-symbols-outlined text-[18px] text-primary">dns</span>
                         {t('apache.target_apache_version')}
-                    </label>
+                    </span>
 
                     <Select
                         searchable={false}
@@ -103,7 +120,7 @@ export default function ApacheInstallWizard({
                         }))}
                         value={version || null}
                         onChange={handleVersionChange}
-                        placeholder={t('apache.server_up_to_date')}
+                        placeholder={isOfflineOrUnavailable ? t('common.offline_versions_unavailable') : t('apache.server_up_to_date')}
                         disabled={isInstalling || versions.length === 0}
                         loading={isFetchingVersions}
                         loadingText={t('apache.retrieving_releases')}
@@ -121,10 +138,10 @@ export default function ApacheInstallWizard({
 
             {/* --- PENGATURAN PORT ESENSIAL --- */}
             <div className="flex flex-col gap-3">
-                <label className="text-sm font-medium text-slate-900 dark:text-white flex items-center gap-2">
+                <span className="text-sm font-medium text-slate-900 dark:text-white flex items-center gap-2">
                     <span className="material-symbols-outlined text-[18px] text-emerald-500">settings_ethernet</span>
                     {t('apache.default_listening_ports')}
-                </label>
+                </span>
 
                 <div className="grid grid-cols-2 gap-4">
                     <div className="flex flex-col gap-2">
@@ -154,13 +171,13 @@ export default function ApacheInstallWizard({
                 {/* --- PROGRESS BAR CONTAINER DENGAN REF --- */}
                 <div ref={bottomRef} className="pt-1 mt-1">
                     {isInstalling && (
-                        <div className="p-3.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg flex flex-col gap-2 animate-in fade-in duration-300 shadow-sm">
-                            <div className="flex justify-between items-center">
-                                <span className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate w-3/4">{progressText || t('apache.starting_process')}</span>
-                                <span className="text-xs font-bold text-primary">{progress}%</span>
-                            </div>
-                            <ProgressBar percent={progress} />
-                        </div>
+                        <ProgressStatusBlock
+                            progressText={progressText || t('apache.starting_process')}
+                            progress={progress}
+                            onCancel={onCancelInstall}
+                            isCancelling={isCancelling}
+                            className="shadow-sm"
+                        />
                     )}
                 </div>
 

@@ -2,6 +2,9 @@ import { describe, it, expect, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { render, screen, waitFor } from '../../../test-utils';
 import { mockPywebviewApi } from '../../../test-utils';
+import { ToastProvider } from '../../../../src/context/ToastContext';
+import { AlertProvider } from '../../../../src/context/AlertContext';
+import { AiProvider } from '../../../../src/context/AiContext';
 import SettingsModals from '../../../../src/menu/tools/settings/SettingsModals';
 
 describe('SettingsModals', () => {
@@ -239,5 +242,271 @@ describe('SettingsModals', () => {
 
         expect(closeApp).not.toHaveBeenCalled();
         expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('navigates between Updates and About tabs', async () => {
+        const user = userEvent.setup();
+        mockPywebviewApi({
+            get_app_settings: vi.fn().mockResolvedValue({ status: 'success', data: {} }),
+            updater_check_for_updates: vi.fn().mockResolvedValue({ status: 'success', data: { has_update: false } }),
+            get_update_status: vi.fn().mockResolvedValue({ result: null, is_downloading: false, percent: 0 }),
+        });
+
+        render(
+            <ToastProvider>
+                <AlertProvider>
+                    <AiProvider>
+                        <SettingsModals activeModal="settings" onClose={vi.fn()} />
+                    </AiProvider>
+                </AlertProvider>
+            </ToastProvider>
+        );
+
+        // Switch to About tab
+        await user.click(screen.getByRole('button', { name: /settings.about/i }));
+        await waitFor(() => {
+            expect(screen.getByText('VyloServe')).toBeInTheDocument();
+            expect(screen.getByText('settings.about_desc')).toBeInTheDocument();
+        });
+
+        // Switch to Updates tab
+        await user.click(screen.getByRole('button', { name: /settings\.updates/i }));
+        await waitFor(() => {
+            expect(screen.getByText('Check for Updates')).toBeInTheDocument();
+        });
+    });
+
+    it('changes application theme when a new theme is selected', async () => {
+        const saveSettings = vi.fn().mockResolvedValue({ status: 'success' });
+        const applyTitlebar = vi.fn().mockResolvedValue({ status: 'success' });
+        mockPywebviewApi({
+            save_app_settings: saveSettings,
+            apply_titlebar_theme: applyTitlebar,
+            get_app_settings: vi.fn().mockResolvedValue({ status: 'success', data: { theme: 'vyloserve-dark' } }),
+        });
+
+        const user = userEvent.setup();
+        render(<SettingsModals activeModal="settings" onClose={vi.fn()} />);
+
+        await waitFor(() => {
+            expect(screen.getByLabelText('settings.theme')).toBeInTheDocument();
+        });
+
+        // Select a different theme via dropdown (also verify search input filters themes)
+        await user.click(screen.getByLabelText('settings.theme'));
+        const searchBox = await screen.findByPlaceholderText(/settings\.theme_search_placeholder|Search theme/i);
+        await user.type(searchBox, 'vyloserve-light');
+        const lightOption = await screen.findByText('settings.theme_vyloserve_light');
+        await user.click(lightOption);
+
+        await waitFor(() => {
+            expect(saveSettings).toHaveBeenCalledWith({ theme: 'vyloserve-light' });
+        });
+    });
+
+    it('toggles log levels and sources with paired fileKey in system logs tab', async () => {
+        const saveSettings = vi.fn().mockResolvedValue({ status: 'success' });
+        mockPywebviewApi({
+            save_app_settings: saveSettings,
+            get_app_settings: vi.fn().mockResolvedValue({
+                status: 'success',
+                data: {
+                    system_log_levels: ['info'],
+                    system_log_sources: ['ApacheManager', 'apache_error'],
+                },
+            }),
+        });
+
+        const user = userEvent.setup();
+        render(<SettingsModals activeModal="settings" onClose={vi.fn()} />);
+
+        await user.click(screen.getByRole('button', { name: /settings.system_logs/i }));
+
+        await waitFor(() => {
+            expect(screen.getByRole('checkbox', { name: /settings.log_source_apache/i })).toBeChecked();
+        });
+
+        // Uncheck paired Apache source (removes both systemKey and fileKey)
+        await user.click(screen.getByRole('checkbox', { name: /settings.log_source_apache/i }));
+
+        await waitFor(() => {
+            expect(saveSettings).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    system_log_sources: expect.not.arrayContaining(['ApacheManager', 'apache_error']),
+                })
+            );
+        });
+
+        // Toggle log level (e.g. error)
+        const errorLevelCheckbox = screen.getByRole('checkbox', { name: /settings.log_level_error/i });
+        await user.click(errorLevelCheckbox);
+
+        await waitFor(() => {
+            expect(saveSettings).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    system_log_levels: expect.arrayContaining(['error']),
+                })
+            );
+        });
+    });
+
+    it('toggles prerelease updates switch and triggers update check', async () => {
+        const user = userEvent.setup();
+        const saveSettings = vi.fn().mockResolvedValue({ status: 'success' });
+        const checkForUpdates = vi.fn().mockResolvedValue({
+            status: 'success',
+            is_update_available: false,
+            message: 'Up to date',
+        });
+
+        mockPywebviewApi({
+            get_app_settings: vi.fn().mockResolvedValue({
+                status: 'success',
+                data: { receive_prerelease_updates: false },
+            }),
+            save_app_settings: saveSettings,
+            check_for_updates: checkForUpdates,
+            get_update_status: vi.fn().mockResolvedValue({ result: null, is_downloading: false, percent: 0 }),
+        });
+
+        render(<SettingsModals activeModal="settings" defaultTab="updates" onClose={vi.fn()} />);
+
+        const prereleaseSwitch = await screen.findByRole('switch');
+        expect(prereleaseSwitch).toHaveAttribute('aria-checked', 'false');
+
+        await user.click(prereleaseSwitch);
+
+        await waitFor(() => {
+            expect(saveSettings).toHaveBeenCalledWith(
+                expect.objectContaining({ receive_prerelease_updates: true })
+            );
+            expect(checkForUpdates).toHaveBeenCalled();
+        });
+    });
+
+    it('handles available update, download trigger, progress events, and install', async () => {
+        const user = userEvent.setup();
+        const startDownload = vi.fn().mockResolvedValue({ status: 'success' });
+        const installUpdate = vi.fn().mockResolvedValue({ status: 'success' });
+
+        mockPywebviewApi({
+            get_app_settings: vi.fn().mockResolvedValue({ status: 'success', data: {} }),
+            check_for_updates: vi.fn().mockResolvedValue({
+                status: 'success',
+                is_update_available: true,
+                version: '1.2.0',
+                changelog: 'Added shiny new features',
+                asset_url: 'https://example.com/v1.2.0.exe',
+                asset_name: 'v1.2.0.exe',
+            }),
+            start_download_update: startDownload,
+            install_update: installUpdate,
+            get_update_status: vi.fn().mockResolvedValue({ result: null, is_downloading: false, percent: 0 }),
+        });
+
+        render(<SettingsModals activeModal="settings" defaultTab="updates" onClose={vi.fn()} />);
+
+        const checkBtn = await screen.findByRole('button', { name: /Check for Updates/i });
+        await user.click(checkBtn);
+
+        await waitFor(() => {
+            expect(screen.getByText(/New Update Available!/i)).toBeInTheDocument();
+            expect(screen.getByText('Added shiny new features')).toBeInTheDocument();
+        });
+
+        const downloadBtn = screen.getByRole('button', { name: /Download & Install/i });
+        await user.click(downloadBtn);
+
+        await waitFor(() => {
+            expect(startDownload).toHaveBeenCalledWith('https://example.com/v1.2.0.exe', 'v1.2.0.exe');
+        });
+
+        // Simulate vylo_progress event
+        window.dispatchEvent(new CustomEvent('vylo_progress', {
+            detail: { percent: 60, text: 'backend.updater.downloading' }
+        }));
+
+        await waitFor(() => {
+            expect(screen.getByText('60%')).toBeInTheDocument();
+        });
+
+        // Simulate vylo_update_ready event
+        window.dispatchEvent(new CustomEvent('vylo_update_ready', { detail: {} }));
+
+        const installBtn = await screen.findByRole('button', { name: /Install & Restart/i });
+        await user.click(installBtn);
+
+        await waitFor(() => {
+            expect(installUpdate).toHaveBeenCalled();
+        });
+    });
+
+    it('renders error state when check for updates returns error', async () => {
+        const user = userEvent.setup();
+        mockPywebviewApi({
+            get_app_settings: vi.fn().mockResolvedValue({ status: 'success', data: {} }),
+            check_for_updates: vi.fn().mockResolvedValue({
+                status: 'error',
+                message: 'Network timeout',
+            }),
+            get_update_status: vi.fn().mockResolvedValue({ result: null, is_downloading: false, percent: 0 }),
+        });
+
+        render(<SettingsModals activeModal="settings" defaultTab="updates" onClose={vi.fn()} />);
+
+        const checkBtn = await screen.findByRole('button', { name: /Check for Updates/i });
+        await user.click(checkBtn);
+
+        await waitFor(() => {
+            expect(screen.getByText('Network timeout')).toBeInTheDocument();
+        });
+    });
+
+    it('applies proper non-clipping modal width and min-w-0 on tab content container', async () => {
+        render(<SettingsModals activeModal="settings" onClose={vi.fn()} />);
+
+        const dialog = screen.getByRole('dialog');
+        const modalBox = dialog.querySelector('.relative.w-full');
+        expect(modalBox).toHaveClass('sm:w-[720px]', 'md:w-[820px]', 'lg:w-[880px]', 'max-w-[calc(100vw-2rem)]');
+
+        // Tab content container must have min-w-0 to prevent horizontal clipping
+        const tabContentContainer = modalBox?.querySelector('.flex-1.min-w-0.overflow-y-auto');
+        expect(tabContentContainer).toBeInTheDocument();
+        expect(tabContentContainer).toHaveClass('min-w-0');
+    });
+
+    it('toggles floating AI assistant setting and broadcasts vylo_ai_settings_changed', async () => {
+        const user = userEvent.setup();
+        const saveMock = vi.fn().mockResolvedValue({ status: 'success' });
+        const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+
+        mockPywebviewApi({
+            get_app_settings: vi.fn().mockResolvedValue({
+                status: 'success',
+                data: {
+                    theme: 'vyloserve-dark',
+                    language: 'en',
+                    enable_desktop_notifications: true,
+                    enable_floating_ai: true,
+                },
+            }),
+            save_app_settings: saveMock,
+        });
+
+        render(<SettingsModals activeModal="settings" defaultTab="general" onClose={vi.fn()} />);
+
+        const floatingToggle = await screen.findByRole('checkbox', { name: /Enable Floating Assistant/i });
+        expect(floatingToggle).toBeChecked();
+
+        await user.click(floatingToggle);
+
+        expect(saveMock).toHaveBeenCalledWith({ enable_floating_ai: false });
+        expect(dispatchSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'vylo_ai_settings_changed',
+                detail: { enable_floating_ai: false },
+            })
+        );
+        dispatchSpy.mockRestore();
     });
 });

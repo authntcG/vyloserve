@@ -1,10 +1,11 @@
 // src/menu/apache/Settings.tsx
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useToast } from '../../components/ToastContext';
+import { useToast } from '../../context/ToastContext';
 import LogFileViewerModal from '../../components/LogFileViewerModal';
 import Select from '../../components/Select';
 import FieldLabel from '../../components/FieldLabel';
+import Skeleton from '../../components/skeleton/Skeleton';
 
 export default function ApacheSettings() {
     const { t } = useTranslation();
@@ -84,11 +85,10 @@ export default function ApacheSettings() {
             {/* Version Selector */}
             <div className="flex flex-col gap-2">
                 {isLoading ? (
-                    <>
+                    <div role="status" aria-busy="true" aria-live="polite" className="flex flex-col gap-2">
                         <FieldLabel>{t('apache.active_version')}</FieldLabel>
-                        {/* Skeleton Loader untuk Dropdown */}
-                        <div className="h-[42px] bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-lg animate-pulse"></div>
-                    </>
+                        <Skeleton className="h-[42px] w-full rounded-lg" />
+                    </div>
                 ) : (
                     <Select
                         searchable={false}
@@ -114,18 +114,18 @@ export default function ApacheSettings() {
 
                 {(() => {
                     if (isLoading) return (
-                    // Skeleton Loader untuk Button Grid
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {[1, 2, 3].map((item) => (
-                            <div key={item} className="flex items-center gap-3 p-3 border border-slate-100 dark:border-slate-800/60 rounded-lg animate-pulse">
-                                <div className="w-6 h-6 bg-slate-200 dark:bg-slate-700/50 rounded-md shrink-0"></div>
-                                <div className="flex flex-col gap-1.5 w-full">
-                                    <div className="h-3.5 bg-slate-200 dark:bg-slate-700/50 rounded w-1/2"></div>
-                                    <div className="h-2.5 bg-slate-100 dark:bg-slate-800/80 rounded w-3/4"></div>
+                        <div role="status" aria-busy="true" aria-live="polite" className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <span className="sr-only">{t('common.loading')}</span>
+                            {[1, 2, 3].map((item) => (
+                                <div key={item} className="flex items-center gap-3 p-3 border border-slate-100 dark:border-slate-800/60 rounded-lg">
+                                    <Skeleton className="w-6 h-6 rounded-md shrink-0" />
+                                    <div className="flex flex-col gap-1.5 w-full">
+                                        <Skeleton className="h-3.5 w-1/2 rounded" />
+                                        <Skeleton className="h-2.5 w-3/4 rounded" />
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
-                    </div>
+                            ))}
+                        </div>
                     );
                     if (installedVersions.length === 0) return (
                     <div className="text-sm text-slate-500 italic p-3 border border-dashed border-slate-300 dark:border-slate-700 rounded-lg text-center bg-slate-50 dark:bg-slate-900/50">

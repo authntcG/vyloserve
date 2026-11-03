@@ -282,6 +282,24 @@ def test_extract_archive_invalid_extension():
     success = extract_archive('test.rar', '/dest')
     assert success is True
 
+@patch('core.utils.file_utils.zipfile.ZipFile')
+def test_extract_archive_cancelled_raises_operation_cancelled(mock_zipfile):
+    """Test extract_archive aborts and raises OperationCancelledError when cancel_check returns True."""
+    from core.utils.cancellation import OperationCancelledError
+    mock_zip_instance = MagicMock()
+    mock_zipfile.return_value.__enter__.return_value = mock_zip_instance
+    mock_zip_instance.infolist.return_value = [MagicMock(filename='file1.txt')]
+
+    with pytest.raises(OperationCancelledError):
+        extract_archive('test.zip', '/dest', cancel_check=lambda: True)
+
+def test_download_advanced_cancelled_raises_operation_cancelled(tmp_path):
+    """Test download_advanced aborts and raises OperationCancelledError when cancel_check returns True."""
+    from core.utils.cancellation import OperationCancelledError
+    dest = str(tmp_path / 'out.zip')
+    with pytest.raises(OperationCancelledError):
+        download_advanced('http://example.com/file.zip', dest, cancel_check=lambda: True)
+
 @patch('core.utils.file_utils.urllib.request.urlopen')
 def test_download_advanced_single_stream(mock_urlopen, tmp_path):
     """Test download_advanced falling back to single stream."""
@@ -302,7 +320,7 @@ def test_download_advanced_single_stream(mock_urlopen, tmp_path):
     with open(dest_path, 'rb') as f:
         assert f.read() == b'data1data2'
         
-    log_mock.assert_any_call("Memeriksa kapabilitas peladen unduhan...", "info")
+    log_mock.assert_any_call("backend.runtimes.checking_capabilities", "info")
     log_mock.assert_any_call("backend.runtimes.download_single_stream", "warn")
 
 @patch('core.utils.file_utils.urllib.request.urlopen')
@@ -367,3 +385,73 @@ def test_download_advanced_head_check_failure_falls_back_to_unknown_size(mock_ur
 
     assert success is True
     progress_mock.assert_any_call(35, "backend.runtimes.downloading_anonymous", {"mb": "1.0"})
+
+
+# ==========================================
+# TESTS FOR GITHUB RELEASES & INI PARSER HELPERS
+# ==========================================
+
+def test_fetch_github_releases_success():
+    from core.utils.file_utils import fetch_github_releases
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = json.dumps([{"tag_name": "v1.0.0", "name": "Release 1.0"}]).encode('utf-8')
+    cm = MagicMock()
+    cm.__enter__.return_value = mock_resp
+
+    with patch('core.utils.file_utils.urllib.request.urlopen', return_value=cm):
+        releases, err = fetch_github_releases("openziti/zrok")
+        assert err is None
+        assert isinstance(releases, list)
+        assert len(releases) == 1
+        assert releases[0]["tag_name"] == "v1.0.0"
+
+
+def test_fetch_github_releases_rate_limit_403():
+    from core.utils.file_utils import fetch_github_releases
+    http_err = urllib.error.HTTPError("https://api.github.com/...", 403, "Rate limit exceeded", {}, None)
+
+    with patch('core.utils.file_utils.urllib.request.urlopen', side_effect=http_err):
+        releases, err = fetch_github_releases("cloudflare/cloudflared")
+        assert releases is None
+        assert isinstance(err, urllib.error.HTTPError)
+        assert err.code == 403
+
+
+def test_fetch_github_releases_network_error():
+    from core.utils.file_utils import fetch_github_releases
+    with patch('core.utils.file_utils.urllib.request.urlopen', side_effect=OSError("Network unreachable")):
+        releases, err = fetch_github_releases("authntcG/vyloserve")
+        assert releases is None
+        assert isinstance(err, OSError)
+
+
+def test_parse_ini_key_values_extracts_mapped_keys(tmp_path):
+    from core.utils.file_utils import parse_ini_key_values
+    conf_file = os.path.join(tmp_path, "my.cnf")
+    with open(conf_file, 'w', encoding='utf-8') as f:
+        f.write(
+            "# MySQL Configuration\n"
+            "bind-address = 127.0.0.1 # local bind\n"
+            "; another comment\n"
+            "max_connections = 150\n"
+            "character-set-server = 'utf8mb4'\n"
+            "unrelated_key = ignored\n"
+        )
+
+    key_map = {
+        'bind-address': 'bind_address',
+        'max_connections': 'max_connections',
+        'character-set-server': 'charset'
+    }
+
+    parsed = parse_ini_key_values(conf_file, key_map)
+    assert parsed["bind_address"] == "127.0.0.1"
+    assert parsed["max_connections"] == "150"
+    assert parsed["charset"] == "utf8mb4"
+    assert "unrelated_key" not in parsed
+
+
+def test_parse_ini_key_values_missing_file():
+    from core.utils.file_utils import parse_ini_key_values
+    assert parse_ini_key_values("non_existent_file.ini", {"key": "val"}) == {}
+

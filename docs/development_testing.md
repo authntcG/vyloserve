@@ -5,12 +5,13 @@ Panduan teknis untuk para kontributor atau Asisten AI yang hendak melanjutkan pe
 ## 1. Lingkungan Pengembangan (*Development Environment*)
 Aplikasi ini berjalan dengan dua server terpisah (Python dan Vite) yang harus dijalankan bersamaan saat fase pengembangan.
 
-**Set Mode Development:**
-Pastikan variabel `IS_PRODUCTION` di dalam `main.py` diatur ke `False`:
+**Mode Lingkungan (Development vs Production):**
+`main.py` mendeteksi mode lingkungan secara otomatis tanpa perlu mengubah source code:
 ```python
 # Di dalam main.py
-IS_PRODUCTION = False 
+IS_PRODUCTION = getattr(sys, "frozen", False)
 ```
+Saat dijalankan dari source code via interpreter Python, `IS_PRODUCTION` otomatis bernilai `False`.
 
 **Menjalankan Script (Run Script):**
 1.  **Frontend (React/Vite):**
@@ -24,7 +25,7 @@ IS_PRODUCTION = False
     ```powershell
     python main.py
     ```
-    *Catatan: Karena `IS_PRODUCTION = False`, PyWebView akan meload `http://localhost:5173` dari Vite, sehingga fitur Hot-Reload (HMR) frontend akan aktif di dalam jendela aplikasi desktop.*
+    *Catatan: Karena `IS_PRODUCTION = False`, PyWebView akan meload `http://localhost:55173` dari Vite, sehingga fitur Hot-Reload (HMR) frontend akan aktif di dalam jendela aplikasi desktop.*
 
 ## 2. Pengujian Unit (Unit Testing dengan Pytest)
 VyloServe terintegrasi sangat dalam dengan sistem operasi Windows (membongkar registry, mengatur system PATH, membuat subprocess OS). Menjalankan unit test **TIDAK BOLEH** sampai merusak instalasi pengguna! 
@@ -34,6 +35,7 @@ VyloServe terintegrasi sangat dalam dengan sistem operasi Windows (membongkar re
 - Tidak ada file dummy sembarangan yang diturunkan ke disk selain di folder `tmp_path` bawaan pytest.
 - Gunakan *Fixture Mock API* (`mock_api` dalam file `tests/conftest.py`) saat menginisiasi Manager agar aplikasi tidak error mencari referensi *Pywebview bridge*.
 - **Setiap fitur atau fungsi publik baru WAJIB disertai unit test.** Tidak ada pengecualian.
+- 🚨 **Isolasi Mutlak File Konfigurasi Fisik & Binaries (Anti-Data Corruption):** Test suite DILARANG KERAS memodifikasi, menimpa, atau menghapus file konfigurasi fisik di `data/*.json` (seperti `runtimes.json`, `git.json`, `settings.json`) maupun direktori `bin/` milik lingkungan pengembangan pengembang. Gunakan `tmp_path` pytest, isolasi `base_dir`, atau mock helper `read_json`/`write_json` secara ketat agar file runtime development pengembang tidak hilang atau terhapus saat test dijalankan (Pelajaran dari bug #92).
 - ⚠️ **Heuristik deteksi mock yang lolos:** kalau satu file/fungsi test tiba-tiba jauh lebih lambat dari biasanya (detik → puluhan detik), curigai ada panggilan jaringan/subprocess/file-system nyata yang lolos dari mock — **jangan** anggap itu cuma "mesin sedang lambat". Ini persis bagaimana ditemukan bahwa `test_php_install_version` diam-diam mengunduh `composer.phar` sungguhan dari internet tiap kali dijalankan (`_install_composer()` tidak di-mock) — durasi suite yang tidak wajar adalah sinyalnya, bukan assertion yang gagal (test itu tetap "lulus").
 
 ### Skenario Test yang Wajib Dicover per Fungsi
@@ -49,12 +51,16 @@ Setiap test suite untuk sebuah fungsi *setidaknya* harus mencakup:
 ### Struktur & Penamaan Test
 ```
 tests/
-├── conftest.py                           # Fixture global (mock_api, dll)
+├── conftest.py                           # Fixture global (mock_api, dll) & autouse guard_registry_and_env
+│                                          #   (intersepsi winreg.SetValueEx/DeleteValue/DeleteKey agar 
+│                                          #   tidak ada test yang mencemari registry fisik pengembang)
 ├── test_i18n_keys.py                     # Regresi: setiap key "backend.*" di core/ WAJIB
 │                                          #   terdaftar di locales/en DAN locales/id (lihat
 │                                          #   docs/known_bugs.md #19) — jalankan sebelum
 │                                          #   serah terima fitur apa pun yang menambah/
 │                                          #   mengubah pesan backend (message/log/progress)
+├── test_main.py                          # Unit test untuk main.py (class AppLifecycle,
+│                                          #   setup_systray, IPC single-instance) — lihat docs/backend_services.md §17.3
 ├── test_services/
 │   ├── test_apache.py                    # Unit test untuk core/services/apache.py
 │   ├── test_api.py                       # Unit test untuk core/api.py (Facade/Router)
@@ -63,18 +69,26 @@ tests/
 │   ├── test_php.py                       # Unit test untuk core/services/php.py
 │   ├── test_php_parser.py                # Unit test parsing php.ini
 │   ├── test_project_logic.py             # Unit test untuk core/services/project.py
+│   ├── test_project_dev_server.py        # Unit test manajemen siklus hidup dev server proyek
+│   ├── test_project_server_flow.py       # Unit test orkestrasi start/stop dev server proyek
 │   ├── test_project_uac.py               # Unit test UAC hosts injection
 │   ├── test_git_manager.py               # Unit test untuk core/services/git_manager.py
 │   ├── test_ssl_manager.py               # Unit test untuk core/services/ssl_manager.py
 │   ├── test_dashboard.py                 # Unit test untuk core/services/dashboard.py
 │   ├── test_settings.py                  # Unit test untuk core/services/settings.py
 │   ├── test_updater.py                   # Unit test untuk core/services/updater.py (Auto-Updater)
-│   ├── test_tunnels.py                   # Unit test untuk core/services/tunnels.py (zrok public tunnel)
-│   ├── test_runtimes_manager.py          # Unit test untuk core/services/runtimes_manager.py
+│   ├── test_tunnels.py                   # Unit test untuk core/services/tunnels.py (Zrok & Cloudflare tunnel)
+│   ├── test_markdown_viewer.py           # Unit test untuk core/services/markdown_viewer.py
+│   ├── test_ai_assistant.py              # Unit test untuk core/services/ai_assistant.py (DocRetriever, SSE, Tier Probing, Usage Stats)
+│   ├── test_terminal.py                  # Unit test Developer Terminal session & environment scoping
+│   ├── test_terminal_persistence.py      # Unit test persistensi config, preset & workspace terminal
+│   ├── test_runtimes_manager.py          # Unit test untuk core/services/runtimes_manager.py (multi-version & PATH Hub)
 │   ├── test_service_lifecycles.py        # Unit test orkestrasi start/stop antar service
 │   └── test_<nama_service>.py            # Pola: test_<nama_file_source>.py
 └── test_utils/
+    ├── test_cancellation.py              # Unit test token pembatalan proses asinkron & rollback
     ├── test_file_utils.py                # Unit test untuk core/utils/file_utils.py
+    ├── test_network_utils.py             # Unit test konektivitas internet & DNS probing
     └── test_system_utils.py              # Unit test untuk core/utils/system_utils.py
 ```
 
@@ -188,7 +202,10 @@ frontend/
 │   ├── setup.ts                      # Global setup: mock react-i18next, jest-dom matchers, jsdom polyfills
 │   ├── test-utils.tsx                # Helper bersama: mockPywebviewApi(), renderWithToast(), re-export RTL
 │   ├── i18n.test.ts                  # Smoke test src/i18n.ts asli (vi.unmock react-i18next) + parity penuh key en/id
-│   ├── components/                   # Mirror src/components/*.tsx
+│   ├── components/                   # Mirror src/components/*.tsx (termasuk skeleton/)
+│   ├── context/                      # Mirror src/context/*.tsx (ApacheContext, DatabaseContext, PhpContext, dll)
+│   ├── hooks/                        # Mirror src/hooks/*.ts (mis. useWindowPresence.test.ts)
+│   ├── utils/                        # Mirror src/utils/*.ts (mis. progress.test.ts, version.test.ts)
 │   └── menu/                         # Mirror src/menu/**/*.tsx (apache/, php/, database/, runtimes/, dashboard/, tools/)
 ├── tsconfig.test.json                # tsconfig khusus untuk src/ + tests/ (types vitest/globals, testing-library)
 └── vite.config.ts                    # blok `test: {...}` + `coverage: {...}` di sini
@@ -197,7 +214,7 @@ Pola: `tests/<mirror-struktur-src>/<NamaKomponen>.test.tsx`.
 
 Helper bersama ada di `tests/test-utils.tsx` (re-export semua dari `@testing-library/react` ditambah `mockPywebviewApi()` dan `renderWithToast()`) — **selalu pakai helper ini, jangan tulis ulang boilerplate mock `window.pywebview.api` atau `<ToastProvider>` wrapper di tiap file test**. Untuk sekelompok komponen yang bentuknya identik (mis. empat form `InstallGo/Java/Node/Python.tsx` yang sama-sama forwardRef + `submit()` + fetch-versions-on-mount), buat SATU factory function bersama (lihat `tests/menu/runtimes/installRuntimeTestKit.tsx`) lalu panggil dari tiap file test dengan config berbeda, dan gunakan `it.each`/`describe.each` untuk variasi data (lihat `tests/menu/database/Settings.test.tsx` untuk field MySQL/PostgreSQL, atau `tests/menu/runtimes/Main.test.tsx` untuk keempat engine). Pola ini WAJIB diikuti untuk suite test baru — proyek ini menjaga *new code duplication* SonarQube di bawah 3%, dan test suite yang tidak DRY adalah kontributor terbesar untuk duplication findings.
 
-Per audit test coverage (2026), seluruh `src/**/*.{ts,tsx}` frontend punya coverage statement **>95%** (~648 test case di 54 file test, per `npx vitest run` — angka ini bergerak seiring fitur baru ditambahkan; jalankan `npm run test:coverage` untuk laporan terbaru per file, jangan andalkan angka statis di dokumen ini). Beberapa baris tetap sengaja tidak dicover karena secara nyata *unreachable* lewat UI (mis. validasi `if (!x) return` di dalam handler yang tombol pemicunya sendiri sudah `disabled` oleh kondisi yang sama — pola berulang yang ditemukan di banyak form Modal proyek ini; lihat commit history test untuk contoh).
+Per audit test coverage terbaru (November 2026), seluruh `src/**/*.{ts,tsx}` frontend punya coverage statement **>95%** (**975 test case di 95 file test** frontend serta **874 test item (873 passed, 1 skipped) di 27 file test** backend Python, dengan 0 Bugs, 0 Vulnerabilities, 0 Security Hotspots, dan 0 Code Smells di SonarQube — angka ini bergerak seiring fitur baru ditambahkan; jalankan `npm run test:coverage` untuk laporan terbaru per file, jangan andalkan angka statis di dokumen ini). Cakupan pengujian frontend mencakup komponen bersama tabel (`DataTable.test.tsx`, `FilterChips.test.tsx`, `ViewModeToggle.test.tsx`, `InstalledBadge.test.tsx`), pengujian orkestrasi `RuntimePathHub.test.tsx` dan `RuntimeTable.test.tsx`, pengujian Projects Hub (`projects.test.tsx`, `NewProjectModal.test.tsx`, dll.), modul Terminal (`terminal_settings.test.tsx`, `terminal_presets.test.tsx`, `terminal_config.test.tsx`), pengujian Database Schemas (`DatabaseSchemaModal.test.tsx`), serta pengujian Network Resilience (`NetworkContext.test.tsx`). Beberapa baris tetap sengaja tidak dicover karena secara nyata *unreachable* lewat UI (mis. validasi `if (!x) return` di dalam handler yang tombol pemicunya sendiri sudah `disabled` oleh kondisi yang sama — pola berulang yang ditemukan di banyak form Modal proyek ini; lihat commit history test untuk contoh).
 
 > ✅ **Sudah diperbaiki:** Test `tests/components/Sidebar.test.tsx` ("opens the Tools dropdown and shows tool items when clicked...") sempat gagal deterministik — menguji interaksi dropdown "Tools" (klik untuk expand) yang ternyata sudah dihapus dari UI (menu Tools sekarang selalu tampil flat, tidak perlu diklik untuk dibuka). Test ditulis ulang untuk mencerminkan perilaku sebenarnya, plus satu test lain dengan pola `.closest('button')` serupa yang ternyata "lulus diam-diam tanpa menguji apa-apa" (`user.click(null!)` jadi no-op) juga dibersihkan. Diverifikasi 3x run `vitest run` berturut-turut tanpa kegagalan — indikasi *flakiness* yang sempat dilaporkan tidak muncul lagi setelah fix. Detail lengkap: `docs/known_bugs.md` #33.
 
@@ -211,7 +228,7 @@ Komponen manapun yang memanggil `window.pywebview.api.*` (hampir semua komponen 
 ```powershell
 npm run test            # sekali jalan (CI-friendly)
 npm run test:watch      # mode watch untuk development
-npm run test:coverage   # dengan coverage report (@vitest/coverage-v8) -- juga menghasilkan coverage/lcov.info untuk SonarQube, lihat §6
+npm run test:coverage   # dengan coverage report (@vitest/coverage-v8) -- juga menghasilkan coverage/lcov.info untuk SonarQube, lihat §7
 ```
 
 ### 3.5 🚨 WAJIB: Cara Type-Check Frontend yang BENAR — `tsc -b`, BUKAN `tsc --noEmit -p tsconfig.json`
@@ -245,6 +262,18 @@ Jika Vitest mengalami *hang*, perintah selanjutnya (seperti `npm run test` baru)
 - Selalu gunakan *real timers* biasa (`await new Promise(r => setTimeout(r, ms))`) dikombinasikan dengan utilitas bawaan testing-library seperti `waitFor({ timeout })`.
 - Jika mendapati Vitest *hang* dan tidak selesai setelah beberapa detik, **segera buka terminal dan jalankan `taskkill /F /IM node.exe`** sebelum mencoba menjalankan test kembali. Jangan biarkan proses zombie menumpuk.
 
+### 3.8 Pola Pengujian Komponen `<Select>` Custom & Animasi `<Modal>`
+1. **Interaksi `<Select>` (`components/Select.tsx`):**
+   Seluruh dropdown di VyloServe telah menggunakan komponen `<Select>` custom yang me-render `<button aria-haspopup="listbox">` sebagai trigger dan menampilkan daftar opsi di dalam React Portal (`document.body`). Jangan gunakan `userEvent.selectOptions()` atau mencari `getByRole('combobox')` (yang hanya berlaku untuk `<select>` HTML native). Sebagai gantinya:
+   ```tsx
+   // Klik tombol trigger dulu untuk membuka portal listbox
+   fireEvent.click(screen.getByLabelText('settings.theme'));
+   // Lalu klik opsi yang dirender di dalam portal
+   fireEvent.click(screen.getByText('Dracula'));
+   ```
+2. **Transisi Visibilitas `<Modal>` (`components/Modal.tsx`):**
+   Ketika prop `isOpen` pada `<Modal>` berubah dari `false` ke `true` (termasuk saat `keepMounted` aktif), kontainer modal menggunakan `requestAnimationFrame` ganda untuk mengubah class `invisible` menjadi `visible`. Jika test langsung berinteraksi dengan tombol di dalam modal yang baru dibuka, gunakan `fireEvent.click(...)` atau tunggu siklus frame selesai agar tidak gagal karena pengecekan visibilitas CSS ancestor.
+
 ## 4. Standar Clean Code & DRY
 
 Setiap kontribusi kode (backend maupun frontend) wajib memenuhi standar berikut sebelum diserahkan.
@@ -271,6 +300,15 @@ Setiap kontribusi kode (backend maupun frontend) wajib memenuhi standar berikut 
 - Jika blok logika yang sama muncul di dua tempat atau lebih, ekstrak ke fungsi utilitas di `core/utils/`.
 - Sebelum menulis fungsi baru, cek apakah sudah ada di `system_utils.py` atau `file_utils.py`.
 
+**Refactoring Cognitive Complexity (`python:S3776` < 15):**
+- SonarQube membatasi *Cognitive Complexity* maksimal 15 poin per fungsi/metode.
+- Fungsi kompleks yang menangani orkestrasi multi-langkah (misalnya `_run_mysql_cli` dan `_run_pg_cli` pada `DatabaseManager`, atau parsing format file multi-kondisional) **WAJIB** dipecah ke helper privat berprinsip SRP (Single Responsibility Principle).
+- Hindari nesting `if/else`, `try/except`, dan `for/while` lebih dari 2 tingkat bertumpuk.
+
+**Pencegahan ReDoS (Catastrophic Backtracking - `python:S8786` & `python:S6353`):**
+- **DILARANG** menggunakan regular expression dengan nested quantifiers atau pola token fleksibel yang tumpang tindih (misalnya `r"^(\s*)(.*?)\s*=\s*(.*?)\s*$"`). Pola semacam ini dapat dieksploitasi untuk memicu konsumsi CPU 100% (ReDoS).
+- Utamakan pemrosesan string deterministik non-regex (seperti `str.partition("=")` atau `str.split("=", 1)`) untuk parsing file konfigurasi key-value. Jika regex tetap dibutuhkan, gunakan *character class* yang mutually exclusive dan batasi ruang lingkup pencocokan tanpa wildcard serakah.
+
 **Naming Convention:**
 | Konteks | Konvensi | Contoh |
 |---------|----------|--------|
@@ -288,6 +326,10 @@ Setiap kontribusi kode (backend maupun frontend) wajib memenuhi standar berikut 
 **DRY di Komponen:**
 - Sebelum membuat komponen baru, cek `frontend/src/components/` terlebih dahulu.
 - Gunakan `<PageHeader>`, `<Modal>`, `<Badge>`, `<BackgroundProgressWidget>` yang sudah ada.
+
+**Aksesibilitas Kontrol Form (`typescript:S6847` / a11y):**
+- Setiap elemen `<label>` **WAJIB** memiliki atribut `htmlFor="id_kontrol"` yang berpasangan persis dengan `id="id_kontrol"` pada elemen interaktif yang sesuai (`<input>`, `<select>`, `<textarea>`).
+- Dilarang hanya mengandalkan kedekatan visual di JSX tanpa asosiasi eksplisit id/htmlFor. Ketiadaan asosiasi ini merusak aksesibilitas screen reader dan menyebabkan kegagalan query `getByLabelText()` pada unit test Vitest.
 
 **Naming Convention:**
 | Konteks | Konvensi | Contoh |
@@ -363,7 +405,48 @@ Validasi di frontend hanya untuk pengalaman pengguna (tampilkan pesan error cepa
 **3. Jangan Expose Token/Secret di Environment Frontend:**
 File `.env` di `frontend/` tidak boleh berisi data sensitif karena akan di-bundle ke dalam JS yang dapat dibaca siapapun.
 
-## 6. Analisis Kualitas Kode (SonarQube Scan)
+## 6. Standar Analisis & Pengujian Usabilitas, Ergonomi HCI, dan Keamanan Terpadu
+
+Pengembangan fitur dan perbaikan bug di VyloServe tidak hanya diukur dari kelulusan unit test kode semata, melainkan wajib melalui tinjauan komprehensif atas usabilitas (pengalaman pengguna), ergonomi interaksi manusia-komputer (HCI/IMK), dan ketahanan keamanan.
+
+### 6.1 Matriks Evaluasi Heuristik Usabilitas (Nielsen & Shneiderman)
+Sebelum sebuah perubahan UI diserahkan, evaluasi alur fitur terhadap prinsip heuristik berikut:
+
+| Prinsip Heuristik | Implementasi di VyloServe | Cara Verifikasi / Pengujian |
+|-------------------|---------------------------|-----------------------------|
+| **1. Visibility of System Status** | Komponen progress (`emit_progress`, `<BackgroundProgressWidget>`), skeleton loader saat data dimuat, status badge aktif/nonaktif. | Pastikan tidak ada tombol aksi yang setelah diklik membiarkan UI diam tanpa spinner/progress. |
+| **2. Match between System & Real World** | Istilah teknis disederhanakan dan dialokasikan ke konteks lokal pengguna (misal nama database, direktori web root `www/`). | Cek kejelasan teks terjemahan di `locales/` agar tidak membingungkan pengembang awam. |
+| **3. User Control & Freedom** | Tombol Cancel pada wizard/modal, tombol Escape untuk menutup dialog, konfirmasi sebelum aksi destruktif. | Buka modal, coba batalkan/tutup di berbagai langkah alur, pastikan state kembali bersih tanpa side effect. |
+| **4. Consistency & Standards** | Tata letak `PageHeader + SkeletonCard + EmptyState + Card + Modal` konsisten lintas modul; dropdown selalu menggunakan `<Select>` portal. | Periksa apakah modul baru mematuhi hierarki visual dan komponen bersama yang ada di `frontend/src/components/`. |
+| **5. Error Prevention** | Deteksi port terpakai sebelum service start; validasi form sebelum submit; barrier koneksi internet offline. | Coba lakukan aksi tanpa jaringan internet atau dengan port bentrok; pastikan ada peringatan proaktif sebelum error terjadi. |
+| **6. Recognition over Recall** | Auto-suggestion port default, dropdown list template proyek, schema explorer database. | Pastikan pengguna tidak dituntut mengingat konfigurasi rumit secara manual. |
+| **7. Flexibility & Efficiency of Use** | Filter pencarian cepat untuk list proyek/ekstensi/database, navigasi keyboard (a11y). | Uji navigasi dengan tombol Tab dan filter teks apakah responsif seketika. |
+| **8. Aesthetic & Minimalist Design** | Desain desktop-first (`w-full`, Rule 32), kontainer luas tanpa batasan artifisial, progressive disclosure untuk opsi lanjutan. | Periksa layout di resolusi 1280x720 hingga 1920x1080; pastikan tidak ada teks kartu yang terpotong menjadi kolom sempit vertikal. |
+| **9. Help Users Recognize, Diagnose, & Recover** | Pesan error via i18n toast dengan format: Masalah + Alasan + Solusi yang dapat diambil pengguna. | Simulasikan error OS nyata (misal service crash atau path invalid) dan pastikan toast memberikan arahan perbaikan. |
+| **10. Help & Documentation** | Tooltip penjelasan konfigurasi yang kurang familier, tombol dokumentasi/link panduan. | Pastikan setiap konfigurasi rumit memiliki tooltip atau teks panduan singkat. |
+
+### 6.2 Ergonomi Desktop-First & Interaksi Manusia-Komputer (HCI / IMK)
+VyloServe adalah perangkat lunak desktop (Windows GUI via Pywebview), bukan aplikasi web biasa. Prinsip ergonomi berikut wajib dipenuhi:
+1. **Lebar Kontainer Penuh (Desktop Container Layout - Rule 32):**
+   - Halaman modul utama wajib memanfaatkan ruang jendela secara maksimal (`w-full`).
+   - Dilarang membungkus kartu atau header dalam `max-w-md` atau `max-w-lg` yang memotong teks menjadi baris-baris sempit layaknya tampilan smartphone.
+2. **Latensi Respon Interaksi Rendah (<100ms):**
+   - Setiap klik tombol harus langsung mengubah visual state (misal: tombol berubah ke state `disabled` atau menampilkan spinner) dalam hitungan milidetik.
+   - Pekerjaan berat (ekstraksi file, download, scanning OS) wajib didelegasikan ke thread latar belakang (`threading.Thread`) di Python agar jendela GUI tidak mengalami freeze (*Not Responding*).
+3. **Aksesibilitas Kontrol Form (Accessibility / a11y - Rule 6 & 21):**
+   - Setiap `<label>` wajib memiliki atribut `htmlFor="id_unik"` yang berpasangan dengan `id="id_unik"` pada elemen `<input>`, `<select>`, atau `<textarea>`.
+   - Ini memastikan pembaca layar (screen reader) dapat mengidentifikasi kolom input dan memungkinkan pengujian via `getByLabelText()` pada suite Vitest.
+
+### 6.3 Skenario Pengujian Ketahanan (Usability Resilience Matrix)
+Setiap pengujian manual maupun unit test harus menguji kondisi ekstrem berikut:
+- **Skenario Cold Start / Data Kosong:** Apakah modul dapat tampil rapi dengan `<EmptyState>` informatif saat pengguna pertama kali membuka aplikasi tanpa ada service yang terinstal?
+- **Skenario Data Warisan / Tidak Lengkap (Sparse Data):** Apakah sistem tetap stabil jika file JSON (seperti `databases.json`, `projects.json`) kehilangan field opsional atau dibuat oleh versi lama aplikasi? (Pelajaran dari bug #88: string method `.split()` tidak boleh dipanggil pada nilai yang berpotensi `undefined`).
+- **Skenario Hilang Jaringan Internet (Offline Mode):** Apakah alur instalasi atau sinkronisasi menampilkan barrier proaktif yang jelas tanpa melempar raw network exception?
+- **Skenario Hak Akses UAC Windows:** Apakah operasi yang membutuhkan hak administrator (seperti injeksi domain lokal ke `C:\Windows\System32\drivers\etc\hosts`) memberikan petunjuk elevasi yang jelas jika izin ditolak?
+
+---
+
+## 7. Analisis Kualitas Kode (SonarQube Scan)
 Untuk memonitor *Cognitive Complexity*, *Code Smells*, dan *Bugs*, kita menggunakan SonarQube Scanner.
 Jalankan perintah ini di root direktori proyek. Pastikan SonarQube berjalan di `http://127.0.0.1:9000`.
 
@@ -390,11 +473,51 @@ sonar-scanner.bat -D"sonar.projectKey=vyloserve-be" -D"sonar.sources=core,main.p
 
 **Menandai *false positive* dengan `# NOSONAR` (Python):** marker `# NOSONAR` **WAJIB** berada di baris kode yang sama persis dengan baris yang dilaporkan temuan, BUKAN di baris komentar terpisah sebelumnya — SonarQube tidak mengenalinya kalau ditaruh di atas kode (lihat `docs/known_bugs.md` #37/#38 untuk kejadian nyata: komentar penjelasan di baris terpisah di atas kode tetap membuat temuan S7504 dilaporkan ulang di scan berikutnya). Pola yang benar: tulis penjelasan lengkap di komentar baris-baris sebelumnya seperti biasa, lalu tempelkan `# NOSONAR (python:RULEID): <ringkasan singkat>` di akhir baris kode yang sama dengan temuan.
 
-## 7. Proses Kompilasi Produksi (Build Project)
+### Standar Quality Gate SonarQube (Clean as You Code)
+VyloServe menerapkan standar ketat Zero-Tolerance untuk kode baru (*New Code*):
+- **Bugs:** 0
+- **Vulnerabilities:** 0
+- **Security Hotspots:** 0 (100% reviewed)
+- **Code Smells:** 0
+- **Coverage on New Code:** >= 80.0% (aktual: backend ~86.2%, frontend ~80.1%, overall ~88% BE / >95% FE)
+- **Duplicated Lines on New Code:** <= 3.0% (aktual: backend 0.0%, frontend ~2.55%)
+
+Setiap PR atau serah terima fitur yang menurunkan coverage di bawah 80% atau menghasilkan bug/code smell baru otomatis gagal lolos Quality Gate.
+
+### 7.1 Pipa Otomatis Terpadu (VyloServe AutoScan)
+Alih-alih menjalankan pytest, Vitest, SonarQube BE, SonarQube FE, dan Gitleaks secara manual satu per satu, repositori pendamping `vyloserve-scan` menyediakan skrip orkestrasi multithreading `scanner.py`:
+
+```powershell
+cd D:\Projects\Python\vyloserve-scan
+python scanner.py
+```
+
+**Fitur & Kemampuan Utama `scanner.py`:**
+1. **Eksekusi Paralel (Multithreading):**
+   - Phase 1: Unit Test Backend (`pytest` + `coverage.xml`) & Frontend (`vitest` + `lcov.info`) berjalan simultan.
+   - Phase 2: SonarQube Scanner Backend & Frontend berjalan simultan setelah data coverage siap.
+   - Phase 3: Gitleaks memindai kebocoran kredensial/token rahasia di repositori.
+2. **Laporan Markdown Tunggal Komprehensif (`.md`):**
+   Menghasilkan `vyloserve_scan_report_<timestamp>.md` berisi:
+   - Tabel Ringkasan Eksekutif & Status Pipeline
+   - Tabel Metrik Kualitas SonarQube (Bugs, Vulnerabilities, Hotspots, Code Smells, Coverage, Duplikasi)
+   - Tabel Isu Terperinci SonarQube beserta rekomendasi remediasi cepat per rule
+   - Tabel Rincian Kegagalan Unit Test & Breakdown Coverage per komponen
+   - Tabel Audit Keamanan Gitleaks (kredensial ter-masking)
+   - Log mentah eksekusi lengkap dalam blok *collapsible* (`<details>`).
+3. **AI Remediation Advisor (via `agy` CLI):**
+   Menggunakan Antigravity CLI (`agy -p`) di latar belakang tanpa membutuhkan API key mandiri. Saat terdeteksi temuan galat/isu, AI menyusun analisis akar masalah, panduan langkah perbaikan konkret, dan matriks prioritas langsung ke dokumen laporan.
+4. **Sesi Diskusi Interaktif Terminal (`--discuss`):**
+   Menambahkan opsi `--discuss` akan otomatis meluncurkan jendela **Windows Terminal (`wt.exe`)** baru untuk sesi interaktif `agy -i`, memungkinkan diskusi langsung dengan agen AI dalam memperbaiki kode.
+5. **Mode Tambahan:**
+   - `--no-ai`: Menggunakan mesin heuristik berbasis aturan SonarQube tanpa memanggil AI.
+   - `--noreport`: Mode dry-run konsol tanpa men-generate file laporan `.md`.
+
+## 8. Proses Kompilasi Produksi (Build Project)
 Untuk membuat aplikasi mandiri (Standalone Windows Executable `.exe`) yang bisa didistribusikan ke pengguna akhir:
 
-> **PERINGATAN (REMEMBER):**
-> Anda **WAJIB** mengubah kembali variabel `IS_PRODUCTION = True` pada `main.py` sebelum melakukan *build*. Jika tidak, aplikasi *compiled* akan mencoba mencari Vite server (`localhost:5173`) dan gagal dibuka (blank screen).
+> **CATATAN DETEKSI OTOMATIS (AUTO-DETECT):**
+> Variabel `IS_PRODUCTION` pada `main.py` kini dideteksi secara otomatis melalui `IS_PRODUCTION = getattr(sys, 'frozen', False) or False`. Anda **tidak perlu lagi mengubah manual** variabel tersebut saat melakukan *build*. Saat dikompilasi oleh PyInstaller, binary otomatis berjalan dalam mode production dan membaca aset frontend bundle (`frontend/dist`), sedangkan saat dijalankan via `python main.py`, aplikasi otomatis berjalan dalam mode development (`localhost:55173`).
 
 **Langkah 1: Build Frontend**
 Kompilasi kode React TypeScript menjadi JavaScript statis:
@@ -409,11 +532,11 @@ Kembali ke root proyek. Gunakan `--noconsole` agar terminal CMD latar belakang d
 
 *   **Opsi A (OneDir / Standar - Lebih Cepat Dimuat):**
     ```powershell
-    pyinstaller --noconsole --add-data "frontend/dist;frontend/dist" --add-data "frontend/src/assets/icons-nobg.ico;frontend/src/assets" main.py
+    pyinstaller --noconsole --add-data "frontend/dist;frontend/dist" --add-data "frontend/src/assets;frontend/src/assets" main.py
     ```
 *   **Opsi B (OneFile - Hanya 1 file `.exe` rapi, namun booting agak lambat):**
     ```powershell
-    pyinstaller --noconsole --onefile --icon "frontend\src\assets\icons-nobg.ico" --add-data "frontend/dist;frontend/dist" --add-data "frontend/src/assets/icons-nobg.ico;frontend/src/assets" main.py
+    pyinstaller --noconsole --onefile --icon "frontend\src\assets\icons-nobg.ico" --add-data "frontend/dist;frontend/dist" --add-data "frontend/src/assets;frontend/src/assets" main.py
     ```
 
 *(Catatan: pastikan fungsi `sys.frozen` telah dikelola dengan baik pada kode `system_utils.py` agar direktori Root tetap terlacak saat dalam bentuk compiled `.exe`).*

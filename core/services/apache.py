@@ -10,13 +10,16 @@ import subprocess
 HTTPD_CONF_NAME = "httpd.conf"
 
 # ---> IMPORT UTILITIES (DRY PRINCIPLE) <---
-from core.utils.system_utils import get_project_root, run_silent_command, start_silent_process
+from core.utils.system_utils import get_project_root, run_silent_command, start_silent_process, check_port_in_use
 from core.utils.file_utils import read_json, write_json, download_advanced, extract_archive, read_log_tail, read_new_lines
+from core.utils.network_utils import is_network_error, build_offline_error_response
+from core.utils.cancellation import InstallationManager, OperationCancelledError
 INC_VHOSTS = "Include conf/extra/vyloserve-vhosts.conf"
 INC_PHP = "Include conf/extra/vyloserve-php.conf"
 ERR_NOT_INSTALLED = "backend.apache.not_installed"
 APACHE_JSON = "apache.json"
 MSG_UNEXPECTED_ERROR = "backend.error.unexpected"
+MSG_INSTALL_CANCELLED = "backend.apache.install_cancelled"
 
 class ApacheManager:
     """Manager untuk siklus hidup Engine Web Server Apache"""
@@ -142,7 +145,7 @@ class ApacheManager:
 
     def _patch_httpd_content(self, content: str) -> tuple[str, bool]:
         modified = False
-        for mod in ["proxy_module", "proxy_fcgi_module", "rewrite_module", "vhost_alias_module", "dir_module", "setenvif_module", "ssl_module", "socache_shmcb_module"]:
+        for mod in ["proxy_module", "proxy_fcgi_module", "proxy_http_module", "proxy_wstunnel_module", "headers_module", "rewrite_module", "vhost_alias_module", "dir_module", "setenvif_module", "ssl_module", "socache_shmcb_module"]:
             pattern = re.compile(r"^[ \t]*#[ \t]*(LoadModule\s+" + mod + r"\b[^\r\n]*)$", re.MULTILINE)
             if pattern.search(content):
                 content = pattern.sub(r"\1", content); modified = True
@@ -199,11 +202,10 @@ class ApacheManager:
         except Exception as e:
             if hasattr(self, 'api'): self.api.emit_log("backend.apache.preflight_failed", "error", {"e": str(e)})
             
-    def _configure_httpd(self, target_dir, port):
-        conf_path = os.path.join(target_dir, "conf", HTTPD_CONF_NAME)
-        with open(conf_path, 'r', encoding='utf-8') as f: content = f.read()
-
-        content = re.sub(r'Define\s+SRVROOT\s+"[^"]+"', f'Define SRVROOT "{target_dir.replace(chr(92), "/")}"', content, flags=re.IGNORECASE)
+    @staticmethod
+    def _apply_httpd_replacements(content: str, target_dir: str, port: int, www_dir: str) -> str:
+        safe_target = target_dir.replace(chr(92), "/")
+        content = re.sub(r'Define\s+SRVROOT\s+"[^"]+"', f'Define SRVROOT "{safe_target}"', content, flags=re.IGNORECASE)
         content = re.sub(r'Listen\s+80', f'Listen {port}', content, flags=re.IGNORECASE)
         
         if "ServerName localhost" not in content:
@@ -211,20 +213,38 @@ class ApacheManager:
             if "ServerName localhost" not in content:
                 content = re.sub(r'(Listen\s+\d+)', f'\\1\nServerName localhost:{port}', content, flags=re.IGNORECASE)
         
-        www_dir = self._ensure_default_htdocs()
         content = re.sub(r'DocumentRoot\s+"[^"]+htdocs"', f'DocumentRoot "{www_dir}"', content, flags=re.IGNORECASE)
         content = re.sub(r'<Directory\s+"[^"]+htdocs">', f'<Directory "{www_dir}">', content, flags=re.IGNORECASE)
-        content = re.sub(r'DirectoryIndex\s+index\.html', r'DirectoryIndex index.php index.html', content, flags=re.IGNORECASE)
-        content = re.sub(r'Options\s+Indexes\s+FollowSymLinks', r'Options Indexes FollowSymLinks ExecCGI', content, flags=re.IGNORECASE)
-        content = re.sub(r'#\s*LoadModule\s+proxy_module\s+modules/mod_proxy\.so', r'LoadModule proxy_module modules/mod_proxy.so', content, flags=re.IGNORECASE)
-        content = re.sub(r'#\s*LoadModule\s+proxy_fcgi_module\s+modules/mod_proxy_fcgi\.so', r'LoadModule proxy_fcgi_module modules/mod_proxy_fcgi.so', content, flags=re.IGNORECASE)
+
+        static_replacements = (
+            (r'DirectoryIndex\s+index\.html', 'DirectoryIndex index.php index.html'),
+            (r'Options\s+Indexes\s+FollowSymLinks', 'Options Indexes FollowSymLinks ExecCGI'),
+            (r'#\s*LoadModule\s+proxy_module\s+modules/mod_proxy\.so', 'LoadModule proxy_module modules/mod_proxy.so'),
+            (r'#\s*LoadModule\s+proxy_fcgi_module\s+modules/mod_proxy_fcgi\.so', 'LoadModule proxy_fcgi_module modules/mod_proxy_fcgi.so'),
+            (r'#\s*LoadModule\s+proxy_http_module\s+modules/mod_proxy_http\.so', 'LoadModule proxy_http_module modules/mod_proxy_http.so'),
+            (r'#\s*LoadModule\s+proxy_wstunnel_module\s+modules/mod_proxy_wstunnel\.so', 'LoadModule proxy_wstunnel_module modules/mod_proxy_wstunnel.so'),
+            (r'#\s*LoadModule\s+headers_module\s+modules/mod_headers\.so', 'LoadModule headers_module modules/mod_headers.so'),
+        )
+        for pattern, repl in static_replacements:
+            content = re.sub(pattern, repl, content, flags=re.IGNORECASE)
 
         if INC_PHP not in content:
             content += "\n\n# --- VyloServe Global PHP Proxy ---\nIncludeOptional conf/extra/httpd-vyloserve-php.conf\n"
         if INC_VHOSTS not in content:
             content += "\n# --- VyloServe Virtual Hosts ---\nIncludeOptional conf/extra/vyloserve-vhosts.conf\n"
 
-        with open(conf_path, 'w', encoding='utf-8') as f: f.write(content)
+        return content
+
+    def _configure_httpd(self, target_dir, port):
+        conf_path = os.path.join(target_dir, "conf", HTTPD_CONF_NAME)
+        with open(conf_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        www_dir = self._ensure_default_htdocs()
+        content = self._apply_httpd_replacements(content, target_dir, port, www_dir)
+
+        with open(conf_path, 'w', encoding='utf-8') as f:
+            f.write(content)
         self.update_global_php_proxy(9000, restart=False)
             
     def _ensure_default_htdocs(self):
@@ -317,15 +337,15 @@ class ApacheManager:
         try:
             if sys.platform == 'win32':
                 req = urllib.request.Request("https://www.apachelounge.com/download/", headers={'User-Agent': 'Mozilla/5.0'})
-                try:
-                    html = urllib.request.urlopen(req, timeout=15).read().decode('utf-8')
-                    versions = self._parse_apache_versions_html(html)
-                except Exception: pass
-                
+                html = urllib.request.urlopen(req, timeout=10).read().decode('utf-8')
+                versions = self._parse_apache_versions_html(html)
+
                 if not versions:
                     versions = [{"version": "2.4.68", "filename": "httpd-2.4.68.zip", "url": "https://www.apachelounge.com/download/VS18/binaries/httpd-2.4.68-260617-Win64-VS18.zip"}]
             return {"status": "success", "data": versions}
         except Exception as e:
+            if is_network_error(e):
+                return build_offline_error_response()
             return {"status": "error", "message": "backend.apache.unknown_error", "args": {"e": str(e)}}
 
     def _move_apache_extract(self, temp_extract_dir: str, target_dir: str):
@@ -340,44 +360,77 @@ class ApacheManager:
         if not move_success: raise RuntimeError("Folder dikunci oleh OS/Antivirus.")
         if os.path.exists(temp_extract_dir): shutil.rmtree(temp_extract_dir, ignore_errors=True)
 
+    def _migrate_old_conf(self, old_path: Optional[str], target_dir: str):
+        if old_path and os.path.exists(os.path.join(old_path, "conf")):
+            shutil.copytree(os.path.join(old_path, "conf"), os.path.join(target_dir, "conf"), dirs_exist_ok=True)
+
+    def _cleanup_old_version(self, old_path: Optional[str], target_dir: str):
+        if old_path and old_path != target_dir and os.path.exists(old_path):
+            time.sleep(1)
+            shutil.rmtree(old_path, ignore_errors=True)
+
+    def _download_and_extract_apache(self, download_url: str, zip_path: str, temp_extract_dir: str, target_dir: str, cancel_check=None):
+        def log_cb(msg, lvl): 
+            if hasattr(self, 'api'): self.api.emit_log(msg, lvl)
+        def prog_cb(pct, msg, args=None):
+            if hasattr(self, 'api'): self.api.emit_progress(pct, msg, args)
+
+        download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=prog_cb, cancel_check=cancel_check)
+        if hasattr(self, 'api'): self.api.emit_log("backend.apache.extracting", "info")
+        extract_archive(zip_path, temp_extract_dir, progress_cb=prog_cb, cancel_check=cancel_check)
+        if os.path.exists(zip_path): os.remove(zip_path)
+        self._move_apache_extract(temp_extract_dir, target_dir)
+
     def install_version(self, version: str, download_url: str, http_port: int):
         if hasattr(self, 'api'): self.api.emit_log("backend.apache.download_start", "info", {"version": version})
+        
+        # Simpan info versi lama untuk migrasi konfigurasi
+        old_status = self.get_status()
+        old_path = old_status.get("path") if old_status.get("installed") else None
+
         target_dir = os.path.join(self.base_dir, version)
         zip_path = os.path.join(self.base_dir, f"apache-{version}.zip")
         temp_extract_dir = os.path.join(self.base_dir, f"temp_{version}")
         
         if os.path.exists(target_dir): return {"status": "error", "message": "backend.apache.already_installed"}
 
+        token = InstallationManager.get_token("apache")
+
         try:
-            def log_cb(msg, lvl): 
-                if hasattr(self, 'api'): self.api.emit_log(msg, lvl)
-            def prog_cb(pct, msg, args=None):
-                if hasattr(self, 'api'): self.api.emit_progress(pct, msg, args)
-
-            download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=prog_cb)
-
-            if hasattr(self, 'api'): self.api.emit_log("backend.apache.extracting", "info")
-            extract_archive(zip_path, temp_extract_dir, progress_cb=prog_cb)
-            if os.path.exists(zip_path): os.remove(zip_path)
-                
-            self._move_apache_extract(temp_extract_dir, target_dir)
+            self._download_and_extract_apache(download_url, zip_path, temp_extract_dir, target_dir, cancel_check=token.is_cancelled)
+            self._migrate_old_conf(old_path, target_dir)
 
             if hasattr(self, 'api'): self.api.emit_progress(80, "backend.apache.configuring")
             self._configure_httpd(target_dir, http_port)
+
+            # Auto-activate the newly installed version (ini akan otomatis me-restart server jika sedang menyala)
+            self.set_active_version(version)
+            self._cleanup_old_version(old_path, target_dir)
 
             if hasattr(self, 'api'):
                 self.api.emit_progress(100, "backend.apache.done")
                 self.api.emit_log("backend.apache.install_success", "success", {"version": version})
             return {"status": "success", "message": "backend.apache.install_success", "args": {"version": version}}
 
+        except OperationCancelledError:
+            if hasattr(self, 'api'):
+                self.api.emit_log(MSG_INSTALL_CANCELLED, "warn")
+                self.api.emit_progress(0, MSG_INSTALL_CANCELLED)
+            if os.path.exists(zip_path): os.remove(zip_path)
+            shutil.rmtree(target_dir, ignore_errors=True)
+            shutil.rmtree(temp_extract_dir, ignore_errors=True)
+            return {"status": "cancelled", "message": MSG_INSTALL_CANCELLED}
+
         except Exception as e:
             if hasattr(self, 'api'):
                 self.api.emit_log("backend.apache.install_error", "error", {"e": str(e)})
-                self.api.emit_progress(0, "backend.apache.install_cancelled")
+                self.api.emit_progress(0, MSG_INSTALL_CANCELLED)
             if os.path.exists(zip_path): os.remove(zip_path)
             shutil.rmtree(target_dir, ignore_errors=True)
             shutil.rmtree(temp_extract_dir, ignore_errors=True)
             return {"status": "error", "message": "backend.apache.install_failed", "args": {"e": str(e)}}
+        finally:
+            InstallationManager.reset("apache")
         
     # ---> FIX: Hapus file JSON konfigurasi agar active_version tidak tertinggal <---
     def uninstall(self):
@@ -396,15 +449,77 @@ class ApacheManager:
         except Exception as e:
             return {"status": "error", "message": "backend.apache.uninstall_failed", "args": {"e": str(e)}}
 
+    def _open_path_os(self, target: str):
+        if sys.platform == 'win32':
+            os.startfile(target)
+        elif sys.platform == 'darwin':
+            subprocess.Popen(['open', target])
+        else:
+            subprocess.Popen(['xdg-open', target])
+        return {"status": "success"}
+
     def open_directory(self):
         try:
             target = self.get_status().get("path") if self.get_status().get("installed") else self.base_dir
             os.makedirs(target, exist_ok=True)
-            if sys.platform == 'win32': os.startfile(target)
-            elif sys.platform == 'darwin': subprocess.Popen(['open', target])
-            else: subprocess.Popen(['xdg-open', target])
-            return {"status": "success"}
+            return self._open_path_os(target)
         except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def open_htdocs(self):
+        try:
+            www_dir = self._ensure_default_htdocs()
+            return self._open_path_os(www_dir)
+        except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def open_conf_dir(self):
+        try:
+            status = self.get_status()
+            if not status.get("installed"): return {"status": "error", "message": ERR_NOT_INSTALLED}
+            conf_dir = os.path.join(status["path"], "conf")
+            os.makedirs(conf_dir, exist_ok=True)
+            return self._open_path_os(conf_dir)
+        except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def open_logs_dir(self):
+        try:
+            status = self.get_status()
+            if not status.get("installed"): return {"status": "error", "message": ERR_NOT_INSTALLED}
+            logs_dir = os.path.join(status["path"], "logs")
+            os.makedirs(logs_dir, exist_ok=True)
+            return self._open_path_os(logs_dir)
+        except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def get_ports_status(self):
+        try:
+            http_port = self.get_http_port()
+            https_port = 443
+            is_running = self.check_is_running()
+
+            port_http_in_use = check_port_in_use(http_port)
+            port_https_in_use = check_port_in_use(https_port)
+
+            def resolve_status(in_use: bool):
+                if in_use and is_running:
+                    return "listening"
+                elif in_use and not is_running:
+                    return "conflict"
+                return "ready"
+
+            return {
+                "status": "success",
+                "data": {
+                    "http": {
+                        "port": http_port,
+                        "status": resolve_status(port_http_in_use)
+                    },
+                    "https": {
+                        "port": https_port,
+                        "status": resolve_status(port_https_in_use)
+                    }
+                }
+            }
+        except Exception as e:
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
     def open_config(self):
         try:

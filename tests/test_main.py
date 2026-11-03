@@ -4,7 +4,13 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import main as main_module
-from main import AppLifecycle, resource_path, get_entrypoint, setup_systray
+from main import (
+    AppLifecycle, resource_path, get_entrypoint, setup_systray, get_theme_bg_color,
+    get_saved_theme,
+    get_mutex_name, get_ipc_pipe_name, get_window_title, setup_app_user_model_id,
+    check_single_instance, bring_existing_instance_to_front, start_ipc_server,
+    setup_windows_performance_optimizations
+)
 
 
 @pytest.fixture
@@ -29,8 +35,13 @@ def test_resource_path_frozen_mode_uses_meipass(monkeypatch):
     assert result == os.path.join('C:\\fake\\frozen\\dir', "frontend/dist")
 
 def test_get_entrypoint_dev_mode_uses_vite_dev_server():
+    with patch('main.IS_PRODUCTION', False), patch('main.DEV_SERVER_PORT', 55173):
+        assert get_entrypoint() == 'http://localhost:55173'
+
+def test_get_entrypoint_dev_mode_custom_port(monkeypatch):
+    monkeypatch.setattr('main.DEV_SERVER_PORT', 59999)
     with patch('main.IS_PRODUCTION', False):
-        assert get_entrypoint() == 'http://localhost:5173'
+        assert get_entrypoint() == 'http://localhost:59999'
 
 def test_get_entrypoint_production_uses_bundled_index_html():
     with patch('main.IS_PRODUCTION', True):
@@ -96,6 +107,51 @@ def test_perform_exit_without_window_or_tray_set(mock_os_exit, mock_api):
     lifecycle.perform_exit()
     mock_os_exit.assert_called_once_with(0)
 
+@patch('os._exit')
+def test_perform_exit_prevents_reentrancy(mock_os_exit, mock_api):
+    """Jika perform_exit dipanggil berulang kali, hanya eksekusi pertama yang diproses."""
+    lifecycle = AppLifecycle(mock_api, is_production=True)
+    lifecycle._exit_in_progress = True
+
+    lifecycle.perform_exit()
+
+    mock_api.set_shutting_down.assert_not_called()
+    mock_os_exit.assert_not_called()
+
+@patch('os._exit')
+def test_perform_exit_calls_cleanup_child_processes(mock_os_exit, mock_api):
+    """perform_exit harus memanggil _cleanup_child_processes sebelum os._exit(0)."""
+    lifecycle = AppLifecycle(mock_api, is_production=True)
+    with patch.object(lifecycle, '_cleanup_child_processes') as mock_cleanup:
+        lifecycle.perform_exit()
+        mock_cleanup.assert_called_once()
+    mock_os_exit.assert_called_once_with(0)
+
+def test_cleanup_child_processes_terminates_and_kills_children(mock_api):
+    """_cleanup_child_processes harus mencari proses anak dan melakukan terminate/kill."""
+    lifecycle = AppLifecycle(mock_api, is_production=True)
+    mock_child1 = MagicMock()
+    mock_child2 = MagicMock()
+    with patch('psutil.Process') as mock_proc_cls, \
+         patch('psutil.wait_procs') as mock_wait:
+        mock_proc_instance = MagicMock()
+        mock_proc_instance.children.return_value = [mock_child1, mock_child2]
+        mock_proc_cls.return_value = mock_proc_instance
+        # Simulasi child2 masih hidup setelah terminate -> harus di-kill
+        mock_wait.return_value = ([mock_child1], [mock_child2])
+
+        lifecycle._cleanup_child_processes()
+
+        mock_child1.terminate.assert_called_once()
+        mock_child2.terminate.assert_called_once()
+        mock_child2.kill.assert_called_once()
+
+def test_cleanup_child_processes_swallows_psutil_exceptions(mock_api):
+    """Kegagalan akses psutil tidak boleh memicu crash pada _cleanup_child_processes."""
+    lifecycle = AppLifecycle(mock_api, is_production=True)
+    with patch('psutil.Process', side_effect=RuntimeError("psutil access denied")):
+        lifecycle._cleanup_child_processes()
+
 
 # ==========================================
 # AppLifecycle.on_closing
@@ -156,6 +212,19 @@ def test_on_closing_with_tray_allows_destroy_when_real_exit_flag_set(mock_api):
     assert result is True
     mock_window.hide.assert_not_called()
 
+def test_on_closing_with_sigint_received_triggers_exit(mock_api):
+    """Jika pywebview winforms menandai _sigint_received, on_closing harus memicu perform_exit dan return True."""
+    lifecycle = AppLifecycle(mock_api, is_production=True, enable_tray=True)
+    lifecycle.set_window(MagicMock())
+
+    fake_wf = MagicMock(_sigint_received=True)
+    with patch.dict('sys.modules', {'webview.platforms.winforms': fake_wf}):
+        with patch.object(lifecycle, 'perform_exit') as mock_exit:
+            result = lifecycle.on_closing()
+
+    assert result is True
+    mock_exit.assert_called_once()
+
 
 # ==========================================
 # setup_systray
@@ -215,10 +284,11 @@ def test_setup_systray_exit_menu_item_calls_perform_exit_not_shortcut(mock_exist
     menu_items = menu_call_args[3]  # pystray.Icon(name, image, title, menu)
     exit_item = next(i for i in menu_items if i.text == 'Exit Engine')
 
-    with patch.object(lifecycle, 'perform_exit') as mock_perform_exit:
-        exit_item(MagicMock())  # MenuItem callable: __call__(icon) -> action(icon, self)
+    mock_thread.reset_mock()
+    exit_item(MagicMock())  # MenuItem callable: __call__(icon) -> action(icon, self)
 
-    mock_perform_exit.assert_called_once()
+    mock_thread.assert_called_once_with(target=lifecycle.perform_exit, daemon=True)
+    mock_thread.return_value.start.assert_called_once()
 
 @patch('main.threading.Thread')
 @patch('main.pystray.Icon')
@@ -237,6 +307,7 @@ def test_setup_systray_show_menu_item_restores_window(mock_exists, mock_image_op
 
     mock_window.show.assert_called_once()
     mock_window.restore.assert_called_once()
+    mock_api.apply_titlebar_theme.assert_called_once()
 
 @patch('main.threading.Thread')
 @patch('main.pystray.Icon')
@@ -257,13 +328,57 @@ def test_setup_systray_run_tray_swallows_icon_run_exception(mock_exists, mock_im
 
 
 # ==========================================
+# setup_signal_handlers (Ctrl+C & console shutdown)
+# ==========================================
+
+@patch('signal.signal')
+def test_setup_signal_handlers_registers_signals_and_triggers_exit(mock_signal, mock_api):
+    """setup_signal_handlers harus meregistrasi sinyal SIGINT/SIGTERM dan handler memanggil perform_exit."""
+    lifecycle = AppLifecycle(mock_api, is_production=False)
+    with patch.object(lifecycle, 'perform_exit') as mock_exit:
+        main_module.setup_signal_handlers(lifecycle)
+
+    assert mock_signal.call_count >= 2
+    handler_fn = mock_signal.call_args_list[0][0][1]
+    with patch.object(lifecycle, 'perform_exit') as mock_exit:
+        handler_fn(None, None)
+        mock_exit.assert_called_once()
+
+def test_setup_signal_handlers_win32_console_ctrl(mock_api):
+    """Pada Windows, SetConsoleCtrlHandler harus dipanggil dengan callback yang memicu perform_exit."""
+    lifecycle = AppLifecycle(mock_api, is_production=False)
+    with patch('sys.platform', 'win32'), \
+         patch('ctypes.windll.kernel32.SetConsoleCtrlHandler') as mock_set_handler:
+        main_module.setup_signal_handlers(lifecycle)
+
+        mock_set_handler.assert_called_once()
+        assert lifecycle._console_handler_ref is not None
+
+def test_setup_signal_handlers_hooks_winforms_sigint_if_available(mock_api):
+    """Jika webview.platforms.winforms tersedia, _sigint_handler harus di-hook agar memanggil perform_exit."""
+    lifecycle = AppLifecycle(mock_api, is_production=False)
+    fake_orig_handler = MagicMock()
+    fake_wf = MagicMock(_sigint_handler=fake_orig_handler)
+
+    with patch.dict('sys.modules', {'webview.platforms.winforms': fake_wf}):
+        main_module.setup_signal_handlers(lifecycle)
+
+        assert fake_wf._sigint_handler != fake_orig_handler
+        with patch.object(lifecycle, 'perform_exit') as mock_exit:
+            fake_wf._sigint_handler(2, None)
+            mock_exit.assert_called_once()
+            fake_orig_handler.assert_called_once_with(2, None)
+
+
+# ==========================================
 # main() — wiring end-to-end (semua dependensi eksternal di-mock)
 # ==========================================
 
+@patch('os._exit')
 @patch('main.check_single_instance', return_value=(True, None))
 @patch('main.webview')
 @patch('core.api.Api')
-def test_main_wires_api_window_and_quit_callback(mock_api_class, mock_webview, mock_check_single):
+def test_main_wires_api_window_and_quit_callback(mock_api_class, mock_webview, mock_check_single, mock_os_exit):
     mock_api_instance = MagicMock()
     mock_api_class.return_value = mock_api_instance
     mock_window = MagicMock()
@@ -276,6 +391,9 @@ def test_main_wires_api_window_and_quit_callback(mock_api_class, mock_webview, m
     mock_api_instance.start_log_watcher.assert_called_once()
     assert mock_api_instance.quit_callback is not None
     mock_webview.start.assert_called_once()
+    start_kwargs = mock_webview.start.call_args[1]
+    assert start_kwargs.get('private_mode') is False
+    assert 'webview' in start_kwargs.get('storage_path', '')
 
     # Regresi: ikon notifikasi native (win11toast) sebelumnya tidak pernah di-wire ke Api
     # sama sekali, sehingga notifikasi tampil tanpa ikon aplikasi -- lihat docs/known_bugs.md.
@@ -283,11 +401,12 @@ def test_main_wires_api_window_and_quit_callback(mock_api_class, mock_webview, m
     notification_icon_arg = mock_api_instance.set_notification_icon.call_args[0][0]
     assert notification_icon_arg.endswith('icons-nobg.png')
 
+@patch('os._exit')
 @patch('main.check_single_instance', return_value=(True, None))
 @patch('main.setup_systray')
 @patch('main.webview')
 @patch('core.api.Api')
-def test_main_sets_up_systray_based_on_enable_tray_not_is_production(mock_api_class, mock_webview, mock_setup_systray, mock_check_single):
+def test_main_sets_up_systray_based_on_enable_tray_not_is_production(mock_api_class, mock_webview, mock_setup_systray, mock_check_single, mock_os_exit):
     """Regresi: tray sekarang digerakkan ENABLE_TRAY, bukan IS_PRODUCTION -- IS_PRODUCTION tidak lagi relevan di sini."""
     mock_webview.create_window.return_value = MagicMock()
 
@@ -299,11 +418,12 @@ def test_main_sets_up_systray_based_on_enable_tray_not_is_production(mock_api_cl
         main_module.main()
     mock_setup_systray.assert_called_once()
 
+@patch('os._exit')
 @patch('main.check_single_instance', return_value=(True, None))
 @patch('main.setup_systray')
 @patch('main.webview')
 @patch('core.api.Api')
-def test_main_sets_up_systray_in_dev_mode_too(mock_api_class, mock_webview, mock_setup_systray, mock_check_single):
+def test_main_sets_up_systray_in_dev_mode_too(mock_api_class, mock_webview, mock_setup_systray, mock_check_single, mock_os_exit):
     """Permintaan fitur eksplisit: tray harus aktif juga di dev mode (ENABLE_TRAY default True, IS_PRODUCTION=False)."""
     mock_webview.create_window.return_value = MagicMock()
 
@@ -312,10 +432,11 @@ def test_main_sets_up_systray_in_dev_mode_too(mock_api_class, mock_webview, mock
 
     mock_setup_systray.assert_called_once()
 
+@patch('os._exit')
 @patch('main.check_single_instance', return_value=(True, None))
 @patch('main.webview')
 @patch('core.api.Api')
-def test_main_hooks_minimized_and_restored_events_to_push_window_state(mock_api_class, mock_webview, mock_check_single):
+def test_main_hooks_minimized_and_restored_events_to_push_window_state(mock_api_class, mock_webview, mock_check_single, mock_os_exit):
     """window.events.minimized/restored harus di-hook supaya frontend tahu kapan notifikasi native perlu tampil."""
     mock_api_instance = MagicMock()
     mock_api_class.return_value = mock_api_instance
@@ -325,22 +446,52 @@ def test_main_hooks_minimized_and_restored_events_to_push_window_state(mock_api_
     # dengan nilai return (MagicMock baru) -- referensi ORIGINAL harus ditangkap SEBELUM
     # main() berjalan, kalau tidak __iadd__.call_args sudah tidak bisa diakses lagi.
     minimized_event = mock_window.events.minimized
+    maximized_event = mock_window.events.maximized
     restored_event = mock_window.events.restored
 
     with patch('main.IS_PRODUCTION', False):
         main_module.main()
 
     minimized_event.__iadd__.assert_called_once()
+    maximized_event.__iadd__.assert_called_once()
     restored_event.__iadd__.assert_called_once()
 
     minimized_handler = minimized_event.__iadd__.call_args[0][0]
+    maximized_handler = maximized_event.__iadd__.call_args[0][0]
     restored_handler = restored_event.__iadd__.call_args[0][0]
 
     minimized_handler()
     mock_api_instance.emit_window_state.assert_called_with(minimized=True)
 
+    maximized_handler()
+    mock_api_instance.emit_window_state.assert_called_with(minimized=False)
+    mock_api_instance.settings.save_settings.assert_called_with({"window_maximized": True})
+
     restored_handler()
     mock_api_instance.emit_window_state.assert_called_with(minimized=False)
+    mock_api_instance.settings.save_settings.assert_called_with({"window_maximized": False})
+
+@patch('os._exit')
+@patch('main.check_single_instance', return_value=(True, None))
+@patch('main.webview')
+def test_main_window_maximized_and_restored_with_real_api(mock_webview, mock_check_single, mock_os_exit, tmp_path):
+    """Memastikan handler maximized dan restored tidak menimbulkan AttributeError saat menggunakan instance Api nyata."""
+    mock_window = MagicMock()
+    mock_webview.create_window.return_value = mock_window
+
+    maximized_event = mock_window.events.maximized
+    restored_event = mock_window.events.restored
+
+    with patch('core.services.settings.get_project_root', return_value=str(tmp_path)):
+        with patch('main.IS_PRODUCTION', False):
+            main_module.main()
+
+        maximized_handler = maximized_event.__iadd__.call_args[0][0]
+        restored_handler = restored_event.__iadd__.call_args[0][0]
+
+        # Handler tidak boleh raise AttributeError('Api object has no attribute settings_manager')
+        maximized_handler()
+        restored_handler()
 
 @patch('main.check_single_instance', return_value=(True, None))
 @patch('main.webview')
@@ -350,3 +501,409 @@ def test_main_handles_unexpected_startup_exception_without_crashing(mock_api_cla
     main_module.main()  # tidak boleh melempar exception ke pemanggil
     # Pastikan exception itu benar berasal dari upaya nyata memanggil Api(), bukan main() no-op
     mock_api_class.assert_called_once()
+
+@patch('os._exit')
+@patch('main.check_single_instance', return_value=(True, None))
+@patch('main.webview')
+@patch('core.api.Api')
+def test_main_catches_keyboard_interrupt_and_exits(mock_api_class, mock_webview, mock_check_single, mock_os_exit):
+    """Ketika user menekan Ctrl+C (KeyboardInterrupt) saat webview running, main menangkap dan perform_exit dipanggil."""
+    mock_webview.start.side_effect = KeyboardInterrupt()
+    mock_webview.create_window.return_value = MagicMock()
+
+    with patch('main.IS_PRODUCTION', False):
+        main_module.main()
+
+    mock_os_exit.assert_called_once_with(0)
+
+
+def test_get_saved_theme_reads_from_settings(tmp_path):
+    """get_saved_theme harus membaca tema dari data/settings.json jika file ada."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    settings_file = data_dir / "settings.json"
+    settings_file.write_text('{"theme": "tokyo-night-dark"}', encoding='utf-8')
+
+    with patch('main.get_project_root', return_value=str(tmp_path)):
+        assert get_saved_theme() == "tokyo-night-dark"
+
+
+def test_get_saved_theme_fallback_when_missing(tmp_path):
+    """Jika settings.json tidak ditemukan atau korup, fallback ke vyloserve-dark."""
+    with patch('main.get_project_root', return_value=str(tmp_path)):
+        assert get_saved_theme() == "vyloserve-dark"
+
+
+def test_get_theme_bg_color_reads_from_settings(tmp_path):
+    """get_theme_bg_color harus membaca tema dari data/settings.json jika file ada."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    settings_file = data_dir / "settings.json"
+    settings_file.write_text('{"theme": "dracula-dark"}', encoding='utf-8')
+
+    with patch('main.get_project_root', return_value=str(tmp_path)):
+        assert get_theme_bg_color() == "#282a36"
+
+
+def test_get_theme_bg_color_fallback_when_settings_file_missing(tmp_path):
+    """Jika settings.json tidak ditemukan, fallback ke warna vyloserve-dark (#0f172a)."""
+    with patch('main.get_project_root', return_value=str(tmp_path)):
+        assert get_theme_bg_color() == "#0f172a"
+
+
+@patch('os._exit')
+@patch('main.check_single_instance', return_value=(True, None))
+@patch('main.webview')
+@patch('core.api.Api')
+def test_main_hooks_shown_event_to_apply_titlebar_theme(mock_api_class, mock_webview, mock_check_single, mock_os_exit):
+    """window.events.shown harus di-hook untuk menyelaraskan titlebar theme via DWM."""
+    mock_api_instance = MagicMock()
+    mock_api_class.return_value = mock_api_instance
+    mock_window = MagicMock()
+    mock_webview.create_window.return_value = mock_window
+    shown_event = mock_window.events.shown
+
+    with patch('main.IS_PRODUCTION', False):
+        main_module.main()
+
+    shown_event.__iadd__.assert_called_once()
+    shown_handler = shown_event.__iadd__.call_args[0][0]
+    shown_handler()
+    mock_api_instance.apply_titlebar_theme.assert_called_once()
+
+
+# ==========================================
+# Single Instance, IPC & Environment Scoping Tests
+# ==========================================
+
+def test_environment_scoping_helpers():
+    """Memastikan helper nama mutex, pipe, dan judul window terisolasi antara dev dan prod."""
+    # Production mode
+    assert get_mutex_name(is_production=True) == "VyloServe_App_Mutex_v1"
+    assert get_ipc_pipe_name(is_production=True) == r'\\.\pipe\VyloServe_IPC_v1'
+    assert get_window_title(is_production=True) == "VyloServe"
+
+    # Development mode
+    assert get_mutex_name(is_production=False) == "VyloServe_Dev_App_Mutex_v1"
+    assert get_ipc_pipe_name(is_production=False) == r'\\.\pipe\VyloServe_Dev_IPC_v1'
+    assert get_window_title(is_production=False) == "VyloServe (Development)"
+
+
+def test_setup_app_user_model_id_win32():
+    """setup_app_user_model_id harus memanggil SetCurrentProcessExplicitAppUserModelID dengan AppID terpisah."""
+    with patch('sys.platform', 'win32'), patch('ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID') as mock_set_id:
+        setup_app_user_model_id(is_production=False)
+        mock_set_id.assert_called_with("VyloServe.App.Development")
+
+        setup_app_user_model_id(is_production=True)
+        mock_set_id.assert_called_with("VyloServe.App.Production")
+
+
+def test_setup_app_user_model_id_handles_exceptions():
+    """Kegagalan set AppUserModelID (misal OS tidak support) tidak boleh melempar exception."""
+    with patch('sys.platform', 'win32'), patch('ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID', side_effect=OSError("not supported")):
+        setup_app_user_model_id(is_production=False)  # Harusnya tidak crash
+
+
+def test_check_single_instance_first_instance():
+    """Instance pertama harus mengembalikan (True, mutex) dan membuat mutex dengan nama yang sesuai."""
+    with patch('sys.platform', 'win32'), patch('ctypes.windll.kernel32.CreateMutexW') as mock_create_mutex, patch('ctypes.windll.kernel32.GetLastError', return_value=0):
+        mock_mutex = MagicMock()
+        mock_create_mutex.return_value = mock_mutex
+
+        # Dev mode
+        is_first, mutex = check_single_instance(is_production=False)
+        assert is_first is True
+        assert mutex == mock_mutex
+        mock_create_mutex.assert_called_with(None, False, "VyloServe_Dev_App_Mutex_v1")
+
+        # Prod mode
+        is_first, mutex = check_single_instance(is_production=True)
+        assert is_first is True
+        assert mutex == mock_mutex
+        mock_create_mutex.assert_called_with(None, False, "VyloServe_App_Mutex_v1")
+
+
+def test_check_single_instance_already_exists():
+    """Jika mutex sudah ada (ERROR_ALREADY_EXISTS = 183), harus mengembalikan (False, None)."""
+    with patch('sys.platform', 'win32'), patch('ctypes.windll.kernel32.CreateMutexW'), patch('ctypes.windll.kernel32.GetLastError', return_value=183):
+        is_first, mutex = check_single_instance(is_production=False)
+        assert is_first is False
+        assert mutex is None
+
+
+def test_check_single_instance_non_windows():
+    """Pada platform non-Windows, check_single_instance selalu mengizinkan proses jalan."""
+    with patch('sys.platform', 'linux'):
+        is_first, mutex = check_single_instance(is_production=False)
+        assert is_first is True
+        assert mutex is None
+
+
+def test_lifecycle_show_and_bring_to_front(mock_api):
+    """show_and_bring_to_front harus merestore window, emit status, dan set DWM titlebar theme."""
+    lifecycle = AppLifecycle(mock_api, is_production=True)
+    mock_window = MagicMock()
+    lifecycle.set_window(mock_window)
+
+    lifecycle.show_and_bring_to_front()
+
+    mock_window.show.assert_called_once()
+    mock_window.restore.assert_called_once()
+    mock_api.emit_window_state.assert_called_once_with(hidden=False, minimized=False)
+    mock_api.apply_titlebar_theme.assert_called_once()
+
+
+def test_lifecycle_show_and_bring_to_front_swallows_exception(mock_api):
+    """Jika window.show() melempar error, show_and_bring_to_front harus menangani secara graceful."""
+    lifecycle = AppLifecycle(mock_api, is_production=True)
+    mock_window = MagicMock()
+    mock_window.show.side_effect = RuntimeError("form disposed")
+    lifecycle.set_window(mock_window)
+
+    lifecycle.show_and_bring_to_front()  # Tidak boleh melempar exception
+
+
+def test_bring_existing_instance_to_front_via_ipc():
+    """Jika instance lain sudah ada, harus mengirimkan sinyal 'SHOW' via IPC Named Pipe."""
+    mock_client = MagicMock()
+    with patch('sys.platform', 'win32'), \
+         patch('multiprocessing.connection.Client', return_value=mock_client) as mock_client_cls, \
+         patch('ctypes.windll.user32.FindWindowW', return_value=12345), \
+         patch('ctypes.windll.user32.SetForegroundWindow') as mock_set_fg, \
+         patch('ctypes.windll.user32.ShowWindow') as mock_show_window:
+
+        bring_existing_instance_to_front(is_production=False)
+
+        mock_client_cls.assert_called_once_with(r'\\.\pipe\VyloServe_Dev_IPC_v1', 'AF_PIPE')
+        mock_client.send.assert_called_once_with('SHOW')
+        mock_client.close.assert_called_once()
+        mock_set_fg.assert_called_once_with(12345)
+        # ShowWindow tidak perlu dipanggil jika IPC sukses
+        mock_show_window.assert_not_called()
+
+
+def test_bring_existing_instance_to_front_fallback_when_ipc_fails():
+    """Jika IPC gagal (mis. file pipe tidak ditemukan), harus fallback ke ShowWindow Win32."""
+    with patch('sys.platform', 'win32'), \
+         patch('multiprocessing.connection.Client', side_effect=FileNotFoundError("Pipe not found")), \
+         patch('ctypes.windll.user32.FindWindowW', return_value=12345), \
+         patch('ctypes.windll.user32.SetForegroundWindow') as mock_set_fg, \
+         patch('ctypes.windll.user32.ShowWindow') as mock_show_window:
+
+        bring_existing_instance_to_front(is_production=True)
+
+        mock_set_fg.assert_called_once_with(12345)
+        # ShowWindow harus dipanggil sebagai fallback
+        assert mock_show_window.call_count == 2
+
+
+def test_start_ipc_server_dispatch_show_command(mock_api):
+    """start_ipc_server harus menerima koneksi dan memanggil lifecycle.show_and_bring_to_front."""
+    lifecycle = AppLifecycle(mock_api, is_production=False)
+    mock_window = MagicMock()
+    lifecycle.set_window(mock_window)
+
+    mock_conn = MagicMock()
+    mock_conn.recv.return_value = 'SHOW'
+
+    mock_listener = MagicMock()
+    # accept() pertama kali mereturn mock_conn, panggilan berikutnya melempar exception agar loop berhenti
+    mock_listener.accept.side_effect = [mock_conn, RuntimeError("Stop loop")]
+
+    with patch('sys.platform', 'win32'), \
+         patch('multiprocessing.connection.Listener', return_value=mock_listener) as mock_listener_cls:
+
+        listener = start_ipc_server(lifecycle, is_production=False)
+        assert listener == mock_listener
+        assert lifecycle.ipc_listener == mock_listener
+
+        # Simulasikan thread worker selesai memproses
+        import time
+        time.sleep(0.05)
+
+        mock_window.show.assert_called()
+        mock_window.restore.assert_called()
+
+
+def test_start_ipc_server_handles_exception_gracefully(mock_api):
+    """Jika inisialisasi Listener gagal, harus menangani tanpa membuat aplikasi crash."""
+    lifecycle = AppLifecycle(mock_api, is_production=False)
+    with patch('sys.platform', 'win32'), \
+         patch('multiprocessing.connection.Listener', side_effect=OSError("Pipe in use")):
+        listener = start_ipc_server(lifecycle, is_production=False)
+        assert listener is None
+        assert lifecycle.ipc_listener is None
+
+
+def test_perform_exit_closes_ipc_listener(mock_api):
+    """perform_exit harus menutup ipc_listener jika ada."""
+    with patch('os._exit'):
+        lifecycle = AppLifecycle(mock_api, is_production=True)
+        mock_listener = MagicMock()
+        lifecycle.set_ipc_listener(mock_listener)
+
+        lifecycle.perform_exit()
+
+        mock_listener.close.assert_called_once()
+
+
+@patch('main.check_single_instance', return_value=(False, None))
+@patch('main.bring_existing_instance_to_front')
+@patch('main.webview')
+@patch('sys.exit')
+def test_main_duplicate_instance_brings_to_front_and_exits(mock_exit, mock_webview, mock_bring_to_front, mock_check_single):
+    """Ketika instance kedua dijalankan, harus memanggil bring_existing_instance_to_front dan sys.exit(0)."""
+    with patch('main.IS_PRODUCTION', False):
+        main_module.main()
+
+    mock_bring_to_front.assert_called_once_with(False)
+    mock_exit.assert_called_once_with(0)
+    mock_webview.start.assert_not_called()
+
+
+@patch('os._exit')
+@patch('main.check_single_instance', return_value=(True, MagicMock()))
+@patch('main.start_ipc_server')
+@patch('main.webview')
+@patch('core.api.Api')
+def test_main_starts_ipc_server_on_first_instance(mock_api_class, mock_webview, mock_start_ipc, mock_check_single, mock_os_exit):
+    """Instance pertama harus menjalankan start_ipc_server dengan lifecycle yang dibangun."""
+    mock_webview.create_window.return_value = MagicMock()
+
+    with patch('main.IS_PRODUCTION', False):
+        main_module.main()
+
+    mock_start_ipc.assert_called_once()
+    args = mock_start_ipc.call_args[0]
+    assert isinstance(args[0], AppLifecycle)
+    assert args[1] is False
+
+
+# ==========================================
+# setup_windows_performance_optimizations (docs/known_bugs.md #80)
+# ==========================================
+
+def test_setup_windows_performance_optimizations_non_windows():
+    """Pada platform non-Windows, optimasi harus mengembalikan False tanpa error."""
+    with patch('sys.platform', 'darwin'):
+        result = setup_windows_performance_optimizations()
+        assert result is False
+
+
+def test_setup_windows_performance_optimizations_sets_chromium_flags(monkeypatch):
+    """Harus menyetel argumen GPU rasterization & zero copy, membiarkan oklusi native aktif untuk mencegah GPU crash saat window di-hide."""
+    monkeypatch.setattr('sys.platform', 'win32')
+    monkeypatch.delenv('WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS', raising=False)
+
+    result = setup_windows_performance_optimizations()
+    assert result is True
+    env_args = os.environ.get('WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS', '')
+    assert '--enable-gpu-rasterization' in env_args
+    assert '--ignore-gpu-blocklist' in env_args
+    assert '--enable-zero-copy' in env_args
+    assert '--disable-features=CalculateNativeWinOcclusion' not in env_args
+
+
+def test_setup_windows_performance_optimizations_idempotent(monkeypatch):
+    """Pemanggilan ganda tidak boleh error dan tetap mengembalikan True."""
+    monkeypatch.setattr('sys.platform', 'win32')
+    res1 = setup_windows_performance_optimizations()
+    res2 = setup_windows_performance_optimizations()
+    assert res1 is True
+    assert res2 is True
+
+
+def test_setup_windows_performance_optimizations_applies_styles_and_preserves_live_animation(monkeypatch):
+    """
+    Menguji Form WinForms yang dipatch:
+    - DoubleBuffered harus diset False (menghindari alokasi GDI+ buffer CPU yang membebani UI thread).
+    - SetStyle harus menyetel AllPaintingInWmPaint=True untuk mengurangi flicker redraw.
+    - UserPaint TIDAK boleh dimatikan (UserPaint=False) agar BackColor tema gelap dilukis sejak frame 0
+      (mencegah Flash of White / glitch putih polos saat startup).
+    - Layout tidak disuspend (tidak memasang SuspendLayout) agar animasi CSS tetap berjalan live.
+    """
+    monkeypatch.setattr('sys.platform', 'win32')
+
+    class DummyBrowserForm:
+        def __init__(self, window, cache_dir):
+            self.window = window
+            self.styles = {}
+
+        def SetStyle(self, style, value):
+            self.styles[style] = value
+
+    class DummyControlStyles:
+        UserPaint = "UserPaint"
+        AllPaintingInWmPaint = "AllPaintingInWmPaint"
+        Opaque = "Opaque"
+
+    dummy_wf = MagicMock()
+    dummy_wf.BrowserView.BrowserForm = DummyBrowserForm
+    dummy_wf.WinForms.ControlStyles = DummyControlStyles
+    monkeypatch.setitem(sys.modules, 'webview.platforms.winforms', dummy_wf)
+
+    setup_windows_performance_optimizations()
+
+    # Buat instance form yang telah terpatch
+    form = DummyBrowserForm(MagicMock(), 'cache_dir')
+
+    assert form.DoubleBuffered is False
+    assert form.styles.get(DummyControlStyles.AllPaintingInWmPaint) is True
+    # UserPaint dan Opaque tidak boleh dimatikan agar background tema tetap dilukis sejak frame 0
+    assert DummyControlStyles.UserPaint not in form.styles
+    assert DummyControlStyles.Opaque not in form.styles
+
+
+def test_setup_windows_performance_optimizations_configures_edge_webview2(monkeypatch):
+    """Memastikan on_webview_ready pada EdgeChrome dipatch untuk menonaktifkan context menu, dialog native, serta auto-accept permissions."""
+    monkeypatch.setattr('sys.platform', 'win32')
+
+    class DummyEdgeChrome:
+        _vylo_context_menu_patched = False
+        def on_webview_ready(self, sender, args):
+            pass
+
+    dummy_ec = MagicMock()
+    dummy_ec.EdgeChrome = DummyEdgeChrome
+    monkeypatch.setitem(sys.modules, 'webview.platforms.edgechromium', dummy_ec)
+
+    setup_windows_performance_optimizations()
+
+    assert DummyEdgeChrome._vylo_context_menu_patched is True
+
+    # Test pemanggilan patched method
+    instance = DummyEdgeChrome()
+    mock_sender = MagicMock()
+    mock_args = MagicMock()
+    mock_args.IsSuccess = True
+
+    instance.on_webview_ready(mock_sender, mock_args)
+
+    # 1. Verifikasi settings
+    assert mock_sender.CoreWebView2.Settings.AreDefaultContextMenusEnabled is False
+    assert mock_sender.CoreWebView2.Settings.AreDefaultScriptDialogsEnabled is False
+    assert mock_sender.CoreWebView2.Settings.IsGeneralAutofillEnabled is False
+    assert mock_sender.CoreWebView2.Settings.IsPasswordAutosaveEnabled is False
+
+    # 2. Verifikasi PermissionRequested auto-accept (Allow = 1)
+    perm_calls = [c for c in mock_sender.CoreWebView2.mock_calls if c[0] == 'PermissionRequested.__iadd__']
+    assert len(perm_calls) == 1
+    perm_handler = perm_calls[0][1][0]
+    mock_perm_args = MagicMock()
+    perm_handler(mock_sender, mock_perm_args)
+    assert mock_perm_args.State == 1 or getattr(mock_perm_args.State, 'value__', None) == 1
+    assert mock_perm_args.Handled is True
+    assert mock_perm_args.SavesInProfile is True
+
+    # 3. Verifikasi ScriptDialogOpening auto-accept
+    dialog_calls = [c for c in mock_sender.CoreWebView2.mock_calls if c[0] == 'ScriptDialogOpening.__iadd__']
+    assert len(dialog_calls) == 1
+    dialog_handler = dialog_calls[0][1][0]
+    mock_dialog_args = MagicMock()
+    dialog_handler(mock_sender, mock_dialog_args)
+    mock_dialog_args.Accept.assert_called_once()
+
+
+
+

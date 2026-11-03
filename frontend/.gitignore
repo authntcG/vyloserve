@@ -12,8 +12,11 @@ dist
 dist-ssr
 *.local
 
-# Vitest coverage reports (regenerated on demand via `npm run test:coverage`)
+# Vitest coverage reports & cache (regenerated on demand via `npm run test:coverage`)
 coverage
+.vitest-cache
+.vitest_cache
+.vite
 
 # Editor directories and files
 .vscode/*

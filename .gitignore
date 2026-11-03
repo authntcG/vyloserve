@@ -9,10 +9,15 @@ build
 .scannerwork_fe
 .claude
 .pytest_cache
+.vitest-cache
+.vitest_cache
+.vite
+node_modules
 .env
 .coverage
 gitleaks.json
 coverage.xml
+vyloserve_scan_report_*.md
 /temp
 
 # AI / LLM Tools

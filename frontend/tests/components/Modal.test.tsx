@@ -135,4 +135,34 @@ describe('Modal', () => {
         expect(screen.getByText('my custom footer')).toBeInTheDocument();
         expect(screen.queryByTitle('Close')).not.toBeInTheDocument();
     });
+
+    it('applies default and custom maxWidthClass with min-w-0 to prevent horizontal clipping', () => {
+        const { rerender } = render(
+            <Modal isOpen={true} onClose={vi.fn()} title="Default Modal">
+                <div>Modal body</div>
+            </Modal>
+        );
+
+        const dialog = screen.getByRole('dialog');
+        const modalBox = dialog.querySelector('.relative.w-full');
+        expect(modalBox).toHaveClass('sm:w-[500px]');
+
+        // Body wrapper must include min-w-0 and overflow-x-hidden to prevent horizontal clipping
+        const bodyWrapper = modalBox?.querySelector('.overflow-y-auto');
+        expect(bodyWrapper).toHaveClass('min-w-0');
+        expect(bodyWrapper).toHaveClass('overflow-x-hidden');
+
+        // Custom maxWidthClass
+        rerender(
+            <Modal
+                isOpen={true}
+                onClose={vi.fn()}
+                title="Wide Modal"
+                maxWidthClass="sm:w-[720px] md:w-[820px] max-w-[calc(100vw-2rem)]"
+            >
+                <div>Wide modal body</div>
+            </Modal>
+        );
+        expect(modalBox).toHaveClass('sm:w-[720px]', 'md:w-[820px]', 'max-w-[calc(100vw-2rem)]');
+    });
 });

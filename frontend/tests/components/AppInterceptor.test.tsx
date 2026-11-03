@@ -42,6 +42,17 @@ describe('GlobalAppInterceptor', () => {
         expect(screen.queryByText('components.interceptor.copy_btn')).not.toBeInTheDocument();
     });
 
+    it('always calls preventDefault on contextmenu events to disable default browser right-click menu', () => {
+        renderWithLogArea();
+        const otherArea = screen.getByTestId('other-area');
+        const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+        const preventDefaultSpy = vi.spyOn(event, 'preventDefault');
+
+        otherArea.dispatchEvent(event);
+
+        expect(preventDefaultSpy).toHaveBeenCalled();
+    });
+
     it('closes the menu on a regular click', async () => {
         const user = userEvent.setup();
         renderWithLogArea();
@@ -143,5 +154,33 @@ describe('GlobalAppInterceptor', () => {
         window.dispatchEvent(event);
 
         expect(event.defaultPrevented).toBe(false);
+    });
+
+    it('shows the copy selection menu when right-clicking after blocking a sentence in any document area', async () => {
+        const user = userEvent.setup();
+        vi.spyOn(window, 'getSelection').mockReturnValue({
+            toString: () => 'VyloServe adalah aplikasi server lokal'
+        } as unknown as Selection);
+
+        const writeText = vi.fn().mockResolvedValue(undefined);
+        Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+
+        renderWithToast(
+            <>
+                <GlobalAppInterceptor />
+                <div data-testid="doc-content">VyloServe adalah aplikasi server lokal modern</div>
+            </>
+        );
+
+        fireEvent.contextMenu(screen.getByTestId('doc-content'), { clientX: 100, clientY: 150 });
+
+        const copyBtn = screen.getByText('components.interceptor.copy_selection_btn');
+        expect(copyBtn).toBeInTheDocument();
+
+        await user.click(copyBtn);
+
+        expect(writeText).toHaveBeenCalledWith('VyloServe adalah aplikasi server lokal');
+        expect(await screen.findByText('components.interceptor.copy_selection_success')).toBeInTheDocument();
+        expect(screen.queryByText('components.interceptor.copy_selection_btn')).not.toBeInTheDocument();
     });
 });

@@ -1,11 +1,28 @@
 <!DOCTYPE html>
-<html lang="en" class="dark"> <!-- Hapus class="dark" jika ingin mengikuti sistem (light/dark) -->
+<html lang="en">
 
 <head>
   <meta charset="UTF-8" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>VyloServe Dashboard</title>
+  <script src="./vylo-theme.js"></script>
+  <script>
+    (function () {
+      try {
+        var savedTheme = (typeof window !== 'undefined' && window.__VYLO_INITIAL_THEME__) || localStorage.getItem('vylo_theme') || 'vyloserve-dark';
+        document.documentElement.dataset.theme = savedTheme;
+        if (savedTheme.indexOf('-light') !== -1) {
+          document.documentElement.classList.remove('dark');
+        } else {
+          document.documentElement.classList.add('dark');
+        }
+      } catch (e) {
+        document.documentElement.classList.add('dark');
+        document.documentElement.dataset.theme = 'vyloserve-dark';
+      }
+    })();
+  </script>
 </head>
 
 <body>

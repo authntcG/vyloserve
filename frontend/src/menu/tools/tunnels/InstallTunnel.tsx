@@ -1,8 +1,10 @@
 import { useState, forwardRef, useImperativeHandle, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useToast } from '../../../components/ToastContext';
+import { useToast } from '../../../context/ToastContext';
 import Select from '../../../components/Select';
 import InfoBox from '../../../components/InfoBox';
+import OfflineBanner from '../../../components/OfflineBanner';
+import { useNetworkStatus, isOfflineResponse } from '../../../context/NetworkContext';
 
 export interface InstallTunnelRef { submit: () => Promise<boolean>; }
 
@@ -28,33 +30,40 @@ interface InstallTunnelProps {
 const InstallTunnel = forwardRef<InstallTunnelRef, InstallTunnelProps>(({ fetchVersionsApi, installApi, translations }, ref) => {
     const { t } = useTranslation();
     const { showToast } = useToast();
+    const { isOnline, reportOffline, reportOnline } = useNetworkStatus();
 
     const [version, setVersion] = useState('');
     const [versionsList, setVersionsList] = useState<OnlineVersion[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
-    useEffect(() => {
-        const fetchVersions = async () => {
-            try {
-                const res = await fetchVersionsApi();
-                if (res?.status === 'success' && res.data.length > 0) {
-                    const mappedVersions = res.data.map((d: any) => ({
-                        id: d.id,
-                        name: d.label,
-                        version: d.value
-                    }));
-                    setVersionsList(mappedVersions);
-                    setVersion(mappedVersions[0].version);
-                } else {
-                    setVersionsList([]);
+    const fetchVersions = async () => {
+        setIsLoading(true);
+        try {
+            const res = await fetchVersionsApi();
+            if (res?.status === 'success' && res.data.length > 0) {
+                reportOnline();
+                const mappedVersions = res.data.map((d: any) => ({
+                    id: d.id,
+                    name: d.label,
+                    version: d.value
+                }));
+                setVersionsList(mappedVersions);
+                setVersion(mappedVersions[0].version);
+            } else {
+                if (isOfflineResponse(res)) {
+                    reportOffline();
                 }
-            } catch {
                 setVersionsList([]);
-                showToast(t(translations.fetchFailed), 'error');
-            } finally {
-                setIsLoading(false);
             }
-        };
+        } catch {
+            setVersionsList([]);
+            showToast(t(translations.fetchFailed), 'error');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
         fetchVersions();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -67,6 +76,9 @@ const InstallTunnel = forwardRef<InstallTunnelRef, InstallTunnelProps>(({ fetchV
                 if (res?.status === 'success') {
                     showToast((res.message ? t(res.message, res.args || {}) : t(translations.installSuccess)) as string, 'success');
                     return true;
+                } else if (res?.status === 'cancelled') {
+                    showToast((res.message ? t(res.message, res.args || {}) : t('backend.tunnels.install_cancelled')) as string, 'info');
+                    return false;
                 } else {
                     showToast((res?.message ? t(res.message, res.args || {}) : t(translations.installFailed)) as string, 'error');
                     return false;
@@ -78,8 +90,16 @@ const InstallTunnel = forwardRef<InstallTunnelRef, InstallTunnelProps>(({ fetchV
         }
     }));
 
+    const showOfflineBanner = !isLoading && (!isOnline || versionsList.length === 0);
+
     return (
         <div className="flex flex-col gap-4">
+            {showOfflineBanner && (
+                <OfflineBanner
+                    onRetry={fetchVersions}
+                    forceShow={showOfflineBanner}
+                />
+            )}
             <p className="text-slate-600 dark:text-slate-400">
                 {t(translations.info1)}
             </p>

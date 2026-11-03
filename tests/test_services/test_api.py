@@ -1,4 +1,5 @@
-﻿import pytest
+import sys
+import pytest
 from unittest.mock import MagicMock, patch
 from core.api import Api
 
@@ -16,6 +17,12 @@ def api_instance():
          patch('core.api.SettingsManager'):
         api = Api()
         yield api
+
+def test_api_manager_aliases(api_instance):
+    """Memastikan alias property pada Api instance mereferensikan instance manager yang benar."""
+    assert api_instance.settings_manager is api_instance.settings
+    assert api_instance.runtimes is api_instance.runtimes_manager
+    assert api_instance.git is api_instance.git_manager
 
 def test_set_notification_icon_stores_the_path(api_instance):
     api_instance.set_notification_icon("C:\\fake\\icons-nobg.png")
@@ -88,6 +95,23 @@ def test_emit_events_source_is_null_when_called_without_wrapping_class(api_insta
     payload = mock_window.evaluate_js.call_args[0][0]
     assert '"source": null' in payload
 
+def test_emit_events_suppressed_when_shutting_down(api_instance):
+    """
+    Saat aplikasi sedang shutdown (_is_shutting_down=True), emit_log, emit_progress,
+    emit_window_state, dan emit_ai_chunk tidak boleh memanggil evaluate_js (mencegah deadlock).
+    """
+    mock_window = MagicMock()
+    api_instance.set_window(mock_window)
+    api_instance.set_shutting_down()
+    assert api_instance._is_shutting_down is True
+
+    api_instance.emit_log("some message")
+    api_instance.emit_progress(50, "some progress")
+    api_instance.emit_window_state(hidden=True)
+    api_instance.emit_ai_chunk(chunk="test", is_done=True)
+
+    mock_window.evaluate_js.assert_not_called()
+
 def test_project_endpoints_fallback_when_project_module_not_loaded(api_instance):
     """
     Regression test: PROJECT_NOT_LOADED_MSG sebelumnya direferensikan di beberapa
@@ -103,6 +127,9 @@ def test_project_endpoints_fallback_when_project_module_not_loaded(api_instance)
     assert api_instance.retry_sync_host("id") == expected
     assert api_instance.open_in_explorer("path") == expected
     assert api_instance.update_project({"id": "1"}) == expected
+    assert api_instance.send_project_cli_input("data") == expected
+    assert api_instance.resize_project_cli(80, 24) == expected
+    assert api_instance.cancel_project_install() == expected
 
 def test_test_connection(api_instance):
     res = api_instance.test_connection("ping")
@@ -276,6 +303,8 @@ def test_project_endpoints(api_instance):
     mock_window.create_file_dialog.return_value = [mock_file]
     api_instance.set_window(mock_window)
     assert api_instance.browse_directory() == "d:/test"
+    assert api_instance.browse_open_file() == "d:/test"
+    assert api_instance.browse_save_file("backup.sql") == "d:/test"
     
     with patch('webbrowser.open'):
         assert api_instance.open_browser("url")["status"] == "success"
@@ -302,6 +331,25 @@ def test_project_endpoints(api_instance):
     
     api_instance.update_project({"id": "1"})
     api_instance.project.update_project.assert_called_once_with({"id": "1"})
+
+    api_instance.send_project_cli_input("hello")
+    api_instance.project.send_project_cli_input.assert_called_once_with("hello")
+
+    api_instance.resize_project_cli(80, 24)
+    api_instance.project.resize_project_cli.assert_called_once_with(80, 24)
+
+    api_instance.cancel_project_install()
+    api_instance.project.cancel_project_install.assert_called_once()
+
+def test_emit_cli_events(api_instance):
+    mock_window = MagicMock()
+    api_instance.set_window(mock_window)
+
+    api_instance.emit_cli_output("some output")
+    assert mock_window.evaluate_js.called
+
+    api_instance.emit_cli_state(True, "prompt line")
+    assert mock_window.evaluate_js.call_count == 2
 
 @patch('os._exit')
 def test_close_app(mock_exit, api_instance):
@@ -363,12 +411,27 @@ def test_database_endpoints(api_instance):
     api_instance.change_db_credentials("id", "user", "old", "new")
     api_instance.database.change_db_credentials.assert_called_once_with("id", "user", "old", "new")
 
+    api_instance.list_database_schemas("id", "pass")
+    api_instance.database.list_schemas.assert_called_once_with("id", "pass")
+
+    api_instance.create_database_schema("id", "new_db", "pass")
+    api_instance.database.create_schema.assert_called_once_with("id", "new_db", "pass")
+
+    api_instance.drop_database_schema("id", "old_db", "pass")
+    api_instance.database.drop_schema.assert_called_once_with("id", "old_db", "pass")
+
+    api_instance.export_database_schema("id", "my_db", "/path.sql", "pass")
+    api_instance.database.export_schema.assert_called_once_with("id", "my_db", "/path.sql", "pass")
+
+    api_instance.import_database_schema("id", "my_db", "/path.sql", "pass")
+    api_instance.database.import_schema.assert_called_once_with("id", "my_db", "/path.sql", "pass")
+
 def test_runtimes_endpoints(api_instance):
     api_instance.get_node_status()
     api_instance.runtimes_manager.get_node_status.assert_called_once()
     
     api_instance.install_node("latest", True)
-    api_instance.runtimes_manager.install_node.assert_called_once_with("latest", True)
+    api_instance.runtimes_manager.install_node.assert_called_once_with("latest", True, set_as_active=True)
     
     api_instance.uninstall_node()
     api_instance.runtimes_manager.uninstall_node.assert_called_once()
@@ -380,7 +443,7 @@ def test_runtimes_endpoints(api_instance):
     api_instance.runtimes_manager.get_python_status.assert_called_once()
     
     api_instance.install_python("3.10", True)
-    api_instance.runtimes_manager.install_python.assert_called_once_with("3.10", True)
+    api_instance.runtimes_manager.install_python.assert_called_once_with("3.10", True, set_as_active=True)
     
     api_instance.uninstall_python()
     api_instance.runtimes_manager.uninstall_python.assert_called_once()
@@ -392,7 +455,7 @@ def test_runtimes_endpoints(api_instance):
     api_instance.runtimes_manager.get_java_status.assert_called_once()
     
     api_instance.install_java("17")
-    api_instance.runtimes_manager.install_java.assert_called_once_with("17")
+    api_instance.runtimes_manager.install_java.assert_called_once_with("17", set_as_active=True)
     
     api_instance.uninstall_java()
     api_instance.runtimes_manager.uninstall_java.assert_called_once()
@@ -407,13 +470,25 @@ def test_runtimes_endpoints(api_instance):
     api_instance.runtimes_manager.get_available_go_versions.assert_called_once()
     
     api_instance.install_go("1.21")
-    api_instance.runtimes_manager.install_go.assert_called_once_with("1.21")
+    api_instance.runtimes_manager.install_go.assert_called_once_with("1.21", set_as_active=True)
     
     api_instance.uninstall_go()
     api_instance.runtimes_manager.uninstall_go.assert_called_once()
     
     api_instance.toggle_global_path("node", True)
     api_instance.runtimes_manager.toggle_user_path.assert_called_once_with("node", True)
+
+    api_instance.get_engine_versions("node")
+    api_instance.runtimes_manager.get_engine_versions.assert_called_once_with("node")
+
+    api_instance.set_active_runtime_version("node", "20.10.0")
+    api_instance.runtimes_manager.set_active_version.assert_called_once_with("node", "20.10.0")
+
+    api_instance.deactivate_runtime_version("node")
+    api_instance.runtimes_manager.deactivate_active_version.assert_called_once_with("node")
+
+    api_instance.uninstall_runtime_version("node", "20.10.0")
+    api_instance.runtimes_manager.uninstall_engine_version.assert_called_once_with("node", "20.10.0")
 
 def test_git_endpoints(api_instance):
     api_instance.get_git_status()
@@ -476,6 +551,31 @@ def test_emit_window_state_does_not_crash_without_a_window(api_instance):
     api_instance.emit_window_state(minimized=True)  # tidak boleh raise
 
 @patch('core.api.threading.Thread')
+def test_safe_eval_js_dispatches_via_daemon_thread_on_real_window(mock_thread_cls, api_instance):
+    """
+    Pada window nyata (bukan MagicMock), _safe_eval_js harus selalu mendispatch eksekusi
+    melalui daemon thread terpisah agar UI message pump WinForms (.NET STA thread) tidak deadlock
+    akibat semaphore.acquire() di pywebview.
+    """
+    class RealWindow:
+        def __init__(self):
+            self.uid = "test-uid"
+        def evaluate_js(self, script):
+            pass
+
+    real_window = RealWindow()
+    api_instance.set_window(real_window)
+
+    mock_thread_instance = MagicMock()
+    mock_thread_cls.return_value = mock_thread_instance
+
+    api_instance._safe_eval_js("console.log(1)")
+
+    mock_thread_cls.assert_called_once()
+    assert mock_thread_cls.call_args.kwargs.get('daemon') is True
+    mock_thread_instance.start.assert_called_once()
+
+@patch('core.api.threading.Thread')
 def test_show_native_notification_runs_in_a_background_thread(mock_thread_cls, api_instance):
     """Konsisten pola daemon thread pystray di main.py -- win11toast/winrt butuh event loop sendiri."""
     mock_thread_instance = MagicMock()
@@ -504,6 +604,25 @@ def test_show_native_notification_calls_win11toast_with_message_and_click_handle
     assert kwargs.get('duration') == 'short'
     assert kwargs.get('on_click') == api_instance._restore_window_from_notification
     assert "notify-success.png" in kwargs.get("icon")
+
+@patch('core.api.threading.Thread')
+@patch('win11toast.toast')
+def test_show_native_notification_frozen_mode_resolves_via_meipass(mock_toast, mock_thread_cls, api_instance, monkeypatch):
+    """Dalam mode frozen (PyInstaller), path icon harus berasal dari sys._MEIPASS."""
+    monkeypatch.setattr(sys, '_MEIPASS', r'C:\fake\frozen\meipass', raising=False)
+    mock_thread_cls.return_value = MagicMock()
+
+    with patch('os.path.exists', return_value=True):
+        api_instance.show_native_notification("Gagal koneksi", "error")
+        run_fn = mock_thread_cls.call_args.kwargs['target']
+        run_fn()
+
+    args, kwargs = mock_toast.call_args
+    assert args[0] == "VyloServe"
+    assert args[1] == "Gagal koneksi"
+    assert kwargs.get('duration') == 'long'
+    assert r'C:\fake\frozen\meipass' in kwargs.get("icon")
+    assert "notify-error.png" in kwargs.get("icon")
 
 @patch('core.api.threading.Thread')
 @patch('win11toast.toast')
@@ -556,4 +675,167 @@ def test_restore_window_from_notification_shows_restores_and_pushes_state(api_in
 
 def test_restore_window_from_notification_does_not_crash_without_a_window(api_instance):
     api_instance._restore_window_from_notification()  # tidak boleh raise
+
+
+# ==========================================
+# TITLEBAR THEME DWM SYNC TESTS
+# ==========================================
+
+def test_apply_titlebar_theme_without_window_returns_false(api_instance):
+    """Tanpa window terpasang, apply_titlebar_theme harus mengembalikan False."""
+    assert api_instance.apply_titlebar_theme("nord-dark") is False
+
+
+def test_apply_titlebar_theme_with_explicit_theme(api_instance):
+    """Memanggil apply_titlebar_theme dengan nama tema eksplisit."""
+    mock_window = MagicMock()
+    api_instance.set_window(mock_window)
+
+    with patch('core.utils.system_utils.apply_window_titlebar_theme', return_value=True) as mock_apply:
+        res = api_instance.apply_titlebar_theme("nord-dark")
+        assert res is True
+        mock_apply.assert_called_once_with(mock_window, "nord-dark")
+
+
+def test_apply_titlebar_theme_defaults_to_saved_settings(api_instance):
+    """Jika theme_name tidak dioper, ambil dari pengaturan tersimpan."""
+    mock_window = MagicMock()
+    api_instance.set_window(mock_window)
+    api_instance.settings.get_settings.return_value = {
+        "status": "success",
+        "data": {"theme": "dracula-dark"}
+    }
+
+    with patch('core.utils.system_utils.apply_window_titlebar_theme', return_value=True) as mock_apply:
+        res = api_instance.apply_titlebar_theme()
+        assert res is True
+        mock_apply.assert_called_once_with(mock_window, "dracula-dark")
+
+
+def test_save_app_settings_triggers_apply_titlebar_theme_when_theme_updated(api_instance):
+    """Menyimpan settings yang memuat key 'theme' harus memicu pembaruan titlebar."""
+    mock_window = MagicMock()
+    api_instance.set_window(mock_window)
+    api_instance.settings.save_settings.return_value = {"status": "success"}
+
+    with patch.object(api_instance, 'apply_titlebar_theme') as mock_apply_theme:
+        res = api_instance.save_app_settings({"theme": "monokai-dark", "language": "en"})
+        assert res == {"status": "success"}
+        mock_apply_theme.assert_called_once_with("monokai-dark")
+
+
+def test_save_app_settings_does_not_trigger_titlebar_theme_when_theme_not_in_payload(api_instance):
+    """Menyimpan settings tanpa key 'theme' tidak boleh memicu apply_titlebar_theme."""
+    api_instance.settings.save_settings.return_value = {"status": "success"}
+
+    with patch.object(api_instance, 'apply_titlebar_theme') as mock_apply_theme:
+        res = api_instance.save_app_settings({"language": "id"})
+        assert res == {"status": "success"}
+        mock_apply_theme.assert_not_called()
+
+
+def test_ai_facade_endpoints(api_instance):
+    """Memastikan semua facade method AI mendelegasikan panggilan ke ai manager."""
+    api_instance.ai = MagicMock()
+
+    api_instance.ai_send_message("prompt", "context", "model", "provider")
+    api_instance.ai.send_message.assert_called_once_with("prompt", "context", "model", "provider")
+
+    api_instance.ai_abort_generation()
+    api_instance.ai.abort_generation.assert_called_once()
+
+    api_instance.ai_test_connection("gemini", "key", "model", "url")
+    api_instance.ai.test_connection.assert_called_once_with("gemini", "key", "model", "url")
+
+    api_instance.ai_get_chat_history()
+    api_instance.ai.get_chat_history.assert_called_once()
+
+    api_instance.ai_save_chat_history([{"role": "user", "content": "hi"}])
+    api_instance.ai.save_chat_history.assert_called_once_with([{"role": "user", "content": "hi"}])
+
+    api_instance.ai_clear_chat_history()
+    api_instance.ai.clear_chat_history.assert_called_once()
+
+    api_instance.ai_get_server_context("apache", True)
+    api_instance.ai.get_server_context.assert_called_once_with("apache", True)
+
+    api_instance.ai_get_available_models("gemini", "key", "url", "pro")
+    api_instance.ai.get_available_models.assert_called_once_with("gemini", "key", "url", "pro")
+
+    api_instance.ai_detect_account_tier("gemini", "key", "url")
+    api_instance.ai.detect_account_tier.assert_called_once_with("gemini", "key", "url")
+
+    api_instance.ai_get_action_states()
+    api_instance.ai.get_action_states.assert_called_once()
+
+    api_instance.ai_save_action_states({"msg_1:0": "success"})
+    api_instance.ai.save_action_states.assert_called_once_with({"msg_1:0": "success"})
+
+    api_instance.ai_get_usage_stats("gemini")
+    api_instance.ai.get_usage_stats.assert_called_once_with("gemini")
+
+    api_instance.ai_reset_usage_stats()
+    api_instance.ai.reset_usage_stats.assert_called_once()
+
+
+def test_emit_ai_chunk_evaluates_js(api_instance):
+    """Memastikan emit_ai_chunk mengevaluasi event vylo_ai_chunk ke window."""
+    mock_window = MagicMock()
+    api_instance.set_window(mock_window)
+
+    api_instance.emit_ai_chunk(
+        chunk="Hello",
+        is_done=True,
+        error="",
+        message_id="msg_1",
+        sources=[{"type": "system", "label": "Environment"}],
+        usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+    )
+
+    mock_window.evaluate_js.assert_called_once()
+    evaluated_js = mock_window.evaluate_js.call_args[0][0]
+    assert "vylo_ai_chunk" in evaluated_js
+    assert "Hello" in evaluated_js
+    assert "msg_1" in evaluated_js
+    assert "prompt_tokens" in evaluated_js
+    assert "Environment" in evaluated_js
+
+
+@patch("core.api._check_internet_connection", return_value=True)
+def test_check_internet_connection_endpoint(mock_probe, api_instance):
+    res = api_instance.check_internet_connection()
+    assert res == {"status": "success", "online": True}
+    mock_probe.assert_called_once()
+
+
+def test_cancel_installation_endpoints(api_instance):
+    # Invalid module
+    assert api_instance.cancel_installation("invalid_mod") == {
+        "status": "error", "message": "backend.error.invalid_input"
+    }
+    assert api_instance.cancel_installation(123) == { # type: ignore
+        "status": "error", "message": "backend.error.invalid_input"
+    }
+
+    # Project delegation
+    api_instance.project.cancel_project_install.return_value = {"status": "success", "message": "cancelled"}
+    res = api_instance.cancel_installation("project")
+    assert res == {"status": "success", "message": "cancelled"}
+    api_instance.project.cancel_project_install.assert_called_once()
+
+    # Active module cancellation via InstallationManager
+    with patch("core.utils.cancellation.InstallationManager.cancel", return_value=True) as mock_cancel:
+        res = api_instance.cancel_installation("apache")
+        assert res == {"status": "success", "message": "backend.apache.cancelling"}
+        mock_cancel.assert_called_once_with("apache")
+
+    # Inactive module cancellation
+    with patch("core.utils.cancellation.InstallationManager.cancel", return_value=False) as mock_cancel:
+        res = api_instance.cancel_installation("database")
+        assert res == {"status": "error", "message": "backend.common.no_active_installation"}
+        mock_cancel.assert_called_once_with("database")
+
+
+
+
 

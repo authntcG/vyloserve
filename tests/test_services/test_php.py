@@ -9,9 +9,10 @@ def mock_api():
     return api
 
 @pytest.fixture
-def php_mgr(mock_api):
-    with patch('os.makedirs'):
-        return PhpManager(mock_api)
+def php_mgr(mock_api, tmp_path):
+    with patch('core.services.php.get_project_root', return_value=str(tmp_path)):
+        with patch('os.makedirs'):
+            return PhpManager(mock_api)
 
 def test_init(php_mgr):
     assert php_mgr is not None
@@ -49,11 +50,12 @@ def test_php_uninstall_not_found(mock_exists, php_mgr):
     res = php_mgr.uninstall_version("8.1")
     assert res['status'] == 'error'
 
+@patch('core.services.php.PhpManager.toggle_global_path')
 @patch('core.services.php.PhpManager._get_port_from_ini', return_value=9000)
 @patch('core.services.php.PhpManager._verify_and_patch_ini')
 @patch('core.services.php.PhpManager._update_apache_proxy_silent')
 @patch('core.services.php.start_silent_process')
-def test_php_start_php(mock_start, mock_update, mock_patch, mock_get_port, php_mgr):
+def test_php_start_php(mock_start, mock_update, mock_patch, mock_get_port, mock_toggle, php_mgr):
     mock_proc = MagicMock()
     mock_proc.poll.return_value = None
     mock_proc.pid = 1234
@@ -63,13 +65,15 @@ def test_php_start_php(mock_start, mock_update, mock_patch, mock_get_port, php_m
         res = php_mgr.start_php("8.1")
         assert res['status'] == 'success'
         assert "8.1" in php_mgr.processes
+        mock_toggle.assert_called_once_with(os.path.join(php_mgr.base_dir, "8.1"), enable=True)
         
     # Test already running
     res = php_mgr.start_php("8.1")
     assert res['status'] == 'error'
     
+@patch('core.services.php.PhpManager.toggle_global_path')
 @patch('core.services.php.run_silent_command')
-def test_php_stop_php(mock_run, php_mgr):
+def test_php_stop_php(mock_run, mock_toggle, php_mgr):
     mock_proc = MagicMock()
     mock_proc.poll.return_value = None
     mock_proc.pid = 1234
@@ -79,6 +83,7 @@ def test_php_stop_php(mock_run, php_mgr):
         res = php_mgr.stop_php("8.1")
         assert res['status'] == 'success'
         mock_run.assert_called_once()
+        mock_toggle.assert_called_once_with(os.path.join(php_mgr.base_dir, "8.1"), enable=False)
         assert "8.1" not in php_mgr.processes
         
     # Stop already stopped
@@ -243,6 +248,19 @@ def test_php_install_version_exception(php_mgr):
                         assert res['status'] == 'error'
                         mock_remove.assert_called_once()
                         mock_rmtree.assert_called_once()
+
+def test_php_install_version_cancelled(php_mgr):
+    from core.utils.cancellation import OperationCancelledError
+    with patch('core.services.php.os.path.exists', side_effect=[False, True, True]), \
+         patch('core.services.php.os.makedirs'), \
+         patch.object(php_mgr, '_download_php_archive', side_effect=OperationCancelledError("dl cancelled")), \
+         patch('core.services.php.os.remove') as mock_remove, \
+         patch('core.services.php.shutil.rmtree') as mock_rmtree:
+        res = php_mgr.install_version("8.2", "php.zip", 9000)
+        assert res['status'] == 'cancelled'
+        assert res['message'] == 'backend.php.install_cancelled'
+        mock_remove.assert_called_once()
+        mock_rmtree.assert_called_once()
 
 @patch('urllib.request.urlopen')
 def test_php_get_available_versions(mock_urlopen, php_mgr):
@@ -479,10 +497,11 @@ def test_start_php_binary_not_found(mock_exists, php_mgr):
     assert res['status'] == 'error'
     assert res['message'] == 'backend.php.binary_not_found'
 
+@patch('core.services.php.PhpManager.toggle_global_path')
 @patch('core.services.php.PhpManager._get_port_from_ini', return_value=9000)
 @patch('core.services.php.PhpManager._verify_and_patch_ini')
 @patch('core.services.php.start_silent_process')
-def test_start_php_cgi_process_dies_immediately(mock_start, mock_patch_ini, mock_get_port, php_mgr):
+def test_start_php_cgi_process_dies_immediately(mock_start, mock_patch_ini, mock_get_port, mock_toggle, php_mgr):
     mock_proc = MagicMock()
     mock_proc.poll.return_value = 1  # proses langsung mati
     mock_start.return_value = mock_proc
@@ -492,10 +511,11 @@ def test_start_php_cgi_process_dies_immediately(mock_start, mock_patch_ini, mock
     assert res['status'] == 'error'
     assert res['message'] == 'backend.php.cgi_failed'
 
+@patch('core.services.php.PhpManager.toggle_global_path')
 @patch('core.services.php.PhpManager._get_port_from_ini', return_value=9000)
 @patch('core.services.php.PhpManager._verify_and_patch_ini')
 @patch('core.services.php.start_silent_process', side_effect=OSError("php-cgi.exe crashed"))
-def test_start_php_handles_launch_exception(mock_start, mock_patch_ini, mock_get_port, php_mgr):
+def test_start_php_handles_launch_exception(mock_start, mock_patch_ini, mock_get_port, mock_toggle, php_mgr):
     with patch('os.path.exists', return_value=True):
         res = php_mgr.start_php("8.1")
     assert res['status'] == 'error'
@@ -596,3 +616,47 @@ def test_stop_all_stops_every_running_process(php_mgr):
     assert res['status'] == 'success'
     assert res['args']['count'] == 2
     assert mock_stop.call_count == 2
+
+@patch('core.services.php.PhpManager.install_version')
+@patch('core.services.php.PhpManager.stop_php')
+@patch('core.services.php.shutil.rmtree')
+@patch('core.services.php.os.path.exists')
+@patch('core.services.php.PhpManager._get_port_from_ini')
+def test_php_update_version_success(mock_get_port, mock_exists, mock_rmtree, mock_stop, mock_install, php_mgr):
+    import builtins
+    
+    mock_get_port.return_value = 9005
+    mock_exists.side_effect = lambda path: True  # Pretend ini exists, new dir exists
+    mock_install.return_value = {"status": "success"}
+
+    old_version = "8.1.10"
+    new_version = "8.1.25"
+    filename = "php-8.1.25.zip"
+
+    with patch('builtins.open', mock_open(read_data="; test ini")) as mock_file:
+        res = php_mgr.update_version(old_version, new_version, filename)
+
+    assert res['status'] == 'success'
+    assert res['message'] == 'backend.php.update_success'
+    assert res['args']['old'] == old_version
+    assert res['args']['new'] == new_version
+
+    mock_stop.assert_called_once_with(old_version)
+    mock_install.assert_called_once_with(new_version, filename, 9005, is_update=True)
+    mock_rmtree.assert_called_once()
+    
+    handle = mock_file()
+    handle.write.assert_called_once_with("; test ini")
+
+@patch('core.services.php.PhpManager.install_version')
+@patch('core.services.php.PhpManager.stop_php')
+@patch('core.services.php.PhpManager._get_port_from_ini')
+def test_php_update_version_install_fails(mock_get_port, mock_stop, mock_install, php_mgr):
+    mock_get_port.return_value = 9005
+    mock_install.return_value = {"status": "error", "message": "download failed"}
+
+    res = php_mgr.update_version("8.1.10", "8.1.25", "php.zip")
+
+    assert res['status'] == 'error'
+    assert res['message'] == 'download failed'
+    mock_stop.assert_called_once_with("8.1.10")

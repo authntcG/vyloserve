@@ -1,11 +1,13 @@
 // src/menu/php/NewInstance.tsx
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import ProgressBar from '../../components/ProgressBar';
+import ProgressStatusBlock from '../../components/ProgressStatusBlock';
 import OsCompatibilityCard from '../../components/OsCompatibilityCard';
 import Select from '../../components/Select';
 import FieldLabel from '../../components/FieldLabel';
 import InfoBox from '../../components/InfoBox';
+import OfflineBanner from '../../components/OfflineBanner';
+import { useNetworkStatus, isOfflineResponse } from '../../context/NetworkContext';
 import { clampPercent } from '../../utils/progress';
 
 interface PhpVersion {
@@ -20,6 +22,8 @@ interface Props {
     readonly port: number;
     readonly setPort: (val: number) => void;
     readonly isInstalling?: boolean;
+    readonly isCancelling?: boolean;
+    readonly onCancelInstall?: () => void;
     readonly isFetchingVersions: boolean;
     readonly setIsFetchingVersions: (val: boolean) => void;
     readonly usedPorts: number[];
@@ -27,10 +31,12 @@ interface Props {
 
 export default function NewPhpInstance({
     version, setVersion, setFilename, port, setPort, isInstalling,
+    isCancelling = false, onCancelInstall,
     isFetchingVersions, setIsFetchingVersions, usedPorts
 }: Props) {
 
     const { t } = useTranslation();
+    const { isOnline, reportOffline, reportOnline } = useNetworkStatus();
     const [availableVersions, setAvailableVersions] = useState<PhpVersion[]>([]);
     const [progress, setProgress] = useState({ percent: 0, text: '' });
     const [fetchError, setFetchError] = useState<string>('');
@@ -59,51 +65,62 @@ export default function NewPhpInstance({
         }
     }, [isInstalling]);
 
-    useEffect(() => {
-        const fetchVersions = async () => {
-            setIsFetchingVersions(true);
-            setFetchError('');
+    const handlePhpVersionsResponse = useCallback((response: any) => {
+        if (response.status === 'success') {
+            reportOnline();
+            const versions = response.data || [];
+            setAvailableVersions(versions);
 
-            if (window.pywebview?.api) {
-                try {
-                    const response = await window.pywebview.api.get_php_versions();
-                    if (response.status === 'success') {
-                        const versions = response.data;
-                        setAvailableVersions(versions);
-
-                        if (versions.length > 0) {
-                            setVersion(versions[0].version);
-                            setFilename(versions[0].filename);
-                        } else {
-                            setVersion('');
-                            setFilename('');
-                        }
-                    } else {
-                        setFetchError((t(response.message, response.args || {}) as string));
-                        setAvailableVersions([]);
-                    }
-                } catch (error) {
-                    console.error(error);
-                    setFetchError(t('php.backend_connection_error'));
+            if (versions.length > 0) {
+                if (!version) {
+                    setVersion(versions[0].version);
+                    setFilename(versions[0].filename);
                 }
+            } else {
+                setVersion('');
+                setFilename('');
             }
-            setIsFetchingVersions(false);
-        };
+        } else {
+            if (isOfflineResponse(response)) {
+                reportOffline();
+            }
+            setFetchError((t(response.message, response.args || {}) as string));
+            setAvailableVersions([]);
+        }
+    }, [version, t]);
 
+    const fetchVersions = useCallback(async () => {
+        setIsFetchingVersions(true);
+        setFetchError('');
+
+        if (window.pywebview?.api?.get_php_versions) {
+            try {
+                const response = await window.pywebview.api.get_php_versions();
+                handlePhpVersionsResponse(response);
+            } catch (error) {
+                console.error(error);
+                setFetchError(t('php.backend_connection_error'));
+            }
+        }
+        setIsFetchingVersions(false);
+    }, [handlePhpVersionsResponse, t]);
+
+    useEffect(() => {
         fetchVersions();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [t]);
+    }, [fetchVersions]);
 
     useEffect(() => {
         const handleProgress = (e: Event) => {
             const customEvent = e as CustomEvent;
             // Abaikan progress milik modul lain — lihat docs/known_bugs.md #7.
             if (customEvent.detail?.source && customEvent.detail.source !== 'PhpManager') return;
-            setProgress({ percent: clampPercent(customEvent.detail.percent), text: customEvent.detail.text || '' });
+            const rawText = customEvent.detail?.text || '';
+            const translatedText = rawText ? (t(rawText, customEvent.detail?.args || {}) as string) : '';
+            setProgress({ percent: clampPercent(customEvent.detail?.percent), text: translatedText });
         };
         window.addEventListener('vylo_progress', handleProgress);
         return () => window.removeEventListener('vylo_progress', handleProgress);
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         if (!isInstalling) setProgress({ percent: 0, text: '' });
@@ -117,8 +134,16 @@ export default function NewPhpInstance({
 
     const recommendedPort = usedPorts.length > 0 ? Math.max(...usedPorts) + 1 : 9001;
 
+    const isOfflineOrFetchError = !isOnline || Boolean(fetchError);
+
     return (
         <div className="flex flex-col gap-6 relative">
+            {!isFetchingVersions && isOfflineOrFetchError && (
+                <OfflineBanner
+                    onRetry={fetchVersions}
+                    forceShow={isOfflineOrFetchError}
+                />
+            )}
 
             {/* --- INFO SISTEM & PEMILIHAN VERSI --- */}
             <div className="flex flex-col gap-4">
@@ -131,10 +156,10 @@ export default function NewPhpInstance({
                 />
 
                 <div className="flex flex-col gap-2">
-                    <label className="text-sm font-medium text-slate-900 dark:text-white flex items-center gap-2">
+                    <span className="text-sm font-medium text-slate-900 dark:text-white flex items-center gap-2">
                         <span className="material-symbols-outlined text-[18px] text-primary">php</span>
                         {t('php.target_php_version')}
-                    </label>
+                    </span>
 
                     <Select
                         options={availableVersions.map((v, index) => ({
@@ -143,7 +168,7 @@ export default function NewPhpInstance({
                         }))}
                         value={version || null}
                         onChange={handleVersionChange}
-                        placeholder={t('php.all_versions_installed')}
+                        placeholder={isOfflineOrFetchError ? t('common.offline_versions_unavailable') : t('php.all_versions_installed')}
                         disabled={isInstalling || availableVersions.length === 0}
                         loading={isFetchingVersions}
                         loadingText={t('php.retrieving_versions')}
@@ -156,10 +181,10 @@ export default function NewPhpInstance({
 
             {/* --- PENGATURAN PORT ESENSIAL --- */}
             <div className="flex flex-col gap-3">
-                <label className="text-sm font-medium text-slate-900 dark:text-white flex items-center gap-2">
+                <span className="text-sm font-medium text-slate-900 dark:text-white flex items-center gap-2">
                     <span className="material-symbols-outlined text-[18px] text-emerald-500">settings_ethernet</span>
                     {t('php.fastcgi_configuration')}
-                </label>
+                </span>
                 <p className="text-[13px] text-slate-500 dark:text-slate-400 mb-2">
                     {t('php.fastcgi_desc')}
                 </p>
@@ -193,17 +218,13 @@ export default function NewPhpInstance({
                 {/* --- PROGRESS BAR DENGAN GAP YANG DIRAPATKAN --- */}
                 <div ref={bottomRef} className="pt-1 mt-1">
                     {isInstalling && (
-                        <div className="p-3.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg flex flex-col gap-2 animate-in fade-in duration-300 shadow-sm">
-                            <div className="flex justify-between items-center">
-                                <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                                    {progress.text || t('php.starting_process')}
-                                </span>
-                                <span className="text-xs font-bold text-primary">
-                                    {progress.percent}%
-                                </span>
-                            </div>
-                            <ProgressBar percent={progress.percent} />
-                        </div>
+                        <ProgressStatusBlock
+                            progressText={progress.text || t('php.starting_process')}
+                            progress={progress.percent}
+                            onCancel={onCancelInstall}
+                            isCancelling={isCancelling}
+                            className="shadow-sm"
+                        />
                     )}
                 </div>
 

@@ -9,8 +9,13 @@ from typing import Optional
 # ---> IMPORT UTILITIES (DRY PRINCIPLE) <---
 from core.utils.system_utils import get_project_root, start_silent_process, run_silent_command
 from core.utils.file_utils import read_json, download_advanced, extract_archive
+from core.utils.network_utils import is_network_error
+from core.utils.cancellation import InstallationManager, OperationCancelledError
 PHP_INI = "php.ini"
 MSG_UNEXPECTED_ERROR = "backend.error.unexpected"
+MSG_INSTALL_CANCELLED = "backend.php.install_cancelled"
+PHP_WIN_PATTERN = re.compile(r'(php-(\d+\.\d+\.\d+)-Win32-[a-zA-Z0-9]+-x64\.zip)')
+PHP_NIX_PATTERN = re.compile(r'(php-(\d+\.\d+\.\d+)\.tar\.gz)')
 
 class PhpManager:
     """Manager untuk siklus hidup Engine FastCGI PHP"""
@@ -63,53 +68,49 @@ class PhpManager:
     def toggle_global_path(self, target_path: str, enable: bool):
         """ Mengatur PATH OS dinamis agar command 'php' dan 'composer' terhubung ke versi yang aktif """
         if sys.platform != 'win32': return
-        import winreg, ctypes
         try:
-            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Environment', 0, winreg.KEY_ALL_ACCESS)
-            try: path_value, _ = winreg.QueryValueEx(key, 'Path')
-            except FileNotFoundError: path_value = ""
-
-            current_paths = [p for p in path_value.split(';') if p]
+            from core.utils.system_utils import modify_user_path
             normalized_target = os.path.normpath(target_path)
-            modified = False
-
-            # Hapus semua path PHP VyloServe lain untuk mencegah konflik versi
             vyloserve_php_base = os.path.normpath(self.base_dir)
-            cleaned_paths = [p for p in current_paths if not p.startswith(vyloserve_php_base)]
-
-            if enable:
-                cleaned_paths.append(normalized_target)
-                modified = True
-            elif current_paths != cleaned_paths:
-                modified = True
-
-            if modified:
-                new_path = ';'.join(cleaned_paths)
-                winreg.SetValueEx(key, 'Path', 0, winreg.REG_EXPAND_SZ, new_path)
-                HWND_BROADCAST, WM_SETTINGCHANGE, SMTO_ABORTIFHUNG = 0xFFFF, 0x001A, 0x0002
-                ctypes.windll.user32.SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, 'Environment', SMTO_ABORTIFHUNG, 5000, ctypes.byref(ctypes.c_ulong()))
-            winreg.CloseKey(key)
+            modify_user_path(
+                add_paths=[normalized_target] if enable else None,
+                remove_prefix=vyloserve_php_base,
+                auto_broadcast=True
+            )
         except Exception: pass
+
+
+    def _scrape_php_releases(self, urls: list, pattern) -> tuple:
+        import urllib.request
+        matches = []
+        offline_detected = False
+        for url in urls:
+            try:
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                html = urllib.request.urlopen(req, timeout=10).read().decode('utf-8')
+                matches.extend(pattern.findall(html))
+            except Exception as e:
+                if is_network_error(e):
+                    offline_detected = True
+                    break
+        version_map = {
+            ver: fname for filename, ver in matches
+            if 'nts' not in filename.lower() and '-pack' not in filename.lower() and 'qa' not in filename.lower()
+            for fname in [filename]
+        }
+        return version_map, offline_detected
 
     def get_versions(self):
         try:
-            import urllib.request
-
-            if sys.platform == 'win32':
-                urls = ["https://windows.php.net/downloads/releases/", "https://windows.php.net/downloads/releases/archives/"]
-                pattern = r'(php-(\d+\.\d+\.\d+)-Win32-[a-zA-Z0-9]+-x64\.zip)'
-            else:
-                urls, pattern = ["https://www.php.net/distributions/"], r'(php-(\d+\.\d+\.\d+)\.tar\.gz)'
+            urls = ["https://windows.php.net/downloads/releases/", "https://windows.php.net/downloads/releases/archives/"] if sys.platform == 'win32' else ["https://www.php.net/distributions/"]
+            pattern = PHP_WIN_PATTERN if sys.platform == 'win32' else PHP_NIX_PATTERN
+            version_map, offline_detected = self._scrape_php_releases(urls, pattern)
             
-            matches = []
-            for url in urls:
-                try:
-                    html = urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'}), timeout=10).read().decode('utf-8')
-                    matches.extend(re.findall(pattern, html))
-                except Exception: pass
-            
-            version_map = {ver: fname for filename, ver in matches if 'nts' not in filename.lower() and '-pack' not in filename.lower() and 'qa' not in filename.lower() for fname in [filename]}
-            if not version_map: return {"status": "error", "message": "backend.php.release_load_failed"}
+            if not version_map:
+                err_res = {"status": "error", "message": "backend.php.release_load_failed"}
+                if offline_detected:
+                    err_res["is_offline"] = True
+                return err_res
 
             latest_minors = {}
             for v in sorted(version_map.keys(), key=lambda v: [int(x) for x in v.split('.')], reverse=True):
@@ -161,18 +162,44 @@ class PhpManager:
         
         return new_lines
 
-    def _download_php_archive(self, dl_url, filename, file_path, log_cb, prog_cb):
+    def _download_php_archive(self, dl_url, filename, file_path, log_cb, prog_cb, cancel_check=None):
         try:
-            download_advanced(dl_url, file_path, log_cb=log_cb, progress_cb=prog_cb)
+            download_advanced(dl_url, file_path, log_cb=log_cb, progress_cb=prog_cb, cancel_check=cancel_check)
+        except OperationCancelledError:
+            raise
         except Exception as http_err:
             if sys.platform == 'win32':
                 self._log("backend.php.redirect_archives", "warn")
-                download_advanced(f"https://windows.php.net/downloads/releases/archives/{filename}", file_path, log_cb=log_cb, progress_cb=prog_cb)
+                download_advanced(f"https://windows.php.net/downloads/releases/archives/{filename}", file_path, log_cb=log_cb, progress_cb=prog_cb, cancel_check=cancel_check)
             else: raise http_err
 
-    def install_version(self, version: str, filename: str, port: int):
+    def _cleanup_failed_install(self, file_path: str, target_dir: str):
+        if os.path.exists(file_path):
+            try: os.remove(file_path)
+            except Exception: pass
+        if os.path.exists(target_dir):
+            shutil.rmtree(target_dir, ignore_errors=True)
+
+    def _write_default_php_ini(self, target_dir: str, version: str, port: int):
+        self._progress(92, "backend.php.configuring")
+        ini_content = (
+            f"; VyloServe PHP {version} Configuration\n"
+            f"; vyloserve_port = {port}\n"
+            "memory_limit = 512M\n"
+            "fastcgi.logging = 0\n"
+            "cgi.force_redirect = 0\n"
+            "cgi.fix_pathinfo = 1\n"
+        )
+        if sys.platform == 'win32':
+            ini_content += 'extension_dir = "ext"\nextension=curl\nextension=mbstring\n'
+        with open(os.path.join(target_dir, PHP_INI), 'w') as f:
+            f.write(ini_content)
+
+    def install_version(self, version: str, filename: str, port: int, is_update: bool = False):
         target_dir = os.path.join(self.base_dir, version)
         file_path = os.path.join(self.base_dir, filename)
+
+        token = InstallationManager.get_token("php")
 
         try:
             if os.path.exists(target_dir): return {"status": "error", "message": "backend.php.already_installed"}
@@ -186,35 +213,67 @@ class PhpManager:
             def prog_cb(pct, msg, args=None):
                 self._progress(pct, msg, args)
 
-            self._download_php_archive(dl_url, filename, file_path, log_cb, prog_cb)
+            self._download_php_archive(dl_url, filename, file_path, log_cb, prog_cb, cancel_check=token.is_cancelled)
 
             self._log("backend.php.extracting", "info")
-            extract_archive(file_path, target_dir, progress_cb=prog_cb)
+            extract_archive(file_path, target_dir, progress_cb=prog_cb, cancel_check=token.is_cancelled)
             if os.path.exists(file_path): os.remove(file_path)
             
-            # Bukan 100: progress 100% harus berarti instalasi BENAR-BENAR selesai
-            # (lihat _progress(100, "backend.php.installation_complete") di bawah, setelah
-            # composer terpasang). Jika di sini dipakai 100, frontend yang mendeteksi
-            # "percent >= 100 -> auto-hide widget setelah 3 detik" akan menyembunyikan
-            # progress widget padahal instalasi composer di bawah ini masih berjalan.
-            # Lihat docs/known_bugs.md.
-            self._progress(92, "backend.php.configuring")
-            with open(os.path.join(target_dir, PHP_INI), 'w') as f:
-                f.write(f"; VyloServe PHP {version} Configuration\n; vyloserve_port = {port}\nmemory_limit = 512M\nfastcgi.logging = 0\ncgi.force_redirect = 0\ncgi.fix_pathinfo = 1\n")
-                if sys.platform == 'win32': f.write("extension_dir = \"ext\"\nextension=curl\nextension=mbstring\n")
-
+            self._write_default_php_ini(target_dir, version, port)
             self._install_composer(target_dir)
             
             self._log("backend.php.ready", "success", {"version": version, "port": port})
-            self._progress(100, "backend.php.installation_complete")
+            if not is_update:
+                self._progress(100, "backend.php.installation_complete")
             return {"status": "success", "message": "backend.php.install_success", "args": {"version": version}}
         
+        except OperationCancelledError:
+            self._log(MSG_INSTALL_CANCELLED, "warn")
+            self._cleanup_failed_install(file_path, target_dir)
+            self._progress(0, MSG_INSTALL_CANCELLED)
+            return {"status": "cancelled", "message": MSG_INSTALL_CANCELLED}
+
         except Exception as e:
             self._log("backend.php.cancelling", "warn")
-            if os.path.exists(file_path): os.remove(file_path)
-            if os.path.exists(target_dir): shutil.rmtree(target_dir, ignore_errors=True)
+            self._cleanup_failed_install(file_path, target_dir)
             self._progress(0, "backend.php.failed")
             return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+        finally:
+            if not is_update:
+                InstallationManager.reset("php")
+
+    def update_version(self, old_version: str, new_version: str, filename: str):
+        old_dir = os.path.join(self.base_dir, old_version)
+        ini_path = os.path.join(old_dir, PHP_INI)
+        port = self._get_port_from_ini(ini_path)
+
+        self.stop_php(old_version)
+
+        ini_backup = None
+        if os.path.exists(ini_path):
+            with open(ini_path, 'r', encoding='utf-8', errors='ignore') as f:
+                ini_backup = f.read()
+
+        res = self.install_version(new_version, filename, port, is_update=True)
+        if res['status'] != 'success':
+            return res
+
+        new_dir = os.path.join(self.base_dir, new_version)
+        new_ini_path = os.path.join(new_dir, PHP_INI)
+        if ini_backup and os.path.exists(new_dir):
+            with open(new_ini_path, 'w', encoding='utf-8') as f:
+                f.write(ini_backup)
+            self._log("backend.php.config_migrated", "info")
+
+        shutil.rmtree(old_dir, ignore_errors=True)
+
+        try:
+            if hasattr(self.api, 'project'): self.api.project.sync_apache_vhosts()
+            if hasattr(self.api, 'apache') and self.api.apache.check_is_running(): self.api.apache.restart_server()
+        except Exception: pass
+
+        self._progress(100, "backend.php.update_success", {"version": new_version})
+        return {"status": "success", "message": "backend.php.update_success", "args": {"old": old_version, "new": new_version}}
 
     def _parse_config_file(self, php_ini_path: str, config: dict, active_exts: set):
         if not os.path.exists(php_ini_path): return

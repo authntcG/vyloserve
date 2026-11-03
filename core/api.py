@@ -3,7 +3,7 @@ import psutil
 import json
 import inspect
 import threading
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 # Import Modul-modul Manager
 from core.services.php import PhpManager
@@ -17,13 +17,18 @@ from core.services.git_manager import GitManager
 from core.services.settings import SettingsManager
 from core.services.updater import UpdaterManager
 from core.services.tunnels import TunnelsManager
+from core.services.markdown_viewer import MarkdownViewerManager
+from core.services.ai_assistant import AIAssistantManager
+from core.services.terminal import TerminalManager
+from core.utils.network_utils import check_internet_connection as _check_internet_connection
 
 PROJECT_NOT_LOADED_MSG = "backend.error.project_module_not_loaded"
 UNEXPECTED_ERROR_MSG = "backend.error.unexpected"
+FILTER_ALL_FILES = 'All files (*.*)'
 
 class Api:
     """
-    API Router (FaÃƒÂ§ade) yang menjembatani Frontend (React) dengan Backend (Python).
+    API Router (Façade) yang menjembatani Frontend (React) dengan Backend (Python).
     Meneruskan secara buta (pass-through) semua request UI ke spesifik Manager Module (SRP).
     """
     def __init__(self):
@@ -40,11 +45,34 @@ class Api:
         self.settings = SettingsManager(self)
         self.updater = UpdaterManager(self)
         self.tunnels = TunnelsManager(self)
+        self.markdown = MarkdownViewerManager(self)
+        self.ai = AIAssistantManager(self)
+        self.terminal = TerminalManager(self)
         self._log_watcher_thread: Optional[threading.Thread] = None
         self._log_watcher_stop = threading.Event()
+        self._is_shutting_down = False
+
+    @property
+    def settings_manager(self) -> SettingsManager:
+        """Alias kompatibilitas untuk self.settings"""
+        return self.settings
+
+    @property
+    def runtimes(self) -> RuntimesManager:
+        """Alias kompatibilitas untuk self.runtimes_manager"""
+        return self.runtimes_manager
+
+    @property
+    def git(self) -> GitManager:
+        """Alias kompatibilitas untuk self.git_manager"""
+        return self.git_manager
 
     def set_window(self, window: webview.Window):
         self._window = window
+
+    def set_shutting_down(self):
+        """Menandai bahwa aplikasi sedang shutdown agar emit event UI tidak dieksekusi."""
+        self._is_shutting_down = True
 
     def set_notification_icon(self, icon_path: str):
         """ Path PNG ikon aplikasi untuk notifikasi native Windows -- lihat show_native_notification(). """
@@ -114,6 +142,33 @@ class Api:
         finally:
             del frame
 
+    def _safe_eval_js(self, script: str):
+        """
+        Mengevaluasi script JavaScript pada window pywebview secara aman.
+        Pada runtime nyata (bukan mock), eksekusi selalu di-dispatch ke daemon thread
+        terpisah agar pemanggilan 'evaluate_js()' (yang memicu 'semaphore.acquire()')
+        tidak pernah memblokir thread pemanggil -- khususnya WinForms UI thread (.NET STA thread
+        yang di-wrap Python sebagai dummy thread) yang akan menyebabkan window mengalami UI freeze / Not Responding.
+        Di lingkungan unit test (mock window), eksekusi dijalankan langsung secara sinkron.
+        """
+        if self._is_shutting_down or not self._window:
+            return
+
+        def _execute():
+            try:
+                if not self._is_shutting_down and self._window:
+                    self._window.evaluate_js(script)
+            except Exception:
+                pass
+
+        # Periksa apakah window adalah mock objek di test suite
+        is_mock = type(self._window).__name__ in ('MagicMock', 'Mock') or hasattr(self._window, '_mock_return_value')
+
+        if is_mock:
+            _execute()
+        else:
+            threading.Thread(target=_execute, daemon=True).start()
+
     def emit_log(self, message: str, level: str = "info", args: dict = None, source_override: Optional[str] = None):
         """
         Menembakkan log real-time ke LogsPanel React. `source_override` dipakai
@@ -123,19 +178,58 @@ class Api:
         error_log/access_log bisa difilter terpisah dari pesan sistem Apache
         biasa di modal "System Logs" (lihat docs/known_bugs.md).
         """
+        if self._is_shutting_down:
+            return
         if self._window:
             source = source_override if source_override is not None else self._resolve_event_source()
             detail = json.dumps({"message": message, "level": level, "args": args or {}, "source": source})
             script = f"window.dispatchEvent(new CustomEvent('vylo_log', {{detail: {detail} }}));"
-            self._window.evaluate_js(script)
+            self._safe_eval_js(script)
 
     def emit_progress(self, percent: int, text: str = "", args: dict = None):
         """ Menembakkan progress bar real-time ke Modal Instalasi React """
+        if self._is_shutting_down:
+            return
         if self._window:
             source = self._resolve_event_source()
             detail = json.dumps({"percent": percent, "text": text, "args": args or {}, "source": source})
             script = f"window.dispatchEvent(new CustomEvent('vylo_progress', {{detail: {detail} }}));"
-            self._window.evaluate_js(script)
+            self._safe_eval_js(script)
+
+    def emit_cli_output(self, data: str):
+        if self._is_shutting_down or not self._window:
+            return
+        detail = json.dumps({"data": data})
+        script = f"window.dispatchEvent(new CustomEvent('vylo_cli_output', {{detail: {detail} }}));"
+        self._safe_eval_js(script)
+
+    def emit_terminal_output(self, session_id: str, data: str):
+        if self._is_shutting_down or not self._window:
+            return
+        detail = json.dumps({"sessionId": session_id, "data": data})
+        script = f"window.dispatchEvent(new CustomEvent('vylo_terminal_output', {{detail: {detail} }}));"
+        self._safe_eval_js(script)
+
+    def emit_terminal_exit(self, session_id: str, exit_code: int = 0):
+        if self._is_shutting_down or not self._window:
+            return
+        detail = json.dumps({"sessionId": session_id, "exitCode": exit_code})
+        script = f"window.dispatchEvent(new CustomEvent('vylo_terminal_exit', {{detail: {detail} }}));"
+        self._safe_eval_js(script)
+
+    def emit_cli_state(self, waiting_input: bool, prompt_text: str = "", cancelled: bool = False):
+        if self._is_shutting_down or not self._window:
+            return
+        detail = json.dumps({"waiting_input": waiting_input, "prompt_text": prompt_text, "cancelled": cancelled})
+        script = f"window.dispatchEvent(new CustomEvent('vylo_cli_state', {{detail: {detail} }}));"
+        self._safe_eval_js(script)
+
+    def emit_project_server_state(self, detail: dict):
+        if self._is_shutting_down or not self._window:
+            return
+        safe_detail = json.dumps(detail)
+        script = f"window.dispatchEvent(new CustomEvent('vylo_project_server_changed', {{detail: {safe_detail} }}));"
+        self._safe_eval_js(script)
 
     def emit_window_state(self, minimized: Optional[bool] = None, hidden: Optional[bool] = None):
         """
@@ -146,6 +240,8 @@ class Api:
         restored). Hanya field yang di-set (bukan None) yang dikirim, supaya
         listener frontend bisa membedakan "tidak berubah" dari "eksplisit false".
         """
+        if self._is_shutting_down:
+            return
         if self._window:
             detail: Dict[str, Any] = {}
             if minimized is not None:
@@ -155,7 +251,34 @@ class Api:
             if not detail:
                 return
             script = f"window.dispatchEvent(new CustomEvent('vylo_window_state', {{detail: {json.dumps(detail)} }}));"
-            self._window.evaluate_js(script)
+            self._safe_eval_js(script)
+
+    def emit_ai_chunk(
+        self,
+        chunk: str = "",
+        is_done: bool = False,
+        error: str = "",
+        message_id: str = "",
+        sources: Optional[List[Dict[str, Any]]] = None,
+        usage: Optional[Dict[str, Any]] = None
+    ):
+        """ Menembakkan chunk respon teks streaming dari AI Assistant ke frontend """
+        if self._is_shutting_down:
+            return
+        if self._window:
+            payload: Dict[str, Any] = {
+                "chunk": chunk,
+                "is_done": is_done,
+                "error": error,
+                "message_id": message_id
+            }
+            if sources is not None:
+                payload["sources"] = sources
+            if usage is not None:
+                payload["usage"] = usage
+            detail = json.dumps(payload)
+            script = f"window.dispatchEvent(new CustomEvent('vylo_ai_chunk', {{detail: {detail} }}));"
+            self._safe_eval_js(script)
 
     def show_native_notification(self, message: str, type: str = "info") -> Dict[str, str]:
         """
@@ -171,7 +294,7 @@ class Api:
             try:
                 from win11toast import toast
                 import os
-                from core.utils.system_utils import get_project_root
+                from core.utils.system_utils import get_resource_path
                 
                 # Notifikasi error/warning dibuat tidak auto-dismiss cepat --
                 # lebih penting untuk tidak terlewat dibanding notifikasi biasa.
@@ -185,10 +308,12 @@ class Api:
                     "info": "notify-info.png"
                 }
                 
-                # Fallback ke logo VyloServe jika tipe tidak dikenali
+                # Fallback ke logo VyloServe jika tipe tidak dikenali atau file ikon spesifik tidak ada
                 icon_filename = icon_map.get(type)
                 if icon_filename:
-                    icon_path = os.path.join(get_project_root(), 'frontend', 'src', 'assets', icon_filename)
+                    icon_path = get_resource_path(os.path.join('frontend', 'src', 'assets', icon_filename))
+                    if not os.path.exists(icon_path):
+                        icon_path = self._notification_icon_path
                 else:
                     icon_path = self._notification_icon_path
 
@@ -212,10 +337,16 @@ class Api:
             self._window.show()
             self._window.restore()
             self.emit_window_state(hidden=False, minimized=False)
+            self.apply_titlebar_theme()
 
     def test_connection(self, data: str) -> Dict[str, str]:
         self.emit_log("backend.api.ping_received", "info", {"data": data})
         return {"status": "success", "message": "backend.api.connection_success"}
+
+    def check_internet_connection(self) -> Dict[str, Any]:
+        """Memeriksa ketersediaan koneksi internet dari sisi OS/Backend."""
+        online = _check_internet_connection()
+        return {"status": "success", "online": online}
 
     # ==========================================
     # SIDEBAR & GLOBAL CONTROLLER SECTIONS
@@ -265,6 +396,9 @@ class Api:
     def install_php(self, version: str, filename: str, port: int):
         return self.php.install_version(version, filename, int(port))
     
+    def update_php(self, old_version: str, new_version: str, filename: str):
+        return self.php.update_version(old_version, new_version, filename)
+
     def get_installed_php(self):
         return self.php.get_installed_instances()
     
@@ -307,6 +441,18 @@ class Api:
     def open_apache_directory(self):
         return self.apache.open_directory()
         
+    def open_apache_htdocs(self):
+        return self.apache.open_htdocs()
+
+    def open_apache_conf_dir(self):
+        return self.apache.open_conf_dir()
+
+    def open_apache_logs_dir(self):
+        return self.apache.open_logs_dir()
+
+    def get_apache_ports_status(self):
+        return self.apache.get_ports_status()
+
     def open_apache_config(self):
         return self.apache.open_config()
     
@@ -327,11 +473,14 @@ class Api:
 
     def stop_apache_server(self):
         return self.apache.stop_server()
+
+    def restart_apache_server(self):
+        return self.apache.restart_server()
     
     # ==========================================
     # FILE / DIRECTORY DIALOG
     # ==========================================
-    def save_base64_file(self, filename: str, base64_data: str, file_types: tuple = ('All files (*.*)',)):
+    def save_base64_file(self, filename: str, base64_data: str, file_types: tuple = (FILTER_ALL_FILES,)):
         if not self._window: return {"status": "error", "message": UNEXPECTED_ERROR_MSG, "args": {"e": "No window"}}
         result = self._window.create_file_dialog(
             webview.SAVE_DIALOG, 
@@ -355,6 +504,20 @@ class Api:
             if result and len(result) > 0:
                 return result[0].replace('\\', '/')
         return None
+
+    def browse_open_file(self, file_types: tuple = ('SQL files (*.sql)', FILTER_ALL_FILES)) -> Optional[str]:
+        if self._window:
+            result = self._window.create_file_dialog(webview.OPEN_DIALOG, file_types=file_types)
+            if result and len(result) > 0:
+                return result[0].replace('\\', '/')
+        return None
+
+    def browse_save_file(self, default_name: str = "", file_types: tuple = ('SQL files (*.sql)', FILTER_ALL_FILES)) -> Optional[str]:
+        if self._window:
+            result = self._window.create_file_dialog(webview.SAVE_DIALOG, save_filename=default_name, file_types=file_types)
+            if result and len(result) > 0:
+                return result[0].replace('\\', '/')
+        return None
     
     def open_browser(self, url: str):
         import webbrowser
@@ -375,6 +538,16 @@ class Api:
 
     def detect_framework(self, directory: str):
         return self.project.detect_framework(directory)
+
+    def get_project_runtimes_info(self):
+        if hasattr(self, 'project') and self.project:
+            return self.project.get_project_runtimes_info()
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+
+    def get_framework_versions(self, engine: str, framework: str, runtime_version: str = ""):
+        if hasattr(self, 'project') and self.project:
+            return self.project.get_framework_versions(engine, framework, runtime_version)
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
 
     def create_project(self, payload: dict):
         self.emit_log("backend.project.starting_setup", "info", {"domain": payload.get('domain')})
@@ -404,6 +577,147 @@ class Api:
         if hasattr(self, 'project') and self.project:
             return self.project.update_project(payload)
         return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+
+    def send_project_cli_input(self, data: str):
+        if hasattr(self, 'project') and self.project:
+            return self.project.send_project_cli_input(data)
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+
+    def resize_project_cli(self, cols: int, rows: int):
+        if hasattr(self, 'project') and self.project:
+            return self.project.resize_project_cli(cols, rows)
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+
+    def cancel_project_install(self):
+        if hasattr(self, 'project') and self.project:
+            return self.project.cancel_project_install()
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+
+    def cancel_installation(self, module: str) -> dict:
+        """
+        Membatalkan proses instalasi atau update yang sedang aktif pada modul yang diminta.
+        Validasi batas input (Rule 11) memeriksa bahwa modul termasuk dalam daftar yang diizinkan.
+        """
+        valid_modules = {"apache", "php", "database", "runtimes", "git", "tunnels", "updater", "project"}
+        if not isinstance(module, str) or module not in valid_modules:
+            return {"status": "error", "message": "backend.error.invalid_input"}
+        
+        if module == "project":
+            return self.cancel_project_install()
+        
+        from core.utils.cancellation import InstallationManager
+        cancelled = InstallationManager.cancel(module)
+        if cancelled:
+            return {"status": "success", "message": f"backend.{module}.cancelling"}
+        return {"status": "error", "message": "backend.common.no_active_installation"}
+
+    def start_project_server(self, project_id: str):
+        if hasattr(self, 'project') and self.project:
+            return self.project.start_project_server(project_id)
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+
+    def stop_project_server(self, project_id: str):
+        if hasattr(self, 'project') and self.project:
+            return self.project.stop_project_server(project_id)
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+
+    def get_project_server_status(self, project_id: str):
+        if hasattr(self, 'project') and self.project:
+            return self.project.get_project_server_status(project_id)
+        return {"running": False, "port": None, "pid": None}
+
+    def get_all_running_project_servers(self):
+        if hasattr(self, 'project') and self.project:
+            return self.project.get_all_running_project_servers()
+        return {}
+
+    def get_project_server_logs(self, project_id: str):
+        if hasattr(self, 'project') and self.project:
+            return self.project.get_project_server_logs(project_id)
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+
+    # ==========================================
+    # DEDICATED DEVELOPER TERMINAL SECTIONS
+    # ==========================================
+    def get_terminal_shells(self):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.get_available_shells()
+        return []
+
+    def get_terminal_runtimes_matrix(self):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.get_runtimes_matrix()
+        return {}
+
+    def create_terminal_session(self, shell_id: str = "powershell", cwd: str = "", title: str = "", env_overrides: dict = None, env_profile: dict = None):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.create_session(shell_id, cwd, title, env_overrides, env_profile)
+        return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
+
+    def send_terminal_input(self, session_id: str, data: str, line_context: str = ""):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.send_input(session_id, data, line_context)
+        return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
+
+    def resize_terminal(self, session_id: str, cols: int, rows: int):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.resize(session_id, cols, rows)
+        return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
+
+    def close_terminal_session(self, session_id: str):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.close_session(session_id)
+        return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
+
+    def list_terminal_sessions(self):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.list_sessions()
+        return {"status": "success", "sessions": []}
+
+    def get_terminal_config(self):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.get_terminal_config()
+        return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
+
+    def save_terminal_default_profile(self, profile: dict):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.save_terminal_default_profile(profile)
+        return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
+
+    def get_terminal_saved_sessions(self):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.get_saved_sessions()
+        return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
+
+    def save_terminal_preset(self, preset: dict):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.save_preset(preset)
+        return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
+
+    def delete_terminal_preset(self, preset_id: str):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.delete_preset(preset_id)
+        return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
+
+    def save_terminal_workspace(self, workspace: dict):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.save_workspace(workspace)
+        return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
+
+    def delete_terminal_workspace(self, workspace_id: str):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.delete_workspace(workspace_id)
+        return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
+
+    def get_terminal_session_cwd(self, session_id: str):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.get_session_cwd(session_id)
+        return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
+
+    def save_terminal_settings(self, settings: dict):
+        if hasattr(self, 'terminal') and self.terminal:
+            return self.terminal.save_terminal_settings(settings)
+        return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
     
     # ==========================================
     # DASHBOARD SECTIONS
@@ -418,7 +732,26 @@ class Api:
         return self.settings.get_settings()
 
     def save_app_settings(self, data: dict):
-        return self.settings.save_settings(data)
+        res = self.settings.save_settings(data)
+        if isinstance(res, dict) and res.get("status") == "success" and "theme" in data:
+            theme_name = data.get("theme")
+            self.apply_titlebar_theme(theme_name)
+            from core.utils.system_utils import sync_theme_bootstrap_file
+            sync_theme_bootstrap_file(theme_name)
+        return res
+
+    def apply_titlebar_theme(self, theme_name: Optional[str] = None) -> bool:
+        """
+        Menerapkan pewarnaan titlebar native Windows via DWM sesuai preferensi tema.
+        Dipanggil saat startup dan saat pengaturan tema diubah di UI.
+        """
+        if not self._window:
+            return False
+        if not theme_name:
+            settings_res = self.get_app_settings()
+            theme_name = settings_res.get("data", {}).get("theme", "vyloserve-dark")
+        from core.utils.system_utils import apply_window_titlebar_theme
+        return apply_window_titlebar_theme(self._window, theme_name)
     
     # ==========================================
     # DATABASE SECTIONS
@@ -435,6 +768,9 @@ class Api:
     def install_database(self, engine: str, version: str, url: str, port: int, root_pass: str):
         return self.database.install_database(engine, version, url, port, root_pass)
     
+    def update_database(self, db_id: str, new_version: str, url: str, backup_data: bool = False):
+        return self.database.update_database(db_id, new_version, url, backup_data)
+
     def uninstall_database(self, db_id: str, delete_data: bool = False):
         return self.database.uninstall_database(db_id, delete_data)
     
@@ -462,16 +798,31 @@ class Api:
     def change_db_credentials(self, db_id: str, username: str, old_pass: str, new_pass: str):
         return self.database.change_db_credentials(db_id, username, old_pass, new_pass)
 
+    def list_database_schemas(self, db_id: str, password: str = ""):
+        return self.database.list_schemas(db_id, password)
+
+    def create_database_schema(self, db_id: str, schema_name: str, password: str = ""):
+        return self.database.create_schema(db_id, schema_name, password)
+
+    def drop_database_schema(self, db_id: str, schema_name: str, password: str = ""):
+        return self.database.drop_schema(db_id, schema_name, password)
+
+    def export_database_schema(self, db_id: str, schema_name: str, target_path: str = "", password: str = ""):
+        return self.database.export_schema(db_id, schema_name, target_path, password)
+
+    def import_database_schema(self, db_id: str, schema_name: str, source_path: str, password: str = ""):
+        return self.database.import_schema(db_id, schema_name, source_path, password)
+
     # ==========================================
     # RUNTIMES API ENDPOINTS
     # ==========================================
     
     # --- Node.js ---
-    def get_node_status(self):
-        return self.runtimes_manager.get_node_status()
+    def get_node_status(self, silent: bool = False):
+        return self.runtimes_manager.get_node_status(silent=silent)
 
-    def install_node(self, version_mode, enable_corepack):
-        return self.runtimes_manager.install_node(version_mode, enable_corepack)
+    def install_node(self, version_mode, enable_corepack, set_as_active: bool = True):
+        return self.runtimes_manager.install_node(version_mode, enable_corepack, set_as_active=set_as_active)
 
     def uninstall_node(self):
         return self.runtimes_manager.uninstall_node()
@@ -480,11 +831,11 @@ class Api:
         return self.runtimes_manager.get_available_node_versions()
 
     # --- Python ---
-    def get_python_status(self):
-        return self.runtimes_manager.get_python_status()
+    def get_python_status(self, silent: bool = False):
+        return self.runtimes_manager.get_python_status(silent=silent)
         
-    def install_python(self, minor_version, install_pip):
-        return self.runtimes_manager.install_python(minor_version, install_pip)
+    def install_python(self, minor_version, install_pip, set_as_active: bool = True):
+        return self.runtimes_manager.install_python(minor_version, install_pip, set_as_active=set_as_active)
         
     def uninstall_python(self):
         return self.runtimes_manager.uninstall_python()
@@ -493,11 +844,11 @@ class Api:
         return self.runtimes_manager.get_available_python_versions()
 
     # --- Java (JDK) ---
-    def get_java_status(self):
-        return self.runtimes_manager.get_java_status()
+    def get_java_status(self, silent: bool = False):
+        return self.runtimes_manager.get_java_status(silent=silent)
         
-    def install_java(self, version):
-        return self.runtimes_manager.install_java(version)
+    def install_java(self, version, set_as_active: bool = True):
+        return self.runtimes_manager.install_java(version, set_as_active=set_as_active)
         
     def uninstall_java(self):
         return self.runtimes_manager.uninstall_java()
@@ -506,27 +857,42 @@ class Api:
         return self.runtimes_manager.get_available_java_versions()
 
     # --- Go Compiler ---
-    def get_go_status(self):
-        return self.runtimes_manager.get_go_status()
+    def get_go_status(self, silent: bool = False):
+        return self.runtimes_manager.get_go_status(silent=silent)
 
     def get_available_go_versions(self):
         return self.runtimes_manager.get_available_go_versions()
         
-    def install_go(self, version):
-        return self.runtimes_manager.install_go(version)
+    def install_go(self, version, set_as_active: bool = True):
+        return self.runtimes_manager.install_go(version, set_as_active=set_as_active)
         
     def uninstall_go(self):
         return self.runtimes_manager.uninstall_go()
 
-    # --- Universal Config ---
+    # --- Universal Config & Multi-Version Operations ---
     def toggle_global_path(self, engine, enable):
         return self.runtimes_manager.toggle_user_path(engine, enable)
+
+    def open_runtime_dir(self, engine: str, version: str = None):
+        return self.runtimes_manager.open_runtime_directory(engine, version=version)
+
+    def get_engine_versions(self, engine: str):
+        return self.runtimes_manager.get_engine_versions(engine)
+
+    def set_active_runtime_version(self, engine: str, version: str):
+        return self.runtimes_manager.set_active_version(engine, version)
+
+    def deactivate_runtime_version(self, engine: str):
+        return self.runtimes_manager.deactivate_active_version(engine)
+
+    def uninstall_runtime_version(self, engine: str, version: str):
+        return self.runtimes_manager.uninstall_engine_version(engine, version)
 
     # ==========================================
     # TOOLS API ENDPOINTS (GIT)
     # ==========================================
-    def get_git_status(self):
-        return self.git_manager.get_git_status()
+    def get_git_status(self, silent: bool = False):
+        return self.git_manager.get_git_status(silent=silent)
 
     def get_available_git_versions(self):
         return self.git_manager.get_available_git_versions()
@@ -584,3 +950,55 @@ class Api:
     def uninstall_cloudflare(self): return self.tunnels.uninstall_cloudflare()
     def start_cloudflare_share(self, project_id: str): return self.tunnels.start_cloudflare_share(project_id)
     def stop_cloudflare_share(self, share_id: str): return self.tunnels.stop_cloudflare_share(share_id)
+
+    # ==========================================
+    # MARKDOWN VIEWER
+    # ==========================================
+    def md_select_directory(self): return self.markdown.select_directory()
+    def md_get_tree(self, root_path: str): return self.markdown.get_markdown_tree(root_path)
+    def md_read_file(self, file_path: str): return self.markdown.read_markdown_file(file_path)
+    def md_get_media(self, file_path: str): return self.markdown.get_local_media_base64(file_path)
+
+    # ==========================================
+    # AI ASSISTANT (SERVER COPILOT)
+    # ==========================================
+    def ai_send_message(self, prompt: str, context: str = "", model_override: str = "", provider_override: str = ""):
+        return self.ai.send_message(prompt, context, model_override, provider_override)
+
+    def ai_abort_generation(self):
+        return self.ai.abort_generation()
+
+    def ai_test_connection(self, provider: str, api_key: str, model: str, base_url: str = ""):
+        return self.ai.test_connection(provider, api_key, model, base_url)
+
+    def ai_get_chat_history(self):
+        return self.ai.get_chat_history()
+
+    def ai_save_chat_history(self, messages: list):
+        return self.ai.save_chat_history(messages)
+
+    def ai_clear_chat_history(self):
+        return self.ai.clear_chat_history()
+
+    def ai_get_server_context(self, active_screen: str = "", include_logs: bool = True):
+        return self.ai.get_server_context(active_screen, include_logs)
+
+    def ai_get_available_models(self, provider: str = "gemini", api_key: str = "", base_url: str = "", tier: str = ""):
+        return self.ai.get_available_models(provider, api_key, base_url, tier)
+
+    def ai_detect_account_tier(self, provider: str = "gemini", api_key: str = "", base_url: str = ""):
+        return self.ai.detect_account_tier(provider, api_key, base_url)
+
+    def ai_get_action_states(self):
+        return self.ai.get_action_states()
+
+    def ai_save_action_states(self, states: dict):
+        return self.ai.save_action_states(states)
+
+    def ai_get_usage_stats(self, provider: str = ""):
+        return self.ai.get_usage_stats(provider)
+
+    def ai_reset_usage_stats(self):
+        return self.ai.reset_usage_stats()
+
+

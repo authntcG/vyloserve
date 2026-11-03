@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import FieldLabel from '../../components/FieldLabel';
 import ToggleSwitch from '../../components/ToggleSwitch';
+import SkeletonForm from '../../components/skeleton/SkeletonForm';
 
 interface Extension {
     name: string;
@@ -32,12 +33,7 @@ export default function PhpSettings({ config, setConfig, extensions, setExtensio
     const [searchQuery, setSearchQuery] = useState('');
 
     if (isLoading) {
-        return (
-            <div className="flex flex-col items-center justify-center py-12">
-                <span className="material-symbols-outlined animate-spin text-3xl text-slate-400">sync</span>
-                <span className="text-sm text-slate-500 mt-3">{t('php.reading_php_ini')}</span>
-            </div>
-        );
+        return <SkeletonForm fieldsCount={5} hasTabs={true} loadingText={t('php.reading_php_ini')} />;
     }
 
     const toggleExtension = (extName: string) => {
@@ -153,7 +149,7 @@ export default function PhpSettings({ config, setConfig, extensions, setExtensio
                                 type="button"
                                 key={ext.name}
                                 onClick={() => toggleExtension(ext.name)}
-                                className={`flex items-center justify-between p-2 rounded border cursor-pointer select-none transition-all ${ext.active
+                                className={`flex items-center justify-between p-2 rounded border cursor-pointer select-none transition-colors ${ext.active
                                     ? 'border-primary/50 bg-primary/5 dark:bg-primary/10 dark:border-primary/40'
                                     : 'border-slate-200 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-800'
                                     }`}

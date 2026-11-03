@@ -33,6 +33,7 @@
 |--------------|----------------|-------------|
 | `get_php_versions()` | `get_php_versions()` | `php.get_versions()` |
 | `install_php(ver, filename, port)` | `install_php()` | `php.install_version()` |
+| `update_php(old_ver, new_ver, filename)` | `update_php()` | `php.update_version()` — frontend (`php/Main.tsx`) mengecek update tersedia otomatis di background (`fetchAvailableVersions()`, dibandingkan via `compareVersions()` dari `utils/version.ts`) dan menampilkan badge "Update" di judul kartu + tombol "Update to {versi}" di menu "...". Ini pola REFERENSI untuk badge+dropdown update — `database/Main.tsx` mengikutinya persis (lihat docs/known_bugs.md #51) |
 | `get_installed_php()` | `get_installed_php()` | `php.get_installed_instances()` |
 | `get_php_config(ver)` | `get_php_config()` | `php.get_config()` |
 | `save_php_config(ver, cfg, ext)` | `save_php_config()` | `php.save_config()` |
@@ -48,6 +49,7 @@
 | `get_installed_databases()` | `get_installed_databases()` | `database.get_installed()` |
 | `get_available_databases(engine)` | `get_available_databases()` | `database.get_available_versions()` |
 | `install_database(engine,ver,url,port,pass)` | `install_database()` | `database.install_database()` |
+| `update_database(db_id,new_version,url,backup_data?)` | `update_database()` | `database.update_database()` — download versi baru, backup data opsional, auto-rollback kalau gagal. Frontend (`database/Main.tsx`) mengikuti pola badge+dropdown `php/Main.tsx` persis (`checkForUpdates()`, sekali per engine unik, dibandingkan via `compareVersions()`), ditambah satu konfirmasi ekstra untuk pilihan backup sebelum update — satu-satunya beda dari PHP karena ini kemampuan nyata yang tidak dimiliki `update_php()` |
 | `uninstall_database(id, del_data)` | `uninstall_database()` | `database.uninstall_database()` |
 | `start_database(id)` | `start_database()` | `database.start_database()` |
 | `stop_database(id)` | `stop_database()` | `database.stop_database()` |
@@ -58,27 +60,37 @@
 | `open_db_config_file(db_id)` | `open_db_config_file()` | `database.open_path(is_file=True)` |
 | `open_db_dir(db_id)` | `open_db_dir()` | `database.open_path(is_file=False)` |
 | `get_database_log_content(db_id, log_type='startup')` | `get_database_log_content()` | `database.get_log_content()` — baca tail `db_startup.log`/`*.err`, lihat `docs/backend_services.md` §11.1 |
+| `list_database_schemas(db_id)` | `list_database_schemas()` | `database.list_schemas()` — daftar database/schema MySQL & Postgres |
+| `create_database_schema(db_id, schema_name)` | `create_database_schema()` | `database.create_schema()` — eksekusi SQL DDL pembuatan skema |
+| `drop_database_schema(db_id, schema_name)` | `drop_database_schema()` | `database.drop_schema()` — eksekusi SQL DDL penghapusan skema |
+| `export_database_schema(db_id, schema, path)` | `export_database_schema()` | `database.export_schema()` — dump SQL schema |
+| `import_database_schema(db_id, schema, path)` | `import_database_schema()` | `database.import_schema()` — import SQL schema |
 
 ### Runtimes Endpoints
 | Endpoint (JS) | Handler Python | Delegasi ke |
 |--------------|----------------|-------------|
 | `get_node_status()` | `get_node_status()` | `runtimes_manager.get_node_status()` |
-| `install_node(mode, corepack)` | `install_node()` | `runtimes_manager.install_node()` |
+| `install_node(ver, corepack, set_active)` | `install_node()` | `runtimes_manager.install_node()` |
 | `uninstall_node()` | `uninstall_node()` | `runtimes_manager.uninstall_node()` |
 | `get_available_node_versions()` | `get_available_node_versions()` | `runtimes_manager.get_available_node_versions()` |
 | `get_python_status()` | `get_python_status()` | `runtimes_manager.get_python_status()` |
-| `install_python(minor, pip)` | `install_python()` | `runtimes_manager.install_python()` |
+| `install_python(minor, pip, set_active)` | `install_python()` | `runtimes_manager.install_python()` |
 | `uninstall_python()` | `uninstall_python()` | `runtimes_manager.uninstall_python()` |
 | `get_java_status()` | `get_java_status()` | `runtimes_manager.get_java_status()` |
-| `install_java(ver)` | `install_java()` | `runtimes_manager.install_java()` |
+| `install_java(ver, set_active)` | `install_java()` | `runtimes_manager.install_java()` |
 | `uninstall_java()` | `uninstall_java()` | `runtimes_manager.uninstall_java()` |
 | `get_go_status()` | `get_go_status()` | `runtimes_manager.get_go_status()` |
-| `install_go(ver)` | `install_go()` | `runtimes_manager.install_go()` |
+| `install_go(ver, set_active)` | `install_go()` | `runtimes_manager.install_go()` |
 | `uninstall_go()` | `uninstall_go()` | `runtimes_manager.uninstall_go()` |
 | `toggle_global_path(engine, enable)` | `toggle_global_path()` | `runtimes_manager.toggle_user_path()` |
 | `get_available_python_versions()` | `get_available_python_versions()` | `runtimes_manager.get_available_python_versions()` |
 | `get_available_java_versions()` | `get_available_java_versions()` | `runtimes_manager.get_available_java_versions()` |
 | `get_available_go_versions()` | `get_available_go_versions()` | `runtimes_manager.get_available_go_versions()` |
+| `get_engine_versions(engine)` | `get_engine_versions()` | `runtimes_manager.get_engine_versions()` |
+| `set_active_runtime_version(engine, ver)` | `set_active_runtime_version()` | `runtimes_manager.set_active_version()` |
+| `deactivate_runtime_version(engine)` | `deactivate_runtime_version()` | `runtimes_manager.deactivate_active_version()` |
+| `uninstall_runtime_version(engine, ver)` | `uninstall_runtime_version()` | `runtimes_manager.uninstall_engine_version()` |
+| `open_runtime_dir(engine, ver?)` | `open_runtime_dir()` | `runtimes_manager.open_runtime_directory()` |
 
 ### Project & Git Endpoints
 | Endpoint (JS) | Handler Python | Delegasi ke |
@@ -90,6 +102,16 @@
 | `detect_framework(dir)` | `detect_framework()` | `project.detect_framework()` |
 | `retry_sync_host(id)` | `retry_sync_host()` | `project.retry_sync_host()` |
 | `open_in_explorer(path)` | `open_in_explorer()` | `project.open_in_explorer()` |
+| `get_project_runtimes_info()` | `get_project_runtimes_info()` | `project.get_project_runtimes_info()` |
+| `get_framework_versions(eng, fw, ver)` | `get_framework_versions()` | `project.get_framework_versions()` |
+| `send_project_cli_input(data)` | `send_project_cli_input()` | `project.send_project_cli_input()` |
+| `resize_project_cli(cols, rows)` | `resize_project_cli()` | `project.resize_project_cli()` |
+| `cancel_project_install()` | `cancel_project_install()` | `project.cancel_project_install()` |
+| `start_project_server(project_id)` | `start_project_server()` | `project.start_project_server()` |
+| `stop_project_server(project_id)` | `stop_project_server()` | `project.stop_project_server()` |
+| `get_project_server_status(project_id)` | `get_project_server_status()` | `project.get_project_server_status()` |
+| `get_all_running_project_servers()` | `get_all_running_project_servers()` | `project.get_all_running_project_servers()` |
+| `get_project_server_logs(project_id)` | `get_project_server_logs()` | `project.get_project_server_logs()` |
 | `get_git_status()` | `get_git_status()` | `git_manager.get_git_status()` |
 | `install_git(url, file, ver)` | `install_git()` | `git_manager.install_git()` |
 | `uninstall_git()` | `uninstall_git()` | `git_manager.uninstall_git()` |
@@ -97,6 +119,26 @@
 | `get_git_config()` | `get_git_config()` | `git_manager.get_git_config()` |
 | `set_git_config(name, email)` | `set_git_config()` | `git_manager.set_git_config()` |
 | `get_available_git_versions()` | `get_available_git_versions()` | `git_manager.get_available_git_versions()` |
+
+### Developer Terminal Endpoints
+| Endpoint (JS) | Handler Python | Delegasi ke |
+|--------------|----------------|-------------|
+| `get_terminal_shells()` | `get_terminal_shells()` | `terminal.get_available_shells()` |
+| `get_terminal_runtimes_matrix()` | `get_terminal_runtimes_matrix()` | `terminal.get_runtimes_matrix()` |
+| `create_terminal_session(shell, cwd, scope)` | `create_terminal_session()` | `terminal.create_session()` |
+| `send_terminal_input(id, data, ctx)` | `send_terminal_input()` | `terminal.send_input()` |
+| `resize_terminal(id, cols, rows)` | `resize_terminal()` | `terminal.resize()` |
+| `close_terminal_session(id)` | `close_terminal_session()` | `terminal.close_session()` |
+| `list_terminal_sessions()` | `list_terminal_sessions()` | `terminal.list_sessions()` |
+| `get_terminal_session_cwd(id)` | `get_terminal_session_cwd()` | `terminal.get_session_cwd()` |
+| `get_terminal_config()` | `get_terminal_config()` | `terminal.get_terminal_config()` |
+| `save_terminal_default_profile(profile)` | `save_terminal_default_profile()` | `terminal.save_terminal_default_profile()` |
+| `save_terminal_settings(settings)` | `save_terminal_settings()` | `terminal.save_terminal_settings()` |
+| `get_terminal_saved_sessions()` | `get_terminal_saved_sessions()` | `terminal.get_saved_sessions()` |
+| `save_terminal_preset(data)` | `save_terminal_preset()` | `terminal.save_preset()` |
+| `delete_terminal_preset(id)` | `delete_terminal_preset()` | `terminal.delete_preset()` |
+| `save_terminal_workspace(data)` | `save_terminal_workspace()` | `terminal.save_workspace()` |
+| `delete_terminal_workspace(id)` | `delete_terminal_workspace()` | `terminal.delete_workspace()` |
 
 ### System & Utility Endpoints
 | Endpoint (JS) | Handler Python | Delegasi ke |
@@ -114,6 +156,17 @@
 | `close_app()` | `close_app()` | `quit_callback()` (jika di-set `main.py`) atau `os._exit(0)` langsung — lihat `docs/known_bugs.md` #6 untuk isu cleanup proses child |
 | `save_base64_file(filename, base64_data, file_types?)` | `save_base64_file()` | `window.create_file_dialog(SAVE_DIALOG)` lalu tulis file hasil decode base64 langsung — satu-satunya endpoint yang tidak melalui Manager manapun |
 | `show_native_notification(message, type)` | `show_native_notification()` | `win11toast.toast()` di thread terpisah — notifikasi native Windows, dipanggil `ToastContext.tsx` saat window backgrounded. Detail: `docs/backend_services.md` §14.4 |
+| `apply_titlebar_theme(theme)` | `apply_titlebar_theme()` | `system_utils.apply_window_titlebar_theme()` — sinkronisasi caption bar dan text titlebar native Windows via DWM API |
+| `check_internet_connection()` | `check_internet_connection()` | `network_utils.check_internet_connection()` — multi-probe internet physical connection |
+| `cancel_installation(task_id)` | `cancel_installation()` | `cancellation.cancel_task(task_id)` — sinyal pembatalan unduhan/ekstraksi berdurasi panjang |
+
+### Markdown Documentation Viewer Endpoints
+| Endpoint (JS) | Handler Python | Delegasi ke |
+|--------------|----------------|-------------|
+| `md_select_directory()` | `md_select_directory()` | `markdown_viewer.select_directory()` |
+| `md_get_tree(path)` | `md_get_tree()` | `markdown_viewer.get_markdown_tree()` |
+| `md_read_file(path)` | `md_read_file()` | `markdown_viewer.read_markdown_file()` |
+| `md_get_media(path)` | `md_get_media()` | `markdown_viewer.get_local_media_base64()` |
 
 > **Catatan:** `Api.start_log_watcher()`/`stop_log_watcher()` **bukan** endpoint yang dipanggil dari JS — ini method internal yang dipanggil sekali oleh `main.py` saat window dibuat/ditutup untuk menjalankan thread background yang menyalurkan file log Apache/Database ke System Logs. Detail: `docs/backend_services.md` §11.2.
 >
@@ -128,8 +181,8 @@
 | `start_download_update(asset_url, asset_name)` | `start_download_update()` | `updater.start_download_update()` (non-blocking, thread background) |
 | `install_update()` | `install_update()` | `updater.install_update()` |
 
-### Tunnels Endpoints (zrok)
-Fitur *public tunnel* berbasis [zrok](https://zrok.io) (OpenZiti) — expose project lokal/`localhost:port` apa pun ke internet. `TunnelsManager` tidak menyimpan state ke `data/*.json` sendiri (share aktif cuma disimpan in-memory di `self.active_shares`, hilang saat aplikasi restart); satu-satunya jejak persisten adalah field `tunnel_url` yang disisipkan ke record project terkait di `data/projects.json` saat share dimulai/dihentikan (lewat `Api.project`).
+### Tunnels Endpoints (zrok + Cloudflare)
+Fitur *public tunnel* — expose project lokal/`localhost:port` apa pun ke internet — mendukung **DUA provider** lewat satu `TunnelsManager`: [zrok](https://zrok.io) (OpenZiti, butuh `enable_zrok(token)` sekali sebelum bisa share) dan **Cloudflare Tunnel** (`cloudflared`, *quick tunnel* `*.trycloudflare.com` — TIDAK butuh token/akun, makanya tidak ada `enable_cloudflare`/`disable_cloudflare`). `TunnelsManager` tidak menyimpan state share ke `data/*.json` sendiri untuk provider manapun (share aktif disimpan in-memory di `self.active_shares`/`self.active_cloudflare_shares` masing-masing, hilang saat aplikasi restart); satu-satunya jejak persisten adalah field `tunnel_url` yang disisipkan ke record project terkait di `data/projects.json` saat share dimulai/dihentikan (lewat `Api.project`).
 
 | Endpoint (JS) | Handler Python | Delegasi ke |
 |--------------|----------------|-------------|
@@ -141,6 +194,30 @@ Fitur *public tunnel* berbasis [zrok](https://zrok.io) (OpenZiti) — expose pro
 | `disable_zrok()` | `disable_zrok()` | `tunnels.disable_zrok()` |
 | `start_zrok_share(project_id_or_'localhost:port')` | `start_zrok_share()` | `tunnels.start_zrok_share()` |
 | `stop_zrok_share(share_id)` | `stop_zrok_share()` | `tunnels.stop_zrok_share()` |
+| `get_available_cloudflare_versions()` | `get_available_cloudflare_versions()` | `tunnels.get_available_cloudflare_versions()` — fetch rilis dari GitHub API `cloudflare/cloudflared`, filter yang punya asset `cloudflared-windows-amd64.exe` |
+| `get_cloudflare_status()` | `get_cloudflare_status()` | `tunnels.get_cloudflare_status()` |
+| `install_cloudflare(version='latest')` | `install_cloudflare()` | `tunnels.install_cloudflare()` |
+| `uninstall_cloudflare()` | `uninstall_cloudflare()` | `tunnels.uninstall_cloudflare()` — turut menghentikan semua share Cloudflare aktif dulu |
+| `start_cloudflare_share(project_id_or_'localhost:port')` | `start_cloudflare_share()` | `tunnels.start_cloudflare_share()` |
+| `stop_cloudflare_share(share_id)` | `stop_cloudflare_share()` | `tunnels.stop_cloudflare_share()` |
+
+### AI Assistant Endpoints (Server Copilot, RAG, Usage Tracker, & Service Control)
+| Endpoint (JS) | Handler Python | Delegasi ke |
+|--------------|----------------|-------------|
+| `ai_send_message(prompt, ctx, model, prov)` | `ai_send_message()` | `ai.send_message()` — streaming SSE non-blocking di background thread via `Api.emit_ai_chunk()` |
+| `ai_abort_generation()` | `ai_abort_generation()` | `ai.abort_generation()` |
+| `ai_test_connection(provider, key, model, url)` | `ai_test_connection()` | `ai.test_connection()` |
+| `ai_get_chat_history()` | `ai_get_chat_history()` | `ai.get_chat_history()` |
+| `ai_save_chat_history(messages)` | `ai_save_chat_history()` | `ai.save_chat_history()` |
+| `ai_clear_chat_history()` | `ai_clear_chat_history()` | `ai.clear_chat_history()` |
+| `ai_get_server_context(screen?, logs?)` | `ai_get_server_context()` | `ai.get_server_context()` |
+| `ai_get_available_models(provider, key, url, tier)` | `ai_get_available_models()` | `ai.get_available_models()` — dynamic model discovery dari endpoint API |
+| `ai_detect_account_tier(provider, key, url)` | `ai_detect_account_tier()` | `ai.detect_account_tier()` — empirical tier probing |
+| `ai_get_action_states()` | `ai_get_action_states()` | `ai.get_action_states()` |
+| `ai_save_action_states(states)` | `ai_save_action_states()` | `ai.save_action_states()` |
+| `ai_get_usage_stats(provider?)` | `ai_get_usage_stats()` | `ai.get_usage_stats()` — metrik pemakaian token & request harian/mingguan beserta batas free-tier |
+| `ai_reset_usage_stats()` | `ai_reset_usage_stats()` | `ai.reset_usage_stats()` |
+
 
 > ✅ **Sudah diperbaiki (sebelumnya dicatat di sini sebagai item belum diselesaikan):** Ke-7 handler delegasi di atas (selain `get_available_zrok_versions`) sempat ditulis dengan pola defensif `getattr(self, "tunnels").xxx() if hasattr(self, "tunnels") else {}` — sudah disederhanakan jadi `self.tunnels.xxx()` langsung, konsisten dengan seluruh delegasi lain di `core/api.py`.
 >
@@ -157,36 +234,50 @@ Fitur *public tunnel* berbasis [zrok](https://zrok.io) (OpenZiti) — expose pro
 ### Backend Files
 | File | Ukuran | Tanggung Jawab |
 |------|--------|----------------|
-| `core/api.py` | ~490 baris | Facade/Router — meneruskan semua panggilan JS ke manager; juga memiliki `start_log_watcher()`/`stop_log_watcher()` (thread background, bukan endpoint JS — lihat §1) |
-| `core/services/apache.py` | ~533 baris | Instalasi, konfigurasi, dan lifecycle httpd.exe; `tail_new_logs()`/`get_log_content()` untuk System Logs (lihat `docs/backend_services.md` §11); `get_http_port()` untuk resolusi port HTTP aktif (dipakai `TunnelsManager`) |
-| `core/services/php.py` | ~404 baris | Multi-version PHP-CGI, extensions, php.ini management |
-| `core/services/database.py` | ~690 baris | MySQL/MariaDB dan PostgreSQL daemon management; `tail_new_logs()`/`get_log_content()` untuk System Logs |
-| `core/services/project.py` | ~496 baris | VirtualHost, Composer, UAC hosts injection |
-| `core/services/runtimes_manager.py` | ~782 baris | Node, Python, Java, Go — Windows Registry PATH injection |
-| `core/services/git_manager.py` | ~362 baris | PortableGit installer dan PATH management |
+| `core/api.py` | ~930 baris | Facade/Router — meneruskan semua panggilan JS ke manager; juga memiliki `start_log_watcher()`/`stop_log_watcher()`, `emit_window_state()`, `emit_ai_chunk()`, `emit_cli_output()`, `emit_terminal_output()`, dan `show_native_notification()` |
+| `core/services/project.py` | ~1750 baris | ⚠️ File backend terbesar — Scaffolding multi-runtime (PHP, Node, Python, Go, Java), Dev Server process management, VirtualHost & WebSocket proxy, UAC hosts injection, interactive CLI streaming via PTY |
+| `core/services/ai_assistant.py` | ~1580 baris | Copilot AI: `DocRetriever` (in-memory RAG panduan pengguna), SSE streaming, empirical tier probing, context aggregator sistem server, token usage tracker (`data/ai_usage.json`), persistensi chat & action states |
+| `core/services/runtimes_manager.py` | ~1200 baris | Multi-version concurrency (Node, Python, Java, Go), Centralized `RuntimePathHub`, isolasi instalasi eksternal, dan Windows Registry PATH injection |
+| `core/services/terminal.py` | ~1110 baris | Developer Terminal: session manager, subprocess reader threads, real-time CWD tracking, environment scoping (`_build_session_env`), saved presets, workspace & settings persistence |
+| `core/services/tunnels.py` | ~867 baris | Public tunnel — **dua provider**: zrok (install/enable/disable/share) DAN Cloudflare Tunnel (install/share) — lihat §1 "Tunnels Endpoints" |
+| `core/services/database.py` | ~1200 baris | Triple-engine (MySQL/MariaDB, PostgreSQL, Redis) daemon management; Database Schema Manager (`list_schemas`, `create_schema`, `drop_schema`); `tail_new_logs()`/`get_log_content()` untuk System Logs; `update_database()`; `_assert_installer_present()`; CLI execution helpers (`_run_mysql_cli`, `_run_pg_cli`) |
+| `core/services/apache.py` | ~555 baris | Instalasi, konfigurasi, dan lifecycle httpd.exe; `tail_new_logs()`/`get_log_content()` untuk System Logs; `get_http_port()` untuk resolusi port HTTP aktif |
+| `core/services/php.py` | ~438 baris | Multi-version PHP-CGI, extensions, php.ini management, `update_version()` |
+| `core/services/git_manager.py` | ~363 baris | PortableGit installer, global git config, dan PATH management |
+| `core/services/updater.py` | ~242 baris | Auto-Updater: cek/unduh/pasang rilis baru dari GitHub Releases |
 | `core/services/ssl_manager.py` | ~101 baris | Root CA generation via OpenSSL |
+| `core/services/markdown_viewer.py` | ~96 baris | Scanner hierarki folder rekursif, filter direktori berkas markdown, reader isi teks `.md`, dan converter media lokal ke Base64 data URI |
+| `core/services/settings.py` | ~76 baris | CRUD preferensi aplikasi (`language`, `theme`, `ai_*`, `receive_prerelease_updates`, `enable_desktop_notifications`, `default_apache_install_location`, `system_log_levels`/`system_log_sources`) |
 | `core/services/dashboard.py` | ~64 baris | CRUD konfigurasi dashboard (JSON) |
-| `core/services/settings.py` | ~75 baris | CRUD preferensi aplikasi (`language`, `theme`, `receive_prerelease_updates`, `enable_desktop_notifications`, `default_apache_install_location`, `system_log_levels`/`system_log_sources`) |
-| `core/services/updater.py` | ~237 baris | Auto-Updater: cek/unduh/pasang rilis baru dari GitHub Releases |
-| `core/services/tunnels.py` | ~500 baris | Public tunnel berbasis zrok (install/enable/disable/share) — lihat §1 "Tunnels Endpoints". Termasuk `_extract_zrok_public_url()`/`_parse_zrok_log_line()`/`_log_zrok_line()` (parsing output JSON `zrok.exe` v2 — lihat `docs/known_bugs.md` #35) |
 | `core/utils/file_utils.py` | ~291 baris | JSON I/O, download multi-part, ekstraksi ZIP/TAR, `read_log_tail()`/`read_new_lines()` untuk System Logs |
-| `core/utils/system_utils.py` | ~102 baris | subprocess silent, port checker, path resolver |
-| `main.py` | ~279 baris | Entrypoint: PyWebView window, single-instance lock via OS Mutex (`check_single_instance()`), System Tray setup, tema-aware `background_color` window (`get_theme_bg_color()` baca `data/settings.json`), `APP_VERSION` |
+| `core/utils/system_utils.py` | ~170 baris | subprocess silent, port checker, path resolver, DWM titlebar palette, Named Pipe IPC single-instance |
+| `core/utils/cancellation.py` | ~90 baris | Token pembatalan asinkron thread-safe (`CancellationToken`), registry tugas aktif, pembatalan I/O unduhan/ekstraksi berdurasi panjang |
+| `core/utils/network_utils.py` | ~65 baris | Multi-endpoint socket probe konektivitas internet fisik, deteksi `is_network_error`, dan generator respons offline standar |
+| `main.py` | ~330 baris | Entrypoint: PyWebView window, isolasi mode dev/prod Mutex & IPC, AppLifecycle, System Tray setup, hook DWM titlebar & window state |
 
-### Frontend Files (Halaman Utama)
+### Frontend Files (Halaman Utama, Domain Contexts, & Sub-Komponen)
 | File | Ukuran | Konten |
 |------|--------|--------|
-| `menu/dashboard/Main.tsx` | ~860 baris | ⚠️ File terbesar — Dashboard cards, hardware monitor |
-| `menu/runtimes/Main.tsx` | ~620 baris | Runtime cards (Node, Python, Java, Go) |
-| `menu/tools/git/Main.tsx` | ~434 baris | Git manager UI |
-| `menu/apache/Main.tsx` | ~507 baris | Apache server UI (Golden Standard) |
-| `menu/apache/NewProject.tsx` | ~467 baris | Form buat proyek baru |
-| `menu/database/Main.tsx` | ~332 baris | Database instance cards |
-| `menu/tools/base64-encode-decode/Main.tsx` | ~298 baris | UI alat Base64 Encode/Decode (Client-side) |
-| `menu/tools/url-encode-decode/Main.tsx` | ~161 baris | UI alat URL Encode/Decode (Client-side) |
-| `menu/tools/qr-generator/Main.tsx` | ~283 baris | UI alat QR Generator (Client-side) |
-| `menu/tools/settings/SettingsModals.tsx` | ~638 baris | **Satu modal bertab** (General/Logs/Updates/About) — bukan lagi beberapa modal terpisah, lihat `docs/known_bugs.md` untuk histori redesign-nya |
-| `menu/tools/tunnels/Main.tsx` + `InstallZrok.tsx` | - | UI tunnel publik berbasis zrok (lihat §1 "Tunnels Endpoints"); deskripsi detail ada di `docs/frontend_ui.md` §14 |
+| `menu/projects/Main.tsx` | ~280 baris | Projects Hub orchestrator dengan tampilan ganda (`ProjectsTable.tsx`, `ProjectCards.tsx`, `NewProjectModal.tsx`, `ProjectSettingsModal.tsx`, `ProjectCliInstallModal.tsx`, `ProjectServerLogsModal.tsx`) |
+| `menu/tools/terminal/Main.tsx` | ~250 baris | Developer Terminal multi-tab orchestrator (`TerminalInstance.tsx`, `TerminalTabBar.tsx`, `TerminalToolbar.tsx`, `TerminalSettingsModal.tsx`, `TerminalPresetsMenu.tsx`, `TerminalSavePresetModal.tsx`, `TerminalEnvModal.tsx`) |
+| `menu/tools/settings/SettingsModals.tsx` | ~460 baris | Modal settings terpusat (General, Logs, Updates, About) dengan pencarian 15 tema |
+| `context/ProjectContext.tsx` | ~320 baris | State provider Projects Hub: proses dev server, live logs, dan scaffolding multi-runtime |
+| `context/AiContext.tsx` | ~350 baris | State provider AI global: SSE streaming, riwayat chat, usage stats, dual-layer action states persistence |
+| `menu/tools/tunnels/Main.tsx` | ~240 baris | UI tunnel publik (zrok + Cloudflare) dengan Card & Table View mode dan searchable project selector (`TunnelsComponents.tsx`, `InstallTunnel.tsx`) |
+| `menu/apache/Main.tsx` | ~230 baris | Apache server UI (Golden Standard), didekomposisi bersama `ApacheInstallModal.tsx` |
+| `menu/database/Main.tsx` | ~220 baris | Database instance cards & table view (`DatabaseTable.tsx`), didekomposisi bersama `NewInstance.tsx`, `DatabasePasswordModal.tsx`, dan `Settings.tsx` |
+| `menu/runtimes/Main.tsx` | ~140 baris | Runtime orchestrator (Node, Python, Java, Go) dengan `RuntimePathHub.tsx` terpusat, `RuntimeTable.tsx`, dan `RuntimeEnginePanel.tsx` |
+| `menu/tools/ai-assistant/Main.tsx` | ~260 baris | Workspace penuh AI Copilot dengan `AiSettingsModal.tsx`, `AiUsageBadge.tsx`, `AiSuggestionChips.tsx`, dan `AiChatInput.tsx` |
+| `menu/tools/ai-assistant/components/*` | ~100–250 baris | Sub-komponen AI terisolasi: `AiActionCard.tsx`, `AiChatInput.tsx`, `AiChatMessage.tsx`, `AiFloatingWidget.tsx`, `AiSuggestionChips.tsx`, `AiUsageBadge.tsx`, `AiSettingsModal.tsx` |
+| `menu/dashboard/Main.tsx` | ~120 baris | Dashboard orchestrator, didekomposisi bersama `components/DashboardControlPanel.tsx`, `RecentProjectsSection.tsx`, `SystemResourcesCard.tsx`, dan `OptimizationSuggestions.tsx` |
+| `menu/php/Main.tsx` | ~160 baris | PHP instance cards & table view (`PhpTable.tsx`), didekomposisi bersama `NewInstance.tsx` dan `Settings.tsx` |
+| `menu/tools/git/Main.tsx` | ~140 baris | Git manager UI dengan in-card alert & adaptive status badge (`GitComponents.tsx`, `InstallGitModal.tsx`, `GitUninstallModal.tsx`) |
+| `menu/tools/markdown-viewer/Main.tsx` | ~200 baris | UI Markdown Documentation Viewer (`FolderTreeView.tsx`, `MarkdownRenderer.tsx`) |
+| `menu/tools/qr-generator/Main.tsx` | ~320 baris | UI alat QR Generator (Client-side) |
+| `menu/tools/base64-encode-decode/Main.tsx` | ~310 baris | UI alat Base64 Encode/Decode (Client-side) |
+| `menu/tools/url-encode-decode/Main.tsx` | ~175 baris | UI alat URL Encode/Decode (Client-side) |
+| `components/DataTable.tsx` | ~180 baris | Komponen tabel data modern berdensitas tinggi (compact/normal/relaxed) |
+| `components/skeleton/*` | ~30–140 baris | Sistem primitif Skeleton (`Skeleton.tsx`, `SkeletonCard.tsx`, `SkeletonForm.tsx`, `SkeletonDocument.tsx`, `SkeletonChatMessage.tsx`, `AppSkeletonLayout.tsx`) |
 
 ---
 
@@ -198,9 +289,22 @@ Semua state aplikasi disimpan di folder `data/` (di-ignore git). Format **selalu
 |-----------|-----|-------------|
 | `data/apache.json` | `{"active_version": "2.4.68"}` — **hanya** versi aktif, TIDAK menyimpan `port` (port Apache dikonfigurasi langsung di `httpd.conf`, bukan JSON ini) | `ApacheManager` |
 | `data/databases.json` *(plural — bukan `database.json`)* | List instance database `[{id, name, engine, version, port, dataDir, installDir}]` | `DatabaseManager` |
-| `data/projects.json` | List virtual host project Apache `[{id, name, domain, path, php_version, php_port, framework, host_synced, tunnel_url?}]` — field `tunnel_url` ditambahkan dinamis oleh `TunnelsManager` saat share zrok aktif untuk project tsb, dihapus lagi saat share dihentikan | `ProjectManager` (ditulis juga oleh `TunnelsManager` lewat `Api.project`) |
-| `data/settings.json` | `{"language": "en", "theme": "vyloserve-dark", "receive_prerelease_updates": false, "default_apache_install_location": "", "system_log_levels": null, "system_log_sources": null}` — preferensi UI generik, mudah diperluas lewat `default_config` di `SettingsManager.get_settings()`. `theme`: salah satu dari 10 preset (`vyloserve-dark/light`, `darcula-dark`, `solarized-dark/light`, `high-contrast-dark/light`, `monokai-dark`, `dracula-dark`, `nord-dark`) — dipetakan ke warna background window pywebview oleh `main.py` `get_theme_bg_color()`. `system_log_*`: `null` = belum dikustomisasi (tampilkan semua), array APAPUN (termasuk `[]`) = daftar eksplisit tersimpan — **jangan** pakai `[]` sebagai default, itu bug lama yang bikin "uncheck semua lalu Save" terlihat gagal tersimpan (lihat `docs/known_bugs.md` #26). JANGAN pakai `localStorage` browser untuk apa pun yang perlu bertahan antar sesi (lihat `docs/known_bugs.md` #24) | `SettingsManager`; `theme` juga dibaca langsung (bukan lewat `SettingsManager`/`read_json`) oleh `main.py` `get_theme_bg_color()` lewat `json.load()` mentah — lihat catatan di bawah |
+| `data/projects.json` | List project multi-runtime `[{id, name, domain, path, runtime_engine, framework, proxy_port, php_version?, php_port?, host_synced, tunnel_url?}]` | `ProjectManager` (ditulis juga oleh `TunnelsManager` lewat `Api.project`) |
+| `data/terminal_config.json` | Konfigurasi Developer Terminal: font family, font size, cursor style, blink, scrollback, copy on select, default shell profile | `TerminalManager` |
+| `data/terminal_presets.json` | List konfigurasi environment scoping preset tersimpan `[{id, name, shell, runtimes: {php?, node?, python?, java?, go?, git?}}]` | `TerminalManager` |
+| `data/terminal_sessions.json` | Snapshot tab sesi terminal untuk pemulihan workspace | `TerminalManager` |
+| `data/settings.json` | `{"language": "en", "theme": "vyloserve-dark", "ai_provider": "openrouter", "ai_model": "...", "receive_prerelease_updates": false, "default_apache_install_location": "", "system_log_levels": null, "system_log_sources": null}` — preferensi UI generik. `theme`: salah satu dari 15 preset tema — dipetakan ke warna background window pywebview oleh `main.py` `get_theme_bg_color()`. | `SettingsManager`; `theme` juga dibaca oleh `main.py` `get_theme_bg_color()` |
 | `data/dashboard.json` | Toggle config mana service yang tampil | `DashboardManager` |
+| `data/ai_chat_history.json` | List pesan percakapan `[{id, role, content, timestamp, model?, provider?, sources?, context?}]` — dibatasi `MAX_HISTORY_ITEMS = 40` | `AIAssistantManager` |
+| `data/ai_action_states.json` | Status eksekusi kartu proposal aksi `{"action_id": "idle" | "executing" | "executed" | "failed"}` | `AIAssistantManager` |
+| `data/ai_usage.json` | Metrik penggunaan token & request AI harian (`YYYY-MM-DD`) dan mingguan (`YYYY-Www`) per provider `{"daily": {"2026-10-15": {"gemini": {"prompt_tokens", "completion_tokens", "total_tokens", "requests"}}}}` | `AIAssistantManager` |
+| `data/db_startup.log` | Error log saat daemon DB gagal start (per-instance, di dalam `dataDir` masing-masing, bukan satu file global di `data/`) | `DatabaseManager` |
+| `data/VyloServeRootCA.key` | SSL private key | `SslManager` |
+| `data/temp/*.exe/.bat/.tmp` | Installer update yang sedang/sudah diunduh — dibersihkan otomatis saat aplikasi start (`UpdaterManager._cleanup_temp()`) | `UpdaterManager` |
+| `data/dashboard.json` | Toggle config mana service yang tampil | `DashboardManager` |
+| `data/ai_chat_history.json` | List pesan percakapan `[{id, role, content, timestamp, model?, provider?, sources?, context?}]` — dibatasi `MAX_HISTORY_ITEMS = 40` | `AIAssistantManager` |
+| `data/ai_action_states.json` | Status eksekusi kartu proposal aksi `{"action_id": "idle" | "executing" | "executed" | "failed"}` | `AIAssistantManager` |
+| `data/ai_usage.json` | Metrik penggunaan token & request AI harian (`YYYY-MM-DD`) dan mingguan (`YYYY-Www`) per provider `{"daily": {"2026-10-15": {"gemini": {"prompt_tokens", "completion_tokens", "total_tokens", "requests"}}}}` | `AIAssistantManager` |
 | `data/db_startup.log` | Error log saat daemon DB gagal start (per-instance, di dalam `dataDir` masing-masing, bukan satu file global di `data/`) | `DatabaseManager` |
 | `data/VyloServeRootCA.key` | SSL private key | `SslManager` |
 | `data/temp/*.exe/.bat/.tmp` | Installer update yang sedang/sudah diunduh — dibersihkan otomatis saat aplikasi start (`UpdaterManager._cleanup_temp()`) | `UpdaterManager` |
@@ -430,6 +534,7 @@ const handleInstall = async () => {
 | Tab navigasi underline | `<Tabs tabs={...} value={...} onChange={...} />` | `<button>` tab manual per-item (BUKAN untuk segmented-pill atau chip toggle — lihat `docs/ui_consistency_guide.md` §2) |
 | Label field (di atas input/select) | `<FieldLabel size="sm\|xs" tone="..." htmlFor="...">` | `<label className="text-xs font-medium text-slate-...">` manual (BUKAN untuk heading section atau label pembungkus checkbox/toggle card — lihat `docs/ui_consistency_guide.md` §2) |
 | Kotak info/warning/danger (ikon+teks) | `<InfoBox tone="info\|warning\|danger" icon="...">` | `<div className="p-3 bg-blue-50 ...">` manual (BUKAN untuk chip deteksi inline atau label checkbox bertint — lihat `docs/ui_consistency_guide.md` §2) |
+| Placeholder loading (kartu, form, dokumen, chat, splash) | `<SkeletonCard>`, `<SkeletonForm>`, `<SkeletonDocument>`, `<SkeletonChatMessage>`, `<AppSkeletonLayout>` (`components/skeleton/`) | `<div className="animate-pulse bg-slate-..." />` manual |
 
 Kalau butuh variant/kapabilitas baru yang belum ada di salah satu komponen ini (mis. warna baru, ukuran baru), **perluas komponennya**, jangan bikin implementasi paralel — dan perbarui `docs/ui_consistency_guide.md` begitu selesai.
 
@@ -544,6 +649,11 @@ DatabaseManager
 RuntimesManager / GitManager
  └── Menulis ke Windows Registry: HKCU\Environment\Path (+ JAVA_HOME khusus Java)
  └── TIDAK bergantung service lain
+
+TunnelsManager (zrok + Cloudflare)
+ └── Memanggil ApacheManager.get_http_port() untuk resolusi port HTTP aktif saat share target 'localhost:port' tidak eksplisit
+ └── Memanggil ProjectManager._read_projects()/_save_projects() LANGSUNG (method privat, bukan lewat API publik ProjectManager) untuk menulis/menghapus field tunnel_url saat share dimulai/dihentikan, lalu ProjectManager.sync_apache_vhosts() untuk refresh vhost
+ └── Membaca/menulis: data/projects.json (tidak langsung — lewat ProjectManager, lihat di atas); TIDAK punya file JSON sendiri (share aktif in-memory saja, self.active_shares/self.active_cloudflare_shares)
 ```
 
 > Diagram lengkap (graph TD) dependency di atas tersedia di `docs/backend_services.md` §1.
@@ -602,3 +712,129 @@ Sebelum menyerahkan perubahan, pastikan seluruh checklist ini terpenuhi:
 - [ ] File `.md`/teks berisi emoji yang diedit besar-besaran (terutama lewat PowerShell)
       diverifikasi bebas byte `\x00`/karakter `U+FFFD` sebelum commit — lihat AGENTS.md
       rule 30 & `docs/known_bugs.md` #29
+
+### Analisis Multi-Dimensi & Kualitas Holistik
+- [ ] **UI/UX & HCI (IMK):** Layout desktop-first memenuhi lebar layar yang wajar (`w-full`, Rule 32), status sistem & progress terpancar seketika, barrier proaktif aktif (offline, port collision, validasi form sebelum submit), dan kontras visual harmonis di seluruh 15 tema.
+- [ ] **Usabilitas & Heuristik:** Pengguna memiliki kontrol penuh (aksi cancel/escape/undo, konfirmasi aksi destruktif), error message deskriptif dengan petunjuk perbaikan, dan skenario ekstrim (cold-start, sparse data, ketiadaan koneksi) teruji aman.
+- [ ] **Keamanan:** Input API Python tervalidasi tipe & rentang nilai, subprocess wajib berbentuk list (anti Command Injection), path traversal dicegah via `realpath`, XSS dicegah via `json.dumps()`, dan tidak ada kredensial bocor.
+- [ ] **Clean Code & DRY:** Memanfaatkan reusable component (`components/`, `skeleton/`, `hooks/`, `utils/`), prinsip SRP terpenuhi (fungsi <= 40 baris), state input frekuensi tinggi terisolasi, zero new code smells di SonarQube, dan 100% paritas key i18n `en` & `id`.
+
+## 9. Framework Analisis Multi-Dimensi untuk AI
+
+Setiap kali asisten AI menerima tugas perencanaan fitur (`/plan`), investigasi masalah (bug fixing), maupun modifikasi arsitektur kode, AI **WAJIB** menerapkan **Framework Analisis Multi-Dimensi**. Target utama penggunaan kerangka kerja ini adalah **menaikkan kualitas holistik aplikasi, mengoptimalkan interaksi pengguna, memperkokoh struktur kode, serta meminimalisir potensi timbulnya bug di masa depan.**
+
+```
++---------------------------------------------------------------------------------+
+|                  FRAMEWORK ANALISIS MULTI-DIMENSI VYLOSERVE                     |
++---------------------------------------------------------------------------------+
+| 1. UI/UX & HCI (IMK)              | 2. Usability Testing & Heuristik            |
+| - Mental Model Server Desktop     | - 10 Heuristik Usabilitas Nielsen          |
+| - Visibility of System Status     | - User Control & Safety Confirmation        |
+| - Proactive Error Barriers        | - Recognition over Recall                   |
+| - Desktop-First Ergonomics        | - Error Recovery Guidance                   |
+| - Theming & Visual Harmony        | - Edge Cases & Real-World Simulation        |
++-----------------------------------+---------------------------------------------+
+| 3. Security & Defensive           | 4. Clean Code, DRY & Reusability            |
+| - Strict API Boundary Validation  | - Single Responsibility Principle (SRP)     |
+| - Subprocess List Injection Guard | - Reusable Component First Hierarchy        |
+| - Realpath Traversal Guard        | - High-Frequency Input State Isolation      |
+| - JSON XSS Sanitization           | - Defensive Typing & Sparse-Data Resilience |
+| - Zero Credential Leakage         | - Zero SonarQube Smells & 100% i18n Parity  |
++-----------------------------------+---------------------------------------------+
+```
+
+---
+
+### 9.1 Pilar 1: UI/UX & Interaksi Manusia dan Komputer (HCI / IMK)
+Aplikasi desktop lokal memiliki karakteristik dan ekspektasi interaksi yang berbeda dengan situs web konvensional:
+1. **Mental Model Pengembang Lokal:**
+   - Pengembang menggunakan VyloServe untuk mengelola stack server lokal secara cepat dan andal. Alur kerja harus mencerminkan proses berpikir mereka: *pilih layanan -> atur parameter -> jalankan/pantau -> buka browser/terminal*.
+   - Kurangi friksi navigasi dengan menyediakan navigasi langsung, tombol aksi cepat, serta status badge yang informatif.
+2. **Visibilitas Status Sistem (Visibility of System Status):**
+   - Setiap operasi asinkron (mengunduh engine, mengekstrak arsip, menjalankan daemon, mengekspor database) **wajib** memberikan umpan balik visual seketika.
+   - Gunakan `emit_progress` dan `emit_log` dari backend Python secara bertahap, dan tangkap di frontend menggunakan `<BackgroundProgressWidget>` atau komponen progress inline.
+   - Jangan pernah membiarkan pengguna menghadapi layar diam tanpa indikator aktivitas (*silent processing*).
+3. **Barrier Proaktif & Pencegahan Galat (Proactive Error Barriers):**
+   - Bangun penghalang sistem sebelum kesalahan fatal terjadi:
+     - *Offline Barrier:* Jika sebuah aksi membutuhkan unduhan dari internet (instalasi runtime, clone template, update), periksa status koneksi internet terlebih dahulu dan berikan banner informatif alih-alih membiarkan proses timeout/crash.
+     - *Port Collision Guard:* Cek ketersediaan port jaringan sebelum meluncurkan server lokal (Apache, MySQL, Redis, dll.).
+     - *Form Validation Barrier:* Nonaktifkan tombol submit jika input kritis belum diisi atau formatnya salah, disertai helper text yang menjelaskan penyebabnya.
+4. **Ergonomi Desktop & Progressive Disclosure (Rule 32):**
+   - VyloServe berjalan di jendela desktop (Windows). **Dilarang** membatasi kontainer halaman secara sempit seperti tampilan mobile (`max-w-md`, `max-w-lg`). Biarkan layout memanfaatkan lebar jendela secara proporsional (`w-full`, layout grid `sm:grid-cols-2 lg:grid-cols-3`).
+   - Terapkan *Progressive Disclosure*: tampilkan parameter umum di tampilan utama kartu/form, dan letakkan konfigurasi lanjutan di balik modal atau tab sekunder untuk menghindari kelebihan beban kognitif pengguna (*cognitive overload*).
+5. **Konsistensi Visual & Harmoni Tema:**
+   - Seluruh komponen UI harus kompatibel dengan 15 preset tema VyloServe melalui CSS variable Tailwind v4. Pastikan teks selalu memiliki kontras tinggi yang memenuhi standar keterbacaan WCAG AA.
+
+---
+
+### 9.2 Pilar 2: Usability Testing & Heuristik Interaksi
+Pemeriksaan usabilitas didasarkan pada prinsip heuristik interaksi manusia-komputer (Nielsen Norman Group & Ben Shneiderman):
+1. **Kontrol dan Kebebasan Pengguna (User Control & Freedom):**
+   - Sediakan tombol pembatalan yang jelas (*Cancel*) pada setiap modal, wizard, atau proses yang sedang berjalan.
+   - Aksi destruktif (menghapus database, mereset password root, menghapus versi runtime, mematikan instance aktif) **wajib** meminta konfirmasi eksplisit pengguna (misal konfirmasi nama database atau tombol bahaya berwarna merah).
+2. **Pengenalan daripada Mengingat (Recognition over Recall):**
+   - Hindari memaksa pengguna mengingat sintaks, port default, atau nama engine.
+   - Sediakan dropdown suggestion, placeholder deskriptif, schema explorer untuk basis data, dan tooltip penjelasan di samping opsi yang kurang familier.
+3. **Fleksibilitas dan Efisiensi Penggunaan (Flexibility & Efficiency of Use):**
+   - Sediakan filter pencarian instan pada daftar yang panjang (proyek, ekstensi, basis data, log).
+   - Pastikan keyboard accessibility (a11y) terpenuhi: setiap `<label>` terhubung ke inputnya via `htmlFor`/`id` (Rule 6 & 21), dropdown dapat dioperasikan via keyboard, dan modal dapat ditutup dengan tombol Escape.
+4. **Diagnosis dan Pemulihan Galat (Error Diagnosis & Recovery):**
+   - Hindari menampilkan raw stack trace, exception Python mentah, atau pesan error samar seperti "Terjadi kesalahan sistem".
+   - Gunakan format terstruktur: *Apa masalahnya* + *Mengapa terjadi* + *Langkah perbaikan yang disarankan*.
+   - Contoh: Daripada "Port 80 error", tampilkan "Port 80 sedang digunakan oleh aplikasi lain (PID: 4120 - Skype). Silakan ganti port Apache atau hentikan aplikasi tersebut."
+5. **Simulasi Skenario Riil (Real-World Usability Scenarios):**
+   - Uji skenario di mana konfigurasi JSON lama kosong atau memiliki struktur berbeda (*sparse data / legacy config*).
+   - Uji skenario pengguna baru yang belum menginstal layanan apa pun (*first-time onboarding empty state*).
+   - Uji skenario ketiadaan hak akses administrator (UAC) pada aksi yang memodifikasi file `hosts` atau port istimewa.
+
+---
+
+### 9.3 Pilar 3: Security Testing & Defensive Engineering
+Keamanan pada aplikasi desktop lokal berfokus pada pencegahan eksploitasi hak istimewa OS dan sanitasi input:
+1. **Validasi Batas Input di Pintu Masuk API (API Boundary Validation):**
+   - Setiap endpoint di `core/api.py` adalah gerbang antara antarmuka webview (JavaScript) dan eksekusi OS (Python).
+   - Validasi ketat tipe data (`isinstance`), panjang string, rentang angka (misal port 1-65535), dan karakter terlarang sebelum menyentuh service mana pun.
+2. **Pencegahan Injeksi Perintah OS (Command Injection Guard):**
+   - **DILARANG** menggunakan `shell=True` dengan string format atau konkatenasi variabel pengguna.
+   - Seluruh pemanggilan `subprocess.Popen` atau `subprocess.run` **WAJIB** berupa list argumen terpisah (`["mysql.exe", "-u", user, "-p" + password]`).
+3. **Proteksi Path Traversal:**
+   - Semua input yang merepresentasikan path direktori/file wajib dinormalisasi dengan `os.path.realpath()` dan divalidasi apakah berada di bawah direktori akar yang diizinkan (misal `bin/`, `data/`, `www/`).
+4. **Sanitasi Komunikasi JavaScript (XSS Prevention):**
+   - Saat memanggil `window.evaluate_js()` dari Python, selalu bungkus payload dengan `json.dumps()` agar tanda kutip dan karakter khusus ter-escape dengan benar.
+5. **Ketahanan Integritas Data & Proteksi Sumber Daya Kritis:**
+   - Hindari penulisan konfigurasi secara langsung yang berisiko merusak file jika aplikasi terhenti mendadak.
+   - Proteksi database sistem default (seperti `information_schema`, `mysql`, `sys`, `postgres`) agar tidak dapat dihapus atau di-drop melalui antarmuka schema manager.
+   - Terapkan isolasi registry Windows pada saat pengujian (Rule 34).
+
+---
+
+### 9.4 Pilar 4: Clean Code, DRY & Reusable Components
+Kualitas kode menentukan kemudahan perawatan dan mencegah akumulasi *technical debt*:
+1. **Single Responsibility Principle (SRP):**
+   - Satu file, satu kelas, satu tujuan spesifik. Di Python, pisahkan API facade (`core/api.py`), logika modul (`core/services/*.py`), dan parser/helper file (`core/utils/*.py`).
+   - Pecah fungsi yang melebihi 40 baris atau memiliki lebih dari 2 tingkat indentasi nested menjadi sub-metode privat (`_helper`).
+2. **Reusable Component First:**
+   - Sebelum membuat elemen UI baru di React, selalu periksa pustaka komponen yang sudah tersedia:
+     - Modal: `<Modal>` (`frontend/src/components/Modal.tsx`)
+     - Header: `<PageHeader>` (`frontend/src/components/PageHeader.tsx`)
+     - Loading: `<SkeletonCard>`, `<SkeletonForm>`, `<SkeletonDocument>` (`frontend/src/components/skeleton/`)
+     - Feedback: `showToast` via `useToast()`, `<BackgroundProgressWidget>`
+     - Form: `<Select>` (`frontend/src/components/Select.tsx`)
+3. **Isolasi State Input Berfrekuensi Tinggi (Rule 7):**
+   - Kolom teks yang menerima ketukan keyboard cepat (seperti pencarian, filter, live query, input chat AI) **dilarang** ditempatkan langsung di komponen induk yang merender list besar.
+   - Isolasikan state ketikan di komponen anak terdedikasi dan gunakan `React.memo` pada item list untuk mencegah lag pengetikan.
+4. **Pengetikan Ketat & Pemrograman Defensif (Defensive Coding - Rule 25):**
+   - Gunakan `read_json(path, default_type)` untuk memastikan tipe data JSON sesuai harapan.
+   - Jangan pernah memanggil fungsi manipulasi string (`.split()`, `.trim()`, `.replaceAll()`) tanpa memastikan nilainya bertipe string non-null terlebih dahulu (contoh pelajaran kasus: bug #88).
+5. **Zero SonarQube Smells & 100% i18n Parity:**
+   - Kode baru tidak boleh memicu code smell, cognitive complexity warning, atau security hotspot baru di SonarQube.
+   - Setiap teks baru wajib berupa translation key yang terdaftar di `locales/en/translation.json` **DAN** `locales/id/translation.json`.
+
+---
+
+### 9.5 Panduan Penerapan saat Menyusun Rencana Kerja (`/plan`)
+Ketika pengguna meminta `/plan` atau asisten AI menyusun rancangan fitur, struktur dokumen rencana kerja **wajib menyertakan tinjauan analisis multi-dimensi**:
+- Bagian **User Experience & HCI Considerations**: Menguraikan alur interaksi, transparansi status, pencegahan salah klik, dan ergonomi desktop.
+- Bagian **Usability & Edge Case Matrix**: Menguraikan simulasi skenario riil (data kosong, network offline, data korup, permission error).
+- Bagian **Security & Defensive Design**: Menguraikan validasi input, sanitasi subprocess, proteksi path traversal, dan proteksi integritas data.
+- Bagian **Architecture, Clean Code & Component Reuse**: Menguraikan komponen reusable yang dipakai, pembagian fungsi SRP, dan strategi pencegahan duplikasi kode.

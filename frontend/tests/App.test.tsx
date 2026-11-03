@@ -22,6 +22,8 @@ vi.mock('../src/menu/tools/git/Main', () => ({ default: () => <div>git-main</div
 vi.mock('../src/menu/tools/url-encode-decode/Main', () => ({ default: () => <div>url-main</div> }));
 vi.mock('../src/menu/tools/base64-encode-decode/Main', () => ({ default: () => <div>base64-main</div> }));
 vi.mock('../src/menu/tools/qr-generator/Main', () => ({ default: () => <div>qr-main</div> }));
+vi.mock('../src/menu/tools/ai-assistant/Main', () => ({ default: () => <div>ai-assistant-main</div> }));
+vi.mock('../src/menu/tools/ai-assistant/components/AiFloatingWidget', () => ({ default: () => <div>ai-floating-widget</div> }));
 vi.mock('../src/i18n', () => ({ default: { changeLanguage: vi.fn() } }));
 
 function resetPywebview() {

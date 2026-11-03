@@ -30,6 +30,7 @@ class SettingsManager:
                 "theme": "vyloserve-dark",
                 "receive_prerelease_updates": False, # opsi untuk auto-updater
                 "enable_desktop_notifications": True, # notifikasi native Windows saat window backgrounded
+                "window_maximized": False, # mengingat state jendela terakhir (Maximized vs Normal)
                 "default_apache_install_location": "", # lokasi folder terakhir dipakai di modal New Project
                 # None = belum pernah dikustomisasi user -> tampilkan semua level/source.
                 # SENGAJA bukan array kosong ([]) -- array kosong dipakai sebagai nilai TERSIMPAN
@@ -38,7 +39,15 @@ class SettingsManager:
                 # tidak bisa dibedakan dari "belum pernah diatur", sehingga preferensi user seolah
                 # tidak pernah tersimpan (lihat docs/known_bugs.md).
                 "system_log_levels": None,
-                "system_log_sources": None
+                "system_log_sources": None,
+                "enable_ai_assistant": True,
+                "enable_floating_ai": True,
+                "ai_provider": "gemini",
+                "ai_model": "gemini-3.5-flash-lite",
+                "ai_api_key": "",
+                "ai_base_url": "http://localhost:11434/v1",
+                "ai_auto_context": True,
+                "ai_temperature": 0.5
             }
             
             data = read_json(self.config_path, default_type=dict)
@@ -47,6 +56,11 @@ class SettingsManager:
                 return {"status": "success", "data": default_config}
                 
             merged_data = {**default_config, **data}
+            # Auto-migrate model Gemini yang sudah didegradasi/404 oleh Google
+            if merged_data.get("ai_provider") == "gemini" and merged_data.get("ai_model") in (
+                "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"
+            ):
+                merged_data["ai_model"] = "gemini-3.5-flash-lite"
             return {"status": "success", "data": merged_data}
             
         except Exception as e:

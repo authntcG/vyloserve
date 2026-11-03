@@ -141,6 +141,15 @@ describe('NewPhpInstance', () => {
 
         expect(screen.getByText('Extracting...')).toBeInTheDocument();
         expect(screen.getByText('55%')).toBeInTheDocument();
+
+        act(() => {
+            window.dispatchEvent(new CustomEvent('vylo_progress', {
+                detail: { source: 'PhpManager', percent: 40, text: 'backend.runtimes.downloading_multipart', args: { percent: 40 } }
+            }));
+        });
+
+        expect(screen.getByText('backend.runtimes.downloading_multipart')).toBeInTheDocument();
+        expect(screen.getByText('40%')).toBeInTheDocument();
     });
 
     it('does not show the progress bar when not installing', async () => {

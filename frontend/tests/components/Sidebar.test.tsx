@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+﻿import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Sidebar from '../../src/components/Sidebar';
-import { ToastProvider } from '../../src/components/ToastContext';
+import { ToastProvider } from '../../src/context/ToastContext';
 
 /**
  * Sidebar.tsx memanggil window.pywebview.api.get_all_services_status() saat

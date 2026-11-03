@@ -1,217 +1,96 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import Card from '../../components/Card';
-import Modal from '../../components/Modal';
 import Button from '../../components/Button';
-import Tabs from '../../components/Tabs';
+import ViewModeToggle from '../../components/ViewModeToggle';
+import { usePersistedViewMode } from '../../hooks/usePersistedViewMode';
+import FilterChips from '../../components/FilterChips';
 import ServiceToggleButton from '../../components/ServiceToggleButton';
-import { useToast } from '../../components/ToastContext';
-import { useAlert } from '../../components/AlertContext';
 import BackgroundProgressWidget from '../../components/BackgroundProgressWidget';
 import LogFileViewerModal from '../../components/LogFileViewerModal';
-
 import PageHeader from '../../components/PageHeader';
 import SkeletonCard from '../../components/SkeletonCard';
 import EmptyState from '../../components/EmptyState';
-import { clampPercent } from '../../utils/progress';
 
-import NewDbInstance, { type NewDbInstanceRef } from './NewInstance';
-import DbSettings from './Settings';
-import ChangePassword, { type ChangePasswordRef } from './ChangePassword';
+import {
+    DatabaseProvider,
+    useDatabase,
+    type DbEngineType,
+} from '../../context/DatabaseContext';
+import DatabaseNewInstanceModal from './DatabaseNewInstanceModal';
+import DatabasePasswordModal from './DatabasePasswordModal';
+import DatabaseSettingsModal from './DatabaseSettingsModal';
+import DatabaseSchemaModal from './DatabaseSchemaModal';
+import DatabaseTable from './DatabaseTable';
 
-type DbEngineType = 'mysql' | 'postgres';
+export type { DbInstance, DbEngineType, AvailableUpdate } from '../../context/DatabaseContext';
 
-interface DbInstance {
-    id: string; name: string; engine: DbEngineType; version: string;
-    port: number; status: 'running' | 'stopped'; dataDir: string;
-}
+const getConfigFileLabel = (engine: string | undefined, t: TFunction) => {
+    if (engine === 'postgres') return t('database.open_postgres_conf');
+    if (engine === 'redis') return 'redis.conf';
+    return t('database.open_my_ini');
+};
 
-export default function DatabaseMain() {
+const getEngineIcon = (engine: string | undefined) => {
+    if (engine === 'postgres') return 'storage';
+    if (engine === 'redis') return 'memory';
+    return 'database';
+};
+
+const getEngineLabel = (engine: string | undefined, t: TFunction) => {
+    if (engine === 'postgres') return t('database.postgres');
+    if (engine === 'redis') return t('database.redis');
+    return t('database.mysql_mariadb');
+};
+
+function DatabaseMainView() {
     const { t } = useTranslation();
-    const { showToast } = useToast();
-    const { confirm } = useAlert();
+    const {
+        dbInstances,
+        isLoading,
+        togglingDbId,
+        activeTab,
+        setActiveTab,
+        filteredInstances,
+        availableUpdates,
+        isInstalling,
+        isCancelling,
+        handleCancelInstall,
+        isNewInstanceOpen,
+        progress,
+        progressText,
+        logViewer,
+        setLogViewer,
+        fetchDbLogContent,
+        openNewInstanceModal,
+        openSettingsModal,
+        openPasswordModal,
+        openSchemaModal,
+        handleToggleDB,
+        handleUpdateDatabase,
+        handleConfirmUninstall,
+    } = useDatabase();
 
-    const [dbInstances, setDbInstances] = useState<DbInstance[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [togglingDbId, setTogglingDbId] = useState<string | null>(null);
+    const [viewMode, setViewMode] = usePersistedViewMode('database', 'card');
 
-    const [activeTab, setActiveTab] = useState<'all' | 'mysql' | 'postgres'>('all');
+    const engineCounts = useMemo(() => ({
+        all: dbInstances.length,
+        mysql: dbInstances.filter((db) => db.engine === 'mysql').length,
+        postgres: dbInstances.filter((db) => db.engine === 'postgres').length,
+        redis: dbInstances.filter((db) => db.engine === 'redis').length,
+    }), [dbInstances]);
 
-    const [isNewInstanceOpen, setIsNewInstanceOpen] = useState(false);
-    const [selectedDbId, setSelectedDbId] = useState<string | null>(null);
-    const [logViewer, setLogViewer] = useState<{ dbId: string; type: 'startup' | 'native' } | null>(null);
-    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-    const [settingsConfig, setSettingsConfig] = useState<any>({});
-    const [isLoadingSettings, setIsLoadingSettings] = useState(false);
-    const [isSavingSettings, setIsSavingSettings] = useState(false);
-    
-    // ---> STATE BARU UNTUK PASSWORD MODAL <---
-    const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
-    const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
-
-    const [progress, setProgress] = useState(0);
-    const [progressText, setProgressText] = useState('');
-    const [isInstalling, setIsInstalling] = useState(false);
-    const hideProgressTimeoutRef = useRef<number | null>(null);
-
-    const newDbRef = useRef<NewDbInstanceRef>(null);
-    const passwordRef = useRef<ChangePasswordRef>(null);
-
-    const usedPorts = dbInstances.map(db => db.port);
-    const selectedDb = dbInstances.find(p => p.id === selectedDbId);
-
-    const filteredInstances = dbInstances.filter(db => activeTab === 'all' || db.engine === activeTab);
-
-    const fetchDatabases = async () => {
-        setIsLoading(true);
-        try {
-            const res = await window.pywebview?.api?.get_installed_databases();
-            if (res?.status === 'success') setDbInstances(res.data || []);
-        } catch (e){ console.error(e); showToast(t('database.fetch_db_error'), "error"); }
-        finally { setIsLoading(false); }
-    };
-
-    useEffect(() => {
-        fetchDatabases();
-        const handleStatus = (e: any) => { if (['database', 'all'].includes(e.detail?.service)) fetchDatabases(); };
-        window.addEventListener('service_status_changed', handleStatus);
-        return () => window.removeEventListener('service_status_changed', handleStatus);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
-    useEffect(() => {
-        const handleProg = (e: any) => {
-            // Abaikan progress milik modul lain (mis. Apache/PHP) yang kebetulan
-            // berjalan bersamaan — lihat docs/known_bugs.md #7.
-            if (e.detail?.source && e.detail.source !== 'DatabaseManager') return;
-            if (e.detail) {
-                const p = e.detail.percent;
-
-                // Batalkan timer auto-hide sebelumnya setiap ada event baru -- mencegah timer basi
-                // dari event 100%/negatif mid-flow (bukan akhir proses sebenarnya) menyembunyikan
-                // widget saat instalasi masih berjalan. Lihat docs/known_bugs.md.
-                if (hideProgressTimeoutRef.current) {
-                    window.clearTimeout(hideProgressTimeoutRef.current);
-                    hideProgressTimeoutRef.current = null;
-                }
-
-                if (p < 0) { setIsInstalling(false); setProgress(0); return; }
-                if (p > 0 && p < 100) setIsInstalling(true);
-                setProgress(clampPercent(p)); setProgressText(t(e.detail.text || '', e.detail.args || {}) as string);
-                if (p >= 100) {
-                    hideProgressTimeoutRef.current = window.setTimeout(() => { setProgress(0); setIsInstalling(false); setIsNewInstanceOpen(false); fetchDatabases(); }, 3000);
-                }
-            }
-        };
-        window.addEventListener('vylo_progress', handleProg);
-        return () => {
-            window.removeEventListener('vylo_progress', handleProg);
-            if (hideProgressTimeoutRef.current) window.clearTimeout(hideProgressTimeoutRef.current);
-        };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isInstalling]);
-
-    const handleToggleDB = async (db: DbInstance) => {
-        setTogglingDbId(db.id);
-        try {
-            const isRunning = db.status === 'running';
-            const res = isRunning ? await window.pywebview?.api?.stop_database(db.id) : await window.pywebview?.api?.start_database(db.id);
-            showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
-            if (res?.status === 'success') {
-                fetchDatabases();
-                window.dispatchEvent(new CustomEvent('service_status_changed', { detail: { service: 'database' } }));
-            }
-        } catch (e){ console.error(e); showToast(t('database.toggle_status_error'), "error"); }
-        finally { setTogglingDbId(null); }
-    };
-
-    const handleInstallDatabase = async () => {
-        const formData = newDbRef.current?.getFormData();
-        if (!formData) return showToast(t('database.read_install_data_error'), "error");
-        if (formData.engine === 'postgres' && !formData.rootPass) return showToast(t('database.pg_password_required'), "warning");
-
-        try {
-            const isUsed = await window.pywebview?.api?.check_port_in_use(formData.port);
-            if (isUsed || usedPorts.includes(formData.port)) return showToast(t('database.port_used'), "error");
-
-            setIsInstalling(true); setProgressText(t('database.preparing_engine'));
-            const res = await window.pywebview?.api?.install_database(formData.engine, formData.version, formData.url, formData.port, formData.rootPass);
-            if (res?.status === 'error') { showToast(t(res.message || '', res.args || {}) as string, "error"); setIsInstalling(false); setProgress(0); }
-        } catch (e){ console.error(e); showToast(t('database.install_error'), "error"); setIsInstalling(false); setProgress(0); }
-    };
-
-    const handleConfirmUninstall = async (db: DbInstance) => {
-        if (!await confirm({
-            title: t('database.drop_db_title'),
-            message: (
-                <div className="flex flex-col gap-4">
-                    <p className="text-slate-700 dark:text-slate-300">
-                        {t('database.completely_remove')}<strong className="text-slate-900 dark:text-white">{db.name}</strong>?
-                    </p>
-                    <label className="flex items-start gap-2 bg-red-50 dark:bg-red-900/10 p-3 rounded-lg border border-red-200 dark:border-red-800/30 cursor-pointer">
-                        <input type="checkbox" id={`database-delete-data-${db.id}`} aria-label={t('database.delete_raw_data')} className="mt-0.5" />
-                        <div className="flex flex-col"><span className="text-sm font-semibold text-red-800 dark:text-red-400">{t('database.delete_raw_data')}</span></div>
-                    </label>
-                </div>
-            ),
-            type: 'danger',
-            confirmText: t('database.yes_drop')
-        })) return;
-
-        const shouldDeleteData = (document.getElementById(`database-delete-data-${db.id}`) as HTMLInputElement)?.checked || false;
-        try {
-            const res = await window.pywebview?.api?.uninstall_database(db.id, shouldDeleteData);
-            showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
-            if (res?.status === 'success') { fetchDatabases(); }
-        } catch (e){ console.error(e); showToast(t('database.delete_error'), "error"); }
-    };
-
-    const fetchDbLogContent = useCallback(() => {
-        if (!logViewer) return Promise.resolve(undefined);
-        return window.pywebview?.api?.get_database_log_content(logViewer.dbId, logViewer.type);
-    }, [logViewer]);
-
-    const handleOpenSettings = async (db: DbInstance) => {
-        setSelectedDbId(db.id); setIsSettingsOpen(true); setIsLoadingSettings(true);
-        try {
-            const res = await window.pywebview?.api?.get_db_config(db.id);
-            if (res?.status === 'success') setSettingsConfig(res.config);
-            else showToast(t(res?.message || '', res?.args || {}) as string, "error");
-        } catch (e){ console.error(e); showToast(t('database.fetch_config_error'), "error"); }
-        finally { setIsLoadingSettings(false); }
-    };
-
-    const handleSaveSettings = async () => {
-        if (!selectedDb) return;
-        if (usedPorts.filter(p => p !== selectedDb.port).includes(Number(settingsConfig.port))) return showToast(t('database.port_used_other'), "error");
-        setIsSavingSettings(true);
-        try {
-            const res = await window.pywebview?.api?.save_db_config(selectedDb.id, settingsConfig);
-            showToast(t(res?.message || '', res?.args || {}) as string, res?.status === 'success' ? 'success' : 'error');
-            if (res?.status === 'success') { setIsSettingsOpen(false); fetchDatabases(); }
-        } catch (e){ console.error(e); showToast(t('database.save_error'), "error"); }
-        finally { setIsSavingSettings(false); }
-    };
-
-    const handleConfigChange = (key: string, value: string | number) => {
-        setSettingsConfig((prev: any) => ({ ...prev, [key]: value }));
-    };
-
-    // ---> FUNGSI SUMBIT UNTUK PASSWORD MODAL BARU <---
-    const handlePasswordSubmit = async () => {
-        if (!passwordRef.current) return;
-        setIsUpdatingPassword(true);
-        const isSuccess = await passwordRef.current.submit();
-        setIsUpdatingPassword(false);
-        if (isSuccess) {
-            setIsPasswordModalOpen(false);
-        }
-    };
+    const filterItems = [
+        { id: 'all' as const, label: t('database.all_instances'), count: engineCounts.all },
+        { id: 'mysql' as const, label: t('database.mysql_mariadb'), count: engineCounts.mysql },
+        { id: 'postgres' as const, label: t('database.postgres'), count: engineCounts.postgres },
+        { id: 'redis' as const, label: t('database.redis', 'Redis'), count: engineCounts.redis },
+    ];
 
     return (
         <>
             <div className="flex flex-col w-full">
-
                 <PageHeader
                     icon="database"
                     title={t('database.db_engine')}
@@ -222,96 +101,241 @@ export default function DatabaseMain() {
                         </>
                     }
                     actions={
-                        <Button variant="primary" icon="add" onClick={() => setIsNewInstanceOpen(true)} className="shadow-sm">
-                            {t('database.add_engine')}
-                        </Button>
+                        <div className="flex items-center gap-2">
+                            {dbInstances.length > 0 && (
+                                <ViewModeToggle mode={viewMode} onChange={setViewMode} />
+                            )}
+                            <Button variant="primary" icon="add" onClick={openNewInstanceModal} className="shadow-sm">
+                                {t('database.add_engine')}
+                            </Button>
+                        </div>
                     }
                 />
 
-                <Tabs
-                    tabs={[
-                        { value: 'all', label: t('database.all_instances') },
-                        { value: 'mysql', label: t('database.mysql_mariadb') },
-                        { value: 'postgres', label: t('database.postgres') },
-                    ]}
-                    value={activeTab}
-                    onChange={setActiveTab}
-                />
-
                 {(() => {
-                    if (isLoading) return (
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
-                        {[1, 2].map((item) => <SkeletonCard key={item} />)}
-                    </div>
+                    if (isLoading) {
+                        return (
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-4.5 pb-8">
+                                {[1, 2].map((item) => <SkeletonCard key={item} />)}
+                            </div>
+                        );
+                    }
+                    if (dbInstances.length === 0) {
+                        return (
+                            <EmptyState
+                                icon="database"
+                                title={t('database.no_instances_found')}
+                                description={t('database.no_instances_desc')}
+                                actionText={t('database.download_db_now')}
+                                onAction={openNewInstanceModal}
+                            />
+                        );
+                    }
+
+                    const filterChipsElement = (
+                        <FilterChips
+                            items={filterItems}
+                            selectedId={activeTab}
+                            onChange={(val) => setActiveTab(val as DbEngineType | 'all')}
+                            ariaLabel={t('database.all_instances')}
+                        />
                     );
-                    if (filteredInstances.length === 0) return (
-                    <EmptyState
-                        icon="dns"
-                        title={t('database.no_instances_found')}
-                        description={activeTab === 'postgres' ? t('database.no_postgres_desc') : t('database.no_mysql_desc')}
-                        actionText={t('database.install_now')}
-                        onAction={() => setIsNewInstanceOpen(true)}
-                    />
+
+                    const noMatchingEmptyState = (
+                        <EmptyState
+                            icon="database"
+                            title={t('database.no_instances_found')}
+                            description={t('database.no_instances_desc')}
+                            actionText={activeTab !== 'all' ? t('projects.clear_filters', 'Clear Filters') : t('database.download_db_now')}
+                            onAction={activeTab !== 'all' ? () => setActiveTab('all') : openNewInstanceModal}
+                        />
                     );
+
+                    if (viewMode === 'table') {
+                        return (
+                            <DatabaseTable
+                                dbInstances={filteredInstances}
+                                togglingDbId={togglingDbId}
+                                availableUpdates={availableUpdates}
+                                filters={filterChipsElement}
+                                emptyState={noMatchingEmptyState}
+                                onToggleStatus={handleToggleDB}
+                                onOpenSettings={openSettingsModal}
+                                onOpenPasswordModal={openPasswordModal}
+                                onOpenSchemas={openSchemaModal}
+                                onOpenConfigFile={(db) => window.pywebview?.api?.open_db_config_file(db.id)}
+                                onOpenDataDir={(db) => window.pywebview?.api?.open_db_dir(db.id)}
+                                onOpenLogs={(db, type) => setLogViewer({ dbId: db.id, type })}
+                                onUpdateDatabase={handleUpdateDatabase}
+                                onUninstallDatabase={handleConfirmUninstall}
+                            />
+                        );
+                    }
                     return (
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
-                        {filteredInstances.map(db => {
-                            const isRunning = db.status === 'running';
-                            return (
-                                <Card
-                                    key={db.id} title={db.name} status={db.status} gridCols="grid-cols-2 md:grid-cols-3"
-                                    dropdownActions={
-                                        <>
-                                            {/* ---> TEKS "Open Config" DIKEMBALIKAN KE OPEN MY.INI/POSTGRESQL.CONF <--- */}
-                                            <button type="button" onClick={() => window.pywebview?.api?.open_db_config_file(db.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700">
-                                                {db.engine === 'postgres' ? t('database.open_postgres_conf') : t('database.open_my_ini')}
-                                            </button>
-                                            <button type="button" onClick={() => window.pywebview?.api?.open_db_dir(db.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700">{t('database.open_data_folder')}</button>
-                                            <button type="button" onClick={() => setLogViewer({ dbId: db.id, type: 'startup' })} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700">{t('settings.log_file_startup')}</button>
-                                            {db.engine === 'mysql' && (
-                                                <button type="button" onClick={() => setLogViewer({ dbId: db.id, type: 'native' })} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700">{t('settings.log_file_native')}</button>
-                                            )}
+                        <>
+                            <div className="mb-4">
+                                {filterChipsElement}
+                            </div>
+                            {filteredInstances.length === 0 ? (
+                                noMatchingEmptyState
+                            ) : (
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-4.5 pb-8">
+                                    {filteredInstances.map(db => {
+                                        const isRunning = db.status === 'running';
+                                        const update = availableUpdates[db.id];
+                                        return (
+                                            <Card
+                                                key={db.id}
+                                        title={db.name}
+                                        status={db.status}
+                                        updateVersion={update?.version || null}
+                                        gridCols="grid-cols-2 md:grid-cols-3"
+                                        dropdownActions={
+                                            <>
+                                                {db.engine !== 'redis' && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => openSchemaModal(db)}
+                                                        disabled={!isRunning}
+                                                        className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700/70 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                                    >
+                                                        <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">database</span>
+                                                        <span className="truncate">{t('database.manage_schemas')}</span>
+                                                    </button>
+                                                )}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => window.pywebview?.api?.open_db_config_file(db.id)}
+                                                    className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700/70 transition-colors"
+                                                >
+                                                    <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">description</span>
+                                                    <span className="truncate">{getConfigFileLabel(db.engine, t)}</span>
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => window.pywebview?.api?.open_db_dir(db.id)}
+                                                    className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700/70 transition-colors"
+                                                >
+                                                    <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">folder_open</span>
+                                                    <span className="truncate">{t('database.open_data_folder')}</span>
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setLogViewer({ dbId: db.id, type: 'startup' })}
+                                                    className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700/70 transition-colors"
+                                                >
+                                                    <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">history</span>
+                                                    <span className="truncate">{t('settings.log_file_startup')}</span>
+                                                </button>
 
-                                            {/* ---> MENU BARU: CHANGE PASSWORD <--- */}
-                                            <button type="button" onClick={() => { setSelectedDbId(db.id); setIsPasswordModalOpen(true); }} className="w-full flex items-center justify-between px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700">
-                                                {t('database.change_password')}
-                                            </button>
+                                                {db.engine === 'mysql' && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setLogViewer({ dbId: db.id, type: 'native' })}
+                                                        className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700/70 transition-colors"
+                                                    >
+                                                        <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">article</span>
+                                                        <span className="truncate">{t('settings.log_file_native')}</span>
+                                                    </button>
+                                                )}
 
-                                            <div className="border-t border-slate-200 dark:border-slate-700 my-1"></div>
-                                            <button type="button" onClick={() => handleConfirmUninstall(db)} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20">{t('database.drop_engine')}</button>
-                                        </>
-                                    }
-                                    footerActions={
-                                        <>
-                                            <ServiceToggleButton
-                                                isRunning={isRunning}
-                                                isToggling={togglingDbId === db.id}
-                                                onClick={() => handleToggleDB(db)}
-                                                className="flex-1"
-                                                labels={{
-                                                    start: t('database.start_db'),
-                                                    stop: t('database.stop_db'),
-                                                    // Database tidak punya label transisi "Starting.../Stopping..." terpisah
-                                                    // seperti Apache/PHP -- pertahankan perilaku asli (spinner + label statis).
-                                                    starting: t('database.start_db'),
-                                                    stopping: t('database.stop_db'),
-                                                }}
-                                            />
-                                            <button type="button" onClick={() => handleOpenSettings(db)} className="flex-1 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 dark:bg-slate-950 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900 text-sm font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2">
-                                                <span className="material-symbols-outlined text-[18px]">tune</span> {t('database.config')}
-                                            </button>
-                                        </>
-                                    }
-                                >
-                                    <div className="flex flex-col gap-1 min-w-0"><span className="text-xs font-medium text-slate-500 uppercase">{t('database.engine')}</span><span className="text-sm font-medium text-slate-900 dark:text-slate-200 flex items-center gap-1.5 truncate"><span className="material-symbols-outlined text-[16px] text-slate-400">{db.engine === 'postgres' ? 'storage' : 'database'}</span>{db.engine === 'postgres' ? t('database.postgres') : t('database.mysql_mariadb')}</span></div>
-                                    <div className="flex flex-col gap-1 min-w-0"><span className="text-xs font-medium text-slate-500 uppercase">{t('database.port')}</span><span className="font-mono text-sm text-primary truncate">{db.port}</span></div>
-                                    <div className="flex flex-col gap-1 col-span-2 md:col-span-3 min-w-0"><span className="text-xs font-medium text-slate-500 uppercase">{t('database.data_directory')}</span><span className="font-mono text-sm text-slate-700 dark:text-slate-300 truncate" title={db.dataDir}>{db.dataDir}</span></div>
-                                </Card>
-                            )
-                        })}
-                    </div>
-                    );
-                })()}
+                                                {db.engine !== 'redis' && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => openPasswordModal(db)}
+                                                        className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700/70 transition-colors"
+                                                    >
+                                                        <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">key</span>
+                                                        <span className="truncate">{t('database.change_password')}</span>
+                                                    </button>
+                                                )}
+
+                                                <div className="border-t border-slate-200 dark:border-slate-700 my-1"></div>
+                                                {update && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleUpdateDatabase(db)}
+                                                        disabled={isInstalling}
+                                                        className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-primary hover:bg-slate-100 dark:hover:bg-slate-700/70 font-medium disabled:opacity-50 transition-colors"
+                                                    >
+                                                        <span className="material-symbols-outlined text-[16px] text-primary shrink-0">upgrade</span>
+                                                        <span className="truncate">{t('database.update_to', { version: update.version })}</span>
+                                                    </button>
+                                                )}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleConfirmUninstall(db)}
+                                                    className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 transition-colors"
+                                                >
+                                                    <span className="material-symbols-outlined text-[16px] text-red-500 shrink-0">delete</span>
+                                                    <span className="truncate">{t('database.drop_engine')}</span>
+                                                </button>
+                                            </>
+                                        }
+                                        footerActions={
+                                            <>
+                                                <ServiceToggleButton
+                                                    isRunning={isRunning}
+                                                    isToggling={togglingDbId === db.id}
+                                                    onClick={() => handleToggleDB(db)}
+                                                    className="flex-1"
+                                                    labels={{
+                                                        start: t('database.start_db'),
+                                                        stop: t('database.stop_db'),
+                                                        starting: t('database.start_db'),
+                                                        stopping: t('database.stop_db'),
+                                                    }}
+                                                />
+                                                {isRunning && db.engine !== 'redis' && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => openSchemaModal(db)}
+                                                        title={t('database.manage_schemas')}
+                                                        aria-label={t('database.manage_schemas')}
+                                                        className="flex-1 min-w-0 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 dark:bg-slate-950 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900 text-sm font-medium py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 shadow-xs transition-colors"
+                                                    >
+                                                        <span className="material-symbols-outlined text-[18px] shrink-0">database</span>
+                                                        <span className="truncate">{t('database.manage_schemas')}</span>
+                                                    </button>
+                                                )}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openSettingsModal(db)}
+                                                    title={t('database.config')}
+                                                    aria-label={t('database.config')}
+                                                    className="flex-1 min-w-0 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 dark:bg-slate-950 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900 text-sm font-medium py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 shadow-xs"
+                                                >
+                                                    <span className="material-symbols-outlined text-[18px] shrink-0">tune</span>
+                                                    <span className="truncate">{t('database.config')}</span>
+                                                </button>
+                                            </>
+                                        }
+                                    >
+                                        <div className="flex flex-col gap-1 min-w-0">
+                                            <span className="text-xs font-medium text-slate-500 uppercase">{t('database.engine')}</span>
+                                            <span className="text-sm font-medium text-slate-900 dark:text-slate-200 flex items-center gap-1.5 truncate">
+                                                <span className="material-symbols-outlined text-[16px] text-slate-400">
+                                                    {getEngineIcon(db.engine)}
+                                                </span>
+                                                {getEngineLabel(db.engine, t)}
+                                            </span>
+                                        </div>
+                                        <div className="flex flex-col gap-1 min-w-0">
+                                            <span className="text-xs font-medium text-slate-500 uppercase">{t('database.port')}</span>
+                                            <span className="font-mono text-sm text-primary truncate">{db.port}</span>
+                                        </div>
+                                        <div className="flex flex-col gap-1 col-span-2 md:col-span-3 min-w-0">
+                                            <span className="text-xs font-medium text-slate-500 uppercase">{t('database.data_directory')}</span>
+                                            <span className="font-mono text-sm text-slate-700 dark:text-slate-300 truncate" title={db.dataDir}>{db.dataDir}</span>
+                                        </div>
+                                    </Card>
+                                );
+                            })}
+                        </div>
+                    )}
+                </>
+            );
+        })()}
             </div>
 
             <LogFileViewerModal
@@ -321,31 +345,28 @@ export default function DatabaseMain() {
                 fetchContent={fetchDbLogContent}
             />
 
-            <BackgroundProgressWidget isOpen={isInstalling && !isNewInstanceOpen} progress={progress} progressText={progressText} title={t('database.installing_db')} onRestore={() => setIsNewInstanceOpen(true)} />
+            <BackgroundProgressWidget
+                isOpen={isInstalling && !isNewInstanceOpen}
+                progress={progress}
+                progressText={progressText}
+                title={t('database.processing')}
+                onRestore={openNewInstanceModal}
+                onCancel={handleCancelInstall}
+                isCancelling={isCancelling}
+            />
 
-            <Modal keepMounted={isInstalling} isOpen={isNewInstanceOpen} onClose={() => setIsNewInstanceOpen(false)} title={t('database.install_db_title')} icon="download" onApply={handleInstallDatabase} applyText={isInstalling ? t('database.processing') : t('database.install_btn')} isApplyDisabled={isInstalling}>
-                <NewDbInstance ref={newDbRef} activeTab={activeTab} usedPorts={usedPorts} isInstalling={isInstalling} progress={progress} progressText={progressText} />
-            </Modal>
-
-            {/* ---> MODAL CHANGE PASSWORD BARU <--- */}
-            <Modal
-                isOpen={isPasswordModalOpen}
-                onClose={() => !isUpdatingPassword && setIsPasswordModalOpen(false)}
-                title={t('database.change_db_password')}
-                icon="key"
-                onApply={handlePasswordSubmit}
-                applyText={isUpdatingPassword ? t('database.updating') : t('database.update_password')}
-                isApplyDisabled={isUpdatingPassword}
-                isLoading={isUpdatingPassword}
-            >
-                {selectedDb && <ChangePassword instance={selectedDb} ref={passwordRef} />}
-            </Modal>
-
-            <Modal isOpen={isSettingsOpen} onClose={() => !isSavingSettings && setIsSettingsOpen(false)} title={`${selectedDb?.name}${t('database.configuration')}`} icon="tune" onApply={handleSaveSettings} applyText={isSavingSettings ? t('database.saving') : t('database.save_changes')} isApplyDisabled={isLoadingSettings || isSavingSettings} isLoading={isSavingSettings}>
-                {selectedDb && <DbSettings instance={selectedDb} config={settingsConfig} onChange={handleConfigChange} isLoading={isLoadingSettings} />}
-            </Modal>
-
-
+            <DatabaseNewInstanceModal />
+            <DatabasePasswordModal />
+            <DatabaseSettingsModal />
+            <DatabaseSchemaModal />
         </>
+    );
+}
+
+export default function DatabaseMain() {
+    return (
+        <DatabaseProvider>
+            <DatabaseMainView />
+        </DatabaseProvider>
     );
 }

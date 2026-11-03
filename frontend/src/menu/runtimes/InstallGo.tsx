@@ -1,45 +1,59 @@
-import { useState, forwardRef, useImperativeHandle, useEffect } from 'react';
+import { useState, forwardRef, useImperativeHandle, useEffect, useContext } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useToast } from '../../components/ToastContext';
+import { useToast } from '../../context/ToastContext';
+import { RuntimesContext } from '../../context/RuntimesContext';
 import FieldLabel from '../../components/FieldLabel';
 import RuntimeVersionSelect from './RuntimeVersionSelect';
 
 export interface InstallGoRef { submit: () => Promise<boolean>; }
+interface InstallGoProps { targetVersion?: string | null; }
 
-const InstallGo = forwardRef<InstallGoRef, any>((_, ref) => {
+const InstallGo = forwardRef<InstallGoRef, InstallGoProps>(({ targetVersion }, ref) => {
     const { t } = useTranslation();
     const { showToast } = useToast();
-    const [version, setVersion] = useState('latest');
+    const runtimes = useContext(RuntimesContext);
+    const isExternal = Boolean(runtimes?.runtimeData?.go?.external?.exists);
+
+    const [version, setVersion] = useState(targetVersion || 'latest');
+    const [setAsActive, setSetAsActive] = useState(!isExternal);
     const [versionsList, setVersionsList] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
-    useEffect(() => {
-        const fetchVersions = async () => {
-            try {
-                const res = await window.pywebview?.api?.get_available_go_versions();
-                if (res?.status === 'success' && res.data.length > 0) {
-                    setVersionsList(res.data);
-                    setVersion(res.data[0].value);
-                } else {
-                    setVersionsList([]);
-                }
-            } catch {
+    const fetchVersions = async () => {
+        setIsLoading(true);
+        try {
+            const res = await window.pywebview?.api?.get_available_go_versions();
+            if (res?.status === 'success' && res.data.length > 0) {
+                setVersionsList(res.data);
+                if (!targetVersion) setVersion(res.data[0].value);
+            } else {
                 setVersionsList([]);
-                showToast(t('runtimes.fetch_version_error'), "error");
-            } finally {
-                setIsLoading(false);
             }
-        };
+        } catch {
+            setVersionsList([]);
+            showToast(t('runtimes.fetch_version_error'), "error");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
         fetchVersions();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     useImperativeHandle(ref, () => ({
         submit: async () => {
             try {
-                const res = await window.pywebview?.api?.install_go(version);
+                const res = setAsActive === false
+                    ? await window.pywebview?.api?.install_go(version, false)
+                    : await window.pywebview?.api?.install_go(version);
                 if (res?.status === 'success') {
                     showToast((res.message ? t(res.message, res.args || {}) : t('runtimes.go_install_success')) as string, 'success');
                     return true;
+                } else if (res?.status === 'cancelled') {
+                    showToast((res.message ? t(res.message, res.args || {}) : t('backend.runtimes.install_cancelled')) as string, 'info');
+                    return false;
                 } else {
                     showToast((res?.message ? t(res.message, res.args || {}) : t('runtimes.go_install_error')) as string, 'error');
                     return false;
@@ -56,11 +70,46 @@ const InstallGo = forwardRef<InstallGoRef, any>((_, ref) => {
             <div className="flex flex-col gap-2">
                 <FieldLabel>{t('runtimes.go_version')}</FieldLabel>
 
-                <RuntimeVersionSelect isLoading={isLoading} versionsList={versionsList} version={version} setVersion={setVersion} />
+                <RuntimeVersionSelect isLoading={isLoading} versionsList={versionsList} version={version} setVersion={setVersion} onRetry={fetchVersions} />
 
                 <span className="text-xs text-slate-500">
                     {t('runtimes.go_arch_desc_1')}<strong>windows/amd64</strong>{t('runtimes.go_arch_desc_2')}
                 </span>
+            </div>
+
+            <div className="flex flex-col gap-1">
+                <label
+                    htmlFor="set-as-active-go-checkbox"
+                    className={`flex items-start gap-3 p-3 border rounded-lg transition-colors ${
+                        isExternal
+                            ? 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30 opacity-60 cursor-not-allowed'
+                            : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer'
+                    }`}
+                >
+                    <input
+                        id="set-as-active-go-checkbox"
+                        type="checkbox"
+                        checked={isExternal ? false : setAsActive}
+                        disabled={isExternal}
+                        onChange={(e) => setSetAsActive(e.target.checked)}
+                        aria-label={t('runtimes.set_as_active_checkbox')}
+                        className="mt-1 w-4 h-4 text-primary bg-slate-100 border-slate-300 rounded focus:ring-primary dark:ring-offset-slate-800 dark:bg-slate-700 dark:border-slate-600 disabled:opacity-50"
+                    />
+                    <div className="flex flex-col">
+                        <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                            {t('runtimes.set_as_active_checkbox')}
+                        </span>
+                        <span className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                            {t('runtimes.set_as_active_tooltip')}
+                        </span>
+                    </div>
+                </label>
+                {isExternal && (
+                    <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-500 mt-1 pl-1">
+                        <span className="material-symbols-outlined text-[14px] shrink-0">lock</span>
+                        <span>{t('runtimes.set_as_active_locked_desc', { engine: 'Go' })}</span>
+                    </div>
+                )}
             </div>
         </div>
     );

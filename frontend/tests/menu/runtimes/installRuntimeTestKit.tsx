@@ -1,4 +1,4 @@
-// Shared test suite factory for the InstallGo/Java/Node/Python components.
+﻿// Shared test suite factory for the InstallGo/Java/Node/Python components.
 //
 // These four components share the exact same forwardRef+useImperativeHandle
 // "fetch versions on mount, install on submit()" shape, differing only in
@@ -11,7 +11,7 @@ import { createRef, type ForwardRefExoticComponent, type RefAttributes } from 'r
 import { vi, expect, describe, it } from 'vitest';
 import { act, render, screen, waitFor } from '../../test-utils';
 import { mockPywebviewApi } from '../../test-utils';
-import { ToastProvider } from '../../../src/components/ToastContext';
+import { ToastProvider } from '../../../src/context/ToastContext';
 
 export interface RuntimeRef {
     submit: () => Promise<boolean>;

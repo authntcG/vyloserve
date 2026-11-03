@@ -18,6 +18,10 @@ import '@fontsource/inter/700.css'; // Bold
 // ---------------------------------------------
 
 import './index.css'
+import { applyTheme, getCachedTheme } from './utils/theme'
+
+// Inisialisasi tema segera dari cache sebelum render React untuk mencegah FOIT
+applyTheme(getCachedTheme())
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

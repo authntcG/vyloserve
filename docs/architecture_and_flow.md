@@ -5,7 +5,7 @@ VyloServe dibangun dengan arsitektur **Desktop Hybrid** di mana Backend dikendal
 ## 1. Konsep Jembatan PyWebView (API Bridge)
 Tidak seperti aplikasi web tradisional yang berkomunikasi lewat HTTP (REST API), VyloServe menggunakan *JavaScript Interop* melalui objek window browser.
 
-0. **Single-Instance Check (sebelum apa pun lain):** `main()` di `main.py` memanggil `check_single_instance()` (Windows Mutex bernama `VyloServe_App_Mutex_v1`) **sebelum** membuat `Api()`/window apa pun. Kalau mutex sudah dimiliki proses lain, proses baru ini tidak membuat window sama sekali — cukup memanggil `bring_existing_instance_to_front()` (via `user32.FindWindowW`/`SetForegroundWindow`) lalu `sys.exit(0)`. Warna latar window awal (`background_color` di `webview.create_window()`) juga sudah ditentukan di titik ini lewat `get_theme_bg_color()`, yang membaca key `theme` dari `data/settings.json` — ini mencegah "kedipan putih/hitam" sebelum CSS tema React sempat dimuat.
+0. **Single-Instance Check & Named Pipe IPC (sebelum apa pun lain):** `main()` di `main.py` memanggil `check_single_instance()` dengan penamaan terisolasi per mode (`VyloServe_App_Mutex_v1` di production vs `VyloServe_Dev_App_Mutex_v1` di development, terdeteksi otomatis via `sys.frozen`) **sebelum** membuat `Api()`/window apa pun. Langkah ini juga mengonfigurasi `AppUserModelID` terpisah (`VyloServe.App.Production` vs `VyloServe.App.Development`) dan judul window yang berbeda agar taskbar Windows tidak mencampuradukkan kedua mode. Kalau mutex sudah dimiliki proses lain, proses baru tidak membuat window sama sekali — melainkan mengirim sinyal `"SHOW"` melalui **Windows Named Pipe IPC** (`\\.\pipe\VyloServe_IPC_v1` atau `\\.\pipe\VyloServe_Dev_IPC_v1`) via `send_show_command_to_pipe()`, lalu segera keluar via `sys.exit(0)`. Proses utama yang sudah berjalan mendengarkan pipe melalui thread latar belakang `start_ipc_server()`, dan mengeksekusi `show_and_bring_to_front()` secara thread-safe pada WinForms UI thread (`lifecycle.window.gui.Form.Invoke(...)` atau `window.show()`), mencegah crash aplikasi saat window sedang disembunyikan di System Tray. Warna latar window awal (`background_color` di `webview.create_window()`) juga sudah ditentukan di titik ini lewat `get_theme_bg_color()`, dan warna caption/teks titlebar native Windows disinkronkan secara mulus via DWM API (`apply_window_titlebar_theme`) saat event `shown` dan `restored`.
 1. **Inisialisasi Backend:** Di `main.py`, Python membuat kelas `Api` (dari `core/api.py`). Objek ini diekspos ke antarmuka saat *window* dibuat. Segera setelah `api.set_window(window)`, `main()` juga memanggil `api.start_log_watcher()` — lihat §6 di bawah.
 2. **Reaksi Frontend:** Di React, objek tersebut diakses melalui `(window as any).pywebview.api`.
 3. **Panggilan Fungsi:** Saat frontend memanggil fungsi `api.start_apache_server()`, perintah ini dieksekusi **secara langsung** di runtime Python (Synchronous/Asynchronous).
@@ -80,3 +80,214 @@ Berbeda dari §5 (event yang hanya mengalir **selama** satu aksi user tertentu b
 - `Api.stop_log_watcher()` menghentikannya dengan bersih saat `AppLifecycle.perform_exit()` (§4).
 
 Detail lengkap mekanisme tail-file (offset tracking, retry saat file terkunci Windows, dsb.): `docs/backend_services.md` §11.2. Detail sisi frontend (filter level/kategori, UI toggle): `docs/frontend_ui.md` §12.
+
+## 7. Pola Async Keempat: AI Streaming (SSE) & Eksekusi Proposal Aksi Terstruktur (HITL)
+
+Fitur AI Assistant (Server Copilot) mengombinasikan streaming respons real-time dengan kendali layanan Human-In-The-Loop (HITL) yang aman:
+
+```mermaid
+sequenceDiagram
+    participant User as Pengguna (UI)
+    participant AiCtx as Frontend (AiProvider)
+    participant Api as Api Facade (core/api.py)
+    participant Mgr as AIAssistantManager
+    participant LLM as Provider LLM (OpenRouter/Ollama/Gemini)
+
+    User->>AiCtx: Ketik: "hidupkan apache dan database"
+    AiCtx->>Api: send_ai_message(prompt, context)
+    Api->>Mgr: send_message()
+    Mgr->>Mgr: Aggregasi status server + RAG DocRetriever
+    Mgr->>Mgr: Launch _stream_worker (Background Thread)
+    Mgr-->>Api: {status: success, message_id}
+    Api-->>AiCtx: return message_id (Non-blocking)
+
+    loop SSE Stream Token per Token
+        LLM-->>Mgr: data: {"choices": [{"delta": {"content": "..."}}]}
+        Mgr->>Api: emit_ai_chunk(chunk, is_done=False)
+        Api->>AiCtx: CustomEvent('vylo_ai_chunk', {chunk})
+        AiCtx->>User: Render pengetikan token live di chat
+    end
+
+    LLM-->>Mgr: [DONE] / is_done: true
+    Mgr->>Api: emit_ai_chunk(chunk="", is_done=True, sources=[...])
+    Api->>AiCtx: CustomEvent('vylo_ai_chunk', {is_done: true})
+    AiCtx->>AiCtx: Parse vylo_action block & render <AiActionCard>
+
+    Note over User, AiCtx: Human-In-The-Loop Confirmation
+    User->>AiCtx: Klik "Confirm & Execute" pada kartu aksi
+    AiCtx->>Api: start_apache_server() & start_database()
+    Api-->>AiCtx: {status: success}
+    AiCtx->>AiCtx: dispatchEvent('service_status_changed')
+    AiCtx->>Api: save_ai_action_states({status: 'executed'})
+    AiCtx->>User: Kartu berubah hijau (Executed) & toggle UI sinkron
+```
+
+### 7.1 Keunggulan Alur Ini
+1. **Responsif Tanpa Blokir UI:** Permintaan awal langsung selesai dalam milidetik, sementara pembacaan token SSE berjalan independen di background thread Python.
+2. **Keamanan Eksekusi (Zero Unintended Action):** Model AI **tidak** memiliki izin eksekusi langsung ke sistem operasi. AI hanya merespons dalam bentuk kartu proposal aksi. Eksekusi OS hanya terjadi jika dan hanya jika pengguna secara sadar menekan tombol konfirmasi.
+3. **Sinkronisasi Multi-Screen:** Begitu aksi dikonfirmasi di jendela AI, event browser `service_status_changed` ditembakkan sehingga kartu modul Apache/PHP/Database dan toggle di Sidebar langsung berubah menjadi "Running" secara serentak.
+4. **Dual-Layer Persistence:** Status kartu aksi disimpan ganda ke state React dan disk (`data/ai_action_states.json` & `data/ai_chat_history.json`). Sesi chat yang dibuka ulang tetap mengingat bahwa aksi telah selesai dijalankan.
+
+## 8. Arsitektur Frontend Modular (Domain Contexts & Component Hygiene)
+
+Untuk mematuhi prinsip Clean Code, Single Responsibility Principle (SRP), dan batas *Cognitive Complexity* SonarQube ($\le 15$), frontend VyloServe menerapkan standardisasi modular:
+
+### 8.1 Pemisahan Domain Context (`frontend/src/context/`)
+Komunikasi dan state dalam lingkup modul didelegasikan ke React Context terdedikasi, memisahkan logika bisnis (fetch status, validasi input, handler submit) dari hierarki rendering:
+- **`ProjectContext.tsx`**: State proyek web, scaffolding multi-runtime (PHP, Node, Python, Go, Java), dev server lifecycle & live logs, pembuatan Virtual Host, dan sinkronisasi Windows hosts.
+- **`ApacheContext.tsx`**: State lifecycle Apache, status port, switch versi Apache, konfigurasi proxy.
+- **`PhpContext.tsx`**: State multi-versi PHP, port configuration, php.ini parser, modul ekstensi.
+- **`DatabaseContext.tsx`**: Instance MySQL/PostgreSQL, validasi port ganda, reset password root.
+- **`DashboardContext.tsx`**: Agregasi global service toggles, resource load (CPU/RAM), suggestions.
+- **`RuntimesContext.tsx`**: Status 4 runtime engine (Node, Python, Java, Go), orkestrasi `RuntimePathHub`, registrasi PATH Windows, switch versi aktif.
+- **`TunnelsContext.tsx`**: Tunneling zrok & Cloudflare, session token, port proxying, searchable project selector.
+- **`GitContext.tsx`**: PortableGit install, konfigurasi global git, deteksi native OS alert, & user path synchronization.
+- **`AiContext.tsx`**: Chat stream, model discovery, attachment context, action card states.
+
+### 8.2 Component Hygiene & Extraction
+- **Pembersihan Folder `components/`**: Komponen yang ada di `frontend/src/components/` dijamin bersifat 100% generik (`Modal`, `Card`, `Button`, `PageHeader`, `Select`, `StatusBadge`, `ProgressStatusBlock`, `DataTable`, `FilterChips`, `ViewModeToggle`, `InstalledBadge`, `ServiceToggleButton`). Komponen yang terikat spesifik ke modul tertentu (misalnya `AiActionCard`, `AiChatMessage`, `AiFloatingWidget`, `RuntimePathHub`, `ProjectsTable`) diletakkan di direktori modul masing-masing (`menu/tools/ai-assistant/components/`, `menu/runtimes/`, `menu/projects/`).
+- **Orchestration Views**: File `Main.tsx` di tiap modul tidak lagi menjadi "God Component" monolitik ribuan baris, melainkan file orkestrator ramping (berisi `<PageHeader>`, status kartu, dan delegasi sub-komponen modal/tabel).
+- **Sub-komponen Dialog**: Dialog modal diekstrak ke file terpisah (`NewProjectModal.tsx`, `ProjectSettingsModal.tsx`, `ProjectCliInstallModal.tsx`, `PhpSettingsModal.tsx`, `DatabaseSettingsModal.tsx`, `InstallGitModal.tsx`, `TunnelsInstallModal.tsx`, `TerminalSettingsModal.tsx`) sehingga mempermudah pengujian terisolasi dan pemeliharaan jangka panjang.
+
+## 9. Pola Async Kelima: Interactive CLI / PTY Subprocess Streaming (`ProjectManager`)
+
+Saat membuat proyek baru berbasis framework modern (seperti `create-next-app`, `create-vite`, atau Laravel Composer), CLI sering kali meminta masukan interaktif dari pengguna (misal: pilihan TypeScript, ESLint, Tailwind CSS, App Router). Jika dieksekusi lewat `subprocess.run()` biasa, proses akan terblokir selamanya (*hang*) di latar belakang.
+
+VyloServe menerapkan jembatan PTY/Subprocess dua arah:
+
+```mermaid
+sequenceDiagram
+    participant React as Frontend (ProjectCliInstallModal)
+    participant Bridge as PyWebView Bridge
+    participant Api as core/api.py
+    participant PM as ProjectManager (core/services/project.py)
+    participant CLI as Framework CLI (npx / composer)
+
+    React->>Bridge: api.create_project(payload)
+    Bridge->>Api: create_project()
+    Api->>PM: create_project() -> _run_cli_or_pty()
+    PM->>CLI: Spawn Subprocess (stdin=PIPE, stdout=PIPE, stderr=STDOUT)
+    
+    loop Output Streaming
+        CLI-->>PM: stdout chunk
+        PM->>Api: emit_cli_output(chunk)
+        Api->>React: CustomEvent('vylo_cli_output', {data})
+        React->>React: Render output di xterm.js terminal view
+    end
+
+    opt Prompt Menunggu Input Pengguna
+        PM->>PM: _is_cli_prompt_waiting(buffer) == True
+        PM->>Api: emit_cli_state(waiting_input=True)
+        Api->>React: CustomEvent('vylo_cli_state', {waiting_input: True})
+        React->>React: Buka fokus input terminal
+        React->>Bridge: api.send_project_cli_input(data)
+        Bridge->>Api: send_project_cli_input()
+        Api->>PM: send_project_cli_input()
+        PM->>CLI: stdin.write(data) & stdin.flush()
+    end
+
+    CLI-->>PM: Process Exit (Code 0)
+    PM->>Api: emit_cli_state(waiting_input=False)
+    PM-->>Api: {"status": "success", "message": "backend.project.install_success"}
+    Api-->>Bridge: return JSON
+    Bridge-->>React: Toast Sukses & Modal Ditutup
+```
+
+## 10. Pola Async Keenam: Integrated Developer Terminal Subprocess/PTY Bridge (`TerminalManager`)
+
+Developer Terminal terintegrasi (`core/services/terminal.py`) mengoperasikan sesi shell interaktif persisten multi-tab berbasis `xterm.js`:
+1. **Pembuatan Sesi & Environment Scoping:** `create_session(shell_id, cwd, runtime_scope)` membangun variabel lingkungan terisolasi via `_build_session_env()`. Direktori `bin` runtime yang dipilih (mis. Node.js v20 dan Go 1.22) disuntikkan ke variabel `PATH` lokal sesi tersebut, memprioritaskannya di atas PATH sistem tanpa mengubah Windows Registry global.
+2. **Pembacaan Output Asinkron:** Setiap sesi terminal menjalankan thread latar belakang `_reader_thread_func()` yang membaca `stdout` proses secara terus-menerus dan menembakkannya via `api.emit_terminal_output(session_id, data)`.
+3. **Pelacakan CWD Real-Time:** Frontend secara berkala memanggil `api.get_terminal_session_cwd(session_id)` untuk mendeteksi direktori kerja terkini dari proses anak (menggunakan `GetModuleFileName` / parsing prompt) agar tab dapat menampilkan nama direktori aktif secara dinamis.
+4. **Pembersihan Bersih (Clean Teardown):** Saat tab ditutup atau aplikasi keluar, `close_session(session_id)` mengirim sinyal terminasi ke process tree anak dan menutup file descriptor untuk mencegah kebocoran proses OS.
+
+## 11. Alur Manajemen Dev Server Proyek
+
+Untuk framework non-PHP (seperti Next.js, FastAPI, Vite, Gin, atau Spring Boot), VyloServe menyediakan kontrol siklus hidup Dev Server terintegrasi:
+- **`start_project_server(project_id)`**: Membaca file starter yang di-generate (mis. `start-dev.bat`), meluncurkan server pengembangan di port reverse proxy teralokasi (mis. `127.0.0.1:3000`), dan memetakan output log ke `data/logs/projects/<project_id>.log`.
+- **`stop_project_server(project_id)`**: Mematikan pohon proses server pengembangan (`taskkill /F /T /PID`) dan memperbarui status vhost.
+- **Reverse Proxy Virtual Host:** Konfigurasi Apache `<VirtualHost>` mengarahkan domain `.local` langsung ke port internal dev server menggunakan `ProxyPass` dan `ProxyPassReverse`, lengkap dengan tunneling WebSocket (`ws://` / `wss://`) untuk mendukung fitur *Hot Module Replacement* (HMR) bawaan framework modern.
+
+## 12. Orkestrasi Multi-Versi Runtimes & Centralized `RuntimePathHub`
+
+Modul Runtimes menerapkan pemisahan dua tingkat (*Two-Tier UX Pattern*):
+1. **Level 1 (Global System Orchestration — `RuntimePathHub`):**
+   - Mengendalikan variabel `HKCU\Environment\Path` tingkat sistem operasi melalui toggle tunggal.
+   - Mengatur versi mana yang dipromosikan sebagai versi aktif di CMD/PowerShell global melalui dropdown pemilih versi.
+   - Menampilkan kotak alert kontekstual in-card (`data-testid="path-hub-external-alert"`) bila biner native OS terdeteksi, mengunci toggle registrasi PATH untuk mencegah benturan prioritas binary (*path shadowing*).
+2. **Level 2 (Local Binary Inventory — 100% Symmetric Cards):**
+   - Menampilkan daftar versi portable yang terpasang di `bin/runtimes/<engine>/<version>`.
+   - Seluruh kartu versi memiliki struktur visual simetris yang bersih, hanya menyajikan informasi biner dan tombol aksi primer (*Open Folder*, *Open in Terminal*).
+   - Aksi mutasi (*Set as Active*, *Deactivate*, *Update*, *Uninstall*) diakses secara rapi melalui menu `...` di pojok kanan atas kartu, menciptakan konsistensi antarmuka yang setara di Card View maupun Table View.
+
+## 13. Catatan Arsitektur & Roadmap Masa Depan: Opsi Migrasi Desktop Shell (Electron + Python Sidecar)
+
+Sebagai referensi arsitektur jangka panjang (*future development note*), jika di masa mendatang aplikasi VyloServe berkembang dengan antarmuka yang semakin kompleks, beban grafis/canvas semakin tinggi, dan batasan fluiditas *window resizing* pada wrapper WinForms + WebView2 dirasa memerlukan peningkatan performa yang drastis, tim dapat mempertimbangkan opsi migrasi desktop shell ke **Electron + Python Sidecar Architecture**.
+
+### 13.1 Analisa Limitasi Arsitektur Saat Ini (PyWebView + WinForms + WebView2)
+- Di Windows, PyWebView membungkus WebView2 di atas Windows Forms (`System.Windows.Forms.Form`).
+- Perubahan ukuran jendela native memicu panggilan COM lintas proses `ICoreWebView2Controller::put_Bounds(RECT)` dari proses Python host ke proses `msedgewebview2.exe`.
+- Panggilan COM ini bersifat sinkron (*blocking*) di tengah modal sizing loop Win32 (`WM_SIZING`), sehingga pada monitor DPI tinggi atau GPU terintegrasi, dragging border jendela dapat mengalami sedikit *frame-drop* bila dibandingkan dengan aplikasi desktop native murni.
+
+### 13.2 Pola Arsitektur Rekomendasi: Electron UI Shell + Python Sidecar
+Bila migrasi diputuskan di masa depan, **seluruh kode backend Python (`core/services/*`) TIDAK PERLU ditulis ulang ke Node.js**. Pola yang direkomendasikan adalah:
+1. **Electron Shell:** Murni bertindak sebagai desktop wrapper untuk merender UI React + Vite. Jendela Electron (`BrowserWindow`) adalah native Chromium top-level C++ window, sehingga *window resizing*, rendering GPU, dan animasi CSS berjalan 100% mulus pada 60–144 FPS tanpa hambatan COM bridge.
+2. **Python Sidecar Process:** Seluruh folder `core/` dibundel sebagai proses latar belakang (*child process sidecar*) yang dijalankan otomatis oleh Electron saat aplikasi dimulai (`child_process.spawn('python', ['-m', 'core.api'])`).
+3. **Komunikasi IPC:** Jembatan `pywebview.api` digantikan oleh antarmuka IPC lokal (misal: JSON-RPC via Windows Named Pipe, Local WebSocket, atau Electron `contextBridge` + stdio IPC). Pola ini telah terbukti stabil pada aplikasi kelas dunia seperti *JupyterLab Desktop* dan *Anaconda Navigator*.
+
+### 13.3 Matriks Trade-Off untuk Evaluasi Masa Depan
+- **Keuntungan:** Window resizing sehalus aplikasi native/VS Code, animasi CSS dan micro-interaction 100% fluid tanpa frame-drop, dukungan custom frameless titlebar yang sangat stabil.
+- **Konsekuensi:** Ukuran biner installer meningkat dari ~25 MB menjadi ~150–200 MB (karena membundel Chromium & Node.js mandiri), dan baseline konsumsi memori (RAM) meningkat dari ~150 MB menjadi ~350 MB.
+
+## 14. Mekanisme Pembatalan Asinkron (Asynchronous Cancellation & Auto-Rollback)
+
+Operasi berdurasi panjang seperti pengunduhan arsip biner besar atau ekstraksi multi-tahap (Apache, PHP, Database, Runtimes, Git, Tunnels) dikelola menggunakan paradigma **Cancellation Token** terpusat (`core/utils/cancellation.py`):
+
+```mermaid
+sequenceDiagram
+    participant User as Pengguna (UI)
+    participant UI as ProgressStatusBlock
+    participant Api as Api Facade (core/api.py)
+    participant Token as CancellationToken
+    participant Worker as Background Thread Worker
+    participant FS as File System (bin/ & tmp/)
+
+    User->>UI: Klik tombol "Cancel"
+    UI->>Api: api.cancel_installation(task_id)
+    Api->>Token: cancel_task(task_id) -> token.cancel()
+    Note over Worker: Worker memeriksa token.is_cancelled<br/>pada setiap chunk download / per-file extract
+    Worker->>Token: check_cancelled() -> melempar CancelledError
+    Worker->>FS: Rollback: hapus partial zip & rmtree direktori tujuan
+    Worker-->>Api: emit_progress(0) & return {"status": "cancelled"}
+    Api-->>UI: Update state UI & auto-hide progress widget
+    UI->>User: Toast "Installation cancelled"
+```
+
+1. **Pendaftaran Token:** Di awal proses panjang, service memanggil `register_cancellation_token(task_id)`.
+2. **Pemeriksaan Intermiten:** Loop unduhan (`_download_single_stream` / `_download_multi_part` di `file_utils.py`) dan ekstraksi zip memeriksa `token.is_cancelled` secara intermiten tanpa overhead performa.
+3. **Pembersihan Bersih (*Clean Rollback*):** Jika pembatalan dipicu, blok `except (CancelledError, Exception)` memicu rutinitas `_cleanup_install_failure()` untuk menghapus arsip `.zip` sementara dan membuang direktori instalasi yang belum rampung (`shutil.rmtree`) sehingga sistem tidak pernah meninggalkan folder setengah-terpasang yang korup.
+
+## 15. Deteksi Jaringan & Arsitektur Resiliensi Offline
+
+VyloServe menerapkan pertahanan berlapis untuk menjamin aplikasi tetap responsif dan informatif saat beroperasi tanpa koneksi internet (*zero-internet resilience*):
+
+1. **Multi-Endpoint Backend Probe (`core/utils/network_utils.py`):**
+   - Fungsi `check_internet_connection()` melakukan socket probe ringan dengan batas waktu singkat (2 detik) ke DNS publik terpercaya (`1.1.1.1:53`, `8.8.8.8:53`, `208.67.222.222:53`).
+   - `is_network_error(exc)` membedakan kesalahan jaringan fisik (`socket.gaierror`, `URLError`, timeout) dari kesalahan logika HTTP (404/500).
+   - `build_offline_error_response()` menyematkan atribut `"is_offline": True` pada respons error sehingga frontend dapat langsung merespons dengan state offline tanpa perlu menebak-nebak pesan error.
+2. **Jembatan Sinkronisasi Frontend (`NetworkContext.tsx`):**
+   - `<NetworkProvider>` mengombinasikan event DOM bawaan peramban (`online` & `offline`) dengan verifikasi berkala ke backend (`api.check_internet_connection()`).
+   - Menyediakan status `isOnline` yang reaktif bagi seluruh komponen UI melalui hook `useNetworkStatus()`.
+3. **Smart Partial Barrier (Contoh: `NewProject.tsx`):**
+   - Saat offline, sistem tidak memblokir halaman secara total. Modul Projects secara cerdas menonaktifkan download framework remote (seperti Laravel via Composer atau Next.js via npm), namun **tetap mengizinkan** menghubungkan folder lokal yang sudah ada (*Link Existing Directory*) dan membuat *Raw Template* lokal, lengkap dengan tombol 1-klik untuk beralih ke mode offline.
+4. **Komponen Reusable `<OfflineBanner>`:**
+   - Ditempatkan di setiap modal instalasi versi (Apache, PHP, Database, Runtimes, Git, Tunnels), menyajikan tombol *Retry Connection* yang langsung memvalidasi ulang sambungan internet begitu ditekan.
+
+## 16. Isolasi Port Development Server (Port Collision Prevention)
+
+Untuk mencegah benturan port (*port collision*) saat pengembang menjalankan server pengembangan frontend dan berbagai dev server proyek lokal:
+- Mode development Vite (`frontend/vite.config.ts`) dikonfigurasi ke port non-standar **`55173`** (dapat di-override melalui environment variable `VITE_PORT`).
+- Port-port umum seperti `3000` (Next.js/React), `5173` (Vite default), `8000` (FastAPI/Django), dan `8080` (Vue/Spring Boot) sengaja dibiarkan bebas agar proyek multi-runtime pengguna dapat berjalan lancar tanpa mengalami penolakan port (*EADDRINUSE*).
+- Backend Python di `main.py` secara otomatis mendeteksi konfigurasi port Vite dev server aktif via `get_entrypoint()` dan mengarahkan PyWebView ke alamat yang tepat saat `IS_PRODUCTION = False`.
+
+

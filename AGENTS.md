@@ -4,7 +4,7 @@
 **VyloServe** adalah aplikasi desktop pengelola server lokal (mirip XAMPP/Laragon) yang mengatur modul seperti Apache, PHP, Database, serta berbagai Runtimes (Node.js, Python, Java, Go). Aplikasi ini dibuat menggunakan Python untuk backend (menjalankan command tingkat OS) dan React untuk antarmuka pengguna (UI) modern.
 
 ## 🛠️ Tech Stack
-- **Backend:** Python 3, `pywebview` (untuk Desktop GUI wrapper), `pystray` (untuk System Tray), psutil.
+- **Backend:** Python 3, `pywebview` (untuk Desktop GUI wrapper), `pystray` (untuk System Tray), `win11toast` (notifikasi native Windows), psutil.
 - **Frontend:** React 18, TypeScript, Vite, Tailwind CSS, `i18next` (untuk multi-bahasa).
 
 ## 📁 Struktur Folder Utama
@@ -16,13 +16,16 @@ vyloserve/
 │   └── services/           # Modul Manager spesifik (Single Responsibility Principle)
 │       ├── apache.py, php.py, database.py, runtimes_manager.py
 │       ├── project.py, git_manager.py, ssl_manager.py, dashboard.py
-│       └── settings.py, updater.py, tunnels.py
+│       └── settings.py, updater.py, tunnels.py, markdown_viewer.py, ai_assistant.py, terminal.py
 ├── frontend/               # Kode React UI
 │   ├── src/
-│   │   ├── components/     # Reusable UI (Modal.tsx, PageHeader.tsx, dll)
+│   │   ├── components/     # Reusable UI generik (Modal.tsx, PageHeader.tsx, StatusBadge.tsx, ProgressStatusBlock.tsx, DataTable.tsx, FilterChips.tsx, ViewModeToggle.tsx, InstalledBadge.tsx, dll)
+│   │   │   └── skeleton/   # Primitif Skeleton Loading modular (Skeleton, SkeletonCard, SkeletonForm, SkeletonDocument, dll)
+│   │   ├── context/        # React Context lintas-aplikasi & modul (Alert, Toast, Ai, Apache, Php, Database, Dashboard, Project, Runtimes, Tunnels, Git)
 │   │   ├── locales/        # File terjemahan JSON (en & id)
-│   │   ├── menu/           # Halaman/Menu utama berdasarkan modul (apache, php, database, dll)
-│   │   ├── utils/          # Helper murni non-komponen (a11y.ts, progress.ts)
+│   │   ├── menu/           # Halaman/Menu utama berdasarkan modul (apache, php, database, projects, runtimes, tools/terminal, dll)
+│   │   ├── hooks/          # Custom hooks lintas-komponen (useWindowPresence.ts, dll)
+│   │   ├── utils/          # Helper murni non-komponen (a11y.ts, progress.ts, theme.ts, version.ts)
 │   │   └── App.tsx         # Routing & Layout Utama
 └── main.py                 # Entrypoint aplikasi (Setup window, Pywebview, & System Tray)
 ```
@@ -40,6 +43,7 @@ vyloserve/
    self.api.emit_log("backend.apache.starting", "info")
    self.api.emit_progress(50, "backend.apache.extracting")
    ```
+   Pola yang sama dipakai untuk status jendela OS-level yang tidak bisa dideteksi murni dari DOM (minimize/hide-to-tray) — `self.api.emit_window_state(minimized=True)` menembakkan event `vylo_window_state`, dikonsumsi frontend lewat hook `useWindowPresence.ts` (dikombinasikan dengan `document.hasFocus()` untuk status "tidak fokus", yang MEMANG bisa dideteksi murni dari DOM). Dipakai untuk menggerbangi notifikasi native Windows (`win11toast`, lewat `api.show_native_notification()`) supaya hanya tampil saat window benar-benar backgrounded. Detail lengkap: `docs/known_bugs.md` #45.
 
 ### 🚨 WAJIB: Kontrak Nilai `percent` di `emit_progress()`
 `percent` **selalu angka absolut 0-100**, bukan fraksi `0.0-1.0` — jangan pernah menulis kode yang mengalikan `percent` dengan rentang lain (`start + percent * span`) seolah ia fraksi. Frontend juga memperlakukan **`percent >= 100` atau `percent <= 0` sebagai sinyal "proses selesai total"** (memicu auto-hide widget progress) — **DILARANG** memanggil `emit_progress(100, ...)` untuk checkpoint di tengah alur multi-tahap, hanya untuk tahap paling akhir yang benar-benar tidak ada lanjutannya. Dua bug produksi nyata terjadi karena pelanggaran kontrak ini — lihat `docs/known_bugs.md` #16 dan #18.
@@ -72,7 +76,7 @@ Aturan "dilarang hardcode" di atas **tidak hanya berlaku untuk field `"message"`
 - Saat menyalin salah satu template di `docs/ai_development_guide.md` §5, **jangan** ikut menyalin pola `except Exception as e: return {"message": str(e)}` — gunakan key generik `"backend.error.unexpected"` dengan `"args": {"e": str(e)}`, atau key spesifik service (`"backend.<service>.xxx_error"`) jika sudah ada.
 
 ### 🎨 Sistem Tema (Theming)
-VyloServe punya 9 preset tema (`vyloserve-dark`/`-light`, Darcula, Solarized Dark/Light, High-Contrast Dark/Light, Monokai, Dracula, Nord), disimpan sebagai key `theme` di `data/settings.json` dan diterapkan lewat helper bersama `applyTheme(theme)` di `frontend/src/utils/theme.ts` (set atribut `data-theme` pada `<html>` + toggle class `dark` + override CSS variable per tema di `frontend/src/index.css`). Helper ini dipanggil dari 2 tempat — bootstrap awal di `App.tsx` dan `handleThemeChange()` di `SettingsModals.tsx` — **WAJIB** tetap lewat `applyTheme()`, jangan menduplikasi logika `dataset.theme`/class `dark` secara manual lagi di tempat baru mana pun. Detail lengkap (daftar preset, mekanisme `data-theme`, pola override CSS variable): `docs/frontend_ui.md` §2.1.
+VyloServe punya 15 preset tema (`vyloserve-dark`/`-light`, Darcula, Solarized Dark/Light, High-Contrast Dark/Light, Monokai, Dracula, Nord, Windows XP Luna Light, Windows XP Zune Dark, Catppuccin Mocha, Tokyo Night, dan Gruvbox Dark), disimpan sebagai key `theme` di `data/settings.json` dan diterapkan lewat helper bersama `applyTheme(theme)` di `frontend/src/utils/theme.ts` (set atribut `data-theme` pada `<html>` + toggle class `dark` + override CSS variable per tema di `frontend/src/index.css` + memanggil `api.apply_titlebar_theme(theme)` untuk mensinkronkan warna caption dan teks titlebar native Windows via DWM). Helper ini dipanggil dari 2 tempat — bootstrap awal di `App.tsx` dan `handleThemeChange()` di `SettingsModals.tsx` — **WAJIB** tetap lewat `applyTheme()`, jangan menduplikasi logika `dataset.theme`/class `dark` secara manual lagi di tempat baru mana pun. Detail lengkap (daftar preset, mekanisme `data-theme`, pola override CSS variable): `docs/frontend_ui.md` §2.1.
 
 ## 📜 Coding Standards & Golden Rules untuk AI
 
@@ -82,22 +86,25 @@ VyloServe punya 9 preset tema (`vyloserve-dark`/`-light`, Darcula, Solarized Dar
    - Gunakan `<Modal>` untuk popup, jangan membuat layer absolute baru.
    - Gunakan `<PageHeader>` untuk judul halaman module.
    - Gunakan `<BackgroundProgressWidget>` untuk menangkap log loading dari OS.
+   - Gunakan primitif di `frontend/src/components/skeleton/` (`<Skeleton>`, `<SkeletonCard>`, `<SkeletonForm>`, `<SkeletonDocument>`, `<SkeletonChatMessage>`, `<AppSkeletonLayout>`) untuk *loading state*, jangan membuat blok `animate-pulse` manual.
 2. **Golden Standard UI:**
    Pola `PageHeader + SkeletonCard + EmptyState + Card + Modal` (fetch on mount → render 3-state loading/data/empty → handler aksi dengan toast+i18n) diterapkan konsisten di **Apache, PHP, Database, Runtimes, dan Git** — bukan eksklusif milik Apache/PHP. Jika membuat modul baru, ikuti struktur ini. Detail lengkap + diagram: `docs/frontend_ui.md` §5. Untuk halaman dengan banyak state bercabang (mis. multi-engine/multi-tab), lihat juga §5.1 di dokumen yang sama soal konvensi ekstraksi sub-komponen supaya *Cognitive Complexity* tetap rendah.
-3. **Graceful Exit:**
-   Penutupan aplikasi dikendalikan oleh variabel global `is_real_exit` di `main.py`. Menekan (X) pada window hanya akan menyembunyikan aplikasi ke System Tray (jika `IS_PRODUCTION=True`). Perintah mematikan total hanya lewat `api.close_app()` atau menu di System Tray.
+3. **Graceful Exit & Single-Instance IPC:**
+   Penutupan aplikasi dikendalikan oleh `AppLifecycle.is_real_exit` di `main.py`. Menekan (X) pada window hanya akan menyembunyikan aplikasi ke System Tray jika `ENABLE_TRAY=True` — flag ini **sengaja independen dari `IS_PRODUCTION`** (tray aktif juga di dev mode, supaya fitur hide-to-tray + notifikasi native bisa dites tanpa build `.exe`; `IS_PRODUCTION` sendiri murni mengontrol entrypoint dist/dev-server dan flag devtools via `getattr(sys, "frozen", False)`). Kalau `ENABLE_TRAY=False`, menekan (X) langsung menutup aplikasi sepenuhnya apa pun nilai `IS_PRODUCTION`. Perintah mematikan total hanya lewat `api.close_app()` atau menu di System Tray.
+   Aplikasi menerapkan single-instance terisolasi per mode: mutex `VyloServe_App_Mutex_v1` (prod) vs `VyloServe_Dev_App_Mutex_v1` (dev), window title terpisah, dan AppUserModelID terpisah. Pemanggilan ulang aplikasi membawa window utama ke depan melalui **Windows Named Pipe IPC** (`\\.\pipe\VyloServe_IPC_v1` / `\\.\pipe\VyloServe_Dev_IPC_v1`), bukan raw Win32 hijack cross-process, sehingga bebas crash saat window sedang disembunyikan di tray. Detail: `docs/known_bugs.md` #56.
 4. **Patching UI Component Props:**
    Ketika melakukan patch/edit terhadap React Hooks (*useEffect*, *useContext*, *useTranslation*), deklarasikan di baris paling atas fungsi komponen untuk mencegah pelanggaran urutan aturan eksekusi Hooks bawaan React.
-5. **🚨 WAJIB: Import CSS Pihak Ketiga Global Harus Pakai `layer()`:**
-   Tailwind v4 membungkus semua utility class-nya (`text-[Npx]`, dll) di dalam CSS Cascade Layer (`@layer utilities`). Rule CSS yang **tidak** berada di dalam layer apa pun **selalu menang** atas rule di dalam layer, tidak peduli urutan importnya. **DILARANG** `import 'package/file.css'` polos di file `.tsx` untuk CSS global pihak ketiga (font, icon set, dll) — **WAJIB** lewat CSS `@import "package/file.css" layer(base);` di `src/index.css` agar ikut sistem layer Tailwind dan bisa ditimpa utility. Bug nyata akibat pelanggaran ini: `docs/known_bugs.md` #20 (semua `text-[Npx]` pada ikon Material Symbols diam-diam tidak berfungsi). Detail & cara verifikasi lewat `getComputedStyle()`: `docs/frontend_ui.md` §15.
+5. **🚨 WAJIB: Import CSS Pihak Ketiga Global Harus Pakai `layer()` & Berada Sebelum `@plugin`:**
+   Tailwind v4 membungkus semua utility class-nya (`text-[Npx]`, dll) di dalam CSS Cascade Layer (`@layer utilities`). Rule CSS yang **tidak** berada di dalam layer apa pun **selalu menang** atas rule di dalam layer, tidak peduli urutan importnya. **DILARANG** `import 'package/file.css'` polos di file `.tsx` untuk CSS global pihak ketiga (font, icon set, dll) — **WAJIB** lewat CSS `@import "package/file.css" layer(base);` di `src/index.css` agar ikut sistem layer Tailwind dan bisa ditimpa utility. Selain itu, seluruh pernyataan `@import` di `src/index.css` **WAJIB** diletakkan di bagian paling atas sebelum direktif `@plugin` atau rule CSS lainnya (mematuhi spesifikasi CSS dan aturan SonarQube `css:S8778`). Bug nyata akibat pelanggaran ini: `docs/known_bugs.md` #20 (semua `text-[Npx]` pada ikon Material Symbols diam-diam tidak berfungsi). Detail & cara verifikasi lewat `getComputedStyle()`: `docs/frontend_ui.md` §15.
 6. **🚨 WAJIB: Setiap `<label>` Harus Terhubung ke Input Pasangannya lewat `htmlFor`/`id`:**
    Pola berulang yang ditemukan di banyak form (`InstallWizard.tsx`, `ChangePassword.tsx`, `ProjectSettings.tsx`, kedua `NewInstance.tsx` PHP & Database, `Settings.tsx` PHP, `NewProject.tsx`, `qr-generator/Main.tsx` — 8 kemunculan terpisah): `<label>` ditulis bersebelahan dengan `<input>`/`<select>` secara visual, tapi TANPA `htmlFor` pada label dan `id` pada input/select pasangannya. Secara visual terlihat benar, tapi screen reader tidak bisa mengasosiasikan label dengan kontrolnya (pelanggaran a11y nyata), dan query `getByLabelText()` di test (lihat `docs/development_testing.md` §3) gagal menemukan elemennya. **WAJIB** setiap pasangan `<label>`+`<input>`/`<select>`/`<textarea>` baru diberi `htmlFor="id_unik"` pada label dan `id="id_unik"` pada kontrolnya — jangan andalkan kedekatan visual di JSX saja. Detail: `docs/known_bugs.md` #21.
 
 ### 🧹 Clean Code & DRY (Backend & Frontend)
-7. **Fungsi Tunggal, Tanggung Jawab Tunggal (SRP):**
+7. **Fungsi Tunggal, Tanggung Jawab Tunggal (SRP) & Isolasi State Input:**
    - Setiap fungsi Python harus memiliki **satu tujuan yang jelas**. Jika sebuah fungsi panjangnya melebihi 40 baris atau memiliki lebih dari 2 tingkat indentasi *nested*, pertimbangkan untuk memecahnya.
    - Ekstrak logika yang berulang ke fungsi *helper* atau *private method* (prefix `_`).
-   - Di frontend React, pisahkan logika bisnis dari logika presentasi (gunakan custom hooks jika diperlukan).
+   - Di frontend React, pisahkan logika bisnis dari logika presentasi (gunakan custom hooks dan Domain Context di `src/context/`).
+   - **Isolasi State Input Frekuensi Tinggi:** Jangan menaruh state `useState` untuk teks input yang diketik cepat (seperti kolom input chat AI) langsung di komponen induk yang me-render daftar komponen berat (seperti balon pesan Markdown). Isolasikan *state* pengetikan di komponen anak terdedikasi (misal `AiChatInput.tsx`) dan bungkus item daftar berat dengan `React.memo` agar ketukan keyboard tidak memicu *re-render* seluruh daftar (lihat `docs/known_bugs.md` #65).
 8. **Naming Convention:**
    - **Python (Backend):** Gunakan `snake_case` untuk variabel dan fungsi, `PascalCase` untuk kelas.
    - **TypeScript (Frontend):** Gunakan `camelCase` untuk variabel/fungsi, `PascalCase` untuk komponen React dan tipe/interface.
@@ -184,6 +191,50 @@ VyloServe punya 9 preset tema (`vyloserve-dark`/`-light`, Darcula, Solarized Dar
     - **DILARANG** menggunakan `vi.useFakeTimers` (khususnya dengan `{ shouldAdvanceTime: true }`) di dalam file test React mana pun, terutama yang dikombinasikan dengan `act` di React 18. Pada sistem operasi Windows, ini akan memicu *infinite hang* pada test runner Vitest.
     - **DILARANG** menjalankan perintah `npm run test` baru di latar belakang jika perintah sebelumnya masih dalam status berjalan/hang. Setiap kegagalan terminasi Vitest akan meninggalkan *worker* `node.exe` yatim di memori (*zombie process*). Jika dibiarkan menumpuk, proses ini dengan cepat memakan seluruh kapasitas RAM sistem (insiden tercatat: 24GB RAM habis terpakai dan membuat sistem lumpuh).
     - **Solusi Wajib:** Selalu gunakan *real timers* (`await new Promise(r => setTimeout(r, ms))`). Jika kamu mencurigai Vitest sedang hang, **wajib** jalankan `taskkill /F /IM node.exe` untuk membunuh zombie process sebelum mencoba melanjutkan.
+32. **🚨 WAJIB: Standar Lebar & Responsivitas Kontainer Halaman Desktop (Anti Layar Sempit / Mobile-Like Layout):**
+    - VyloServe adalah aplikasi desktop dengan jendela tetap/resizable yang sudah memiliki padding global (`md:px-8 md:py-8`) dan sidebar tetap (`md:ml-sidebar-width`).
+    - **DILARANG** membatasi lebar kontainer halaman utama secara sepihak dengan utility arbitrary/sempit seperti `max-w-md`, `max-w-lg`, `max-w-3xl`, atau `max-w-5xl mx-auto` seolah-olah halaman web artikel biasa — ini membuat antarmuka desktop terlihat sempit dan terisolasi seperti layar HP/tablet di tengah monitor yang luas.
+    - **DILARANG** menambahkan pembatas sempit (`max-w-md`, `max-w-lg`) pada teks paragraf/subtitle di dalam kartu empty state atau header kartu desktop — gunakan `max-w-2xl mx-auto` atau biarkan teks membentang proporsional agar tidak memotong kalimat menjadi kolom sempit vertikal seperti tampilan smartphone.
+    - Halaman modul/menu utama **WAJIB** mengisi ruang yang tersedia secara penuh (`w-full`). Untuk halaman yang mengelola layout tinggi penuh (seperti chat/editor), kontainer induk di `App.tsx` **WAJIB** mengaktifkan `flex flex-col h-full` dan wrapper modul **WAJIB** `flex-1 min-h-0 flex flex-col w-full` agar rantai flexbox tidak terputus dan tidak kolaps ke tinggi `auto` di bawah `overflow-y-auto`.
+    - Di dalam halaman (*internal components* seperti empty state cards, suggestion buttons, form action rows), gunakan layout grid responsif desktop-first (`grid grid-cols-1 sm:grid-cols-3` dsb.) dengan kontainer luas (`max-w-5xl mx-auto`) alih-alih menumpuk elemen secara vertikal di dalam kontainer sempit (`max-w-lg flex flex-col`). Detail insiden: `docs/known_bugs.md` #57.
+33. **Pola Pengujian Komponen `<Select>` Custom & Animasi `<Modal>` di Vitest:**
+    - Seluruh dropdown di VyloServe telah dimigrasikan ke komponen `<Select>` kustom (`components/Select.tsx`) yang me-render `<button aria-haspopup="listbox">` dan menampilkan daftar opsi di dalam React Portal (`document.body`), **BUKAN** elemen `<select>` HTML native. Saat menulis unit test Vitest, **DILARANG** menggunakan `userEvent.selectOptions()` atau mencari `getByRole('combobox')` — klik tombol trigger terlebih dahulu (`fireEvent.click(trigger)`), lalu klik elemen opsi yang muncul di portal.
+    - Komponen `<Modal>` menggunakan `requestAnimationFrame` ganda untuk menganimasikan transisi `invisible` → `visible` saat `isOpen` berubah menjadi `true`. Saat menguji interaksi di dalam modal yang baru saja dibuka pada test, gunakan `fireEvent.click` atau tunggu siklus animasi selesai jika menggunakan `userEvent` (karena `userEvent` memeriksa visibilitas CSS ancestor).
+34. **🚨 WAJIB: Isolasi Mutlak Windows Registry pada Test Pytest (Anti-Pencemaran HKCU Environment):**
+    - Setiap test yang memanggil fungsi servis yang berpotensi memodifikasi registry Windows (misal `install_go(..., set_as_active=True)`, `toggle_user_path`, `toggle_global_path`, `modify_user_path`) **WAJIB** meng-mock pemanggilan registry.
+    - Sebagai jaring pengaman permanen, fixture autouse `guard_registry_and_env` terpasang di `tests/conftest.py` yang secara otomatis memblokir `winreg.SetValueEx`, `DeleteValue`, dan `DeleteKey` agar tidak pernah menyentuh registry fisik Windows pengembang. Jangan pernah menonaktifkan fixture ini (lihat `docs/known_bugs.md` #73).
+35. **🚨 WAJIB: Framework Analisis Multi-Dimensi Sebelum Perencanaan & Eksekusi Fitur:**
+    - Setiap perencanaan fitur baru (`/plan`), refactoring, investigasi masalah, maupun perubahan arsitektural **WAJIB** melalui analisis 4 pilar komprehensif untuk menjamin kualitas holistik, meminimalisir bug, dan mencegah regresi:
+      - **1. UI/UX & Interaksi Manusia dan Komputer (HCI / IMK):**
+        - *Mental Model Alignment:* Selaraskan antarmuka dengan mental model pengembang desktop lokal (server management suite, bukan website biasa). Alur navigasi dan aksi harus intuitif serta minim friksi.
+        - *Visibility of System Status:* Tampilkan status sistem dan proses secara transparan dan seketika (real-time progress bar, spinner, status badge, log streaming). Pengguna tidak boleh dibiarkan menebak apakah aplikasi sedang memproses atau mengalami hang.
+        - *Proactive Error Prevention & Barriers:* Bangun pembatas proaktif sebelum kesalahan terjadi (deteksi tabrakan port, validasi input form sebelum submit, deteksi kehilangan koneksi internet / offline barrier, dan konfirmasi pencegahan aksi destruktif).
+        - *Desktop-First Ergonomics & Cognitive Load:* Maksimalkan ruang layar desktop secara proporsional (`w-full`, Rule 32), hindari pembatas sempit buatan (mobile-like). Terapkan *Progressive Disclosure* (tampilkan data esensial di muka, rincian teknis mendalam via modal/accordion) untuk menjaga beban kognitif tetap rendah.
+        - *Aesthetic Consistency & Theming:* Pastikan kontras teks, palet warna, dan hierarki visual konsisten di seluruh 15 preset tema (`applyTheme`, CSS variables).
+      - **2. Usability Testing & Heuristik (Nielsen & Shneiderman):**
+        - *User Control & Freedom:* Sediakan jalan keluar yang jelas (tombol Cancel, Close modal, tombol Escape, penutupan graceful). Aksi berisiko (hapus database/instance) wajib membutuhkan konfirmasi eksplisit.
+        - *Recognition over Recall:* Bantu pengguna dengan auto-fill, placeholder deskriptif, schema explorer, tooltip informatif, dan default yang aman agar mereka tidak perlu menghafal parameter teknis.
+        - *Flexibility & Efficiency:* Sediakan aksesibilitas keyboard (a11y `htmlFor`/`id`, fokus yang tepat), filter/pencarian instan, dan aksi cepat (*quick actions*).
+        - *Error Diagnosis & Graceful Recovery:* Pesan error wajib informatif via translation key i18n (`t(...)`), menjelaskan *apa yang terjadi* dan *solusi pemulihannya*, bukan menampilkan raw exception teknis yang membingungkan.
+        - *Simulasi Skenario Riil:* Verifikasi kondisi batas: *first-time user* (empty state), data warisan/tidak lengkap (*sparse JSON/corrupted configs*), hak akses admin/UAC, dan tanpa koneksi internet.
+      - **3. Security Testing & Defensive Engineering:**
+        - *Boundary Validation & Sanitization:* Validasi ketat seluruh tipe dan rentang nilai input dari frontend di `core/api.py` sebelum menyentuh service backend (Rule 11).
+        - *Injection & Traversal Prevention:* Jalankan perintah OS hanya via subprocess `list` tanpa `shell=True` (anti Command Injection), batasi path filesystem dengan `os.path.realpath` (anti Path Traversal), dan sanitasi payload JavaScript via `json.dumps()` (anti XSS).
+        - *Data Integrity & System Protection:* Tulis file konfigurasi secara aman/atomik, proteksi registry Windows dan PATH sistem pengembang (Rule 34), serta amankan database default sistem agar tidak dapat dimodifikasi/dihapus sembarangan.
+        - *Zero Hardcoded Credentials:* Jangan pernah menyimpan password atau secret key di source code atau expose ke frontend bundle.
+      - **4. Prinsip Clean Code, DRY & Reusable Components:**
+        - *Single Responsibility Principle (SRP):* Satu modul/service/komponen hanya menangani satu domain tanggung jawab. Pecah fungsi > 40 baris atau nesting > 2 level.
+        - *Reusable Component First:* Selalu periksa dan gunakan komponen bersama yang sudah ada (`frontend/src/components/`, `skeleton/`, `hooks/`, `utils/`) sebelum membuat elemen visual baru.
+        - *High-Frequency Input Isolation:* Pisahkan state pengetikan intensif ke komponen anak tersendiri dengan `React.memo` (Rule 7) untuk mencegah re-render berat pada list.
+        - *Defensive Typing & Strict Parity:* Pengetikan TypeScript ketat, defensive fallback untuk data nullable (Rule 25), zero-tolerance SonarQube code smells, serta 100% paritas translation key antara `en` dan `id`.
+36. **🚨 WAJIB: Isolasi Mutlak File Konfigurasi Fisik & Binaries pada Pytest/Vitest (Anti-Data Corruption):**
+    - Test suite **DILARANG KERAS** memodifikasi, menimpa, atau menghapus file konfigurasi fisik di `data/*.json` (seperti `runtimes.json`, `git.json`, `settings.json`, `databases.json`, `projects.json`) maupun binary di `bin/` milik lingkungan pengembangan pengembang.
+    - Setiap test yang memanggil fungsi servis yang membaca/menulis data JSON atau direktori bin wajib meng-mock `read_json`/`write_json` atau mengarahkan `base_dir` / `data_dir` ke fixture `tmp_path` Pytest. Mock cleanup pada test tidak boleh sampai menghapus file di direktori kerja riil (Pelajaran dari bug #92: unit test runtimes membersihkan file konfigurasi development sehingga list modul terinstall hilang di antarmuka).
+37. **🚨 WAJIB: Pencegahan ReDoS (Catastrophic Backtracking) pada Regular Expression:**
+    - **DILARANG** menggunakan regular expression dengan nested quantifiers atau overlapping capture groups (seperti `r"^(\s*)(.*?)\s*=\s*(.*?)\s*$"` atau `(a+)+`) untuk parsing string konfigurasi. Pola ambigu ini dapat memicu konsumsi CPU 100% dan membuat thread Python hang tanpa batas waktu (SonarQube `python:S8786` & `python:S6353`).
+    - Utamakan penggunaan metode string deterministik (`str.partition("=")` atau `str.split("=", 1)`) yang linear dan kebal terhadap eksploitasi ReDoS. Jika regex tetap dibutuhkan, gunakan *character class* yang eksplisit dan batasi quantifiers secara ketat.
+38. **🚨 WAJIB: Verifikasi Wajib Kompilasi Produksi Frontend (`npm run build`):**
+    - Sebelum serah terima fitur atau commit yang melibatkan perubahan TypeScript/TSX di `frontend/`, jalankan `npm run build` (`tsc -b && vite build`) untuk memastikan tidak ada kesalahan kompilasi tipe atau prop mismatch yang terlewat oleh linting biasa (Pelajaran dari bug #95: `tsc -b` mengungkap kegagalan kompilasi prop mismatch pada modal dan overload type `TFunction` yang lolos dari test terisolasi).
 
 ---
 *File ini adalah sumber rujukan utama lintas-vendor untuk AI Assistant (Claude Code, OpenAI Codex CLI, Cursor, Amp, Jules, Gemini, dan tool lain yang mendukung standar terbuka [agents.md](https://agents.md)) agar bisa langsung memahami ekosistem VyloServe tanpa perlu menganalisa ulang seluruh repositori secara manual dari awal setiap memulai percakapan atau sesi baru.*
@@ -210,3 +261,4 @@ Untuk orientasi cepat dan pengembangan yang efektif, ikuti **urutan bacaan** ber
 6. **WAJIB** merespons pengguna menggunakan bahasa yang sama dengan bahasa yang dipakai pada prompt pengguna — kalau prompt ditulis dalam Bahasa Indonesia, respons juga dalam Bahasa Indonesia; kalau dalam Bahasa Inggris, respons dalam Bahasa Inggris; berlaku sama untuk bahasa lain. Aturan ini berlaku untuk semua sesi ke depannya, bukan cuma saat instruksi ini diberikan.
 7. **WAJIB** menerapkan prinsip Clean Code dan DRY (Don't Repeat Yourself) pada setiap *development* kode baru maupun modifikasi. Perhatikan ketat aturan SonarQube: DILARANG membuat kode yang memicu temuan baru (Code Smells, Bugs, Vulnerabilities, atau Duplications) pada hasil *scan* (Zero-Tolerance untuk temuan baru). Kode yang dihasilkan harus memiliki standar keandalan tinggi, minim bug, dan berkinerja optimal.
 8. **DILARANG** menjalankan `git checkout -- <file>`, `git restore <file>`, atau `git reset --hard` pada file manapun yang berstatus `M` (modified, belum di-commit) hanya untuk membatalkan satu eksperimen/typo kecil. Perintah-perintah ini mengembalikan file ke versi commit TERAKHIR, menghapus **SELURUH** perubahan working-tree yang belum pernah di-commit pada file itu — bukan cuma eksperimen yang baru saja dijalankan. Kejadian nyata: upaya membatalkan satu kesalahan `json.dump` (reformat indentasi tak disengaja) malah menghapus 89 key terjemahan Indonesia yang sudah ada di working tree sejak sesi-sesi sebelumnya namun belum pernah di-commit (lihat `docs/known_bugs.md`). Untuk membatalkan kesalahan sendiri pada file yang statusnya `M`, **WAJIB** salah satu dari: (a) `git diff <file>` dulu untuk memastikan ukuran dampak sebelum memutuskan cara membatalkan, (b) backup manual isi file (copy ke file lain) sebelum bereksperimen dengan operasi yang me-rewrite seluruh isi file (mis. `json.dump`, `write()` penuh), atau (c) perbaikan bertarget lewat Edit/text-replace pada bagian yang salah saja, bukan menimpa ulang seluruh file.
+9. **WAJIB** menerapkan **Framework Analisis Multi-Dimensi** (UI/UX & HCI/IMK, Usability Testing & Heuristik, Security Testing & Defensive Engineering, serta Clean Code/DRY/Reusable Components) pada setiap tahap perencanaan (`/plan`), review arsitektur, dan perbaikan masalah. Dilarang merancang atau mengubah alur secara parsial tanpa mengevaluasi implikasi ergonomis, ketahanan error, proteksi keamanan, dan kebersihan arsitekturalnya secara holistik.

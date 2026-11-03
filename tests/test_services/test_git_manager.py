@@ -20,7 +20,7 @@ def test_git_get_status(mock_run, git_manager):
             with patch.object(git_manager, '_is_in_user_path', return_value=True):
                 res = git_manager.get_git_status()
                 assert res['installed'] is True
-                assert res['version'] == '2.45.1.windows.1'
+                assert res['version'] == '2.45.1.1'
 
 @patch('core.services.git_manager.subprocess.run')
 @patch('core.services.git_manager.winreg.OpenKey')
@@ -76,8 +76,9 @@ def test_install_git(mock_extract, mock_download, git_manager):
         mock_extract.assert_called_once()
         assert "backend.git.install_success" in res['message']
     
+@patch('shutil.rmtree')
 @patch('core.services.git_manager.download_advanced')
-def test_install_git_failure(mock_download, git_manager):
+def test_install_git_failure(mock_download, mock_rmtree, git_manager):
     """Test Git installation failure."""
     mock_download.side_effect = Exception("Network timeout")
     
@@ -86,6 +87,7 @@ def test_install_git_failure(mock_download, git_manager):
     assert res['status'] == 'error'
     assert res['message'] == 'backend.git.install_error'
     assert 'Network timeout' in res['args']['e']
+    mock_rmtree.assert_not_called()
 
 @patch('core.services.git_manager.urllib.request.urlopen')
 def test_get_available_git_versions(mock_urlopen, git_manager):
@@ -358,3 +360,34 @@ def test_set_git_config_handles_exception(git_manager):
     assert res['status'] == 'error'
     assert res['message'] == 'backend.git.config_error'
     assert res['args']['e'] == 'git.exe missing'
+
+# ==========================================
+# silent parameter tests
+# ==========================================
+
+def test_git_get_status_silent_suppresses_logs(git_manager, mock_api):
+    with patch.object(git_manager, '_find_via_where', return_value="C:\\Program Files\\Git\\cmd\\git.exe"), \
+         patch.object(git_manager, '_validate_git_binary', return_value={"exists": True, "version": "2.45.0", "path": "C:\\Program Files\\Git\\cmd\\git.exe"}), \
+         patch('os.path.exists', return_value=False):
+        res = git_manager.get_git_status(silent=True)
+        assert res['installed'] is False
+        assert res['external']['exists'] is True
+        mock_api.emit_log.assert_not_called()
+
+def test_git_get_status_non_silent_emits_logs(git_manager, mock_api):
+    with patch.object(git_manager, '_find_via_where', return_value=None), \
+         patch.object(git_manager, '_find_via_registry', return_value=None), \
+         patch.object(git_manager, '_find_via_hardcoded', return_value=None), \
+         patch('os.path.exists', return_value=False):
+        res = git_manager.get_git_status(silent=False)
+        assert res['installed'] is False
+        mock_api.emit_log.assert_any_call("backend.git.scanning_external", "info", None)
+
+
+def test_install_git_cancelled(git_manager):
+    from core.utils.cancellation import OperationCancelledError
+    with patch('core.services.git_manager.download_advanced', side_effect=OperationCancelledError("Cancelled")):
+        res = git_manager.install_git("http://fake-git.exe", "git.exe", "2.45.0")
+        assert res["status"] == "cancelled"
+        assert res["message"] == "backend.git.install_cancelled"
+
