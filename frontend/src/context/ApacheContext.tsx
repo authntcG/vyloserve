@@ -112,8 +112,10 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
     }, []);
 
     const openLocalhost = useCallback(() => {
-        window.pywebview?.api?.open_browser?.('http://localhost');
-    }, []);
+        const port = portsStatus?.http?.port || httpPort || 80;
+        const url = port === 80 ? 'http://localhost' : `http://localhost:${port}`;
+        window.pywebview?.api?.open_browser?.(url);
+    }, [portsStatus, httpPort]);
 
     const openHtdocs = useCallback(() => {
         window.pywebview?.api?.open_apache_htdocs?.();

@@ -280,8 +280,9 @@ def test_php_get_available_versions_linux(php_mgr):
     with patch('sys.platform', 'linux'):
         res = php_mgr.get_versions()
         assert res['status'] == 'success'
-        assert res['data'] == []
-        assert res['message'] == 'backend.php.no_linux_binaries'
+        assert len(res['data']) == 1
+        assert res['data'][0]['version'] == 'system'
+        assert res['message'] == 'backend.php.release_load_success'
 
 @patch('os.path.exists')
 @patch('urllib.request.urlopen')
@@ -545,8 +546,16 @@ def test_check_is_running_cleans_up_dead_processes(php_mgr):
     mock_proc = MagicMock()
     mock_proc.poll.return_value = 0
     php_mgr.processes["8.1"] = mock_proc
-    assert php_mgr.check_is_running() is False
-    assert "8.1" not in php_mgr.processes
+    with patch.object(php_mgr, '_check_system_php', return_value={"exists": False, "status": "stopped"}):
+        assert php_mgr.check_is_running() is False
+        assert "8.1" not in php_mgr.processes
+
+def test_check_is_running_system_php_linux(php_mgr):
+    with patch('core.services.php.sys.platform', 'linux'):
+        with patch.object(php_mgr, '_check_system_php', return_value={"exists": True, "status": "running"}):
+            assert php_mgr.check_is_running() is True
+        with patch.object(php_mgr, '_check_system_php', return_value={"exists": True, "status": "stopped"}):
+            assert php_mgr.check_is_running() is False
 
 # ==========================================
 # get_installed_versions
@@ -744,4 +753,59 @@ def test_php_get_installed_instances_includes_system_php(mock_exists, php_mgr):
         assert inst["status"] == "running"
         assert inst["dir"] == "/usr/bin/php"
         assert inst["memory_limit"] == "512M"
+
+
+def test_install_php_linux_success(php_mgr):
+    with patch('shutil.which', side_effect=lambda x: f"/usr/bin/{x}" if x in ("pkexec", "apt-get") else None), \
+         patch('core.services.php.run_silent_command', return_value=MagicMock(returncode=0)), \
+         patch('core.services.php.subprocess.run', return_value=MagicMock(returncode=0)):
+        res = php_mgr._install_php_linux(9000)
+        assert res['status'] == 'success'
+        assert res['message'] == 'backend.php.linux_install_success'
+
+
+def test_install_php_linux_auth_cancelled(php_mgr):
+    with patch('shutil.which', side_effect=lambda x: f"/usr/bin/{x}" if x in ("pkexec", "apt-get") else None), \
+         patch('core.services.php.run_silent_command', return_value=MagicMock(returncode=0)), \
+         patch('core.services.php.subprocess.run', return_value=MagicMock(returncode=126)):
+        res = php_mgr._install_php_linux(9000)
+        assert res['status'] == 'error'
+        assert res['message'] == 'backend.php.auth_cancelled'
+
+
+def test_install_php_linux_no_pkexec(php_mgr):
+    with patch('shutil.which', return_value=None):
+        res = php_mgr._install_php_linux(9000)
+        assert res['status'] == 'error'
+        assert res['message'] == 'backend.php.no_pkexec'
+
+
+def test_php_get_versions_linux_system_package(php_mgr):
+    with patch('core.services.php.sys.platform', 'linux'):
+        res = php_mgr.get_versions()
+        assert res['status'] == 'success'
+        assert len(res['data']) == 1
+        assert res['data'][0]['version'] == 'system'
+
+
+def test_php_install_composer_creates_bat_and_sh(php_mgr, tmp_path):
+    target_dir = str(tmp_path / "php_8_2")
+    os.makedirs(target_dir, exist_ok=True)
+    with patch('urllib.request.urlretrieve'):
+        php_mgr._install_composer(target_dir)
+
+    bat_file = os.path.join(target_dir, "composer.bat")
+    assert os.path.exists(bat_file)
+    with open(bat_file, "r") as f:
+        assert "%~dp0composer.phar" in f.read()
+
+    sh_file = os.path.join(target_dir, "composer")
+    assert os.path.exists(sh_file)
+    with open(sh_file, "r") as f:
+        content = f.read()
+        assert "#!/bin/sh" in content
+        assert "composer.phar" in content
+    assert os.stat(sh_file).st_mode & 0o111 != 0
+
+
 

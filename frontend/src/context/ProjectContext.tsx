@@ -77,7 +77,7 @@ export interface ProjectContextValue {
     handleUpdateProjectSubmit: () => Promise<void>;
     handleDeleteProjectSubmit: () => Promise<void>;
     handleSyncHost: (projectId: string) => Promise<void>;
-    handleOpenBrowser: (domain: string) => Promise<void>;
+    handleOpenBrowser: (domain: string, protocol?: 'http' | 'https') => Promise<void>;
     handleOpenDocumentRoot: (path: string) => Promise<void>;
     confirmCancelProjectInstall: () => Promise<void>;
 
@@ -310,8 +310,26 @@ export function ProjectProvider({ children }: { readonly children: React.ReactNo
         }
     }, [showToast]);
 
-    const handleOpenBrowser = useCallback(async (domain: string) => {
-        const url = `https://${domain}`;
+    const handleOpenBrowser = useCallback(async (domain: string, protocol?: 'http' | 'https') => {
+        let proto = protocol;
+        if (!proto) {
+            try {
+                const api = (window as any).pywebview?.api;
+                if (api?.get_apache_ports_status) {
+                    const portsRes = await api.get_apache_ports_status();
+                    if (portsRes?.status === 'success' && portsRes.data?.https?.status === 'listening') {
+                        proto = 'https';
+                    } else {
+                        proto = 'http';
+                    }
+                } else {
+                    proto = 'http';
+                }
+            } catch {
+                proto = 'http';
+            }
+        }
+        const url = `${proto}://${domain}`;
         try {
             const project = projects.find(p => p.domain === domain);
             if (project?.project_type && project.project_type !== 'php') {
@@ -323,8 +341,8 @@ export function ProjectProvider({ children }: { readonly children: React.ReactNo
                 }
             }
 
-            if (window.pywebview?.api?.open_browser) {
-                window.pywebview.api.open_browser(url);
+            if ((window as any).pywebview?.api?.open_browser) {
+                (window as any).pywebview.api.open_browser(url);
             } else {
                 window.open(url, '_blank');
             }

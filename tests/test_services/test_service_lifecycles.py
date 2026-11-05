@@ -14,8 +14,9 @@ def php_manager(mock_api, tmp_path):
     with patch('core.services.php.get_project_root', return_value=str(tmp_path)):
         return PhpManager(mock_api)
 
+@patch('time.sleep')
 @patch('core.services.apache.start_silent_process')
-def test_apache_start_server(mock_start_silent, apache_manager):
+def test_apache_start_server(mock_start_silent, mock_sleep, apache_manager):
     """Test Apache start_server logic."""
     # Mocking that the process stays alive
     mock_proc = MagicMock()
@@ -35,8 +36,9 @@ def test_apache_start_server(mock_start_silent, apache_manager):
                     stop_res = apache_manager.stop_server()
                     assert stop_res['status'] == 'success'
 
+@patch('time.sleep')
 @patch('core.services.php.start_silent_process')
-def test_php_start_server(mock_start_silent, php_manager):
+def test_php_start_server(mock_start_silent, mock_sleep, php_manager):
     """Test PHP start_php logic."""
     mock_proc = MagicMock()
     mock_proc.poll.return_value = None

@@ -16,6 +16,7 @@ from core.utils.system_utils import (
     run_silent_command,
     open_path_in_file_manager,
     kill_process_tree,
+    set_path_in_env,
 )
 from core.utils.file_utils import read_json, write_json, read_log_tail
 
@@ -45,6 +46,7 @@ FILE_GO_MOD = "go.mod"
 FILE_REQUIREMENTS_TXT = "requirements.txt"
 FILE_MAIN_PY = "main.py"
 FILE_START_DEV_BAT = "start-dev.bat"
+FILE_START_DEV_SH = "start-dev.sh"
 FILE_INDEX_JS = "index.js"
 EXE_PYTHON = "python.exe"
 PKG_GIN = "github.com/gin-gonic/gin"
@@ -137,13 +139,17 @@ class ProjectManager:
         return cls._match_prompt_tail(tail, tail_text)
 
     def _spawn_pty_process(self, cmd_list: list, cwd: str, env: dict = None):
-        from winpty import PtyProcess
         final_cmd = list(cmd_list)
-        if sys.platform == 'win32' and final_cmd:
-            exe = str(final_cmd[0]).lower()
-            if exe.endswith(('.cmd', '.bat')):
-                final_cmd = ['cmd.exe', '/c'] + final_cmd
-        return PtyProcess.spawn(final_cmd, cwd=cwd, env=env or os.environ.copy(), dimensions=(24, 100))
+        if sys.platform == 'win32':
+            from winpty import PtyProcess
+            if final_cmd:
+                exe = str(final_cmd[0]).lower()
+                if exe.endswith(('.cmd', '.bat')):
+                    final_cmd = ['cmd.exe', '/c'] + final_cmd
+            return PtyProcess.spawn(final_cmd, cwd=cwd, env=env or os.environ.copy(), dimensions=(24, 100))
+        else:
+            from ptyprocess import PtyProcessUnicode
+            return PtyProcessUnicode.spawn(final_cmd, cwd=cwd, env=env or os.environ.copy(), dimensions=(24, 100))
 
     def _process_pty_chunk(self, chunk: str):
         self._emit_cli_output(chunk)
@@ -626,6 +632,62 @@ class ProjectManager:
                 return None
         return composer_path
 
+    @staticmethod
+    def _build_php_cmd(php_exe: str, php_ini_path: str, args: list) -> list:
+        cmd = [php_exe]
+        if php_ini_path:
+            cmd.extend(["-c", php_ini_path])
+        cmd.extend(args)
+        return cmd
+
+    def _resolve_php_exe(self, php_version: str) -> Optional[str]:
+        version_str = str(php_version or '').strip()
+        # 1. Cek portable binary di bin/php/<version>
+        if sys.platform == 'win32':
+            cand = os.path.join(self.bin_dir, 'php', version_str, 'php.exe')
+            if os.path.exists(cand):
+                return cand
+        else:
+            for sub in ['bin/php', 'php']:
+                cand = os.path.join(self.bin_dir, 'php', version_str, sub)
+                if os.path.exists(cand):
+                    return cand
+
+        # 2. Cek binary sistem versi spesifik (mis. php8.3, php8.2) jika ada angka versi
+        if version_str:
+            clean_ver = re.findall(r'\d+\.\d+|\d+', version_str)
+            names = [f"php{version_str}"]
+            if clean_ver:
+                names.extend([f"php{clean_ver[0]}", f"php{clean_ver[0].split('.')[0]}"])
+            for name in names:
+                found = shutil.which(name)
+                if found:
+                    return found
+            # Jika user meminta versi spesifik (seperti "9.9"), periksa apakah system default php versinya cocok
+            def_php = shutil.which("php")
+            if def_php:
+                try:
+                    cflags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+                    out = subprocess.run([def_php, "-r", "echo PHP_VERSION;"], capture_output=True, text=True, creationflags=cflags, timeout=2).stdout
+                    if out and out.strip().startswith(version_str):
+                        return def_php
+                except Exception:
+                    pass
+            return None
+
+        # 3. Jika tidak ada versi spesifik yang diminta, gunakan binary php default di PATH
+        found_def = shutil.which("php")
+        if found_def:
+            return found_def
+
+        # 4. Fallback lokasi standar Linux / Unix jika tidak ada versi spesifik
+        if sys.platform != 'win32':
+            for std_path in ['/usr/bin/php', '/usr/local/bin/php', '/usr/sbin/php']:
+                if os.path.exists(std_path):
+                    return std_path
+
+        return None
+
     def _rollback_dir(self, target_dir: str):
         import shutil
         if os.path.exists(target_dir):
@@ -665,8 +727,13 @@ class ProjectManager:
                 
             if attempt > 0: time.sleep(3) 
                 
+            cmd_update = self._build_php_cmd(
+                php_exe,
+                php_ini_path,
+                [composer_phar, "update", "--no-interaction", "--prefer-dist", "--no-scripts"]
+            )
             process_update = subprocess.Popen(
-                [php_exe, "-c", php_ini_path, composer_phar, "update", "--no-interaction", "--prefer-dist", "--no-scripts"], 
+                cmd_update, 
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=custom_env, cwd=target_dir, creationflags=cflags
             )
             
@@ -685,8 +752,13 @@ class ProjectManager:
             shutil.rmtree(target_dir, ignore_errors=True)
 
         self._log("backend.project.downloading_framework", "info")
+        cmd_create = self._build_php_cmd(
+            php_exe,
+            php_ini_path,
+            [composer_phar, "create-project", package, target_dir, "--prefer-dist", "--no-interaction", "--no-install", "--no-scripts"]
+        )
         process_create = subprocess.Popen(
-            [php_exe, "-c", php_ini_path, composer_phar, "create-project", package, target_dir, "--prefer-dist", "--no-interaction", "--no-install", "--no-scripts"], 
+            cmd_create, 
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=custom_env, creationflags=cflags
         )
         
@@ -704,9 +776,26 @@ class ProjectManager:
         if os.path.exists(env_example) and not os.path.exists(env_file):
             shutil.copy(env_example, env_file)
         try:
-            subprocess.run([php_exe, "-c", php_ini_path, "artisan", "key:generate"], cwd=target_dir, env=custom_env, creationflags=cflags)
+            cmd = [php_exe]
+            if php_ini_path:
+                cmd.extend(["-c", php_ini_path])
+            cmd.extend(["artisan", "key:generate"])
+            subprocess.run(cmd, cwd=target_dir, env=custom_env, creationflags=cflags)
         except Exception:
             pass
+        if sys.platform != 'win32':
+            for sub in ["storage", "bootstrap/cache"]:
+                subpath = os.path.join(target_dir, sub)
+                if os.path.exists(subpath):
+                    for root, dirs, files in os.walk(subpath):
+                        for d in dirs:
+                            try: os.chmod(os.path.join(root, d), 0o777)
+                            except Exception: pass
+                        for f in files:
+                            try: os.chmod(os.path.join(root, f), 0o666)
+                            except Exception: pass
+                    try: os.chmod(subpath, 0o777)
+                    except Exception: pass
 
     @staticmethod
     def _post_install_ci4(target_dir: str):
@@ -779,7 +868,9 @@ class ProjectManager:
             custom_env.update({"COMPOSER_PROCESS_TIMEOUT": "2000", "COMPOSER_MAX_PARALLEL_HTTP": "1"})
             cflags = get_silent_flags()
 
-            try: subprocess.run([php_exe, "-c", php_ini_path, composer_phar, "clear-cache"], env=custom_env, creationflags=cflags)
+            try:
+                cmd_clear = self._build_php_cmd(php_exe, php_ini_path, [composer_phar, "clear-cache"])
+                subprocess.run(cmd_clear, env=custom_env, creationflags=cflags)
             except Exception: pass
 
             ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
@@ -791,7 +882,9 @@ class ProjectManager:
                 self._rollback_dir(target_dir)
                 return {"status": "error", "message": MSG_FRAMEWORK_DOWNLOAD_FAILED, "args": {"error": error_log[:150]}}
 
-            try: subprocess.run([php_exe, "-c", php_ini_path, composer_phar, "config", "policy.advisories.block", "false"], env=custom_env, cwd=target_dir, creationflags=cflags)
+            try:
+                cmd_config = self._build_php_cmd(php_exe, php_ini_path, [composer_phar, "config", "policy.advisories.block", "false"])
+                subprocess.run(cmd_config, env=custom_env, cwd=target_dir, creationflags=cflags)
             except Exception: pass
 
             update_success = self._run_composer_update_with_retries(php_exe, php_ini_path, composer_phar, target_dir, custom_env, cflags, current_percent, ansi_escape) 
@@ -809,36 +902,95 @@ class ProjectManager:
         except Exception as e:
             return {"status": "error", "message": "backend.project.composer_run_failed", "args": {"e": str(e)}}
 
+    @staticmethod
+    def _get_binary_candidates_for_exe(exe_name: str) -> list[str]:
+        cands = [exe_name]
+        clean = exe_name
+        for ext in (".exe", ".cmd", ".bat"):
+            if clean.lower().endswith(ext):
+                clean = clean[:-len(ext)]
+                break
+        if clean and clean not in cands:
+            cands.append(clean)
+        if clean.lower() == "python":
+            for py_variant in ("python3", "python3.14", "python3.13", "python3.12", "python3.11"):
+                if py_variant not in cands:
+                    cands.append(py_variant)
+        return cands
+
     def _resolve_external_bin(self, engine: str, exe_name: str) -> Optional[str]:
         rm = getattr(self.api, 'runtimes_manager', None)
         if rm and hasattr(rm, '_check_external_installation'):
             ext = rm._check_external_installation(engine, silent=True)
             ext_path = ext.get('path') if isinstance(ext, dict) and ext.get('exists') else None
             if ext_path:
-                if os.path.basename(ext_path).lower() == exe_name.lower():
-                    return ext_path
-                sibling = os.path.join(os.path.dirname(ext_path), exe_name)
-                if os.path.exists(sibling):
-                    return sibling
+                cands = self._get_binary_candidates_for_exe(exe_name)
+                for cand in cands:
+                    if os.path.basename(ext_path).lower() == cand.lower():
+                        return ext_path
+                    sibling = os.path.join(os.path.dirname(ext_path), cand)
+                    if os.path.exists(sibling) and os.path.isfile(sibling):
+                        return sibling
         return None
 
     def _resolve_runtime_bin(self, engine: str, exe_name: str, version: Optional[str] = None) -> Optional[str]:
         rm = getattr(self.api, 'runtimes_manager', None)
         engine_dir = rm._get_engine_dir(engine, version=version) if rm and hasattr(rm, '_get_engine_dir') else None
+        cands = self._get_binary_candidates_for_exe(exe_name)
         if engine_dir:
-            sub = os.path.join(engine_dir, 'bin', exe_name) if engine in ('go', 'java') else os.path.join(engine_dir, exe_name)
-            if os.path.exists(sub):
-                return sub
+            search_dirs = [
+                os.path.join(engine_dir, 'bin'),
+                engine_dir,
+                os.path.join(engine_dir, 'Scripts')
+            ]
+            for s_dir in search_dirs:
+                if not os.path.exists(s_dir):
+                    continue
+                for cand in cands:
+                    target = os.path.join(s_dir, cand)
+                    if os.path.exists(target) and os.path.isfile(target):
+                        return target
+
         ext_found = self._resolve_external_bin(engine, exe_name)
         if ext_found:
             return ext_found
-        return shutil.which(exe_name)
 
-    @staticmethod
-    def _write_start_dev_bat(target_dir: str, command_line: str):
+        for cand in cands:
+            found = shutil.which(cand)
+            if found:
+                return found
+        return None
+
+    @classmethod
+    def _write_start_dev_script(cls, target_dir: str, command_line: str):
+        clean_win_cmd = (command_line or "").strip()
         bat_path = os.path.join(target_dir, FILE_START_DEV_BAT)
         with open(bat_path, "w", encoding="utf-8") as f:
-            f.write(f"@echo off\n{command_line}\n")
+            f.write(f"@echo off\n{clean_win_cmd}\n")
+
+        sh_lines = []
+        for line in clean_win_cmd.splitlines():
+            stripped = line.strip()
+            if stripped.lower() in ("pause", "@echo off"):
+                continue
+            if stripped.startswith("call .venv\\Scripts\\activate.bat") or stripped.startswith("call .venv/Scripts/activate.bat"):
+                sh_lines.append(". .venv/bin/activate")
+            elif stripped.startswith("mvnw.cmd"):
+                sh_lines.append(stripped.replace("mvnw.cmd", "./mvnw"))
+            else:
+                sh_lines.append(line)
+        sh_content = "\n".join(sh_lines).strip()
+        sh_path = os.path.join(target_dir, FILE_START_DEV_SH)
+        with open(sh_path, "w", encoding="utf-8") as f:
+            f.write(f"#!/bin/sh\n{sh_content}\n")
+        try:
+            os.chmod(sh_path, os.stat(sh_path).st_mode | 0o755)
+        except OSError:
+            pass
+
+    @classmethod
+    def _write_start_dev_bat(cls, target_dir: str, command_line: str):
+        cls._write_start_dev_script(target_dir, command_line)
 
     def _scaffold_node_files(self, framework: str, target_dir: str, specific_version: str, proxy_port: int):
         pkg_name = os.path.basename(target_dir).lower()
@@ -967,7 +1119,7 @@ class ProjectManager:
         try:
             self._progress(20, MSG_SCAFFOLDING_PROJECT, {"framework": framework})
             custom_env = os.environ.copy()
-            custom_env["PATH"] = os.path.dirname(node_exe) + os.pathsep + custom_env.get("PATH", "")
+            set_path_in_env(custom_env, [os.path.dirname(node_exe)])
             npx_cmd = self._resolve_runtime_bin("node", "npx.cmd") if not hasattr(subprocess.run, "_mock_name") else None
             if framework == "nextjs" and npx_cmd:
                 ok, err_out = self._run_nextjs_interactive_cli(npx_cmd, target_dir, specific_version, proxy_port, custom_env)
@@ -1012,11 +1164,22 @@ class ProjectManager:
         ok, err_out = self._run_cli_or_pty([py_exe, "-m", "venv", venv_dir], cwd=target_dir, env=custom_env)
         if not ok:
             return False, py_exe, err_out
-        venv_py = os.path.join(venv_dir, "Scripts", EXE_PYTHON)
-        if os.path.exists(venv_py):
-            custom_env["PATH"] = os.path.join(venv_dir, "Scripts") + os.pathsep + custom_env.get("PATH", "")
-            custom_env["VIRTUAL_ENV"] = venv_dir
-            return True, venv_py, None
+        
+        candidate_bin_dirs = [
+            os.path.join(venv_dir, "Scripts"),
+            os.path.join(venv_dir, "bin")
+        ]
+        candidate_exes = [EXE_PYTHON, "python.exe", "python3", "python"]
+        for b_dir in candidate_bin_dirs:
+            if not os.path.exists(b_dir):
+                continue
+            for b_name in candidate_exes:
+                venv_py = os.path.join(b_dir, b_name)
+                if os.path.exists(venv_py) and os.path.isfile(venv_py):
+                    set_path_in_env(custom_env, [b_dir])
+                    custom_env["VIRTUAL_ENV"] = venv_dir
+                    return True, venv_py, None
+
         return True, py_exe, None
 
     def _install_python_packages(
@@ -1073,7 +1236,7 @@ class ProjectManager:
             self._progress(20, MSG_SCAFFOLDING_PROJECT, {"framework": framework})
             os.makedirs(target_dir, exist_ok=True)
             custom_env = os.environ.copy()
-            custom_env["PATH"] = os.path.dirname(py_exe) + os.pathsep + custom_env.get("PATH", "")
+            set_path_in_env(custom_env, [os.path.dirname(py_exe)])
 
             ok, err_out = self._execute_python_project_scaffold(
                 framework, target_dir, specific_version, py_exe, custom_env, use_venv
@@ -1200,8 +1363,8 @@ func main() {{
             os.makedirs(target_dir, exist_ok=True)
             custom_env = os.environ.copy()
             go_bin_dir = os.path.dirname(go_exe)
-            custom_env["PATH"] = go_bin_dir + os.pathsep + custom_env.get("PATH", "")
-            custom_env["GOROOT"] = os.path.dirname(go_bin_dir)
+            set_path_in_env(custom_env, [go_bin_dir])
+            custom_env["GOROOT"] = os.path.dirname(go_bin_dir) if os.path.basename(go_bin_dir).lower() == "bin" else go_bin_dir
 
             mod_name = os.path.basename(target_dir).lower()
             self._run_cli_or_pty([go_exe, "mod", "init", mod_name], cwd=target_dir, env=custom_env)
@@ -1301,8 +1464,8 @@ public class Main {{
         php_version = payload.get('php_version')
         specific_version = payload.get('specific_version', '').strip()
         
-        php_exe = os.path.join(self.bin_dir, 'php', php_version, 'php.exe')
-        if not os.path.exists(php_exe):
+        php_exe = self._resolve_php_exe(php_version)
+        if not php_exe:
             return {"status": "error", "message": "backend.project.php_exe_not_found", "args": {"php_version": php_version}}
 
         if framework in ['laravel', 'codeigniter']:
@@ -1328,7 +1491,7 @@ public class Main {{
         try:
             with open(hosts_path, 'w', encoding='utf-8') as f: f.write(final_content)
             return {"status": "success", "message": "backend.project.hosts_updated"}
-        except PermissionError:
+        except (PermissionError, OSError):
             self._log("backend.project.request_uac", "info")
             if sys.platform == 'win32':
                 result = ctypes.windll.shell32.ShellExecuteW(None, "runas", "cmd.exe", f'/c copy /Y "{temp_file}" "{hosts_path}"', None, 0)
@@ -1339,6 +1502,7 @@ public class Main {{
                 if pkexec:
                     res = subprocess.run([pkexec, "cp", temp_file, hosts_path], capture_output=True)
                     if res.returncode == 0:
+                        subprocess.run([pkexec, "chmod", "644", hosts_path], capture_output=True)
                         return {"status": "success", "message": "backend.project.uac_granted"}
                 return {"status": "error", "message": "backend.project.uac_denied"}
 
@@ -1424,6 +1588,8 @@ public class Main {{
             if start_res.get('status') != 'success':
                 self._log(MSG_AUTO_CREATE_DB_FAILED, "warn", {"name": db_name, "err": "Could not start database"})
                 return False
+            if hasattr(self, 'api') and hasattr(self.api, 'emit_service_status'):
+                self.api.emit_service_status('database', True)
 
         create_res = db_manager.create_schema(db_id, db_name)
         if create_res.get('status') != 'success' and create_res.get('message') != "backend.database.schema_already_exists":
@@ -1527,10 +1693,17 @@ public class Main {{
             self._log("backend.project.critical_error", "error", {"e": str(e)})
             return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
+    def _get_hosts_path(self) -> str:
+        if sys.platform == 'win32':
+            return r"C:\Windows\System32\drivers\etc\hosts"
+        return "/etc/hosts"
+
     def sync_windows_hosts(self):
-        hosts_path = r"C:\Windows\System32\drivers\etc\hosts"
+        hosts_path = self._get_hosts_path()
         try:
-            with open(hosts_path, 'r', encoding='utf-8') as f: lines = f.readlines()
+            lines = []
+            if os.path.exists(hosts_path):
+                with open(hosts_path, 'r', encoding='utf-8') as f: lines = f.readlines()
             
             clean_lines, skip = [], False
             for line in lines:
@@ -1554,6 +1727,8 @@ public class Main {{
             return self._write_hosts_with_uac(hosts_path, final_content, temp_file)
         except Exception as e:
             return {"status": "error", "message": "backend.project.hosts_error", "args": {"e": str(e)}}
+
+    sync_hosts = sync_windows_hosts
 
     def _generate_proxy_vhost_block(self, p: dict, domain: str, tunnel_alias: str) -> str:
         proxy_port = self._validate_proxy_port(p.get('proxy_port')) or 3000
@@ -1584,6 +1759,52 @@ public class Main {{
                 pass
         return vhost
 
+    def _is_system_php(self, php_version: str) -> bool:
+        if sys.platform == 'win32':
+            return False
+        try:
+            if hasattr(self.api, 'get_installed_php'):
+                php_list = self.api.get_installed_php()
+                if isinstance(php_list, dict):
+                    php_list = php_list.get('data', [])
+                for item in php_list:
+                    if (item.get('version') == php_version or php_version in ("system", "")) and item.get('is_system', False):
+                        return True
+        except Exception:
+            pass
+        return False
+
+    def _resolve_linux_php_socket(self, php_version: str, php_port: int = 0) -> Optional[str]:
+        if sys.platform == 'win32':
+            return None
+        if not self._is_system_php(php_version) and php_port > 0 and php_port != 9000:
+            return None
+
+        candidates = []
+        if php_version:
+            digits = re.findall(r'\d+', php_version)
+            if digits:
+                short_ver = '.'.join(digits[:2])
+                candidates.extend([
+                    f"/run/php/php{short_ver}-fpm.sock",
+                    f"/var/run/php/php{short_ver}-fpm.sock",
+                ])
+        candidates.extend([
+            "/run/php/php-fpm.sock",
+            "/var/run/php/php-fpm.sock",
+        ])
+        for cand in candidates:
+            if os.path.exists(cand):
+                return cand
+
+        if self._is_system_php(php_version):
+            if short_ver and (os.path.isdir(f"/etc/php/{short_ver}") or os.path.isdir("/run/php")):
+                return f"/run/php/php{short_ver}-fpm.sock"
+            if os.path.isdir("/run/php") or os.path.isdir("/etc/php"):
+                return "/run/php/php-fpm.sock"
+
+        return None
+
     def _generate_vhost_block(self, p: dict, projects: list) -> str:
         domain = p.get('domain')
         doc_root = str(p.get('path', '')).replace('\\', '/') 
@@ -1608,11 +1829,16 @@ public class Main {{
             p['php_port'] = php_port
             self._save_projects(projects)
         
+        fcgi_handler = f"proxy:fcgi://127.0.0.1:{php_port}/"
+        sock_path = self._resolve_linux_php_socket(php_version, php_port)
+        if sock_path:
+            fcgi_handler = f"proxy:unix:{sock_path}|fcgi://localhost"
+
         fcgi_block = f"""
     ProxyFCGIBackendType GENERIC
     ProxyFCGISetEnvIf "reqenv('SCRIPT_FILENAME') =~ m#^/?(.*)$#" SCRIPT_FILENAME "$1"
     <FilesMatch "\\.php$">
-        SetHandler "proxy:fcgi://127.0.0.1:{php_port}/"
+        SetHandler "{fcgi_handler}"
     </FilesMatch>"""
 
         vhost = f"<VirtualHost *:80>\n    ServerName {domain}{tunnel_alias}\n    DocumentRoot \"{doc_root}\"\n    DirectoryIndex index.php index.html\n    <Directory \"{doc_root}\">\n        Options Indexes FollowSymLinks ExecCGI\n        AllowOverride All\n        Require all granted\n    </Directory>\n{fcgi_block}\n</VirtualHost>\n\n"
@@ -1625,6 +1851,17 @@ public class Main {{
             
         return vhost
 
+    def _resolve_vhosts_file_path(self, apache_status: dict) -> str:
+        apache_path = apache_status.get("path") or ""
+        is_system = apache_status.get("system", False) or apache_status.get("system_apache", {}).get("exists", False)
+        if sys.platform != 'win32' and (is_system or apache_path.startswith(('/usr', '/etc'))):
+            vhosts_dir = os.path.join(get_project_root(), "data", "apache", "extra")
+            os.makedirs(vhosts_dir, exist_ok=True)
+            return os.path.join(vhosts_dir, "vyloserve-vhosts.conf")
+        extra_dir = os.path.join(apache_path, 'conf', 'extra')
+        os.makedirs(extra_dir, exist_ok=True)
+        return os.path.join(extra_dir, 'vyloserve-vhosts.conf')
+
     def sync_apache_vhosts(self):
         try:
             projects = self._read_projects()
@@ -1633,15 +1870,24 @@ public class Main {{
             status = self.api.apache.get_status()
             if not status.get("installed"): return {"status": "error", "message": "backend.project.apache_not_installed"}
                 
-            extra_dir = os.path.join(status["path"], 'conf', 'extra')
-            os.makedirs(extra_dir, exist_ok=True)
-            vhosts_file = os.path.join(extra_dir, 'vyloserve-vhosts.conf')
+            vhosts_file = self._resolve_vhosts_file_path(status)
             
             vhost_content = "# --- VYLOSERVE AUTO-GENERATED VHOSTS ---\n\n"
             for p in projects:
                 vhost_content += self._generate_vhost_block(p, projects)
 
             with open(vhosts_file, 'w', encoding='utf-8') as f: f.write(vhost_content)
+
+            if hasattr(self.api, 'apache') and hasattr(self.api.apache, 'check_is_running'):
+                try:
+                    if self.api.apache.check_is_running():
+                        if hasattr(self.api.apache, 'reload_server'):
+                            self.api.apache.reload_server()
+                        elif hasattr(self.api.apache, 'restart_server'):
+                            self.api.apache.restart_server()
+                except Exception:
+                    pass
+
             return {"status": "success", "message": "backend.project.vhosts_written"}
         except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
     
@@ -1758,22 +2004,24 @@ public class Main {{
 
     def _ensure_start_dev_bat(self, base_path: str, project_type: str, framework: str, proxy_port: int) -> bool:
         bat_path = os.path.join(base_path, FILE_START_DEV_BAT)
-        if os.path.exists(bat_path):
+        sh_path = os.path.join(base_path, FILE_START_DEV_SH)
+        target_script = bat_path if sys.platform == 'win32' else sh_path
+        if os.path.exists(target_script):
             return True
 
         if project_type == "node":
             cmd = CMD_NPM_RUN_DEV if os.path.exists(os.path.join(base_path, FILE_PACKAGE_JSON)) else CMD_NODE_INDEX_JS
-            self._write_start_dev_bat(base_path, cmd)
+            self._write_start_dev_script(base_path, cmd)
             return True
         if project_type == "python":
-            self._write_start_dev_bat(base_path, self._build_python_dev_bat_cmd(base_path, framework, proxy_port))
+            self._write_start_dev_script(base_path, self._build_python_dev_bat_cmd(base_path, framework, proxy_port))
             return True
         if project_type == "go":
-            self._write_start_dev_bat(base_path, "go run main.go")
+            self._write_start_dev_script(base_path, "go run main.go")
             return True
         if project_type == "java":
             cmd = "mvnw.cmd spring-boot:run" if os.path.exists(os.path.join(base_path, "mvnw.cmd")) else "java Main.java"
-            self._write_start_dev_bat(base_path, cmd)
+            self._write_start_dev_script(base_path, cmd)
             return True
         return False
 
@@ -1782,22 +2030,22 @@ public class Main {{
         if project_type == "node":
             node_exe = self._resolve_runtime_bin("node", "node.exe", version=runtime_version)
             if node_exe:
-                custom_env["PATH"] = os.path.dirname(node_exe) + os.pathsep + custom_env.get("PATH", "")
+                set_path_in_env(custom_env, [os.path.dirname(node_exe)])
         elif project_type == "python":
             py_exe = self._resolve_runtime_bin("python", EXE_PYTHON, version=runtime_version)
             if py_exe:
-                custom_env["PATH"] = os.path.dirname(py_exe) + os.pathsep + custom_env.get("PATH", "")
+                set_path_in_env(custom_env, [os.path.dirname(py_exe)])
         elif project_type == "go":
             go_exe = self._resolve_runtime_bin("go", "go.exe", version=runtime_version)
             if go_exe:
                 go_bin_dir = os.path.dirname(go_exe)
-                custom_env["PATH"] = go_bin_dir + os.pathsep + custom_env.get("PATH", "")
-                custom_env["GOROOT"] = os.path.dirname(go_bin_dir)
+                set_path_in_env(custom_env, [go_bin_dir])
+                custom_env["GOROOT"] = os.path.dirname(go_bin_dir) if os.path.basename(go_bin_dir).lower() == "bin" else go_bin_dir
         elif project_type == "java":
             java_exe = self._resolve_runtime_bin("java", "java.exe", version=runtime_version)
             if java_exe:
-                custom_env["PATH"] = os.path.dirname(java_exe) + os.pathsep + custom_env.get("PATH", "")
-                custom_env["JAVA_HOME"] = os.path.dirname(os.path.dirname(java_exe))
+                set_path_in_env(custom_env, [os.path.dirname(java_exe)])
+                custom_env["JAVA_HOME"] = os.path.dirname(os.path.dirname(java_exe)) if os.path.basename(os.path.dirname(java_exe)).lower() == "bin" else os.path.dirname(java_exe)
         return custom_env
 
     def start_project_server(self, project_id: str) -> dict:
@@ -1849,7 +2097,18 @@ public class Main {{
             log_file.write(f"\n--- Starting Dev Server at {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
             log_file.flush()
 
-            cmd = ["cmd.exe", "/c", FILE_START_DEV_BAT]
+            if sys.platform == 'win32':
+                cmd = ["cmd.exe", "/c", FILE_START_DEV_BAT]
+            else:
+                sh_path = os.path.join(base_path, FILE_START_DEV_SH)
+                if not os.path.exists(sh_path):
+                    sh_path = os.path.join(base_path, FILE_START_DEV_BAT)
+                try:
+                    os.chmod(sh_path, os.stat(sh_path).st_mode | 0o755)
+                except OSError:
+                    pass
+                cmd = ["/bin/sh", sh_path]
+
             flags = get_silent_flags() if sys.platform == 'win32' else 0
 
             proc = subprocess.Popen(

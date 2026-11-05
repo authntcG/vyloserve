@@ -197,7 +197,7 @@ interface DashboardContextType {
     handleToggleDbIncluded: (checked: boolean) => void;
     setIncludedServices: React.Dispatch<React.SetStateAction<IncludedServices>>;
     handleToggleAll: (action: 'start' | 'stop') => Promise<void>;
-    handleOpenBrowser: (domain: string) => void;
+    handleOpenBrowser: (domain: string, protocol?: 'http' | 'https') => void | Promise<void>;
     handleOpenDir: (path: string) => void;
     fetchServicesStatus: () => Promise<void>;
     fetchRecentProjects: () => Promise<void>;
@@ -424,10 +424,28 @@ export function DashboardProvider({ children }: { readonly children: ReactNode }
         setIncludedServices(p => ({ ...p, database: checked }));
     };
 
-    const handleOpenBrowser = (domain: string) => {
-        const url = `https://${domain}`;
+    const handleOpenBrowser = async (domain: string, protocol?: 'http' | 'https') => {
+        let proto = protocol;
+        if (!proto) {
+            try {
+                const api = (window as any).pywebview?.api;
+                if (api?.get_apache_ports_status) {
+                    const portsRes = await api.get_apache_ports_status();
+                    if (portsRes?.status === 'success' && portsRes.data?.https?.status === 'listening') {
+                        proto = 'https';
+                    } else {
+                        proto = 'http';
+                    }
+                } else {
+                    proto = 'http';
+                }
+            } catch {
+                proto = 'http';
+            }
+        }
+        const url = `${proto}://${domain}`;
         try {
-            if (window.pywebview?.api?.open_browser) window.pywebview.api.open_browser(url);
+            if ((window as any).pywebview?.api?.open_browser) (window as any).pywebview.api.open_browser(url);
             else window.open(url, '_blank');
         } catch (e) {
             console.error(e);

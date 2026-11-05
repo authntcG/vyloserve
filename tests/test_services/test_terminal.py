@@ -36,6 +36,24 @@ def test_get_available_shells_linux(terminal_manager):
         assert "zsh" in shell_ids
         assert "sh" in shell_ids
 
+def test_get_default_shell_id(terminal_manager):
+    with patch("sys.platform", "win32"):
+        assert terminal_manager.get_default_shell_id() == "powershell"
+
+    with patch("sys.platform", "linux"):
+        with patch.object(terminal_manager, "get_available_shells", return_value=[
+            {"id": "bash", "available": True, "is_default": True},
+            {"id": "zsh", "available": True, "is_default": False},
+        ]):
+            assert terminal_manager.get_default_shell_id() == "bash"
+
+    with patch("sys.platform", "linux"):
+        with patch.object(terminal_manager, "get_available_shells", return_value=[
+            {"id": "bash", "available": False, "is_default": False},
+            {"id": "zsh", "available": True, "is_default": True},
+        ]):
+            assert terminal_manager.get_default_shell_id() == "zsh"
+
 def test_resolve_shell_command(terminal_manager):
     ps_cmd = terminal_manager._resolve_shell_command("powershell")
     assert isinstance(ps_cmd, list)
@@ -329,3 +347,27 @@ def test_cleanup_all(terminal_manager):
     assert stop2.is_set()
     mock_pty1.close.assert_called_once()
     mock_pty2.close.assert_called_once()
+
+
+def test_build_session_env_with_vyloserve_stack(terminal_manager, tmp_path):
+    # Setup mock runtime matrix
+    node_dir = tmp_path / "bin" / "runtimes" / "node" / "20.10.0"
+    node_dir.mkdir(parents=True)
+    (node_dir / "node").write_text("#!/bin/sh\n")
+
+    py_dir = tmp_path / "bin" / "runtimes" / "python" / "3.12.0"
+    (py_dir / "bin").mkdir(parents=True)
+    (py_dir / "bin" / "python3").write_text("#!/bin/sh\n")
+
+    matrix = {
+        "node": {"default_mode": "vyloserve", "versions": [{"path": str(node_dir)}], "path": str(node_dir)},
+        "python": {"default_mode": "vyloserve", "versions": [{"path": str(py_dir)}], "path": str(py_dir)},
+        "java": {"default_mode": "vyloserve", "versions": [], "path": ""},
+    }
+
+    with patch.object(terminal_manager, "get_runtimes_matrix", return_value=matrix):
+        env = terminal_manager._build_session_env(env_profile={"node": str(node_dir), "python": str(py_dir)})
+        assert "PATH" in env
+        assert str(node_dir) in env["PATH"]
+        assert str(py_dir / "bin") in env["PATH"]
+

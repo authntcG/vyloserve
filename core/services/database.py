@@ -519,7 +519,41 @@ class DatabaseManager:
                     results.append(entry)
         return {"status": "success", "data": results}
 
-    def _init_mariadb(self, install_dir: str, db_data_dir: str):
+    def _bootstrap_mariadb_root(self, install_dir: str, db_data_dir: str, root_pass: str):
+        mysqld_candidates = [
+            os.path.join(install_dir, 'bin', 'mysqld.exe' if sys.platform == 'win32' else 'mysqld'),
+            os.path.join(install_dir, 'bin', 'mariadbd.exe' if sys.platform == 'win32' else 'mariadbd'),
+        ]
+        mysqld = next((m for m in mysqld_candidates if os.path.exists(m)), None)
+        if not mysqld:
+            return
+
+        pass_clause = f"IDENTIFIED BY '{root_pass}'" if root_pass else ""
+        sql_lines = [
+            "FLUSH PRIVILEGES;",
+            f"ALTER USER 'root'@'localhost' {pass_clause};" if root_pass else "ALTER USER 'root'@'localhost' IDENTIFIED VIA mysql_native_password;",
+            f"CREATE USER IF NOT EXISTS 'root'@'127.0.0.1' {pass_clause};",
+            f"ALTER USER 'root'@'127.0.0.1' {pass_clause};" if root_pass else "ALTER USER 'root'@'127.0.0.1' IDENTIFIED VIA mysql_native_password;",
+            "GRANT ALL PRIVILEGES ON *.* TO 'root'@'localhost' WITH GRANT OPTION;",
+            "GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION;",
+            "FLUSH PRIVILEGES;",
+            ""
+        ]
+        sql_input = "\n".join(sql_lines)
+        try:
+            from core.utils.system_utils import get_silent_flags
+            subprocess.run(
+                [mysqld, f"--datadir={db_data_dir}", "--bootstrap"],
+                input=sql_input,
+                text=True,
+                capture_output=True,
+                creationflags=get_silent_flags(),
+                timeout=15
+            )
+        except Exception:
+            pass
+
+    def _init_mariadb(self, install_dir: str, db_data_dir: str, root_pass: str = ""):
         exe_name = 'mysql_install_db.exe' if sys.platform == 'win32' else 'mysql_install_db'
         installer = os.path.join(install_dir, 'bin', exe_name)
         if not os.path.exists(installer):
@@ -535,9 +569,17 @@ class DatabaseManager:
         if sys.platform != 'win32' and os.path.exists(installer):
             try: os.chmod(installer, 0o755)
             except OSError: pass
-        res = run_silent_command([installer, f"--datadir={db_data_dir}"])
+
+        cmd = [installer, f"--datadir={db_data_dir}"]
+        if sys.platform != 'win32':
+            cmd.extend(["--auth-root-authentication-method=normal", "--skip-test-db"])
+
+        res = run_silent_command(cmd)
         if res.returncode != 0:
             raise RuntimeError(f"MariaDB Init Error: {res.stderr}")
+
+        if sys.platform != 'win32':
+            self._bootstrap_mariadb_root(install_dir, db_data_dir, root_pass)
 
     def _init_redis(self, _install_dir: str, db_data_dir: str):
         os.makedirs(db_data_dir, exist_ok=True)
@@ -577,7 +619,7 @@ class DatabaseManager:
     def _init_database(self, engine: str, install_dir: str, db_data_dir: str, root_pass: str):
         os.makedirs(db_data_dir, exist_ok=True)
         if engine == 'mysql':
-            self._init_mariadb(install_dir, db_data_dir)
+            self._init_mariadb(install_dir, db_data_dir, root_pass=root_pass)
         elif engine == 'redis':
             self._init_redis(install_dir, db_data_dir)
         else:
@@ -1190,7 +1232,7 @@ class DatabaseManager:
         cli = self._resolve_db_cli(db_obj, 'mysql')
         if not cli:
             return None, {"status": "error", "message": MSG_SCHEMA_CLI_NOT_FOUND, "args": {"cli": "mysql"}}
-        cmd = [cli, "-u", "root", f"-P{db_obj['port']}", "-h", "127.0.0.1"]
+        cmd = [cli, "-u", "root", f"-P{db_obj['port']}", "-h", "127.0.0.1", "--ssl=0"]
         if extra_args:
             cmd.extend(extra_args)
         cmd.extend(["-e", query])
@@ -1301,7 +1343,7 @@ class DatabaseManager:
         cli = self._resolve_db_cli(db_obj, 'mysqldump') or self._resolve_db_cli(db_obj, 'mariadb-dump')
         if not cli:
             return {"status": "error", "message": MSG_SCHEMA_CLI_NOT_FOUND, "args": {"cli": "mysqldump"}}
-        cmd = [cli, "-u", "root", f"-P{db_obj['port']}", "-h", "127.0.0.1", schema_name]
+        cmd = [cli, "-u", "root", f"-P{db_obj['port']}", "-h", "127.0.0.1", "--ssl=0", schema_name]
         if pw:
             cmd.insert(2, f"-p{pw}")
         with open(target_path, 'wb') as out_f:
@@ -1366,7 +1408,7 @@ class DatabaseManager:
         cli = self._resolve_db_cli(db_obj, 'mysql')
         if not cli:
             return {"status": "error", "message": MSG_SCHEMA_CLI_NOT_FOUND, "args": {"cli": "mysql"}}
-        cmd = [cli, "-u", "root", f"-P{db_obj['port']}", "-h", "127.0.0.1", schema_name]
+        cmd = [cli, "-u", "root", f"-P{db_obj['port']}", "-h", "127.0.0.1", "--ssl=0", schema_name]
         if pw:
             cmd.insert(2, f"-p{pw}")
         with open(source_path, 'rb') as in_f:

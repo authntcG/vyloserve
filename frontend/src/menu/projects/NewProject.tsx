@@ -708,6 +708,9 @@ const NewApacheProject = forwardRef<NewProjectRef, any>((props, ref) => {
                 if (response?.status === 'success') {
                     showToast(t(response.message, response.args || {}) as string, 'success');
                     window.dispatchEvent(new CustomEvent('project_list_updated'));
+                    if (payload.auto_create_db) {
+                        window.dispatchEvent(new CustomEvent('service_status_changed', { detail: { service: 'database', running: true } }));
+                    }
                     return true;
                 } else {
                     showToast(response?.message ? (t(response.message, response.args || {}) as string) : t('common.error'), 'error');

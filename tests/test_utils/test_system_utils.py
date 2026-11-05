@@ -571,5 +571,44 @@ def test_acquire_single_instance_lock_linux(tmp_path):
         handle.close()
 
 
+def test_set_path_in_env_windows():
+    from core.utils.system_utils import set_path_in_env
+    with patch('sys.platform', 'win32'):
+        env = {"Path": r"C:\Windows\System32;C:\Windows", "OTHER": "val"}
+        result = set_path_in_env(env, [r"C:\VyloServe\bin\node", r"C:\VyloServe\bin\python"])
+        # Di Windows, key 'PATH' dan 'Path' harus disinkronkan dan tidak ada duplikasi
+        assert "PATH" in result
+        assert "Path" in result
+        assert result["PATH"] == result["Path"]
+        parts = result["PATH"].split(";")
+        assert parts[0] == r"C:\VyloServe\bin\node"
+        assert parts[1] == r"C:\VyloServe\bin\python"
+        assert r"C:\Windows\System32" in parts
+
+
+def test_set_path_in_env_linux():
+    from core.utils.system_utils import set_path_in_env
+    with patch('sys.platform', 'linux'):
+        env = {"PATH": "/usr/bin:/bin"}
+        result = set_path_in_env(env, ["/opt/vyloserve/bin/node", "/opt/vyloserve/bin/python"])
+        assert "PATH" in result
+        parts = result["PATH"].split(os.pathsep)
+        assert parts[0] == "/opt/vyloserve/bin/node"
+        assert parts[1] == "/opt/vyloserve/bin/python"
+        assert "/usr/bin" in parts
+
+
+def test_set_path_in_env_deduplication():
+    from core.utils.system_utils import set_path_in_env
+    with patch('sys.platform', 'linux'):
+        env = {"PATH": "/bin:/usr/bin"}
+        result = set_path_in_env(env, ["/opt/vyloserve/bin", "/bin"])
+        parts = result["PATH"].split(os.pathsep)
+        assert parts.count("/bin") == 1
+        assert parts[0] == "/opt/vyloserve/bin"
+        assert parts[1] == "/bin"
+
+
+
 
 

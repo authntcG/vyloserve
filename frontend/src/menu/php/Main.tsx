@@ -121,7 +121,7 @@ function PhpMainView() {
                                         <Card
                                             key={php.id}
                                             title={php.name}
-                                            status={isSystem ? (isRunning ? t('apache.running') : t('runtimes.native_os')) : php.status}
+                                            status={isRunning ? 'running' : (isSystem ? t('runtimes.native_os') : 'stopped')}
                                             updateVersion={updateVer?.version || null}
                                             gridCols="grid-cols-2 md:grid-cols-3"
                                             dropdownActions={
@@ -150,33 +150,28 @@ function PhpMainView() {
                                                         </>
                                                     )}
                                                     {isSystem && (
-                                                        <div className="px-3.5 py-2 text-xs flex items-center gap-2 text-amber-600 dark:text-amber-500">
-                                                            <span className="material-symbols-outlined text-[16px] shrink-0">lock</span>
-                                                            <span className="truncate">{t('runtimes.external_install_locked')}</span>
+                                                        <div className="px-3.5 py-2 text-xs flex items-center gap-2 text-slate-500 dark:text-slate-400">
+                                                            <span className="material-symbols-outlined text-[16px] text-primary shrink-0">verified</span>
+                                                            <span className="truncate">{t('php.system_managed_instance')}</span>
                                                         </div>
                                                     )}
                                                 </>
                                             }
                                             footerActions={
-                                                isSystem ? (
-                                                    <div className="flex items-center gap-2 text-xs font-medium text-amber-600 dark:text-amber-500 py-1.5 px-1">
-                                                        <span className="material-symbols-outlined text-[16px] shrink-0">lock</span>
-                                                        <span className="truncate">{t('runtimes.external_install_locked')}</span>
-                                                    </div>
-                                                ) : (
-                                                    <>
-                                                        <ServiceToggleButton
-                                                            isRunning={isRunning}
-                                                            isToggling={togglingInstanceId === php.id}
-                                                            onClick={() => handleToggleStatus(php)}
-                                                            className="flex-1"
-                                                            labels={{
-                                                                start: t('php.start_cgi'),
-                                                                stop: t('php.stop_cgi'),
-                                                                starting: t('php.starting'),
-                                                                stopping: t('php.stopping'),
-                                                            }}
-                                                        />
+                                                <>
+                                                    <ServiceToggleButton
+                                                        isRunning={isRunning}
+                                                        isToggling={togglingInstanceId === php.id}
+                                                        onClick={() => handleToggleStatus(php)}
+                                                        className="flex-1"
+                                                        labels={{
+                                                            start: t('php.start_cgi'),
+                                                            stop: t('php.stop_cgi'),
+                                                            starting: t('php.starting'),
+                                                            stopping: t('php.stopping'),
+                                                        }}
+                                                    />
+                                                    {!isSystem && (
                                                         <button
                                                             type="button"
                                                             onClick={() => handleOpenSettings(php)}
@@ -184,11 +179,11 @@ function PhpMainView() {
                                                             aria-label={t('php.config')}
                                                             className="flex-1 min-w-0 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-sm font-medium py-2 px-3 rounded-lg transition-[transform,colors] active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
                                                         >
-                                                            <span className="material-symbols-outlined text-[18px] shrink-0">tune</span>
+                                                            <span className="material-symbols-outlined text-[16px]">tune</span>
                                                             <span className="truncate">{t('php.config')}</span>
                                                         </button>
-                                                    </>
-                                                )
+                                                    )}
+                                                </>
                                             }
                                         >
                                             <div className="flex flex-col gap-1">

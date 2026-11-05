@@ -209,8 +209,64 @@ class PhpManager:
         }
         return version_map, offline_detected
 
+    def _install_php_linux(self, port: int) -> dict:
+        pkexec = shutil.which("pkexec")
+        apt_get = shutil.which("apt-get")
+        dnf = shutil.which("dnf")
+        pacman = shutil.which("pacman")
+
+        if not pkexec:
+            return {"status": "error", "message": "backend.php.no_pkexec"}
+
+        self._log("backend.php.linux_installing", "info")
+        self._progress(20, "backend.php.linux_updating_repo")
+
+        try:
+            if apt_get:
+                run_silent_command([pkexec, apt_get, "update"])
+                self._progress(50, "backend.php.linux_installing")
+                pkgs = ["php", "php-cli", "php-fpm", "php-common", "php-mbstring", "php-curl", "php-xml"]
+                res = subprocess.run([pkexec, apt_get, "install", "-y", *pkgs], capture_output=True, text=True)
+            elif dnf:
+                self._progress(50, "backend.php.linux_installing")
+                pkgs = ["php", "php-cli", "php-fpm", "php-common", "php-mbstring", "php-xml"]
+                res = subprocess.run([pkexec, dnf, "install", "-y", *pkgs], capture_output=True, text=True)
+            elif pacman:
+                self._progress(50, "backend.php.linux_installing")
+                res = subprocess.run([pkexec, pacman, "-S", "--noconfirm", "php", "php-fpm"], capture_output=True, text=True)
+            else:
+                return {"status": "error", "message": "backend.php.unsupported_linux_distro"}
+
+            if res.returncode in (126, 127):
+                self._progress(0, "backend.php.auth_cancelled")
+                self._log("backend.php.auth_cancelled", "warn")
+                return {"status": "error", "message": "backend.php.auth_cancelled"}
+
+            if res.returncode != 0:
+                err_msg = res.stderr.strip() if res.stderr else "Installation failed"
+                self._progress(0, "backend.php.install_failed")
+                return {"status": "error", "message": "backend.php.install_failed", "args": {"e": err_msg[:120]}}
+
+            self._progress(100, "backend.php.linux_install_success")
+            self._log("backend.php.linux_install_success", "success")
+
+            return {"status": "success", "message": "backend.php.linux_install_success"}
+        except Exception as e:
+            return {"status": "error", "message": "backend.php.install_failed", "args": {"e": str(e)}}
+
     def get_versions(self):
         try:
+            if sys.platform.startswith('linux'):
+                return {
+                    "status": "success",
+                    "data": [{
+                        "version": "system",
+                        "filename": "system",
+                        "name": "PHP & PHP-FPM (Linux System Package)"
+                    }],
+                    "message": "backend.php.release_load_success"
+                }
+
             if sys.platform != 'win32':
                 return {"status": "success", "data": [], "message": "backend.php.no_linux_binaries"}
 
@@ -246,6 +302,14 @@ class PhpManager:
         composer_bat = os.path.join(target_dir, 'composer.bat')
         with open(composer_bat, 'w') as f:
             f.write('@ECHO OFF\nphp "%~dp0composer.phar" %*\n')
+
+        composer_sh = os.path.join(target_dir, 'composer')
+        with open(composer_sh, 'w', encoding='utf-8') as f:
+            f.write('#!/bin/sh\nexec php "$(dirname "$0")/composer.phar" "$@"\n')
+        try:
+            os.chmod(composer_sh, os.stat(composer_sh).st_mode | 0o755)
+        except OSError:
+            pass
 
     def _process_ini_line(self, line: str, new_config: dict, ckeys: list, found_keys: set) -> Optional[str]:
         l = line.strip()
@@ -308,6 +372,9 @@ class PhpManager:
             f.write(ini_content)
 
     def install_version(self, version: str, filename: str, port: int, is_update: bool = False):
+        if filename == "system" or version == "system":
+            return self._install_php_linux(port)
+
         target_dir = os.path.join(self.base_dir, version)
         file_path = os.path.join(self.base_dir, filename)
 
@@ -494,12 +561,59 @@ class PhpManager:
                 self.api.apache.update_global_php_proxy(port)
         except Exception: pass
 
+    def _toggle_system_php_service(self, enable: bool) -> bool:
+        if sys.platform == 'win32':
+            return False
+        services = ['php-fpm']
+        system_php = self._check_system_php()
+        ver = system_php.get("version", "")
+        if ver:
+            short_ver = '.'.join(ver.split('.')[:2])
+            services.insert(0, f"php{short_ver}-fpm")
+        
+        systemctl = shutil.which("systemctl")
+        pkexec = shutil.which("pkexec")
+        action = "start" if enable else "stop"
+        for svc in services:
+            if systemctl:
+                res = subprocess.run([systemctl, action, svc], capture_output=True)
+                if res.returncode == 0:
+                    return True
+                if pkexec:
+                    res_pk = subprocess.run([pkexec, systemctl, action, svc], capture_output=True)
+                    if res_pk.returncode == 0:
+                        return True
+        if not enable:
+            subprocess.run(['pkill', '-f', 'php-fpm'], capture_output=True)
+            return True
+        return False
+
     def start_php(self, version: str):
         if version in self.processes and self.processes[version].poll() is None:
             return {"status": "error", "message": "backend.php.already_running", "args": {"version": version}}
-        
             
         target_dir = os.path.join(self.base_dir, version)
+        if not os.path.exists(target_dir):
+            system_php = self._check_system_php()
+            if system_php.get("exists") and (version == system_php.get("version") or version == "system"):
+                if self._toggle_system_php_service(True):
+                    self._log("backend.php.started", "success", {"version": version})
+                    if hasattr(self, 'api') and hasattr(self.api, 'emit_service_status'):
+                        self.api.emit_service_status('php', True)
+                    return {"status": "success", "message": "backend.php.started", "args": {"version": version}}
+                php_cgi = shutil.which("php-cgi")
+                if php_cgi:
+                    try:
+                        self.processes[version] = start_silent_process([php_cgi, "-b", "127.0.0.1:9000"])
+                        time.sleep(0.5)
+                        if self.processes[version].poll() is None:
+                            self._log("backend.php.fastcgi_started", "success", {"version": version, "port": 9000})
+                            return {"status": "success", "message": "backend.php.fastcgi_success"}
+                    except Exception:
+                        pass
+                return {"status": "error", "message": "backend.php.cgi_failed", "args": {"port": 9000}}
+            return {"status": "error", "message": "backend.php.binary_not_found"}
+        
         exe_path = os.path.join(target_dir, "php-cgi.exe" if sys.platform == 'win32' else "php-cgi")
         if not os.path.exists(exe_path): return {"status": "error", "message": "backend.php.binary_not_found"}
         
@@ -522,29 +636,59 @@ class PhpManager:
             self._update_apache_proxy_silent(port)
             
             self._log("backend.php.fastcgi_started", "success", {"version": version, "port": port})
+            if hasattr(self, 'api') and hasattr(self.api, 'emit_service_status'):
+                self.api.emit_service_status('php', True)
             return {"status": "success", "message": "backend.php.fastcgi_success"}
         except Exception as e:
             return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
     def stop_php(self, version: str):
+        target_dir = os.path.join(self.base_dir, version)
+        if not os.path.exists(target_dir):
+            system_php = self._check_system_php()
+            if system_php.get("exists") and (version == system_php.get("version") or version == "system"):
+                self._toggle_system_php_service(False)
+                if version in self.processes:
+                    proc = self.processes.pop(version, None)
+                    if proc and proc.poll() is None:
+                        kill_process_tree(proc.pid)
+                self._log("backend.php.stopped", "success", {"version": version})
+                return {"status": "success", "message": "backend.php.stopped", "args": {"version": version}}
+
         if version in self.processes:
             proc = self.processes[version]
             if proc.poll() is None:
                 kill_process_tree(proc.pid)
             self.processes.pop(version, None)
 
-            target_dir = os.path.join(self.base_dir, version)
             self.toggle_global_path(target_dir, enable=False)
 
+        if hasattr(self, 'api') and hasattr(self.api, 'emit_service_status'):
+            self.api.emit_service_status('php', self.check_is_running())
         return {"status": "success", "message": "backend.php.stopped", "args": {"version": version}}
 
+    def _has_portable_versions(self) -> bool:
+        if not os.path.exists(self.base_dir): return False
+        return any(os.path.isdir(os.path.join(self.base_dir, d)) for d in os.listdir(self.base_dir))
+
     def get_installed_versions(self):
-        return [d for d in os.listdir(self.base_dir) if os.path.isdir(os.path.join(self.base_dir, d))] if os.path.exists(self.base_dir) else []
+        versions = [d for d in os.listdir(self.base_dir) if os.path.isdir(os.path.join(self.base_dir, d))] if os.path.exists(self.base_dir) else []
+        if not versions and sys.platform != 'win32':
+            system_php = self._check_system_php()
+            if system_php.get("exists") and system_php.get("version"):
+                versions.append(system_php["version"])
+        return versions
 
     def check_is_running(self):
         for v in tuple(self.processes):
             if self.processes[v].poll() is not None: self.processes.pop(v, None)
-        return len(self.processes) > 0
+        if len(self.processes) > 0:
+            return True
+        if not self._has_portable_versions() and sys.platform != 'win32':
+            system_php = self._check_system_php()
+            if system_php.get("status") == "running":
+                return True
+        return False
 
     def _get_preferred_versions(self):
         dashboard_json = os.path.join(get_project_root(), 'data', 'dashboard.json')
@@ -552,10 +696,6 @@ class PhpManager:
         if not installed: return []
 
         dashboard_data = read_json(dashboard_json, dict)
-        # read_json() TIDAK menjamin dict hanya karena default_type=dict -- parameter itu
-        # cuma dipakai saat file kosong/tidak ada. Jika isi file valid JSON tapi bukan objek
-        # (mis. string sisa dari file lama/rusak), .get() langsung akan melempar
-        # AttributeError "'str' object has no attribute 'get'". Lihat docs/known_bugs.md.
         selected = dashboard_data.get('selected_php', []) if isinstance(dashboard_data, dict) else []
         valid = [v for v in selected if v in installed]
         if valid: return valid
@@ -566,9 +706,19 @@ class PhpManager:
         targets = self._get_preferred_versions()
         if not targets: return {"status": "error", "message": "backend.php.none_installed"}
         success = sum(1 for v in targets if (v not in self.processes or self.processes[v].poll() is not None) and self.start_php(v).get('status') == 'success')
-        if success > 0: return {"status": "success", "message": "backend.php.multi_started", "args": {"count": success}}
+        if success > 0:
+            if hasattr(self, 'api') and hasattr(self.api, 'emit_service_status'):
+                self.api.emit_service_status('php', True)
+            return {"status": "success", "message": "backend.php.multi_started", "args": {"count": success}}
         return {"status": "success", "message": "backend.php.already_running"} if self.check_is_running() else {"status": "error", "message": "backend.php.failed"}
 
     def stop_all(self):
         stopped = sum(1 for v in tuple(self.processes) if self.stop_php(v).get('status') == 'success')
+        if stopped == 0 and not self._has_portable_versions() and sys.platform != 'win32':
+            system_php = self._check_system_php()
+            if system_php.get("exists") and system_php.get("status") == "running":
+                if self.stop_php(system_php.get("version") or "system").get('status') == 'success':
+                    stopped += 1
+        if hasattr(self, 'api') and hasattr(self.api, 'emit_service_status'):
+            self.api.emit_service_status('php', False)
         return {"status": "success", "message": "backend.php.multi_stopped", "args": {"count": stopped}}

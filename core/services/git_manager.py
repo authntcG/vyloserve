@@ -185,6 +185,26 @@ class GitManager:
 
     def get_available_git_versions(self):
         """ Web Scraper Pintar: Memindai rilis Git & Memvalidasi Biner Asli via HTTP HEAD """
+        if sys.platform != 'win32':
+            sys_git = self._check_external_installation(silent=True)
+            results = []
+            if sys_git.get("exists"):
+                ver = sys_git.get("version", "System")
+                results.append({
+                    'value': 'system',
+                    'label': f"Git v{ver} (System Package)",
+                    'filename': 'git',
+                    'version_text': ver
+                })
+            else:
+                results.append({
+                    'value': 'system',
+                    'label': "Git (Distro Package - apt/dnf/pacman)",
+                    'filename': 'git',
+                    'version_text': 'system'
+                })
+            return {'status': 'success', 'data': results}
+
         try:
             # Unduh kerangka utama HTML
             url = 'https://github.com/git-for-windows/git/releases/'
@@ -294,7 +314,60 @@ class GitManager:
         if token.is_cancelled():
             raise OperationCancelledError()
 
+    def _install_git_linux(self, version_text: str = "") -> dict:
+        pkexec = shutil.which("pkexec")
+        apt_get = shutil.which("apt-get")
+        dnf = shutil.which("dnf")
+        pacman = shutil.which("pacman")
+
+        if not pkexec:
+            return {"status": "error", "message": "backend.git.no_pkexec"}
+
+        if hasattr(self, 'api'):
+            self._log("backend.git.install_start", "info", {"version": version_text or "system"})
+            self._progress(20, "backend.git.preparing_download")
+
+        try:
+            if apt_get:
+                subprocess.run([pkexec, apt_get, "update"], capture_output=True)
+                if hasattr(self, 'api'):
+                    self._progress(60, "backend.git.extracting_binary")
+                res = subprocess.run([pkexec, apt_get, "install", "-y", "git"], capture_output=True, text=True)
+            elif dnf:
+                if hasattr(self, 'api'):
+                    self._progress(60, "backend.git.extracting_binary")
+                res = subprocess.run([pkexec, dnf, "install", "-y", "git"], capture_output=True, text=True)
+            elif pacman:
+                if hasattr(self, 'api'):
+                    self._progress(60, "backend.git.extracting_binary")
+                res = subprocess.run([pkexec, pacman, "-S", "--noconfirm", "git"], capture_output=True, text=True)
+            else:
+                return {"status": "error", "message": "backend.git.unsupported_linux_distro"}
+
+            if res.returncode in (126, 127):
+                if hasattr(self, 'api'):
+                    self._progress(0, MSG_INSTALL_CANCELLED)
+                    self._log(MSG_INSTALL_CANCELLED, "warn")
+                return {"status": "cancelled", "message": MSG_INSTALL_CANCELLED}
+
+            if res.returncode != 0:
+                raise RuntimeError(res.stderr.strip() or f"Distro package manager exited with code {res.returncode}")
+
+            if hasattr(self, 'api'):
+                self._progress(100, "backend.git.install_complete")
+                self._log("backend.git.ready_to_use", "success")
+
+            return {"status": "success", "message": "backend.git.install_success"}
+        except Exception as e:
+            if hasattr(self, 'api'):
+                self._progress(-1, "backend.git.install_failed")
+                self._log("backend.git.install_error", "error", {"e": str(e)})
+            return {"status": "error", "message": "backend.git.install_error", "args": {"e": str(e)}}
+
     def install_git(self, download_url: str, filename: str, version_text: str):
+        if download_url == "system" or filename == "system" or version_text == "system":
+            return self._install_git_linux(version_text)
+
         git_dir = os.path.join(self.bin_dir, 'git')
         exe_path = os.path.join(self.bin_dir, filename)
         token = InstallationManager.get_token("git")

@@ -346,6 +346,9 @@ export default function TerminalInstance({
         term.open(containerRef.current);
         termRef.current = term;
         fitAddonRef.current = fitAddon;
+        if (isActive) {
+            term.focus();
+        }
 
         // Render restored session history if available
         if (session.historyBuffer) {
@@ -553,6 +556,7 @@ export default function TerminalInstance({
     return (
         <div
             onContextMenu={handleContextMenu}
+            onClick={() => termRef.current?.focus()}
             style={{ backgroundColor: bgHex }}
             className={`w-full h-full min-h-0 flex-1 relative rounded-b-xl overflow-hidden ${cursorAnimClass} ${
                 isActive ? "block" : "hidden"

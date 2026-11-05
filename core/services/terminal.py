@@ -6,7 +6,7 @@ import time
 import shutil
 import threading
 from typing import Dict, Any, List, Optional, Tuple
-from core.utils.system_utils import get_project_root
+from core.utils.system_utils import get_project_root, set_path_in_env
 from core.utils.file_utils import read_json, write_json
 
 CMD_DIR_COMMANDS = ("cd", "chdir", "pushd", "dir", "md", "mkdir", "rd", "rmdir", "tree")
@@ -103,7 +103,7 @@ class TerminalManager:
             "icon": "terminal",
             "available": bool(primary_ps_path),
             "path": primary_ps_path or "",
-            "is_default": True
+            "is_default": sys.platform == "win32"
         }
 
     def _detect_cmd(self) -> Dict[str, Any]:
@@ -176,13 +176,26 @@ class TerminalManager:
     def _resolve_powershell_cmd(self, target: Optional[Dict[str, Any]]) -> List[str]:
         if target and target.get("available"):
             return [target["path"], "-NoLogo"]
-        pwsh = shutil.which("pwsh") or shutil.which("powershell") or EXE_POWERSHELL
+        pwsh = shutil.which("pwsh") or shutil.which("powershell") or (EXE_POWERSHELL if sys.platform == "win32" else "pwsh")
         return [pwsh, "-NoLogo"]
 
     def _resolve_cmd_shell(self, target: Optional[Dict[str, Any]]) -> List[str]:
         if target and target.get("available"):
             return [target["path"]]
         return [shutil.which("cmd") or "cmd.exe"]
+
+    def get_default_shell_id(self) -> str:
+        """
+        Mengembalikan ID shell default yang sesuai untuk platform OS saat ini.
+        Di Windows: 'powershell'. Di Linux/macOS: 'bash' (atau 'zsh' jika default user shell).
+        """
+        for s in self.get_available_shells():
+            if s.get("is_default") and s.get("available"):
+                return s["id"]
+        for s in self.get_available_shells():
+            if s.get("available"):
+                return s["id"]
+        return "powershell" if sys.platform == "win32" else "bash"
 
     def _resolve_shell_command(self, shell_id: str) -> Optional[List[str]]:
         """
@@ -213,6 +226,19 @@ class TerminalManager:
 
         return self._resolve_powershell_cmd(None)
 
+    @staticmethod
+    def _get_binary_candidates(binary_name: str) -> List[str]:
+        cands = [binary_name]
+        clean = binary_name.replace(".exe", "")
+        if clean not in cands:
+            cands.append(clean)
+        exe_name = f"{clean}.exe"
+        if exe_name not in cands:
+            cands.append(exe_name)
+        if clean == "python" and "python3" not in cands:
+            cands.append("python3")
+        return cands
+
     def _scan_hierarchical_versions(
         self,
         base: str,
@@ -222,6 +248,7 @@ class TerminalManager:
         seen_paths: set
     ) -> List[Dict[str, str]]:
         found = []
+        cands = self._get_binary_candidates(binary_name)
         try:
             for entry in sorted(os.listdir(base), reverse=True):
                 sub = os.path.join(base, entry)
@@ -229,10 +256,16 @@ class TerminalManager:
                     continue
 
                 sub_bin_dir = os.path.join(sub, bin_subdir) if bin_subdir else sub
-                if not os.path.exists(os.path.join(sub_bin_dir, binary_name)) and os.path.exists(os.path.join(sub, binary_name)):
-                    sub_bin_dir = sub
+                bin_exists_in_sub_bin = any(os.path.exists(os.path.join(sub_bin_dir, b)) for b in cands)
+                bin_exists_in_sub = any(os.path.exists(os.path.join(sub, b)) for b in cands)
+                bin_exists_in_nested_bin = any(os.path.exists(os.path.join(sub, "bin", b)) for b in cands)
 
-                if os.path.exists(os.path.join(sub_bin_dir, binary_name)) and sub_bin_dir not in seen_paths:
+                if not bin_exists_in_sub_bin and bin_exists_in_sub:
+                    sub_bin_dir = sub
+                elif not bin_exists_in_sub_bin and bin_exists_in_nested_bin:
+                    sub_bin_dir = os.path.join(sub, "bin")
+
+                if any(os.path.exists(os.path.join(sub_bin_dir, b)) for b in cands) and sub_bin_dir not in seen_paths:
                     seen_paths.add(sub_bin_dir)
                     clean_ver = entry.replace("php-", "").replace("node-", "").replace("python-", "").replace("go", "")
                     display_ver = clean_ver if clean_ver else entry
@@ -258,6 +291,7 @@ class TerminalManager:
         """
         versions: List[Dict[str, str]] = []
         seen_paths = set()
+        cands = self._get_binary_candidates(binary_name)
 
         for base in base_dirs:
             if not os.path.exists(base):
@@ -267,8 +301,8 @@ class TerminalManager:
             versions.extend(sub_versions)
 
             target_bin_dir = os.path.join(base, bin_subdir) if bin_subdir else base
-            target_exe = os.path.join(target_bin_dir, binary_name)
-            if target_bin_dir not in seen_paths and (os.path.exists(target_exe) or not sub_versions):
+            target_exists = any(os.path.exists(os.path.join(target_bin_dir, b)) for b in cands)
+            if target_bin_dir not in seen_paths and (target_exists or not sub_versions):
                 seen_paths.add(target_bin_dir)
                 versions.append({
                     "version": "default",
@@ -307,9 +341,12 @@ class TerminalManager:
     def _detect_composer_entry(self) -> Dict[str, Any]:
         comp_dir = os.path.join(self.bin_dir, "composer")
         comp_vers = []
-        if os.path.exists(comp_dir) and (
-            os.path.exists(os.path.join(comp_dir, "composer.phar")) or os.path.exists(os.path.join(comp_dir, "composer.bat"))
-        ):
+        has_local_composer = os.path.exists(comp_dir) and (
+            os.path.exists(os.path.join(comp_dir, "composer.phar"))
+            or os.path.exists(os.path.join(comp_dir, "composer.bat"))
+            or os.path.exists(os.path.join(comp_dir, "composer"))
+        )
+        if has_local_composer:
             comp_vers.append({
                 "version": "VyloServe",
                 "path": comp_dir,
@@ -328,8 +365,9 @@ class TerminalManager:
 
     def _detect_git_entry(self) -> Dict[str, Any]:
         git_vers = []
+        git_bins = ["git.exe"] if sys.platform == "win32" else ["git", "git.exe"]
         for p in (os.path.join(self.bin_dir, "git", "cmd"), os.path.join(self.bin_dir, "git", "bin"), os.path.join(self.bin_dir, "git")):
-            if os.path.exists(os.path.join(p, "git.exe")):
+            if any(os.path.exists(os.path.join(p, b)) for b in git_bins):
                 git_vers.append({
                     "version": "VyloServe",
                     "path": p,
@@ -398,22 +436,23 @@ class TerminalManager:
     def get_runtimes_matrix(self) -> Dict[str, Any]:
         """
         Memindai seluruh engine yang terpasang di VyloServe (bin/) serta
-        membandingkannya dengan ketersediaan di Windows OS System PATH.
+        membandingkannya dengan ketersediaan di Windows / Linux OS System PATH.
         Mengembalikan metadata yang digunakan frontend untuk mengatur profil runtime.
         """
+        exe_ext = ".exe" if sys.platform == "win32" else ""
         matrix: Dict[str, Any] = {
-            "php": self._build_runtime_entry("PHP Engine", "php.exe", [os.path.join(self.bin_dir, "php")], "PHP"),
+            "php": self._build_runtime_entry("PHP Engine", f"php{exe_ext}", [os.path.join(self.bin_dir, "php")], "PHP"),
             "node": self._build_runtime_entry(
-                "Node.js", "node.exe", [os.path.join(self.bin_dir, "runtimes", "node"), os.path.join(self.bin_dir, "node")], "Node.js"
+                "Node.js", f"node{exe_ext}", [os.path.join(self.bin_dir, "runtimes", "node"), os.path.join(self.bin_dir, "node")], "Node.js"
             ),
             "python": self._build_runtime_entry(
-                "Python", "python.exe", [os.path.join(self.bin_dir, "runtimes", "python"), os.path.join(self.bin_dir, "python")], "Python"
+                "Python", f"python{exe_ext}", [os.path.join(self.bin_dir, "runtimes", "python"), os.path.join(self.bin_dir, "python")], "Python"
             ),
             "java": self._build_runtime_entry(
-                "Java JDK", "java.exe", [os.path.join(self.bin_dir, "runtimes", "java"), os.path.join(self.bin_dir, "java")], "Java JDK", bin_subdir="bin"
+                "Java JDK", f"java{exe_ext}", [os.path.join(self.bin_dir, "runtimes", "java"), os.path.join(self.bin_dir, "java")], "Java JDK", bin_subdir="bin"
             ),
             "go": self._build_runtime_entry(
-                "Go", "go.exe", [os.path.join(self.bin_dir, "runtimes", "go"), os.path.join(self.bin_dir, "go")], "Go", bin_subdir="bin"
+                "Go", f"go{exe_ext}", [os.path.join(self.bin_dir, "runtimes", "go"), os.path.join(self.bin_dir, "go")], "Go", bin_subdir="bin"
             ),
             "composer": self._detect_composer_entry(),
             "git": self._detect_git_entry(),
@@ -440,8 +479,15 @@ class TerminalManager:
     def _apply_engine_env_vars(self, engine_key: str, target_path: str, extra_paths: List[str], env: Dict[str, str]) -> None:
         if engine_key == "python":
             scripts_dir = os.path.join(target_path, "Scripts")
+            bin_dir = os.path.join(target_path, "bin")
             if os.path.exists(scripts_dir) and scripts_dir not in extra_paths:
                 extra_paths.append(scripts_dir)
+            if os.path.exists(bin_dir) and bin_dir not in extra_paths:
+                extra_paths.append(bin_dir)
+        elif engine_key == "node":
+            bin_dir = os.path.join(target_path, "bin")
+            if os.path.exists(bin_dir) and bin_dir not in extra_paths:
+                extra_paths.append(bin_dir)
         elif engine_key in ("java", "go"):
             base_home = os.path.dirname(target_path) if os.path.basename(target_path).lower() == "bin" else target_path
             env["JAVA_HOME" if engine_key == "java" else "GOROOT"] = base_home
@@ -473,8 +519,7 @@ class TerminalManager:
                 self._apply_engine_env_vars(engine_key, target_path, extra_paths, env)
 
         if extra_paths:
-            current_path = env.get("PATH", "")
-            env["PATH"] = os.pathsep.join(extra_paths) + os.pathsep + current_path
+            set_path_in_env(env, extra_paths)
 
         env["TERM"] = "xterm-256color"
         env["COLORTERM"] = "truecolor"
@@ -526,7 +571,7 @@ class TerminalManager:
 
     def create_session(
         self,
-        shell_id: str = "powershell",
+        shell_id: Optional[str] = None,
         cwd: Optional[str] = None,
         title: Optional[str] = None,
         env_overrides: Optional[dict] = None,
@@ -535,6 +580,8 @@ class TerminalManager:
         """
         Membuat sesi terminal baru dan memulai background reader thread.
         """
+        if not shell_id:
+            shell_id = self.get_default_shell_id()
         cmd_list = self._resolve_shell_command(shell_id)
         if not cmd_list:
             return {"status": "error", "message": "backend.terminal.shell_not_found"}

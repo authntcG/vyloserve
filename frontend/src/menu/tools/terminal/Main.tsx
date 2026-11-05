@@ -77,7 +77,9 @@ function resolveDefaultShellId(loadedSettings: TerminalSettings, shells: ShellIn
     const fromSettings = loadedSettings.defaultShell && shells.find((s) => s.id === loadedSettings.defaultShell && s.available)?.id;
     if (fromSettings) return fromSettings;
     const defaultAvailable = shells.find((s) => s.is_default && s.available)?.id;
-    return defaultAvailable || "powershell";
+    if (defaultAvailable) return defaultAvailable;
+    const anyAvailable = shells.find((s) => s.available)?.id;
+    return anyAvailable || "bash";
 }
 
 export default function TerminalMain({ isActive = true }: TerminalMainProps) {
@@ -154,7 +156,8 @@ export default function TerminalMain({ isActive = true }: TerminalMainProps) {
                 shellId ||
                 (terminalSettings.defaultShell && availableShells.find((s) => s.id === terminalSettings.defaultShell && s.available)?.id) ||
                 availableShells.find((s) => s.is_default && s.available)?.id ||
-                "powershell";
+                availableShells.find((s) => s.available)?.id ||
+                "bash";
 
             const targetCwd = cwd || terminalSettings.defaultCwd || "";
             const effectiveProfile = profile || defaultProfile || runtimeProfile;
@@ -515,7 +518,7 @@ export default function TerminalMain({ isActive = true }: TerminalMainProps) {
                 if (!isDiff) return;
 
                 if (sessions.length > 0 && activeSessionId) {
-                    setPendingProfile({ profile: newProfile, scope: "current" });
+                    handleRestartSession(activeSessionId, newProfile, true);
                 } else {
                     setRuntimeProfile(newProfile);
                 }

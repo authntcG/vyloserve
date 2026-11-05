@@ -641,11 +641,13 @@ def test_check_single_instance_already_exists():
 
 
 def test_check_single_instance_non_windows():
-    """Pada platform non-Windows, check_single_instance selalu mengizinkan proses jalan."""
+    """Pada platform non-Windows, check_single_instance memanggil acquire_single_instance_lock."""
     with patch('sys.platform', 'linux'):
-        is_first, mutex = check_single_instance(is_production=False)
-        assert is_first is True
-        assert mutex is None
+        with patch('main.acquire_single_instance_lock', return_value=(True, MagicMock())) as mock_lock:
+            is_first, mutex = check_single_instance(is_production=False)
+            assert is_first is True
+            assert mutex is not None
+            mock_lock.assert_called_once()
 
 
 def test_lifecycle_show_and_bring_to_front(mock_api):

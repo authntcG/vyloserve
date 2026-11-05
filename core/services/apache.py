@@ -72,7 +72,7 @@ class ApacheManager:
                 res = run_silent_command(['tasklist', '/FI', 'IMAGENAME eq httpd.exe'])
                 return 'httpd.exe' in res.stdout
             else:
-                res = run_silent_command(['pgrep', '-f', 'apache2|httpd'])
+                res = run_silent_command(['pgrep', '-x', 'apache2|httpd'])
                 return len(res.stdout.strip()) > 0
         except Exception:
             return False
@@ -147,6 +147,16 @@ class ApacheManager:
             system_apache = self._check_system_apache()
             
             if not folder_map:
+                if sys.platform != 'win32' and system_apache.get("exists"):
+                    is_running_sys = system_apache.get("running", False) or is_running
+                    return {
+                        "status": "success",
+                        "installed": True,
+                        "version": system_apache.get("version") or "Linux",
+                        "path": system_apache.get("path") or "/usr/sbin/apache2",
+                        "running": is_running_sys,
+                        "system_apache": system_apache
+                    }
                 return {
                     "status": "success",
                     "installed": False,
@@ -203,13 +213,16 @@ class ApacheManager:
 
     def get_installed_versions(self):
         try:
-            if not os.path.exists(self.base_dir):
-                return {"status": "success", "data": [], "active": None}
-                
-            versions = sorted([str(item).strip() for item in os.listdir(self.base_dir) if os.path.isdir(os.path.join(self.base_dir, item)) and not item.startswith("temp_")],
-                              key=lambda v: [int(x) for x in re.findall(r'\d+', v)] if re.findall(r'\d+', v) else [0], reverse=True)
+            versions = []
+            if os.path.exists(self.base_dir):
+                versions = sorted([str(item).strip() for item in os.listdir(self.base_dir) if os.path.isdir(os.path.join(self.base_dir, item)) and not item.startswith("temp_")],
+                                  key=lambda v: [int(x) for x in re.findall(r'\d+', v)] if re.findall(r'\d+', v) else [0], reverse=True)
             
-            return {"status": "success", "data": versions, "active": self.get_status().get("version")}
+            status = self.get_status()
+            if not versions and status.get("installed") and status.get("version"):
+                versions = [status["version"]]
+
+            return {"status": "success", "data": versions, "active": status.get("version")}
         except Exception as e:
             return {"status": "error", "message": "backend.apache.dir_read_failed", "args": {"e": str(e)}}
 
@@ -370,11 +383,18 @@ class ApacheManager:
             # Sesuaikan string replace Windows agar aman untuk file config Apache
             safe_doc_root = document_root.replace(chr(92), '/')
             
+            fcgi_handler = f"proxy:fcgi://127.0.0.1:{port}/"
+            if sys.platform != 'win32':
+                for cand in ["/run/php/php-fpm.sock", "/var/run/php/php-fpm.sock"]:
+                    if os.path.exists(cand):
+                        fcgi_handler = f"proxy:unix:{cand}|fcgi://localhost"
+                        break
+
             fcgi_block = f"""
     ProxyFCGIBackendType GENERIC
     ProxyFCGISetEnvIf "reqenv('SCRIPT_FILENAME') =~ m#^/?(.*)$#" SCRIPT_FILENAME "$1"
     <FilesMatch "\\.php$">
-        SetHandler "proxy:fcgi://127.0.0.1:{port}/"
+        SetHandler "{fcgi_handler}"
     </FilesMatch>"""
 
             with open(php_conf_path, 'w', encoding='utf-8') as f:
@@ -411,6 +431,59 @@ class ApacheManager:
         versions.sort(key=lambda x: int(x['version'].split('.')[2]), reverse=True)
         return versions
 
+    def _install_apache_linux(self, http_port: int) -> dict:
+        pkexec = shutil.which("pkexec")
+        apt_get = shutil.which("apt-get")
+        dnf = shutil.which("dnf")
+        pacman = shutil.which("pacman")
+
+        if not pkexec:
+            return {"status": "error", "message": "backend.apache.no_pkexec"}
+
+        if hasattr(self, 'api') and self.api:
+            self.api.emit_log("backend.apache.linux_installing", "info")
+            self.api.emit_progress(20, "backend.apache.linux_updating_repo")
+
+        try:
+            if apt_get:
+                run_silent_command([pkexec, apt_get, "update"])
+                if hasattr(self, 'api') and self.api:
+                    self.api.emit_progress(50, "backend.apache.linux_installing")
+                res = subprocess.run([pkexec, apt_get, "install", "-y", "apache2"], capture_output=True, text=True)
+            elif dnf:
+                if hasattr(self, 'api') and self.api:
+                    self.api.emit_progress(50, "backend.apache.linux_installing")
+                res = subprocess.run([pkexec, dnf, "install", "-y", "httpd"], capture_output=True, text=True)
+            elif pacman:
+                if hasattr(self, 'api') and self.api:
+                    self.api.emit_progress(50, "backend.apache.linux_installing")
+                res = subprocess.run([pkexec, pacman, "-S", "--noconfirm", "apache"], capture_output=True, text=True)
+            else:
+                return {"status": "error", "message": "backend.apache.unsupported_linux_distro"}
+
+            if res.returncode in (126, 127):
+                if hasattr(self, 'api') and self.api:
+                    self.api.emit_progress(0, "backend.apache.auth_cancelled")
+                    self.api.emit_log("backend.apache.auth_cancelled", "warn")
+                return {"status": "error", "message": "backend.apache.auth_cancelled"}
+
+            if res.returncode != 0:
+                err_msg = res.stderr.strip() if res.stderr else "Installation failed"
+                if hasattr(self, 'api') and self.api:
+                    self.api.emit_progress(0, "backend.apache.install_failed")
+                return {"status": "error", "message": "backend.apache.install_failed", "args": {"e": err_msg[:120]}}
+
+            self._ensure_linux_apache_integration()
+            self._ensure_home_traversal_permission()
+
+            if hasattr(self, 'api') and self.api:
+                self.api.emit_progress(100, "backend.apache.linux_install_success")
+                self.api.emit_log("backend.apache.linux_install_success", "success")
+
+            return {"status": "success", "message": "backend.apache.linux_install_success"}
+        except Exception as e:
+            return {"status": "error", "message": "backend.apache.install_failed", "args": {"e": str(e)}}
+
     def get_available_versions(self):
         versions = []
         try:
@@ -421,6 +494,13 @@ class ApacheManager:
 
                 if not versions:
                     versions = [{"version": "2.4.68", "filename": "httpd-2.4.68.zip", "url": "https://www.apachelounge.com/download/VS18/binaries/httpd-2.4.68-260617-Win64-VS18.zip"}]
+            elif sys.platform.startswith('linux'):
+                versions = [{
+                    "version": "system",
+                    "filename": "apache2",
+                    "url": "system",
+                    "name": "Apache 2 (Linux System Package)"
+                }]
             return {"status": "success", "data": versions}
         except Exception as e:
             if is_network_error(e):
@@ -461,6 +541,9 @@ class ApacheManager:
         self._move_apache_extract(temp_extract_dir, target_dir)
 
     def install_version(self, version: str, download_url: str, http_port: int):
+        if download_url == "system" or version == "system":
+            return self._install_apache_linux(http_port)
+
         if hasattr(self, 'api'): self.api.emit_log("backend.apache.download_start", "info", {"version": version})
         
         # Simpan info versi lama untuk migrasi konfigurasi
@@ -528,6 +611,133 @@ class ApacheManager:
         except Exception as e:
             return {"status": "error", "message": "backend.apache.uninstall_failed", "args": {"e": str(e)}}
 
+    def _is_system_apache(self, status: dict) -> bool:
+        apache_path = status.get("path") or ""
+        return (
+            sys.platform != 'win32'
+            and (
+                bool(status.get("system_apache", {}).get("exists"))
+                or (os.path.isfile(apache_path) and apache_path.endswith(('apache2', 'httpd')))
+                or apache_path.startswith(('/usr', '/etc', '/var'))
+            )
+        )
+
+    def _get_conf_dir(self, status: dict) -> str:
+        apache_path = status.get("path") or ""
+        if self._is_system_apache(status):
+            for d in ['/etc/apache2', '/etc/httpd']:
+                if os.path.isdir(d): return d
+        return os.path.join(apache_path, "conf")
+
+    def _get_logs_dir(self, status: dict) -> str:
+        apache_path = status.get("path") or ""
+        if self._is_system_apache(status):
+            for d in ['/var/log/apache2', '/var/log/httpd']:
+                if os.path.isdir(d): return d
+        return os.path.join(apache_path, "logs")
+
+    def _get_main_conf_file(self, status: dict) -> str:
+        apache_path = status.get("path") or ""
+        if self._is_system_apache(status):
+            for f in ['/etc/apache2/apache2.conf', '/etc/httpd/conf/httpd.conf']:
+                if os.path.isfile(f): return f
+        return os.path.join(apache_path, "conf", HTTPD_CONF_NAME)
+
+    def _get_vhosts_file(self, status: dict) -> str:
+        apache_path = status.get("path") or ""
+        if self._is_system_apache(status):
+            vhosts_dir = os.path.join(get_project_root(), "data", "apache", "extra")
+            os.makedirs(vhosts_dir, exist_ok=True)
+            return os.path.join(vhosts_dir, "vyloserve-vhosts.conf")
+        return os.path.join(apache_path, 'conf', 'extra', 'vyloserve-vhosts.conf')
+
+    def _ensure_home_traversal_permission(self):
+        if sys.platform != 'win32':
+            try:
+                home = os.path.expanduser('~')
+                st = os.stat(home)
+                if not (st.st_mode & 0o001):
+                    os.chmod(home, st.st_mode | 0o001)
+            except Exception:
+                pass
+
+    def _ensure_linux_apache_integration(self) -> bool:
+        if sys.platform == 'win32':
+            return True
+        status = self.get_status()
+        if not self._is_system_apache(status):
+            return True
+
+        extra_dir = os.path.join(get_project_root(), "data", "apache", "extra")
+        os.makedirs(extra_dir, exist_ok=True)
+        php_conf = os.path.join(extra_dir, "httpd-vyloserve-php.conf")
+        vhosts_conf = os.path.join(extra_dir, "vyloserve-vhosts.conf")
+        if not os.path.exists(php_conf):
+            with open(php_conf, 'w', encoding='utf-8') as f:
+                f.write("# VyloServe PHP Proxy Fallback\n")
+        if not os.path.exists(vhosts_conf):
+            with open(vhosts_conf, 'w', encoding='utf-8') as f:
+                f.write("# VyloServe Virtual Hosts Fallback\n")
+
+        safe_extra = extra_dir.replace('\\', '/')
+        content = (
+            f"# VyloServe Auto-Generated Configuration\\n"
+            f"IncludeOptional \\\"{safe_extra}/httpd-vyloserve-php.conf\\\"\\n"
+            f"IncludeOptional \\\"{safe_extra}/vyloserve-vhosts.conf\\\"\\n"
+        )
+
+        pkexec = shutil.which("pkexec")
+        if os.path.isdir("/etc/apache2"):
+            conf_avail = "/etc/apache2/conf-available/vyloserve.conf"
+            conf_enabl = "/etc/apache2/conf-enabled/vyloserve.conf"
+            missing_mods = [
+                m for m in ["proxy", "proxy_fcgi", "rewrite", "headers", "ssl"]
+                if not os.path.exists(f"/etc/apache2/mods-enabled/{m}.load")
+            ]
+            conf_needed = False
+            if not os.path.exists(conf_avail) or not os.path.exists(conf_enabl):
+                conf_needed = True
+            else:
+                try:
+                    with open(conf_avail, 'r', encoding='utf-8') as f:
+                        if safe_extra not in f.read():
+                            conf_needed = True
+                except Exception:
+                    conf_needed = True
+
+            if missing_mods or conf_needed:
+                cmds = []
+                if missing_mods:
+                    cmds.append(f"a2enmod {' '.join(missing_mods)}")
+                if conf_needed:
+                    cmds.append(f"printf '{content}' > {conf_avail} && a2enconf vyloserve")
+                
+                full_cmd = " && ".join(cmds)
+                if pkexec:
+                    res = subprocess.run([pkexec, "bash", "-c", full_cmd], capture_output=True)
+                    return res.returncode == 0
+                return False
+            return True
+
+        if os.path.isdir("/etc/httpd/conf.d"):
+            conf_file = "/etc/httpd/conf.d/vyloserve.conf"
+            conf_needed = False
+            if not os.path.exists(conf_file):
+                conf_needed = True
+            else:
+                try:
+                    with open(conf_file, 'r', encoding='utf-8') as f:
+                        if safe_extra not in f.read():
+                            conf_needed = True
+                except Exception:
+                    conf_needed = True
+            if conf_needed and pkexec:
+                res = subprocess.run([pkexec, "bash", "-c", f"printf '{content}' > {conf_file}"], capture_output=True)
+                return res.returncode == 0
+            return True
+
+        return True
+
     def _open_path_os(self, target: str):
         if open_path_in_file_manager(target):
             return {"status": "success"}
@@ -535,7 +745,11 @@ class ApacheManager:
 
     def open_directory(self):
         try:
-            target = self.get_status().get("path") if self.get_status().get("installed") else self.base_dir
+            status = self.get_status()
+            target = status.get("path") if status.get("installed") else self.base_dir
+            if target and os.path.isfile(target):
+                target = os.path.dirname(target)
+            if not target: target = self.base_dir
             os.makedirs(target, exist_ok=True)
             return self._open_path_os(target)
         except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
@@ -550,7 +764,7 @@ class ApacheManager:
         try:
             status = self.get_status()
             if not status.get("installed"): return {"status": "error", "message": ERR_NOT_INSTALLED}
-            conf_dir = os.path.join(status["path"], "conf")
+            conf_dir = self._get_conf_dir(status)
             os.makedirs(conf_dir, exist_ok=True)
             return self._open_path_os(conf_dir)
         except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
@@ -559,7 +773,7 @@ class ApacheManager:
         try:
             status = self.get_status()
             if not status.get("installed"): return {"status": "error", "message": ERR_NOT_INSTALLED}
-            logs_dir = os.path.join(status["path"], "logs")
+            logs_dir = self._get_logs_dir(status)
             os.makedirs(logs_dir, exist_ok=True)
             return self._open_path_os(logs_dir)
         except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
@@ -600,7 +814,7 @@ class ApacheManager:
         try:
             status = self.get_status()
             if status.get("installed"):
-                conf_path = os.path.join(status["path"], "conf", HTTPD_CONF_NAME)
+                conf_path = self._get_main_conf_file(status)
                 if os.path.exists(conf_path):
                     if open_path_in_file_manager(conf_path):
                         return {"status": "success"}
@@ -612,7 +826,17 @@ class ApacheManager:
         try:
             status = self.get_status()
             if not status.get("installed"): return {"status": "error", "message": ERR_NOT_INSTALLED}
-            paths = {'httpd': os.path.join(status["path"], 'conf', HTTPD_CONF_NAME), 'vhosts': os.path.join(status["path"], 'conf', 'extra', 'vyloserve-vhosts.conf'), 'error': os.path.join(status["path"], 'logs', 'error_log')}
+            
+            logs_dir = self._get_logs_dir(status)
+            if self._is_system_apache(status):
+                err_log_cand = os.path.join(logs_dir, 'error.log') if os.path.exists(os.path.join(logs_dir, 'error.log')) else os.path.join(logs_dir, 'error_log')
+            else:
+                err_log_cand = os.path.join(logs_dir, 'error_log')
+            paths = {
+                'httpd': self._get_main_conf_file(status),
+                'vhosts': self._get_vhosts_file(status),
+                'error': err_log_cand
+            }
             
             target = paths.get(file_type)
             if not target: return {"status": "error", "message": "backend.apache.invalid_type"}
@@ -633,11 +857,29 @@ class ApacheManager:
             status = self.get_status()
             if not status.get("installed"): return {"status": "error", "message": ERR_NOT_INSTALLED}
 
-            filenames = {'error': 'error_log', 'access': 'access_log'}
-            filename = filenames.get(log_type)
-            if not filename: return {"status": "error", "message": "backend.apache.invalid_type"}
+            logs_dir = self._get_logs_dir(status)
+            if self._is_system_apache(status):
+                candidates = {
+                    'error': ['error.log', 'error_log'],
+                    'access': ['access.log', 'access_log']
+                }
+            else:
+                candidates = {
+                    'error': ['error_log'],
+                    'access': ['access_log']
+                }
+            cand_list = candidates.get(log_type)
+            if not cand_list: return {"status": "error", "message": "backend.apache.invalid_type"}
 
-            log_path = os.path.join(status["path"], 'logs', filename)
+            log_path = None
+            for fname in cand_list:
+                p = os.path.join(logs_dir, fname)
+                if os.path.exists(p):
+                    log_path = p
+                    break
+            if not log_path:
+                log_path = os.path.join(logs_dir, cand_list[0])
+
             content = read_log_tail(log_path)
             return {"status": "success", "data": content}
         except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
@@ -684,6 +926,11 @@ class ApacheManager:
             # lewat emit_log akan membanjiri panel System Logs kalau errornya persisten.
             pass
 
+    def _get_linux_apache_service_name(self) -> str:
+        if shutil.which("apache2") or os.path.exists("/usr/sbin/apache2"):
+            return "apache2"
+        return "httpd"
+
     def start_server(self):
         if hasattr(self, 'api'): self.api.emit_log("backend.apache.starting", "info")
         if self.check_is_running(): return {"status": "error", "message": "backend.apache.already_running"}
@@ -691,27 +938,87 @@ class ApacheManager:
         status = self.get_status()
         if not status.get("installed"): return {"status": "error", "message": ERR_NOT_INSTALLED}
             
+        apache_path = status.get("path") or ""
+        is_system_apache = (
+            sys.platform != 'win32'
+            and os.path.isfile(apache_path)
+            and apache_path.endswith(('apache2', 'httpd'))
+        )
+
+        if is_system_apache:
+            self._ensure_linux_apache_integration()
+            self._ensure_home_traversal_permission()
+            if hasattr(self.api, 'project'): self.api.project.sync_apache_vhosts()
+            svc = self._get_linux_apache_service_name()
+            pkexec = shutil.which("pkexec")
+            systemctl = shutil.which("systemctl")
+            started = False
+            if systemctl:
+                res = subprocess.run([systemctl, "start", svc], capture_output=True)
+                if res.returncode == 0:
+                    started = True
+                elif pkexec:
+                    res_pk = subprocess.run([pkexec, systemctl, "start", svc], capture_output=True)
+                    if res_pk.returncode == 0:
+                        started = True
+            if not started:
+                ctl = shutil.which("apache2ctl") or shutil.which("apachectl")
+                if ctl:
+                    subprocess.run([ctl, "start"], capture_output=True)
+            time.sleep(1)
+            if self.check_is_running():
+                if hasattr(self, 'api'):
+                    self.api.emit_log("backend.apache.start_success", "success")
+                    if hasattr(self.api, 'emit_service_status'):
+                        self.api.emit_service_status('apache', True)
+                return {"status": "success", "message": "backend.apache.start_success"}
+            return {"status": "error", "message": "backend.apache.port_in_use"}
+
         self._verify_and_patch_httpd()
         if hasattr(self.api, 'project'): self.api.project.sync_apache_vhosts()
             
         try:
-            proc = start_silent_process([os.path.join(status["path"], "bin", "httpd.exe")])
+            exe_name = "httpd.exe" if sys.platform == 'win32' else "httpd"
+            proc = start_silent_process([os.path.join(apache_path, "bin", exe_name)])
             time.sleep(1)
             
             if proc.poll() is not None:
                 return {"status": "error", "message": "backend.apache.port_in_use"}
                 
-            if hasattr(self, 'api'): self.api.emit_log("backend.apache.started_with_pid", "success", {"pid": proc.pid})
+            if hasattr(self, 'api'):
+                self.api.emit_log("backend.apache.started_with_pid", "success", {"pid": proc.pid})
+                if hasattr(self.api, 'emit_service_status'):
+                    self.api.emit_service_status('apache', True)
             return {"status": "success", "message": "backend.apache.start_success"}
         except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
             
     def stop_server(self):
         try:
             if hasattr(self, 'api'): self.api.emit_log("backend.apache.terminating", "warn")
-            if sys.platform == 'win32': run_silent_command(['taskkill', '/F', '/T', '/IM', 'httpd.exe'])
-            else: run_silent_command(['pkill', '-f', 'httpd'])
+            if sys.platform == 'win32':
+                run_silent_command(['taskkill', '/F', '/T', '/IM', 'httpd.exe'])
+            else:
+                system_apache = self._check_system_apache()
+                is_system_apache = bool(system_apache.get("exists"))
+                if is_system_apache:
+                    svc = self._get_linux_apache_service_name()
+                    pkexec = shutil.which("pkexec")
+                    systemctl = shutil.which("systemctl")
+                    if systemctl:
+                        res = subprocess.run([systemctl, "stop", svc], capture_output=True)
+                        if res.returncode != 0 and pkexec:
+                            subprocess.run([pkexec, systemctl, "stop", svc], capture_output=True)
+                    ctl = shutil.which("apache2ctl") or shutil.which("apachectl")
+                    if ctl:
+                        subprocess.run([ctl, "stop"], capture_output=True)
+                run_silent_command(['pkill', '-f', 'httpd'])
+                run_silent_command(['pkill', '-f', 'apache2'])
+                time.sleep(0.5)
                 
-            if hasattr(self, 'api'): self.api.emit_log("backend.apache.stopped", "success")
+            if hasattr(self, 'api'):
+                self.api.emit_log("backend.apache.stopped", "success")
+                if hasattr(self.api, 'emit_service_status'):
+                    self.api.emit_service_status('apache', False)
             return {"status": "success", "message": "backend.apache.stopped_success"}
         except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
         
@@ -722,3 +1029,40 @@ class ApacheManager:
                 time.sleep(1)
             return self.start_server()
         except Exception as e: return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def reload_server(self):
+        try:
+            if sys.platform == 'win32':
+                status = self.get_status()
+                apache_path = status.get("path") or ""
+                httpd_exe = os.path.join(apache_path, "bin", "httpd.exe")
+                if os.path.exists(httpd_exe):
+                    run_silent_command([httpd_exe, "-k", "restart"])
+                elif self.check_is_running():
+                    self.restart_server()
+            else:
+                status = self.get_status()
+                if self._is_system_apache(status):
+                    svc = self._get_linux_apache_service_name()
+                    pkexec = shutil.which("pkexec")
+                    systemctl = shutil.which("systemctl")
+                    reloaded = False
+                    if systemctl:
+                        res = subprocess.run([systemctl, "reload", svc], capture_output=True)
+                        if res.returncode == 0:
+                            reloaded = True
+                        elif pkexec:
+                            res_pk = subprocess.run([pkexec, systemctl, "reload", svc], capture_output=True)
+                            if res_pk.returncode == 0:
+                                reloaded = True
+                    if not reloaded:
+                        ctl = shutil.which("apache2ctl") or shutil.which("apachectl")
+                        if ctl:
+                            subprocess.run([ctl, "graceful"], capture_output=True)
+                elif self.check_is_running():
+                    self.restart_server()
+            if hasattr(self, 'api'):
+                self.api.emit_log("backend.apache.reloaded", "success")
+            return {"status": "success", "message": "backend.apache.reloaded"}
+        except Exception as e:
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}

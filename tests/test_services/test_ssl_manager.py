@@ -16,16 +16,44 @@ def ssl_manager(mock_api, tmp_path):
         return SslManager(mock_api)
 
 def test_get_openssl_paths(ssl_manager):
-    """Test retrieving OpenSSL paths from Apache installation."""
-    exe, cnf = ssl_manager._get_openssl_paths()
-    assert "openssl.exe" in exe
-    # The current source has 'con' instead of 'conf' in ssl_manager! We test what's there or patch it.
-    assert "openssl" in cnf
+    """Test retrieving OpenSSL paths from Apache installation on Windows."""
+    with patch('sys.platform', 'win32'):
+        exe, cnf = ssl_manager._get_openssl_paths()
+        assert "openssl.exe" in exe
+        assert "openssl" in cnf
     
     # Test exception
     ssl_manager.api.apache.get_status.return_value = {"installed": False}
     with pytest.raises(RuntimeError, match="Apache belum terinstal"):
         ssl_manager._get_openssl_paths()
+
+
+def test_get_openssl_paths_linux_local(ssl_manager):
+    """Test retrieving OpenSSL paths on Linux with portable/local Apache."""
+    ssl_manager.api.apache.get_status.return_value = {
+        "installed": True,
+        "path": "/opt/vyloserve/bin/apache",
+        "system": False
+    }
+    with patch('sys.platform', 'linux'):
+        with patch('os.path.exists', return_value=True):
+            exe, cnf = ssl_manager._get_openssl_paths()
+            assert exe.endswith("openssl")
+            assert not exe.endswith(".exe")
+
+def test_get_openssl_paths_linux_system(ssl_manager):
+    """Test retrieving OpenSSL paths on Linux with system Apache."""
+    ssl_manager.api.apache.get_status.return_value = {
+        "installed": True,
+        "path": "/usr/sbin/apache2",
+        "system": True
+    }
+    with patch('sys.platform', 'linux'):
+        with patch('shutil.which', return_value="/usr/bin/openssl"):
+            with patch('os.path.exists', return_value=True):
+                exe, cnf = ssl_manager._get_openssl_paths()
+                assert exe == "/usr/bin/openssl"
+                assert "openssl.cnf" in cnf
 
 @patch('ctypes.windll.shell32.ShellExecuteW')
 @patch('core.services.ssl_manager.run_silent_command')

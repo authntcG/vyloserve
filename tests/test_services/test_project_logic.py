@@ -1175,6 +1175,7 @@ def test_handle_auto_create_db_success(tmp_path, project_manager):
 
         mock_db.start_database.assert_called_once_with("mysql_10_4")
         mock_db.create_schema.assert_called_once_with("mysql_10_4", "auto_app_db")
+        project_manager.api.emit_service_status.assert_called_once_with("database", True)
         mock_log.assert_called_with("backend.project.auto_create_db_success", "success", {"name": "auto_app_db"})
         assert os.path.exists(os.path.join(doc_root, ".env"))
 
@@ -1196,3 +1197,108 @@ def test_handle_auto_create_db_failed_start(project_manager):
          patch.object(project_manager, "_log") as mock_log:
         project_manager._handle_auto_create_db(payload, "/www/docroot")
         mock_log.assert_called_with("backend.project.auto_create_db_failed", "warn", {"name": "auto_app_db", "err": "Could not start database"})
+
+
+def test_resolve_runtime_bin_cross_platform_linux(project_manager, tmp_path):
+    # Setup mock linux engine dir dengan subdirektori bin/
+    engine_dir = tmp_path / "bin" / "runtimes" / "node" / "22.0.0"
+    (engine_dir / "bin").mkdir(parents=True)
+    linux_node = engine_dir / "bin" / "node"
+    linux_node.write_text("#!/bin/sh\n")
+
+    mock_rm = MagicMock()
+    mock_rm._get_engine_dir.return_value = str(engine_dir)
+    project_manager.api.runtimes_manager = mock_rm
+
+    # Cari node.exe seharusnya menemukan biner linux 'node' di engine_dir/bin/node
+    found = project_manager._resolve_runtime_bin("node", "node.exe")
+    assert found == str(linux_node)
+
+
+def test_setup_python_venv_cross_platform_linux(project_manager, tmp_path):
+    target_dir = tmp_path / "my_project"
+    venv_dir = target_dir / ".venv"
+    (venv_dir / "bin").mkdir(parents=True)
+    venv_py = venv_dir / "bin" / "python3"
+    venv_py.write_text("#!/bin/sh\n")
+
+    custom_env = {"PATH": "/usr/bin:/bin"}
+    with patch.object(project_manager, "_run_cli_or_pty", return_value=(True, "")):
+        ok, active_py, err = project_manager._setup_python_venv("/usr/bin/python3", str(target_dir), custom_env)
+        assert ok is True
+        assert active_py == str(venv_py)
+        assert err is None
+        assert str(venv_dir / "bin") in custom_env["PATH"]
+
+
+def test_get_hosts_path_cross_platform(project_manager):
+    with patch("core.services.project.sys.platform", "win32"):
+        assert project_manager._get_hosts_path() == r"C:\Windows\System32\drivers\etc\hosts"
+    with patch("core.services.project.sys.platform", "linux"):
+        assert project_manager._get_hosts_path() == "/etc/hosts"
+
+
+def test_sync_hosts_linux_flow(project_manager, tmp_path):
+    mock_hosts = tmp_path / "hosts"
+    mock_hosts.write_text("127.0.0.1 localhost\n")
+
+    with patch.object(project_manager, "_get_hosts_path", return_value=str(mock_hosts)), \
+         patch.object(project_manager, "_read_projects", return_value=[{"id": "1", "domain": "myapp.test"}]), \
+         patch.object(project_manager, "_write_hosts_with_uac", return_value={"status": "success", "message": "backend.project.hosts_updated"}) as mock_write:
+        res = project_manager.sync_windows_hosts()
+        assert res["status"] == "success"
+        mock_write.assert_called_once()
+        args = mock_write.call_args[0]
+        assert args[0] == str(mock_hosts)
+        assert "127.0.0.1 myapp.test" in args[1]
+
+
+def test_write_hosts_with_uac_linux_pkexec(project_manager, tmp_path):
+    mock_hosts = tmp_path / "hosts"
+    temp_file = tmp_path / "temp_hosts"
+    temp_file.write_text("127.0.0.1 test.local\n")
+
+    # Simulasi PermissionError saat open write langsung
+    with patch("builtins.open", side_effect=PermissionError("Permission denied")), \
+         patch("core.services.project.sys.platform", "linux"), \
+         patch("core.services.project.shutil.which", return_value="/usr/bin/pkexec"), \
+         patch("core.services.project.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        res = project_manager._write_hosts_with_uac(str(mock_hosts), "127.0.0.1 test.local\n", str(temp_file))
+        assert res["status"] == "success"
+        assert res["message"] == "backend.project.uac_granted"
+        assert mock_run.call_count == 2
+        # Panggilan pertama pkexec cp
+        assert mock_run.call_args_list[0][0][0] == ["/usr/bin/pkexec", "cp", str(temp_file), str(mock_hosts)]
+        # Panggilan kedua pkexec chmod 644
+        assert mock_run.call_args_list[1][0][0] == ["/usr/bin/pkexec", "chmod", "644", str(mock_hosts)]
+
+
+def test_resolve_linux_php_socket_system_php(project_manager):
+    with patch("sys.platform", "linux"), \
+         patch.object(project_manager, "_is_system_php", return_value=True), \
+         patch("os.path.exists", side_effect=lambda p: p == "/run/php/php8.5-fpm.sock"):
+        sock = project_manager._resolve_linux_php_socket("8.5.4", 9000)
+        assert sock == "/run/php/php8.5-fpm.sock"
+
+
+def test_resolve_linux_php_socket_windows_returns_none(project_manager):
+    with patch("sys.platform", "win32"):
+        sock = project_manager._resolve_linux_php_socket("8.5.4", 9000)
+        assert sock is None
+
+
+def test_sync_apache_vhosts_reloads_when_running(project_manager):
+    from unittest.mock import mock_open
+    mock_apache = MagicMock()
+    mock_apache.get_status.return_value = {"installed": True, "path": "/usr/sbin/apache2", "system": True}
+    mock_apache.check_is_running.return_value = True
+    project_manager.api.apache = mock_apache
+
+    with patch.object(project_manager, "_read_projects", return_value=[]), \
+         patch("builtins.open", mock_open()):
+        res = project_manager.sync_apache_vhosts()
+        assert res["status"] == "success"
+        mock_apache.reload_server.assert_called_once()
+
+

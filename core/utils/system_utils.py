@@ -809,3 +809,48 @@ def apply_window_titlebar_theme(window_or_hwnd: Any, theme_name: Optional[str] =
         pass
 
     return success
+
+def set_path_in_env(env: Dict[str, str], paths_to_prepend: List[str]) -> Dict[str, str]:
+    """
+    Menormalkan variabel PATH secara case-insensitive lintas platform (Windows & Linux).
+    Menghindari duplikasi key 'Path' vs 'PATH' di Windows dan memastikan paths_to_prepend
+    selalu berada di prioritas tertinggi tanpa duplikat.
+    """
+    if not isinstance(env, dict):
+        env = {}
+
+    path_sep = ";" if sys.platform == "win32" else os.pathsep
+
+    path_keys = [k for k in list(env.keys()) if k.upper() == "PATH"]
+    existing_paths_str = ""
+    for k in path_keys:
+        val = env.pop(k, "")
+        if val and not existing_paths_str:
+            existing_paths_str = str(val)
+
+    existing_parts = [p.strip() for p in existing_paths_str.split(path_sep) if p.strip()]
+
+    combined: List[str] = []
+    seen: set = set()
+    for p in paths_to_prepend:
+        if p and isinstance(p, str):
+            clean_p = p.strip()
+            norm_key = clean_p.lower() if sys.platform == "win32" else clean_p
+            if clean_p and norm_key not in seen:
+                seen.add(norm_key)
+                combined.append(clean_p)
+
+    for p in existing_parts:
+        clean_p = p.strip()
+        norm_key = clean_p.lower() if sys.platform == "win32" else clean_p
+        if clean_p and norm_key not in seen:
+            seen.add(norm_key)
+            combined.append(clean_p)
+
+    new_path_str = path_sep.join(combined)
+    env["PATH"] = new_path_str
+    if sys.platform == "win32":
+        env["Path"] = new_path_str
+
+    return env
+

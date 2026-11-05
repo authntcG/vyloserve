@@ -84,9 +84,9 @@ function ApacheStatusSection({
                             </span>
                         </div>
                         <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 w-full min-w-0">
-                            <div className="flex items-start gap-2 text-xs font-medium text-amber-600 dark:text-amber-500">
-                                <span className="material-symbols-outlined text-[16px] shrink-0 mt-0.5">lock</span>
-                                <span className="leading-relaxed break-words">{t('runtimes.external_install_locked')}</span>
+                            <div className="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+                                <span className="material-symbols-outlined text-[16px] text-primary shrink-0">verified</span>
+                                <span className="leading-relaxed break-words">{t('apache.system_managed_daemon')}</span>
                             </div>
                         </div>
                     </Card>
@@ -131,7 +131,7 @@ function ApacheStatusSection({
                 gridCols="grid-cols-2 md:grid-cols-3"
                 dropdownActions={
                     <>
-                        <button type="button" onClick={onOpenLocalhost} className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/70 transition-colors">
+                        <button type="button" onClick={onOpenLocalhost} disabled={!isRunning} className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/70 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                             <span className="material-symbols-outlined text-[16px] text-primary shrink-0">language</span>
                             <span className="truncate">{t('apache.quick_open_localhost')}</span>
                         </button>

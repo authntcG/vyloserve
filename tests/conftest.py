@@ -198,6 +198,113 @@ def guard_registry_and_env(monkeypatch):
     except (ImportError, AttributeError):
         pass
 
+@pytest.fixture(autouse=True)
+def guard_root_and_elevated_commands(monkeypatch):
+    r"""
+    SANGAT PENTING: Mencegah SELURUH unit test memicu prompt UAC Windows (runas)
+    atau prompt sudo / pkexec / systemctl / PolicyKit di Linux.
+    Jika ada unit test yang mengeksekusi perintah administrator atau manajemen service sistem
+    tanpa di-mock secara spesifik di dalam test tersebut, fixture autouse ini secara otomatis
+    mencegatnya dan mengembalikan status sukses (returncode=0) sehingga test berjalan otomatis,
+    cepat, dan tanpa pernah memunculkan dialog/popup permintaan password kepada developer.
+    """
+    import subprocess
+    orig_subprocess_run = subprocess.run
+    orig_subprocess_popen = subprocess.Popen
+    orig_subprocess_call = getattr(subprocess, "call", None)
+    orig_subprocess_check_call = getattr(subprocess, "check_call", None)
+    orig_subprocess_check_output = getattr(subprocess, "check_output", None)
+
+    ELEVATED_KEYWORDS = (
+        "pkexec", "sudo", "runas",
+        "systemctl", "service",
+        "apache2ctl", "apachectl",
+        "a2enmod", "a2dismod", "a2enconf", "a2disconf", "a2ensite", "a2dissite",
+        "update-ca-certificates",
+        "apt", "apt-get", "dpkg", "dnf", "yum", "pacman", "zypper"
+    )
+
+    def _is_elevated(cmd) -> bool:
+        if not cmd:
+            return False
+        if isinstance(cmd, (list, tuple)):
+            for part in cmd:
+                part_str = os.path.basename(str(part)).lower()
+                for kw in ELEVATED_KEYWORDS:
+                    if part_str == kw or part_str.startswith(kw):
+                        return True
+            cmd_str = " ".join(str(c) for c in cmd).lower()
+        else:
+            cmd_str = str(cmd).lower()
+        return any(kw in cmd_str for kw in ELEVATED_KEYWORDS)
+
+    def safe_subprocess_run(*args, **kwargs):
+        cmd = args[0] if args else kwargs.get('args', [])
+        if _is_elevated(cmd):
+            is_text = kwargs.get('text') or kwargs.get('universal_newlines')
+            empty_out = "" if is_text else b""
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=empty_out, stderr=empty_out)
+        return orig_subprocess_run(*args, **kwargs)
+
+    def safe_subprocess_popen(*args, **kwargs):
+        cmd = args[0] if args else kwargs.get('args', [])
+        if _is_elevated(cmd):
+            is_text = kwargs.get('text') or kwargs.get('universal_newlines')
+            empty_out = "" if is_text else b""
+            mock_proc = MagicMock()
+            mock_proc.poll.return_value = 0
+            mock_proc.returncode = 0
+            mock_proc.communicate.return_value = (empty_out, empty_out)
+            mock_proc.wait.return_value = 0
+            mock_proc.pid = 99999
+            return mock_proc
+        return orig_subprocess_popen(*args, **kwargs)
+
+    def safe_subprocess_call(*args, **kwargs):
+        cmd = args[0] if args else kwargs.get('args', [])
+        if _is_elevated(cmd):
+            return 0
+        if orig_subprocess_call:
+            return orig_subprocess_call(*args, **kwargs)
+        return 0
+
+    def safe_subprocess_check_call(*args, **kwargs):
+        cmd = args[0] if args else kwargs.get('args', [])
+        if _is_elevated(cmd):
+            return 0
+        if orig_subprocess_check_call:
+            return orig_subprocess_check_call(*args, **kwargs)
+        return 0
+
+    def safe_subprocess_check_output(*args, **kwargs):
+        cmd = args[0] if args else kwargs.get('args', [])
+        if _is_elevated(cmd):
+            is_text = kwargs.get('text') or kwargs.get('universal_newlines')
+            return "" if is_text else b""
+        if orig_subprocess_check_output:
+            return orig_subprocess_check_output(*args, **kwargs)
+        return b""
+
+    monkeypatch.setattr(subprocess, "run", safe_subprocess_run)
+    monkeypatch.setattr(subprocess, "Popen", safe_subprocess_popen)
+    if orig_subprocess_call:
+        monkeypatch.setattr(subprocess, "call", safe_subprocess_call)
+    if orig_subprocess_check_call:
+        monkeypatch.setattr(subprocess, "check_call", safe_subprocess_check_call)
+    if orig_subprocess_check_output:
+        monkeypatch.setattr(subprocess, "check_output", safe_subprocess_check_output)
+
+    try:
+        from core.utils import system_utils
+        orig_run_silent = system_utils.run_silent_command
+        def safe_run_silent_command(cmd, *args, **kwargs):
+            if _is_elevated(cmd):
+                return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+            return orig_run_silent(cmd, *args, **kwargs)
+        monkeypatch.setattr(system_utils, "run_silent_command", safe_run_silent_command)
+    except Exception:
+        pass
+
 @pytest.fixture
 def mock_api():
     """

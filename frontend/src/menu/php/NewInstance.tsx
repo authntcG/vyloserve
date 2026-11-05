@@ -199,13 +199,15 @@ export default function NewPhpInstance({
                     <Select
                         options={availableVersions.map((v, index) => ({
                             value: v.version,
-                            label: `PHP ${v.version} ${index === 0 ? t('php.latest_release') : ''}`.trim(),
+                            label: v.version === 'system'
+                                ? t('php.linux_system_package')
+                                : `PHP ${v.version} ${index === 0 ? t('php.latest_release') : ''}`.trim(),
                         }))}
                         value={version || null}
                         onChange={handleVersionChange}
                         placeholder={
                             osInfo.name === 'Linux'
-                                ? t('php.no_linux_binaries')
+                                ? t('php.linux_system_package')
                                 : isOfflineOrFetchError
                                 ? t('common.offline_versions_unavailable')
                                 : t('php.all_versions_installed')
@@ -215,6 +217,12 @@ export default function NewPhpInstance({
                         loadingText={t('php.retrieving_versions')}
                         errorText={fetchError ? `${t('php.version_fetch_error_prefix')}${fetchError}` : undefined}
                     />
+
+                    {osInfo.name === 'Linux' && !isFetchingVersions && (
+                        <p className="text-[11px] text-slate-500 mt-1">
+                            {t('php.linux_system_package')}
+                        </p>
+                    )}
 
                     {isLinuxManualSetup && (
                         <div className="flex flex-col gap-3 p-3.5 mt-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/60">

@@ -20,8 +20,30 @@ class SslManager:
         if not status.get("installed"):
             raise RuntimeError("Apache belum terinstal. OpenSSL tidak ditemukan.")
         
-        apache_path = status["path"]
-        return os.path.join(apache_path, 'bin', 'openssl.exe'), os.path.join(apache_path, 'conf', 'openssl.cnf')
+        apache_path = status.get("path") or ""
+        is_system = (
+            sys.platform != 'win32'
+            and (status.get("system", False) or status.get("system_apache", {}).get("exists", False) or apache_path.startswith(('/usr', '/etc')))
+        )
+        if is_system:
+            import shutil
+            openssl_bin = shutil.which("openssl") or "/usr/bin/openssl"
+            openssl_cnf = "/etc/ssl/openssl.cnf" if os.path.exists("/etc/ssl/openssl.cnf") else ""
+            if not os.path.exists(openssl_bin) and not shutil.which("openssl"):
+                raise RuntimeError("OpenSSL tidak ditemukan di sistem Linux.")
+            return openssl_bin, openssl_cnf
+
+        if sys.platform == 'win32':
+            return os.path.join(apache_path, 'bin', 'openssl.exe'), os.path.join(apache_path, 'conf', 'openssl.cnf')
+
+        openssl_bin = os.path.join(apache_path, 'bin', 'openssl')
+        if not os.path.exists(openssl_bin):
+            import shutil
+            openssl_bin = shutil.which("openssl") or "/usr/bin/openssl"
+        openssl_cnf = os.path.join(apache_path, 'conf', 'openssl.cnf')
+        if not os.path.exists(openssl_cnf):
+            openssl_cnf = "/etc/ssl/openssl.cnf" if os.path.exists("/etc/ssl/openssl.cnf") else ""
+        return openssl_bin, openssl_cnf
 
     def setup_root_ca(self) -> bool:
         if os.path.exists(self.ca_key) and os.path.exists(self.ca_crt): return True 
@@ -84,11 +106,13 @@ class SslManager:
 
         try:
             run_silent_command([openssl_exe, 'genrsa', '-out', domain_key, '2048'])
-            run_silent_command([
+            req_cmd = [
                 openssl_exe, 'req', '-new', '-key', domain_key, '-out', domain_csr, 
-                '-subj', f'/CN={domain}/O=VyloServe Dev/C=ID',
-                '-config', openssl_cnf
-            ])
+                '-subj', f'/CN={domain}/O=VyloServe Dev/C=ID'
+            ]
+            if openssl_cnf:
+                req_cmd.extend(['-config', openssl_cnf])
+            run_silent_command(req_cmd)
 
             with open(domain_ext, 'w') as f:
                 f.write(f"authorityKeyIdentifier=keyid,issuer\nbasicConstraints=CA:FALSE\nkeyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment\nsubjectAltName = @alt_names\n[alt_names]\nDNS.1 = {domain}\nDNS.2 = *.{domain}\n")

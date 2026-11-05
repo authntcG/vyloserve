@@ -1156,7 +1156,7 @@ def test_update_database_cancelled_rolls_back(db_mgr):
          patch('core.services.database.os.remove'), \
          patch('core.services.database.shutil') as mock_shutil, \
          patch.object(db_mgr, 'stop_database'), \
-         patch('core.utils.file_utils.download_advanced', side_effect=OperationCancelledError("Cancelled")):
+         patch('core.services.database.download_advanced', side_effect=OperationCancelledError("Cancelled")):
         res = db_mgr.update_database("mysql_10", "10.1", "http://url", backup_data=False)
 
     assert res['status'] == 'cancelled'
@@ -1487,3 +1487,46 @@ def test_extract_db_archive_jar_missing_txz(db_mgr, tmp_path):
 
     with pytest.raises(RuntimeError, match="Biner PostgreSQL Linux"):
         db_mgr._extract_db_archive(str(jar_file), str(install_dir))
+
+
+def test_init_mariadb_linux_auth_normal(db_mgr, tmp_path):
+    install_dir = tmp_path / "mariadb_inst"
+    bin_dir = install_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    installer = bin_dir / "mysql_install_db"
+    installer.write_text("#!/bin/sh\n")
+
+    mysqld = bin_dir / "mysqld"
+    mysqld.write_text("#!/bin/sh\n")
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+
+    with patch('sys.platform', 'linux'), \
+         patch('core.services.database.run_silent_command', return_value=MagicMock(returncode=0)) as mock_run, \
+         patch('core.services.database.subprocess.run', return_value=MagicMock(returncode=0)) as mock_boot:
+        db_mgr._init_mariadb(str(install_dir), str(data_dir), root_pass="mysecret")
+
+        # Assert cmd installer memiliki flag --auth-root-authentication-method=normal
+        called_cmd = mock_run.call_args[0][0]
+        assert "--auth-root-authentication-method=normal" in called_cmd
+        assert f"--datadir={data_dir}" in called_cmd
+
+        # Assert bootstrap dipanggil
+        assert mock_boot.called
+        boot_cmd = mock_boot.call_args[0][0]
+        assert "--bootstrap" in boot_cmd
+        boot_input = mock_boot.call_args[1].get("input", "")
+        assert "mysecret" in boot_input
+
+
+def test_run_mysql_cli_includes_ssl_zero(db_mgr):
+    db_obj = {"id": "mysql_1", "engine": "mysql", "port": 3306, "installDir": "/bin/mysql"}
+    with patch.object(db_mgr, '_resolve_db_cli', return_value="/bin/mysql/bin/mysql"), \
+         patch('core.services.database.run_silent_command', return_value=MagicMock(returncode=0)) as mock_run:
+        res, err = db_mgr._run_mysql_cli(db_obj, "secret", "SHOW DATABASES;", [])
+        assert err is None
+        called_cmd = mock_run.call_args[0][0]
+        assert "--ssl=0" in called_cmd
+        assert "-psecret" in called_cmd
+

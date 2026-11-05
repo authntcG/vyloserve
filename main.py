@@ -280,12 +280,14 @@ def bring_existing_instance_to_front(is_production: bool = IS_PRODUCTION):
 
 def check_single_instance(is_production: bool = IS_PRODUCTION):
     """
-    Mengecek apakah VyloServe sudah berjalan menggunakan OS Mutex.
-    Mengembalikan (True, mutex) jika ini adalah instance pertama.
+    Mengecek apakah VyloServe sudah berjalan menggunakan OS Mutex (Windows)
+    atau fcntl flock (Linux/POSIX).
+    Mengembalikan (True, lock_obj) jika ini adalah instance pertama.
     Mengembalikan (False, None) jika instance lain sudah berjalan.
     """
     if sys.platform != 'win32':
-        return True, None
+        lock_name = get_mutex_name(is_production)
+        return acquire_single_instance_lock(lock_name)
     mutex_name = get_mutex_name(is_production)
     mutex = ctypes.windll.kernel32.CreateMutexW(None, False, mutex_name)
     last_error = ctypes.windll.kernel32.GetLastError()
@@ -661,12 +663,15 @@ def setup_signal_handlers(lifecycle: AppLifecycle):
         pass
 
 
+_app_instance_lock = None
+
 def main():
+    global _app_instance_lock
     setup_app_user_model_id(IS_PRODUCTION)
     setup_windows_performance_optimizations()
 
     # 1. Cek apakah VyloServe sudah berjalan
-    is_first_instance, _ = check_single_instance(IS_PRODUCTION)
+    is_first_instance, _app_instance_lock = check_single_instance(IS_PRODUCTION)
     if not is_first_instance:
         print("[INFO] VyloServe sudah berjalan. Menampilkan window yang ada...")
         bring_existing_instance_to_front(IS_PRODUCTION)

@@ -63,8 +63,8 @@ export default function ApacheInstallModal() {
             title={getTitle()}
             icon={getIcon()}
             onApply={isInstalling ? undefined : handleInstallApache}
-            applyText={isInstalling ? t('apache.installing_start') : t('apache.download_install')}
-            isApplyDisabled={isFetchingVersions || isInstalling || availableVersions.length === 0 || !isOnline}
+            applyText={isInstalling ? t('apache.installing_start') : (isNonWindows ? t('apache.install_system_package') : t('apache.download_install'))}
+            isApplyDisabled={isFetchingVersions || isInstalling || availableVersions.length === 0 || (!isNonWindows && !isOnline)}
         >
             <ApacheInstallWizard
                 versions={availableVersions}

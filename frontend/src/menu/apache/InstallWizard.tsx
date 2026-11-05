@@ -151,13 +151,15 @@ export default function ApacheInstallWizard({
                         searchable={false}
                         options={versions.map((v, index) => ({
                             value: v.version,
-                            label: `Apache ${v.version} ${index === 0 ? t('apache.latest_stable') : ''}`.trim(),
+                            label: v.version === 'system'
+                                ? t('apache.linux_system_package')
+                                : `Apache ${v.version} ${index === 0 ? t('apache.latest_stable') : ''}`.trim(),
                         }))}
                         value={version || null}
                         onChange={handleVersionChange}
                         placeholder={
                             osInfo.name !== 'Windows'
-                                ? t('apache.no_linux_binaries')
+                                ? t('apache.linux_system_package')
                                 : isOfflineOrUnavailable
                                 ? t('common.offline_versions_unavailable')
                                 : t('apache.server_up_to_date')
@@ -174,7 +176,7 @@ export default function ApacheInstallWizard({
                     )}
                     {osInfo.name !== 'Windows' && !isFetchingVersions && (
                         <p className="text-[11px] text-slate-500 mt-1">
-                            {t('apache.no_linux_binaries')}
+                            {t('apache.linux_system_package')}
                         </p>
                     )}
 

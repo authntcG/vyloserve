@@ -463,7 +463,7 @@ class RuntimesManager:
                 os.path.exists(os.path.join(item_path, 'Scripts', 'pip.exe'))
                 or os.path.exists(os.path.join(item_path, 'Lib', 'site-packages'))
             )
-            return has_binary, ("pip" if (has_pip or has_site_packages) else "")
+            return has_binary, ("pip" if has_pip else "")
         py_candidates = [
             os.path.join(item_path, 'bin', 'python3'),
             os.path.join(item_path, 'bin', 'python'),
@@ -603,9 +603,8 @@ class RuntimesManager:
                     broadcast_environment_change()
                     config.setdefault("path_enabled", {})[engine] = True
                 else:
-                    is_path_enabled = config.get("path_enabled", {}).get(engine, False)
-                    if is_path_enabled:
-                        self._toggle_linux_user_path(engine, enable=True, version=version)
+                    self._toggle_linux_user_path(engine, enable=True, version=version)
+                    config.setdefault("path_enabled", {})[engine] = True
             except Exception as e:
                 self._emit_log("backend.runtimes.path_error_log", "error", {"engine": engine, "e": str(e)})
                 return {"status": "error", "message": "backend.runtimes.registry_error", "args": {"e": str(e)}}

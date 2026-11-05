@@ -78,20 +78,15 @@ const InstallPython = forwardRef<InstallPythonRef, InstallPythonProps>(({ target
             <div className="flex flex-col gap-1">
                 <label
                     htmlFor="set-as-active-python-checkbox"
-                    className={`flex items-start gap-3 p-3 border rounded-lg transition-colors ${
-                        isExternal
-                            ? 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30 opacity-60 cursor-not-allowed'
-                            : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer'
-                    }`}
+                    className="flex items-start gap-3 p-3 border rounded-lg transition-colors border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                 >
                     <input
                         id="set-as-active-python-checkbox"
                         type="checkbox"
-                        checked={isExternal ? false : setAsActive}
-                        disabled={isExternal}
+                        checked={setAsActive}
                         onChange={(e) => setSetAsActive(e.target.checked)}
                         aria-label={t('runtimes.set_as_active_checkbox')}
-                        className="mt-1 w-4 h-4 text-primary bg-slate-100 border-slate-300 rounded focus:ring-primary dark:ring-offset-slate-800 dark:bg-slate-700 dark:border-slate-600 disabled:opacity-50"
+                        className="mt-1 w-4 h-4 text-primary bg-slate-100 border-slate-300 rounded focus:ring-primary dark:ring-offset-slate-800 dark:bg-slate-700 dark:border-slate-600"
                     />
                     <div className="flex flex-col">
                         <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
@@ -104,8 +99,8 @@ const InstallPython = forwardRef<InstallPythonRef, InstallPythonProps>(({ target
                 </label>
                 {isExternal && (
                     <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-500 mt-1 pl-1">
-                        <span className="material-symbols-outlined text-[14px] shrink-0">lock</span>
-                        <span>{t('runtimes.set_as_active_locked_desc', { engine: 'Python' })}</span>
+                        <span className="material-symbols-outlined text-[14px] shrink-0">info</span>
+                        <span>{t('runtimes.set_as_active_override_hint', { engine: 'Python' })}</span>
                     </div>
                 )}
             </div>

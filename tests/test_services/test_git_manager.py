@@ -110,7 +110,7 @@ def test_get_available_git_versions(mock_urlopen, git_manager):
         
     mock_urlopen.side_effect = urlopen_side_effect
     
-    with patch('core.services.git_manager.os.path.exists', return_value=True):
+    with patch('sys.platform', 'win32'), patch('core.services.git_manager.os.path.exists', return_value=True):
         res = git_manager.get_available_git_versions()
         assert res['status'] == 'success'
         assert len(res['data']) > 0
@@ -172,9 +172,10 @@ def test_extract_sfx(mock_run, git_manager):
 @patch('core.services.git_manager.urllib.request.urlopen')
 def test_get_available_git_versions_exception(mock_urlopen, git_manager):
     mock_urlopen.side_effect = Exception("API limit")
-    res = git_manager.get_available_git_versions()
-    assert res['status'] == 'error'
-    assert 'backend.git.fetch_failed' in res['message']
+    with patch('sys.platform', 'win32'):
+        res = git_manager.get_available_git_versions()
+        assert res['status'] == 'error'
+        assert 'backend.git.fetch_failed' in res['message']
 
 @patch('core.services.git_manager.winreg.OpenKey')
 @patch('core.services.git_manager.winreg.QueryValueEx')
@@ -259,9 +260,10 @@ def test_get_available_git_versions_raises_when_no_valid_binary_found(mock_urlop
 
     mock_urlopen.side_effect = urlopen_side_effect
 
-    res = git_manager.get_available_git_versions()
-    assert res['status'] == 'error'
-    assert res['message'] == 'backend.git.fetch_failed'
+    with patch('sys.platform', 'win32'):
+        res = git_manager.get_available_git_versions()
+        assert res['status'] == 'error'
+        assert res['message'] == 'backend.git.fetch_failed'
 
 # ==========================================
 # install_git — pembersihan file exe saat gagal & progress scaling
@@ -405,4 +407,50 @@ def test_find_via_which_finds_system_git_on_linux(git_manager):
          patch('shutil.which', return_value="/usr/bin/git") as mock_which:
         assert git_manager._find_via_which("/fake/bin") == "/usr/bin/git"
         mock_which.assert_called_once()
+
+
+def test_get_available_git_versions_linux_detected(git_manager):
+    with patch('sys.platform', 'linux'), \
+         patch.object(git_manager, '_check_external_installation', return_value={"exists": True, "version": "2.43.0"}):
+        res = git_manager.get_available_git_versions()
+        assert res['status'] == 'success'
+        assert len(res['data']) == 1
+        assert res['data'][0]['value'] == 'system'
+        assert "2.43.0" in res['data'][0]['label']
+
+
+def test_get_available_git_versions_linux_not_detected(git_manager):
+    with patch('sys.platform', 'linux'), \
+         patch.object(git_manager, '_check_external_installation', return_value={"exists": False}):
+        res = git_manager.get_available_git_versions()
+        assert res['status'] == 'success'
+        assert len(res['data']) == 1
+        assert res['data'][0]['value'] == 'system'
+        assert "Distro Package" in res['data'][0]['label']
+
+
+def test_install_git_linux_apt_success(git_manager):
+    with patch('sys.platform', 'linux'), \
+         patch('shutil.which', side_effect=lambda x: f"/usr/bin/{x}" if x in ("pkexec", "apt-get") else None), \
+         patch('subprocess.run', return_value=MagicMock(returncode=0)) as mock_run:
+        res = git_manager.install_git("system", "git", "system")
+        assert res['status'] == 'success'
+        assert res['message'] == 'backend.git.install_success'
+
+
+def test_install_git_linux_no_pkexec(git_manager):
+    with patch('sys.platform', 'linux'), \
+         patch('shutil.which', return_value=None):
+        res = git_manager.install_git("system", "git", "system")
+        assert res['status'] == 'error'
+        assert res['message'] == 'backend.git.no_pkexec'
+
+
+def test_install_git_linux_auth_cancelled(git_manager):
+    with patch('sys.platform', 'linux'), \
+         patch('shutil.which', side_effect=lambda x: f"/usr/bin/{x}" if x in ("pkexec", "apt-get") else None), \
+         patch('subprocess.run', side_effect=[MagicMock(returncode=0), MagicMock(returncode=126)]):
+        res = git_manager.install_git("system", "git", "system")
+        assert res['status'] == 'cancelled'
+        assert res['message'] == 'backend.git.install_cancelled'
 

@@ -65,7 +65,7 @@ def test_sync_windows_hosts_builds_content_and_delegates_to_uac_writer(mock_read
         "# --- END VYLOSERVE HOSTS ---\n"
     )
     m = mock_open(read_data=existing_hosts)
-    with patch('builtins.open', m):
+    with patch('sys.platform', 'win32'), patch('os.path.exists', return_value=True), patch('builtins.open', m):
         with patch.object(project_manager, '_write_hosts_with_uac', return_value={"status": "success", "message": "ok"}) as mock_write:
             res = project_manager.sync_windows_hosts()
 

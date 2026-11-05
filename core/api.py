@@ -219,6 +219,13 @@ class Api:
         script = f"window.dispatchEvent(new CustomEvent('vylo_terminal_exit', {{detail: {detail} }}));"
         self._safe_eval_js(script)
 
+    def emit_service_status(self, service: str, running: Optional[bool] = None):
+        if self._is_shutting_down or not self._window:
+            return
+        detail = json.dumps({"service": service, "running": running})
+        script = f"window.dispatchEvent(new CustomEvent('service_status_changed', {{detail: {detail}}}));"
+        self._safe_eval_js(script)
+
     def emit_cli_state(self, waiting_input: bool, prompt_text: str = "", cancelled: bool = False):
         if self._is_shutting_down or not self._window:
             return
@@ -371,26 +378,34 @@ class Api:
     # SIDEBAR & GLOBAL CONTROLLER SECTIONS
     # ==========================================
     def start_service(self, service_id: str) -> Dict[str, str]:
+        res = {"status": "error"}
         if service_id == 'apache':
             self.emit_log("backend.apache.starting_service", "info")
-            return self.apache.start_server()
+            res = self.apache.start_server()
         elif service_id == 'php':
             self.emit_log("backend.php.starting_service", "info")
-            return self.php.start_all()
+            res = self.php.start_all()
         elif service_id == 'database':
             self.emit_log("backend.database.starting_service", "info")
-            return self.database.start_all()
+            res = self.database.start_all()
+        if isinstance(res, dict) and res.get("status") == "success":
+            self.emit_service_status(service_id, True)
+        return res
 
     def stop_service(self, service_id: str) -> Dict[str, str]:
+        res = {"status": "error"}
         if service_id == 'apache':
             self.emit_log("backend.apache.stopping_service", "warn")
-            return self.apache.stop_server()
+            res = self.apache.stop_server()
         elif service_id == 'php':
             self.emit_log("backend.php.stopping_service", "warn")
-            return self.php.stop_all()
+            res = self.php.stop_all()
         elif service_id == 'database':
             self.emit_log("backend.database.stopping_service", "warn")
-            return self.database.stop_all()
+            res = self.database.stop_all()
+        if isinstance(res, dict) and res.get("status") == "success":
+            self.emit_service_status(service_id, False)
+        return res
     
     def get_all_services_status(self) -> Dict[str, Any]:
         """ Mengambil metrik hardware dan status seluruh engine """
@@ -495,6 +510,9 @@ class Api:
 
     def restart_apache_server(self):
         return self.apache.restart_server()
+
+    def reload_apache_server(self):
+        return self.apache.reload_server()
     
     # ==========================================
     # FILE / DIRECTORY DIALOG
@@ -666,7 +684,7 @@ class Api:
             return self.terminal.get_runtimes_matrix()
         return {}
 
-    def create_terminal_session(self, shell_id: str = "powershell", cwd: str = "", title: str = "", env_overrides: dict = None, env_profile: dict = None):
+    def create_terminal_session(self, shell_id: Optional[str] = None, cwd: str = "", title: str = "", env_overrides: dict = None, env_profile: dict = None):
         if hasattr(self, 'terminal') and self.terminal:
             return self.terminal.create_session(shell_id, cwd, title, env_overrides, env_profile)
         return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
