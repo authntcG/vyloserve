@@ -518,7 +518,7 @@ export default function TerminalMain({ isActive = true }: TerminalMainProps) {
                 if (!isDiff) return;
 
                 if (sessions.length > 0 && activeSessionId) {
-                    handleRestartSession(activeSessionId, newProfile, true);
+                    setPendingProfile({ profile: newProfile, scope: "current" });
                 } else {
                     setRuntimeProfile(newProfile);
                 }

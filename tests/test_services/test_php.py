@@ -39,7 +39,7 @@ def test_php_open_path_not_found(mock_exists, php_mgr):
     assert res['status'] == 'error'
 
 @patch('os.path.exists', return_value=True)
-@patch('shutil.rmtree')
+@patch('core.services.php.safe_rmtree')
 def test_php_uninstall_version(mock_rmtree, mock_exists, php_mgr):
     res = php_mgr.uninstall_version("8.1")
     assert res['status'] == 'success'
@@ -181,7 +181,7 @@ def test_php_install_version(mock_makedirs, mock_exists, mock_remove, mock_extra
     # Exception test
     mock_exists.side_effect = lambda path: True if path.endswith('.zip') else False
     mock_download.side_effect = Exception("Download failed")
-    with patch('core.services.php.shutil.rmtree') as mock_rmtree:
+    with patch('core.services.php.safe_rmtree') as mock_rmtree:
         res = php_mgr.install_version("8.2", "php-8.2.zip", 9000)
         assert res['status'] == 'error'
         mock_remove.assert_called()
@@ -246,7 +246,7 @@ def test_php_install_version_exception(php_mgr):
         with patch('core.services.php.os.makedirs'):
             with patch.object(php_mgr, '_download_php_archive', side_effect=Exception("dl failed")):
                 with patch('core.services.php.os.remove') as mock_remove:
-                    with patch('core.services.php.shutil.rmtree') as mock_rmtree:
+                    with patch('core.services.php.safe_rmtree') as mock_rmtree:
                         res = php_mgr.install_version("8.2", "php.zip", 9000)
                         assert res['status'] == 'error'
                         mock_remove.assert_called_once()
@@ -258,7 +258,7 @@ def test_php_install_version_cancelled(php_mgr):
          patch('core.services.php.os.makedirs'), \
          patch.object(php_mgr, '_download_php_archive', side_effect=OperationCancelledError("dl cancelled")), \
          patch('core.services.php.os.remove') as mock_remove, \
-         patch('core.services.php.shutil.rmtree') as mock_rmtree:
+         patch('core.services.php.safe_rmtree') as mock_rmtree:
         res = php_mgr.install_version("8.2", "php.zip", 9000)
         assert res['status'] == 'cancelled'
         assert res['message'] == 'backend.php.install_cancelled'
@@ -637,7 +637,7 @@ def test_stop_all_stops_every_running_process(php_mgr):
 
 @patch('core.services.php.PhpManager.install_version')
 @patch('core.services.php.PhpManager.stop_php')
-@patch('core.services.php.shutil.rmtree')
+@patch('core.services.php.safe_rmtree')
 @patch('core.services.php.os.path.exists')
 @patch('core.services.php.PhpManager._get_port_from_ini')
 def test_php_update_version_success(mock_get_port, mock_exists, mock_rmtree, mock_stop, mock_install, php_mgr):
@@ -806,6 +806,27 @@ def test_php_install_composer_creates_bat_and_sh(php_mgr, tmp_path):
         assert "#!/bin/sh" in content
         assert "composer.phar" in content
     assert os.stat(sh_file).st_mode & 0o111 != 0
+
+
+def test_ensure_vyloserve_fpm_pool_linux(php_mgr, tmp_path):
+    target_pool = "/etc/php/8.3/fpm/pool.d"
+
+    with patch('sys.platform', 'linux'):
+        with patch('core.utils.system_utils.get_current_username', return_value='testuser'):
+            with patch('core.utils.system_utils.get_current_user_group', return_value='testgroup'):
+                with patch('os.path.isdir', side_effect=lambda d: d == target_pool):
+                    with patch('shutil.which', side_effect=lambda bin_name: f"/usr/bin/{bin_name}"):
+                        with patch('subprocess.run') as mock_sub:
+                            mock_sub.return_value = MagicMock(returncode=0)
+                            sock = php_mgr._ensure_vyloserve_fpm_pool("8.3")
+                            assert sock == "/run/php/php8.3-fpm-vyloserve.sock"
+                            mock_sub.assert_called()
+
+
+def test_ensure_vyloserve_fpm_pool_windows(php_mgr):
+    with patch('sys.platform', 'win32'):
+        assert php_mgr._ensure_vyloserve_fpm_pool("8.3") is None
+
 
 
 

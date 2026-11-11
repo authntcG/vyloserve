@@ -609,6 +609,59 @@ def test_set_path_in_env_deduplication():
         assert parts[1] == "/bin"
 
 
+def test_get_current_username():
+    from core.utils.system_utils import get_current_username
+    username = get_current_username()
+    assert isinstance(username, str)
+    assert len(username) > 0
+
+
+def test_get_current_user_group():
+    from core.utils.system_utils import get_current_user_group
+    with patch('sys.platform', 'win32'):
+        assert get_current_user_group() == ''
+
+    with patch('sys.platform', 'linux'):
+        grp = get_current_user_group()
+        assert isinstance(grp, str)
+
+
+def test_ensure_user_path_env_linux(tmp_path):
+    from core.utils.system_utils import ensure_user_path_env_linux
+    with patch('sys.platform', 'win32'):
+        assert ensure_user_path_env_linux() is False
+
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    bashrc = fake_home / ".bashrc"
+    bashrc.write_text("# existing bashrc\n")
+
+    with patch('sys.platform', 'linux'):
+        with patch('os.path.expanduser', side_effect=lambda p: str(fake_home / p.replace('~/', '').replace('~', ''))):
+            with patch.dict(os.environ, {"PATH": "/usr/bin:/bin"}, clear=True):
+                res = ensure_user_path_env_linux()
+                assert res is True
+                assert 'export PATH="$HOME/.local/bin:$PATH"' in bashrc.read_text()
+
+
+def test_check_system_service_conflict():
+    from core.utils.system_utils import check_system_service_conflict
+    with patch('sys.platform', 'win32'):
+        assert check_system_service_conflict(80) is None
+
+    with patch('sys.platform', 'linux'):
+        with patch('shutil.which', return_value='/usr/bin/systemctl'):
+            with patch('subprocess.run') as mock_sub:
+                # First service returns 1 (inactive), second returns 0 (active)
+                mock_sub.side_effect = [
+                    MagicMock(returncode=1),
+                    MagicMock(returncode=0),
+                ]
+                svc = check_system_service_conflict(80)
+                assert svc == "httpd"
+
+
+
 
 
 

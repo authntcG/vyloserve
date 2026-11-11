@@ -17,8 +17,12 @@ from core.utils.system_utils import (
     get_silent_flags,
     check_port_in_use,
     open_path_in_file_manager,
+    check_system_service_conflict,
 )
-from core.utils.file_utils import read_json, write_json, download_advanced, extract_archive, read_log_tail, read_new_lines
+from core.utils.file_utils import (
+    read_json, write_json, download_advanced, extract_archive,
+    read_log_tail, read_new_lines, safe_rmtree
+)
 from core.utils.network_utils import is_network_error, build_offline_error_response
 from core.utils.cancellation import InstallationManager, OperationCancelledError
 INC_VHOSTS = "Include conf/extra/vyloserve-vhosts.conf"
@@ -517,7 +521,7 @@ class ApacheManager:
             except Exception: time.sleep(2)
         
         if not move_success: raise RuntimeError("Folder dikunci oleh OS/Antivirus.")
-        if os.path.exists(temp_extract_dir): shutil.rmtree(temp_extract_dir, ignore_errors=True)
+        if os.path.exists(temp_extract_dir): safe_rmtree(temp_extract_dir, force=True)
 
     def _migrate_old_conf(self, old_path: Optional[str], target_dir: str):
         if old_path and os.path.exists(os.path.join(old_path, "conf")):
@@ -526,7 +530,7 @@ class ApacheManager:
     def _cleanup_old_version(self, old_path: Optional[str], target_dir: str):
         if old_path and old_path != target_dir and os.path.exists(old_path):
             time.sleep(1)
-            shutil.rmtree(old_path, ignore_errors=True)
+            safe_rmtree(old_path, force=True)
 
     def _download_and_extract_apache(self, download_url: str, zip_path: str, temp_extract_dir: str, target_dir: str, cancel_check=None):
         def log_cb(msg, lvl): 
@@ -579,8 +583,8 @@ class ApacheManager:
                 self.api.emit_log(MSG_INSTALL_CANCELLED, "warn")
                 self.api.emit_progress(0, MSG_INSTALL_CANCELLED)
             if os.path.exists(zip_path): os.remove(zip_path)
-            shutil.rmtree(target_dir, ignore_errors=True)
-            shutil.rmtree(temp_extract_dir, ignore_errors=True)
+            safe_rmtree(target_dir, force=True)
+            safe_rmtree(temp_extract_dir, force=True)
             return {"status": "cancelled", "message": MSG_INSTALL_CANCELLED}
 
         except Exception as e:
@@ -588,8 +592,8 @@ class ApacheManager:
                 self.api.emit_log("backend.apache.install_error", "error", {"e": str(e)})
                 self.api.emit_progress(0, MSG_INSTALL_CANCELLED)
             if os.path.exists(zip_path): os.remove(zip_path)
-            shutil.rmtree(target_dir, ignore_errors=True)
-            shutil.rmtree(temp_extract_dir, ignore_errors=True)
+            safe_rmtree(target_dir, force=True)
+            safe_rmtree(temp_extract_dir, force=True)
             return {"status": "error", "message": "backend.apache.install_failed", "args": {"e": str(e)}}
         finally:
             InstallationManager.reset("apache")
@@ -600,7 +604,7 @@ class ApacheManager:
             if os.path.exists(self.base_dir):
                 for item in os.listdir(self.base_dir):
                     item_path = os.path.join(self.base_dir, item)
-                    shutil.rmtree(item_path, ignore_errors=True) if os.path.isdir(item_path) else os.remove(item_path)
+                    safe_rmtree(item_path, force=True) if os.path.isdir(item_path) else os.remove(item_path)
             
             json_file = os.path.join(get_project_root(), 'data', APACHE_JSON)
             if os.path.exists(json_file):
@@ -972,6 +976,9 @@ class ApacheManager:
                     if hasattr(self.api, 'emit_service_status'):
                         self.api.emit_service_status('apache', True)
                 return {"status": "success", "message": "backend.apache.start_success"}
+            conflict = check_system_service_conflict(80, "apache2")
+            if conflict and hasattr(self, 'api'):
+                self.api.emit_log("backend.system.service_conflict_detected", "warn", {"port": 80, "service": conflict})
             return {"status": "error", "message": "backend.apache.port_in_use"}
 
         self._verify_and_patch_httpd()

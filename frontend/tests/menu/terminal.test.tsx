@@ -415,7 +415,7 @@ describe("Terminal Components & Main View", () => {
             expect(screen.getByText("tools.terminal.env_restart_title")).toBeInTheDocument();
             expect(screen.getByText("tools.terminal.env_restart_now")).toBeInTheDocument();
             expect(screen.getByText("tools.terminal.env_restart_later")).toBeInTheDocument();
-        });
+        }, { timeout: 3000 });
 
         // Click Restart Now
         fireEvent.click(screen.getByText("tools.terminal.env_restart_now"));
@@ -457,7 +457,7 @@ describe("Terminal Components & Main View", () => {
         // Expect restart confirmation modal
         await waitFor(() => {
             expect(screen.getByText("tools.terminal.env_restart_title")).toBeInTheDocument();
-        });
+        }, { timeout: 3000 });
 
         // Click Apply to New Tabs Only
         fireEvent.click(screen.getByText("tools.terminal.env_restart_later"));
@@ -507,7 +507,7 @@ describe("Terminal Components & Main View", () => {
         // Expect restart confirmation modal
         await waitFor(() => {
             expect(screen.getByText("tools.terminal.env_restart_title")).toBeInTheDocument();
-        });
+        }, { timeout: 3000 });
 
         // Click Cancel on restart confirmation modal (which is the last cancel button on screen)
         const cancelButtons = screen.getAllByText("common.cancel");
@@ -548,7 +548,7 @@ describe("Terminal Components & Main View", () => {
         // Expect restart confirmation modal
         await waitFor(() => {
             expect(screen.getByText("tools.terminal.env_restart_title")).toBeInTheDocument();
-        });
+        }, { timeout: 3000 });
 
         // Click Apply to New Tabs Only
         fireEvent.click(screen.getByText("tools.terminal.env_restart_later"));

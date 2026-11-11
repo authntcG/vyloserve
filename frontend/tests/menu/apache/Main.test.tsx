@@ -239,6 +239,7 @@ describe('ApacheMain', () => {
         const openFile = vi.fn();
 
         mockPywebviewApi(apacheApi({
+            get_apache_status: vi.fn().mockResolvedValue({ status: 'success', installed: true, path: 'C:/Apache24', running: true }),
             open_apache_config: openConfig,
             open_apache_directory: openDir,
             open_browser: openLocalhost,

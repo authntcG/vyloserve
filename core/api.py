@@ -598,6 +598,11 @@ class Api:
             return self.project.delete_project(project_id, delete_files)
         return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
 
+    def fix_project_permissions(self, project_id: str):
+        if hasattr(self, 'project') and self.project:
+            return self.project.fix_project_permissions(project_id)
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+
     def retry_sync_host(self, project_id: str):
         if hasattr(self, 'project') and self.project:
             return self.project.retry_sync_host(project_id)

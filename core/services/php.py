@@ -14,7 +14,7 @@ from core.utils.system_utils import (
     open_path_in_file_manager,
     kill_process_tree,
 )
-from core.utils.file_utils import read_json, download_advanced, extract_archive
+from core.utils.file_utils import read_json, download_advanced, extract_archive, safe_rmtree
 from core.utils.network_utils import is_network_error
 from core.utils.cancellation import InstallationManager, OperationCancelledError
 PHP_INI = "php.ini"
@@ -354,7 +354,7 @@ class PhpManager:
             try: os.remove(file_path)
             except Exception: pass
         if os.path.exists(target_dir):
-            shutil.rmtree(target_dir, ignore_errors=True)
+            safe_rmtree(target_dir, force=True)
 
     def _write_default_php_ini(self, target_dir: str, version: str, port: int):
         self._progress(92, "backend.php.configuring")
@@ -444,7 +444,7 @@ class PhpManager:
                 f.write(ini_backup)
             self._log("backend.php.config_migrated", "info")
 
-        shutil.rmtree(old_dir, ignore_errors=True)
+        safe_rmtree(old_dir, force=True)
 
         try:
             if hasattr(self.api, 'project'): self.api.project.sync_apache_vhosts()
@@ -515,7 +515,7 @@ class PhpManager:
     def uninstall_version(self, version: str):
         target = os.path.join(self.base_dir, version)
         if os.path.exists(target):
-            shutil.rmtree(target, ignore_errors=True)
+            safe_rmtree(target, force=True)
             try:
                 if hasattr(self.api, 'project'): self.api.project.sync_apache_vhosts()
                 if hasattr(self.api, 'apache') and self.api.apache.check_is_running(): self.api.apache.restart_server()
@@ -561,6 +561,83 @@ class PhpManager:
                 self.api.apache.update_global_php_proxy(port)
         except Exception: pass
 
+    def _ensure_vyloserve_fpm_pool(self, php_version: str) -> Optional[str]:
+        if sys.platform == 'win32':
+            return None
+        from core.utils.system_utils import get_current_username, get_current_user_group
+        user = get_current_username()
+        group = get_current_user_group() or user
+
+        digits = re.findall(r'\d+', php_version)
+        short_ver = '.'.join(digits[:2]) if digits else ''
+
+        pool_dirs = []
+        if short_ver:
+            pool_dirs.append(f"/etc/php/{short_ver}/fpm/pool.d")
+        pool_dirs.extend([
+            "/etc/php-fpm.d",
+            "/etc/php/fpm/pool.d"
+        ])
+
+        target_pool_dir = None
+        for pd in pool_dirs:
+            if os.path.isdir(pd):
+                target_pool_dir = pd
+                break
+
+        if not target_pool_dir:
+            return None
+
+        conf_file = os.path.join(target_pool_dir, "vyloserve.conf")
+        sock_name = f"php{short_ver}-fpm-vyloserve.sock" if short_ver else "php-fpm-vyloserve.sock"
+        sock_path = f"/run/php/{sock_name}"
+
+        pool_content = (
+            f"; VyloServe 1-Ownership Worker Pool\n"
+            f"[vyloserve]\n"
+            f"user = {user}\n"
+            f"group = {group}\n"
+            f"listen = {sock_path}\n"
+            f"listen.owner = www-data\n"
+            f"listen.group = www-data\n"
+            f"listen.mode = 0660\n"
+            f"pm = ondemand\n"
+            f"pm.max_children = 10\n"
+            f"pm.process_idle_timeout = 10s\n"
+        )
+
+        pkexec = shutil.which("pkexec")
+        needed = True
+        if os.path.exists(conf_file):
+            try:
+                with open(conf_file, 'r', encoding='utf-8') as f:
+                    if pool_content.strip() == f.read().strip():
+                        needed = False
+            except Exception:
+                needed = True
+
+        if needed and pkexec:
+            import tempfile
+            temp_pool = os.path.join(tempfile.gettempdir(), f"vyloserve_pool_{os.getpid()}.conf")
+            try:
+                with open(temp_pool, 'w', encoding='utf-8') as f:
+                    f.write(pool_content)
+                res = subprocess.run([pkexec, "cp", temp_pool, conf_file], capture_output=True)
+                if res.returncode == 0:
+                    subprocess.run([pkexec, "chmod", "644", conf_file], capture_output=True)
+                    systemctl = shutil.which("systemctl")
+                    svc_name = f"php{short_ver}-fpm" if short_ver else "php-fpm"
+                    if systemctl:
+                        subprocess.run([pkexec, systemctl, "reload", svc_name], capture_output=True)
+            except Exception:
+                pass
+            finally:
+                if os.path.exists(temp_pool):
+                    try: os.remove(temp_pool)
+                    except OSError: pass
+
+        return sock_path
+
     def _toggle_system_php_service(self, enable: bool) -> bool:
         if sys.platform == 'win32':
             return False
@@ -571,6 +648,12 @@ class PhpManager:
             short_ver = '.'.join(ver.split('.')[:2])
             services.insert(0, f"php{short_ver}-fpm")
         
+        if enable:
+            try:
+                self._ensure_vyloserve_fpm_pool(ver or "system")
+            except Exception:
+                pass
+
         systemctl = shutil.which("systemctl")
         pkexec = shutil.which("pkexec")
         action = "start" if enable else "stop"

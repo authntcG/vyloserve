@@ -1666,7 +1666,10 @@
             "port_in_use": "Port {{port}} sudah digunakan oleh proses lain.",
             "no_start_script": "Tidak dapat menemukan 'start-dev.bat' atau perintah start yang dikenali.",
             "auto_create_db_success": "Database '{{name}}' berhasil dibuat dan dikonfigurasi untuk project.",
-            "auto_create_db_failed": "Gagal membuat database '{{name}}' otomatis: {{err}}"
+            "auto_create_db_failed": "Gagal membuat database '{{name}}' otomatis: {{err}}",
+            "permissions_fixed": "Hak akses dan kepemilikan file projek berhasil dinormalkan.",
+            "permissions_fix_failed": "Gagal menormalkan hak akses file projek.",
+            "folder_not_found": "Direktori projek tidak ditemukan pada disk."
         },
         "ssl": {
             "creating_root_ca": "Membuat VyloServe Root CA (Otoritas Sertifikat Lokal)...",
@@ -1683,6 +1686,9 @@
             "project_module_not_loaded": "Modul Project tidak dimuat.",
             "closing_app": "Menutup aplikasi...",
             "ping_received": "Menerima ping dari UI: {{data}}"
+        },
+        "system": {
+            "service_conflict_detected": "Port {{port}} sedang digunakan oleh service sistem '{{service}}'. Silakan matikan service tersebut terlebih dahulu."
         },
         "updater": {
             "network_error": "Terjadi kesalahan jaringan saat mengecek pembaruan.",

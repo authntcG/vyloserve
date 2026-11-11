@@ -27,6 +27,12 @@ if (!window.matchMedia) {
     }));
 }
 
+Object.defineProperty(window.navigator, 'userAgent', {
+    value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) jsdom/30.1.0',
+    configurable: true,
+    writable: true,
+});
+
 /**
  * Mock global react-i18next.useTranslation() untuk semua test.
  *

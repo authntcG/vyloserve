@@ -319,14 +319,16 @@ export function ProjectProvider({ children }: { readonly children: React.ReactNo
                     const portsRes = await api.get_apache_ports_status();
                     if (portsRes?.status === 'success' && portsRes.data?.https?.status === 'listening') {
                         proto = 'https';
-                    } else {
+                    } else if (portsRes?.status === 'success' && portsRes.data?.http?.status === 'listening') {
                         proto = 'http';
+                    } else {
+                        proto = 'https';
                     }
                 } else {
-                    proto = 'http';
+                    proto = 'https';
                 }
             } catch {
-                proto = 'http';
+                proto = 'https';
             }
         }
         const url = `${proto}://${domain}`;

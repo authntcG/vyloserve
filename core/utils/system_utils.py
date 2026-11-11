@@ -1,5 +1,6 @@
 import os
 import sys
+import shutil
 import socket
 import subprocess
 import time
@@ -853,4 +854,85 @@ def set_path_in_env(env: Dict[str, str], paths_to_prepend: List[str]) -> Dict[st
         env["Path"] = new_path_str
 
     return env
+
+def get_current_username() -> str:
+    """ Mengembalikan nama user sistem aktif lintas platform. """
+    import getpass
+    try:
+        return getpass.getuser()
+    except Exception:
+        return os.environ.get('USER') or os.environ.get('USERNAME') or 'user'
+
+def get_current_user_group() -> str:
+    """ Mengembalikan nama group primer dari user aktif di Linux/POSIX. """
+    if sys.platform == 'win32':
+        return ''
+    try:
+        import grp
+        return grp.getgrgid(os.getgid()).gr_name
+    except Exception:
+        return get_current_username()
+
+def ensure_user_path_env_linux() -> bool:
+    """
+    Memastikan direktori ~/.local/bin terdaftar di file konfigurasi shell Linux (~/.bashrc / ~/.profile).
+    """
+    if sys.platform == 'win32':
+        return False
+    user_bin = os.path.expanduser('~/.local/bin')
+    os.makedirs(user_bin, exist_ok=True)
+    
+    current_path = os.environ.get('PATH', '')
+    if user_bin in [p.rstrip('/') for p in current_path.split(':') if p]:
+        return True
+        
+    export_line = 'export PATH="$HOME/.local/bin:$PATH"\n'
+    home = os.path.expanduser('~')
+    for rc_name in ['.bashrc', '.profile']:
+        rc_path = os.path.join(home, rc_name)
+        if os.path.exists(rc_path):
+            try:
+                with open(rc_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                if '.local/bin' not in content:
+                    with open(rc_path, 'a', encoding='utf-8') as f:
+                        f.write(f"\n# Added by VyloServe\n{export_line}")
+                    return True
+            except Exception:
+                pass
+    return False
+
+def check_system_service_conflict(port: int, engine: str = "") -> Optional[str]:
+    """
+    Di Linux, memeriksa apakah port yang konflik sedang diduduki oleh service systemd aktif
+    (seperti apache2, nginx, mysql, mariadb, postgresql).
+    Mengembalikan nama service jika aktif, atau None.
+    """
+    if sys.platform == 'win32':
+        return None
+    systemctl = shutil.which("systemctl")
+    if not systemctl:
+        return None
+
+    service_map = {
+        80: ["apache2", "httpd", "nginx"],
+        443: ["apache2", "httpd", "nginx"],
+        3306: ["mysql", "mariadb"],
+        5432: ["postgresql"],
+        6379: ["redis", "redis-server"],
+    }
+    candidates = service_map.get(port, [])
+    if engine and not candidates:
+        candidates = [engine]
+
+    for svc in candidates:
+        try:
+            res = subprocess.run([systemctl, "is-active", "--quiet", svc], capture_output=True)
+            if res.returncode == 0:
+                return svc
+        except Exception:
+            pass
+    return None
+
+
 

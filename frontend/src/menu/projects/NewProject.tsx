@@ -131,12 +131,14 @@ function buildRuntimeOptions(runtimesInfo: RuntimesInfoMap, t: any): SelectOptio
         const info = runtimesInfo[engine];
         const isInstalled = Boolean(info?.installed);
         const isInPath = Boolean(info?.in_path);
-        const isReady = isInstalled && isInPath;
+        const isReady = isInstalled;
         let sublabel = '';
         if (!isInstalled) {
             sublabel = t('apache.runtime_not_installed_badge');
         } else if (!isInPath) {
-            sublabel = t('apache.runtime_not_in_path_badge');
+            sublabel = info.version
+                ? `v${info.version} (${t('apache.runtime_not_in_path_badge')})`
+                : t('apache.runtime_not_in_path_badge');
         } else if (info.version) {
             sublabel = `v${info.version}`;
         }

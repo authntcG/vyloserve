@@ -18,7 +18,7 @@ from core.utils.system_utils import (
     kill_process_tree,
     set_path_in_env,
 )
-from core.utils.file_utils import read_json, write_json, read_log_tail
+from core.utils.file_utils import read_json, write_json, read_log_tail, safe_rmtree, fix_file_permissions
 
 
 MSG_UNEXPECTED_ERROR = "backend.error.unexpected"
@@ -689,11 +689,10 @@ class ProjectManager:
         return None
 
     def _rollback_dir(self, target_dir: str):
-        import shutil
         if os.path.exists(target_dir):
             self._progress(100, "backend.project.rolling_back")
             self._log("backend.project.install_failed_rollback", "warn", {"target_dir": target_dir})
-            shutil.rmtree(target_dir, ignore_errors=True)
+            safe_rmtree(target_dir, force=True)
 
     def _determine_framework_package(self, framework: str, specific_version: str, php_version: str) -> tuple[str, bool]:
         if framework == 'laravel':
@@ -748,8 +747,7 @@ class ProjectManager:
     def _run_composer_create_project(self, php_exe: str, php_ini_path: str, composer_phar: str, package: str, target_dir: str, custom_env: dict, cflags: int, current_percent: float, ansi_escape: re.Pattern) -> tuple[bool, str]:
         # Hapus Folder Jika Sudah Ada (Mencegah Error "Directory is not empty")
         if os.path.exists(target_dir):
-            import shutil
-            shutil.rmtree(target_dir, ignore_errors=True)
+            safe_rmtree(target_dir, force=True)
 
         self._log("backend.project.downloading_framework", "info")
         cmd_create = self._build_php_cmd(
@@ -1053,7 +1051,7 @@ class ProjectManager:
 
     def _run_nextjs_interactive_cli(self, npx_cmd: str, target_dir: str, specific_version: str, proxy_port: int, custom_env: dict) -> tuple[bool, str]:
         if os.path.exists(target_dir):
-            shutil.rmtree(target_dir, ignore_errors=True)
+            safe_rmtree(target_dir, force=True)
         parent_dir = os.path.dirname(target_dir)
         os.makedirs(parent_dir, exist_ok=True)
         next_ver = specific_version if specific_version else "latest"
@@ -1093,7 +1091,7 @@ class ProjectManager:
 
     def _run_react_interactive_cli(self, npx_cmd: str, target_dir: str, specific_version: str, proxy_port: int, custom_env: dict) -> tuple[bool, str]:
         if os.path.exists(target_dir):
-            shutil.rmtree(target_dir, ignore_errors=True)
+            safe_rmtree(target_dir, force=True)
         parent_dir = os.path.dirname(target_dir)
         os.makedirs(parent_dir, exist_ok=True)
         vite_pkg = f"create-vite@{specific_version}" if specific_version else "create-vite@latest"
@@ -1721,10 +1719,15 @@ public class Main {{
 
             final_content = "".join(clean_lines) + (new_hosts_block if has_domains else "")
 
-            temp_file = os.path.join(tempfile.gettempdir(), 'vyloserve_hosts_temp.txt')
+            temp_file = os.path.join(tempfile.gettempdir(), f'vyloserve_hosts_{os.getpid()}_{int(time.time())}.txt')
             with open(temp_file, 'w', encoding='utf-8') as f: f.write(final_content)
 
-            return self._write_hosts_with_uac(hosts_path, final_content, temp_file)
+            try:
+                return self._write_hosts_with_uac(hosts_path, final_content, temp_file)
+            finally:
+                if os.path.exists(temp_file):
+                    try: os.remove(temp_file)
+                    except OSError: pass
         except Exception as e:
             return {"status": "error", "message": "backend.project.hosts_error", "args": {"e": str(e)}}
 
@@ -1781,15 +1784,20 @@ public class Main {{
             return None
 
         candidates = []
+        short_ver = ""
         if php_version:
             digits = re.findall(r'\d+', php_version)
             if digits:
                 short_ver = '.'.join(digits[:2])
                 candidates.extend([
+                    f"/run/php/php{short_ver}-fpm-vyloserve.sock",
+                    f"/var/run/php/php{short_ver}-fpm-vyloserve.sock",
                     f"/run/php/php{short_ver}-fpm.sock",
                     f"/var/run/php/php{short_ver}-fpm.sock",
                 ])
         candidates.extend([
+            "/run/php/php-fpm-vyloserve.sock",
+            "/var/run/php/php-fpm-vyloserve.sock",
             "/run/php/php-fpm.sock",
             "/var/run/php/php-fpm.sock",
         ])
@@ -1798,8 +1806,11 @@ public class Main {{
                 return cand
 
         if self._is_system_php(php_version):
-            if short_ver and (os.path.isdir(f"/etc/php/{short_ver}") or os.path.isdir("/run/php")):
-                return f"/run/php/php{short_ver}-fpm.sock"
+            if short_ver:
+                if os.path.exists(f"/run/php/php{short_ver}-fpm-vyloserve.sock"):
+                    return f"/run/php/php{short_ver}-fpm-vyloserve.sock"
+                if os.path.isdir(f"/etc/php/{short_ver}") or os.path.isdir("/run/php"):
+                    return f"/run/php/php{short_ver}-fpm.sock"
             if os.path.isdir("/run/php") or os.path.isdir("/etc/php"):
                 return "/run/php/php-fpm.sock"
 
@@ -1928,12 +1939,31 @@ public class Main {{
                     self.api.apache.restart_server() 
             
             if delete_files and 'path' in project_to_delete:
-                import shutil
                 base_path = project_to_delete['path'].replace('/public', '').replace('\\public', '')
-                if os.path.exists(base_path): shutil.rmtree(base_path, ignore_errors=True)
+                if os.path.exists(base_path):
+                    safe_rmtree(base_path, force=True)
                 
             self._log("backend.project.project_deleted", "info", {"domain": project_to_delete['domain']})
             return {"status": "success", "message": "backend.project.project_deleted"}
+        except Exception as e:
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def fix_project_permissions(self, project_id: str) -> dict:
+        try:
+            projects = self._read_projects()
+            proj = next((p for p in projects if p['id'] == project_id), None)
+            if not proj:
+                return {"status": "error", "message": MSG_PROJECT_NOT_FOUND}
+
+            base_path = proj['path'].replace('/public', '').replace('\\public', '')
+            if not os.path.exists(base_path):
+                return {"status": "error", "message": "backend.project.folder_not_found"}
+
+            success = fix_file_permissions(base_path, recursive=True)
+            if success:
+                self._log("backend.project.permissions_fixed", "success", {"domain": proj.get('domain', '')})
+                return {"status": "success", "message": "backend.project.permissions_fixed"}
+            return {"status": "error", "message": "backend.project.permissions_fix_failed"}
         except Exception as e:
             return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 

@@ -150,12 +150,13 @@ def test_get_projects(mock_read_json, project_manager):
 @patch('core.services.project.os.path.exists', return_value=True)
 def test_delete_project(mock_exists, mock_rmtree, mock_write_json, mock_read_json, project_manager):
     mock_read_json.return_value = [{"id": "1", "domain": "test.local", "path": "c:/www/test"}]
-    
+
     with patch.object(project_manager, 'sync_apache_vhosts'):
         with patch.object(project_manager, 'sync_windows_hosts'):
             res = project_manager.delete_project("1", delete_files=True)
             assert res['status'] == 'success'
-            mock_rmtree.assert_called_once_with("c:/www/test", ignore_errors=True)
+            assert mock_rmtree.call_count == 1
+            assert mock_rmtree.call_args[0][0] == "c:/www/test"
             mock_write_json.assert_called_once()
 
 @patch('core.services.project.read_json')
@@ -210,7 +211,8 @@ def test_rollback_dir_removes_directory_and_reports_progress(mock_exists, mock_r
     """
     project_manager._rollback_dir("C:\\target_dir")
 
-    mock_rmtree.assert_called_once_with("C:\\target_dir", ignore_errors=True)
+    assert mock_rmtree.call_count == 1
+    assert mock_rmtree.call_args[0][0] == "C:\\target_dir"
     project_manager.api.emit_progress.assert_called_once_with(100, "backend.project.rolling_back", None)
 
 @patch('os.path.exists', return_value=False)
@@ -1300,5 +1302,31 @@ def test_sync_apache_vhosts_reloads_when_running(project_manager):
         res = project_manager.sync_apache_vhosts()
         assert res["status"] == "success"
         mock_apache.reload_server.assert_called_once()
+
+
+def test_fix_project_permissions_success(project_manager):
+    with patch.object(project_manager, '_read_projects', return_value=[{"id": "p1", "domain": "app.test", "path": "/home/user/app/public"}]):
+        with patch('os.path.exists', return_value=True):
+            with patch('core.services.project.fix_file_permissions', return_value=True) as mock_fix:
+                res = project_manager.fix_project_permissions("p1")
+                assert res["status"] == "success"
+                assert res["message"] == "backend.project.permissions_fixed"
+                mock_fix.assert_called_once_with("/home/user/app", recursive=True)
+
+
+def test_fix_project_permissions_not_found(project_manager):
+    with patch.object(project_manager, '_read_projects', return_value=[]):
+        res = project_manager.fix_project_permissions("p999")
+        assert res["status"] == "error"
+        assert res["message"] == "backend.project.project_not_found"
+
+
+def test_resolve_linux_php_socket_prioritizes_vyloserve_pool(project_manager):
+    with patch('sys.platform', 'linux'):
+        with patch.object(project_manager, '_is_system_php', return_value=True):
+            with patch('os.path.exists', side_effect=lambda p: 'vyloserve.sock' in p):
+                sock = project_manager._resolve_linux_php_socket("8.3")
+                assert sock == "/run/php/php8.3-fpm-vyloserve.sock"
+
 
 

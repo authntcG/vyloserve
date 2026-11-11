@@ -437,7 +437,7 @@ def test_db_unwrap_single_subdir(db_mgr):
 def test_db_cleanup_install_failure(db_mgr):
     with patch('core.services.database.os.path.exists', side_effect=[True, True, True]):
         with patch('core.services.database.os.remove') as mock_rm:
-            with patch('core.services.database.shutil.rmtree') as mock_rmtree:
+            with patch('core.services.database.safe_rmtree') as mock_rmtree:
                 db_mgr._cleanup_install_failure("zip", "install", False, "data")
                 mock_rm.assert_called_once_with("zip")
                 assert mock_rmtree.call_count == 2
@@ -1130,8 +1130,9 @@ def test_update_database_success(mock_shutil, mock_read_json, mock_write_json, m
 @patch('core.services.database.read_json')
 @patch('core.services.database.os.path.exists')
 @patch('core.services.database.shutil')
+@patch('core.services.database.safe_rmtree')
 @patch('core.utils.file_utils.download_advanced')
-def test_update_database_rollback_on_failure(mock_download, mock_shutil, mock_exists, mock_read_json, db_mgr):
+def test_update_database_rollback_on_failure(mock_download, mock_safe_rmtree, mock_shutil, mock_exists, mock_read_json, db_mgr):
     from unittest.mock import MagicMock
     mock_read_json.return_value = [{"id": "mysql_10", "engine": "mysql", "version": "10.0", "installDir": "/bin/mysql_10", "dataDir": "/data/mysql_10"}]
     mock_exists.return_value = True
@@ -1146,7 +1147,7 @@ def test_update_database_rollback_on_failure(mock_download, mock_shutil, mock_ex
     assert res['message'] == 'backend.database.update_failed_rollback'
     
     assert mock_shutil.move.called
-    assert mock_shutil.rmtree.called
+    assert mock_safe_rmtree.called
 
 def test_update_database_cancelled_rolls_back(db_mgr):
     from core.utils.cancellation import OperationCancelledError
@@ -1155,6 +1156,7 @@ def test_update_database_cancelled_rolls_back(db_mgr):
          patch('core.services.database.os.makedirs'), \
          patch('core.services.database.os.remove'), \
          patch('core.services.database.shutil') as mock_shutil, \
+         patch('core.services.database.safe_rmtree') as mock_safe_rmtree, \
          patch.object(db_mgr, 'stop_database'), \
          patch('core.services.database.download_advanced', side_effect=OperationCancelledError("Cancelled")):
         res = db_mgr.update_database("mysql_10", "10.1", "http://url", backup_data=False)
@@ -1162,7 +1164,7 @@ def test_update_database_cancelled_rolls_back(db_mgr):
     assert res['status'] == 'cancelled'
     assert res['message'] == 'backend.database.update_cancelled'
     assert mock_shutil.move.called
-    assert mock_shutil.rmtree.called
+    assert mock_safe_rmtree.called
 
 def test_install_database_cancelled(db_mgr):
     from core.utils.cancellation import OperationCancelledError

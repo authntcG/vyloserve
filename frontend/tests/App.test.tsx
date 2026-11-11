@@ -96,7 +96,7 @@ describe('App', () => {
         render(<App />);
 
         await waitFor(() => expect(getAppSettings).toHaveBeenCalledTimes(1));
-        expect(screen.getByText('dashboard-main')).toBeInTheDocument();
+        await waitFor(() => expect(screen.getByText('dashboard-main')).toBeInTheDocument());
     });
 
     it('switches the active menu section, keeping the others in the DOM but hidden', async () => {

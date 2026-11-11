@@ -2,6 +2,9 @@ import os
 import sys
 import json
 import time
+import stat
+import shutil
+import subprocess
 import zipfile
 import tarfile
 import urllib.request
@@ -450,3 +453,134 @@ def download_advanced(url: str, dest_path: str,
         _download_single_stream(url, dest_path, total_size, progress_cb, log_cb, cancel_check=cancel_check)
         
     return True
+
+def _on_rm_error(func: Callable, path: str, _exc_info: Any) -> None:
+    """
+    Error handler untuk shutil.rmtree.
+    Menghapus atribut read-only dan memberikan write permission pada file/folder
+    sebelum mencoba menghapus kembali (menangani Windows WinError 5 dan Linux EACCES).
+    """
+    try:
+        os.chmod(path, stat.S_IWRITE | stat.S_IREAD | stat.S_IEXEC)
+        func(path)
+    except Exception:
+        pass
+
+def safe_rmtree(target_path: str, force: bool = True) -> bool:
+    """
+    Menghapus direktori secara rekursif dan aman lintas platform.
+    Menangani atribut read-only (Windows/POSIX), serta melakukan fallback eskalasi
+    terkendali (pkexec di Linux) jika penghapusan terhalang kepemilikan asing (root/www-data).
+    
+    Args:
+        target_path: Path absolut direktori yang akan dihapus.
+        force: Jika True, mencoba eskalasi via pkexec di Linux jika normal removal gagal.
+        
+    Returns:
+        bool: True jika target_path berhasil dihapus (atau memang tidak ada), False jika gagal.
+    """
+    if not target_path or not os.path.exists(target_path):
+        return True
+    
+    try:
+        shutil.rmtree(target_path, onerror=_on_rm_error)
+    except Exception:
+        pass
+
+    if not os.path.exists(target_path):
+        return True
+
+    # Jika masih ada sisa file/direktori dan berjalan di Linux dengan flag force=True
+    if sys.platform != 'win32' and force:
+        pkexec = shutil.which("pkexec")
+        if pkexec:
+            try:
+                res = subprocess.run([pkexec, "rm", "-rf", target_path], capture_output=True)
+                if res.returncode == 0 and not os.path.exists(target_path):
+                    return True
+            except Exception:
+                pass
+
+    return not os.path.exists(target_path)
+
+def fix_file_permissions(path: str, recursive: bool = True) -> bool:
+    """
+    Menormalkan kepemilikan dan hak akses file/direktori agar 100% dimiliki oleh
+    user yang sedang aktif di Linux. Di Windows, fungsi ini mengembalikan True (no-op).
+    
+    Args:
+        path: Path ke file atau direktori.
+        recursive: Apakah penyesuaian hak akses dilakukan secara rekursif jika berupa direktori.
+        
+    Returns:
+        bool: True jika berhasil atau di Windows, False jika gagal.
+    """
+    if sys.platform == 'win32' or not os.path.exists(path):
+        return True
+
+    try:
+        target_uid = os.getuid()
+        target_gid = os.getgid()
+    except AttributeError:
+        return True
+
+    foreign_ownership_found = False
+
+    try:
+        if os.path.isdir(path) and recursive:
+            for root, dirs, files in os.walk(path):
+                st_root = os.stat(root)
+                if st_root.st_uid != target_uid or st_root.st_gid != target_gid:
+                    foreign_ownership_found = True
+                    break
+                for item in files + dirs:
+                    p = os.path.join(root, item)
+                    try:
+                        st = os.lstat(p)
+                        if st.st_uid != target_uid or st.st_gid != target_gid:
+                            foreign_ownership_found = True
+                            break
+                    except OSError:
+                        pass
+                if foreign_ownership_found:
+                    break
+        else:
+            st = os.stat(path)
+            if st.st_uid != target_uid or st.st_gid != target_gid:
+                foreign_ownership_found = True
+    except Exception:
+        foreign_ownership_found = True
+
+    if foreign_ownership_found:
+        pkexec = shutil.which("pkexec")
+        if pkexec:
+            try:
+                chown_cmd = [pkexec, "chown", "-R", f"{target_uid}:{target_gid}", path] if recursive and os.path.isdir(path) else [pkexec, "chown", f"{target_uid}:{target_gid}", path]
+                res = subprocess.run(chown_cmd, capture_output=True)
+                if res.returncode != 0:
+                    return False
+            except Exception:
+                return False
+        else:
+            return False
+
+    try:
+        if os.path.isdir(path) and recursive:
+            for root, dirs, files in os.walk(path):
+                try:
+                    os.chmod(root, 0o775)
+                except OSError:
+                    pass
+                for f in files:
+                    fp = os.path.join(root, f)
+                    try:
+                        os.chmod(fp, 0o664)
+                    except OSError:
+                        pass
+        elif os.path.isdir(path):
+            os.chmod(path, 0o775)
+        else:
+            os.chmod(path, 0o664)
+        return True
+    except Exception:
+        return False

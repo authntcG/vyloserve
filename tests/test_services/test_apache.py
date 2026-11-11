@@ -114,7 +114,7 @@ def test_verify_and_patch_httpd(mock_exists, mock_makedirs, mock_update_php, moc
 def test_move_apache_extract(apache_manager):
     with patch('shutil.move') as mock_move:
         with patch('os.path.exists', return_value=True):
-            with patch('shutil.rmtree') as mock_rm:
+            with patch('core.services.apache.safe_rmtree') as mock_rm:
                 apache_manager._move_apache_extract("temp_dir", "target_dir")
                 mock_move.assert_called_once()
                 mock_rm.assert_called_once()
@@ -176,7 +176,7 @@ def test_apache_uninstall(apache_manager):
     with patch('os.path.exists', side_effect=[True, True]): # base_dir, json_file
         with patch('os.listdir', return_value=["dir1", "file1.txt"]):
             with patch('os.path.isdir', side_effect=lambda x: "dir1" in x):
-                with patch('shutil.rmtree') as mock_rmtree:
+                with patch('core.services.apache.safe_rmtree') as mock_rmtree:
                     with patch('os.remove') as mock_remove:
                         res = apache_manager.uninstall()
                         assert res['status'] == 'success'
@@ -619,7 +619,7 @@ def test_get_available_versions_returns_unknown_error_on_non_network_exception(a
 
 @patch('core.services.apache.download_advanced', side_effect=OSError("network down"))
 @patch('core.services.apache.os.remove')
-@patch('core.services.apache.shutil.rmtree')
+@patch('core.services.apache.safe_rmtree')
 def test_install_version_rolls_back_on_download_failure(mock_rmtree, mock_remove, mock_download, apache_manager):
     with patch.object(apache_manager, 'get_status', return_value={"installed": False}), \
          patch('core.services.apache.os.path.exists', side_effect=lambda path: "apache-2.4.60.zip" in path):
@@ -638,7 +638,7 @@ def test_install_version_cancelled_cleans_up_and_returns_cancelled(apache_manage
          patch('core.services.apache.os.path.exists', side_effect=lambda path: "apache-2.4.60.zip" in path), \
          patch('core.services.apache.download_advanced', side_effect=OperationCancelledError("Cancelled")), \
          patch('core.services.apache.os.remove') as mock_remove, \
-         patch('core.services.apache.shutil.rmtree') as mock_rmtree:
+         patch('core.services.apache.safe_rmtree') as mock_rmtree:
         res = apache_manager.install_version("2.4.60", "http://example.com/apache.zip", 8080)
 
     assert res['status'] == 'cancelled'

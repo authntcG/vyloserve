@@ -17,10 +17,11 @@ from core.utils.system_utils import (
     start_silent_process,
     run_silent_command,
     get_silent_flags,
+    check_system_service_conflict,
 )
 from core.utils.file_utils import (
     read_json, write_json, download_advanced, extract_archive,
-    read_log_tail, read_new_lines, parse_ini_key_values
+    read_log_tail, read_new_lines, parse_ini_key_values, safe_rmtree
 )
 from core.utils.network_utils import is_network_error
 from core.utils.cancellation import InstallationManager, OperationCancelledError
@@ -175,6 +176,9 @@ class DatabaseManager:
         if not db_obj: return {"status": "error", "message": DB_NOT_FOUND_MSG}
 
         if check_port_in_use(db_obj['port']):
+            conflict = check_system_service_conflict(db_obj['port'], db_obj.get('engine', ''))
+            if conflict:
+                self._log("backend.system.service_conflict_detected", "warn", {"port": db_obj["port"], "service": conflict})
             return {"status": "error", "message": "backend.database.port_in_use", "args": {"port": db_obj["port"]}}
 
         try:
@@ -678,8 +682,8 @@ class DatabaseManager:
         if os.path.exists(zip_path): 
             try: os.remove(zip_path)
             except Exception: pass
-        if os.path.exists(install_dir): shutil.rmtree(install_dir, ignore_errors=True)
-        if not is_existing_data and os.path.exists(db_data_dir): shutil.rmtree(db_data_dir, ignore_errors=True)
+        if os.path.exists(install_dir): safe_rmtree(install_dir, force=True)
+        if not is_existing_data and os.path.exists(db_data_dir): safe_rmtree(db_data_dir, force=True)
 
     # ==========================================
     # SYNCHRONOUS INSTALLATION ENGINE (SUPER FAST)
@@ -755,19 +759,19 @@ class DatabaseManager:
     @staticmethod
     def _backup_install_and_data_dirs(install_dir: str, install_dir_backup: str, db_data_dir: str, db_data_dir_backup: str, backup_data: bool):
         if os.path.exists(install_dir_backup):
-            shutil.rmtree(install_dir_backup, ignore_errors=True)
+            safe_rmtree(install_dir_backup, force=True)
         if os.path.exists(install_dir):
             shutil.move(install_dir, install_dir_backup)
             
         if backup_data:
             if os.path.exists(db_data_dir_backup):
-                shutil.rmtree(db_data_dir_backup, ignore_errors=True)
+                safe_rmtree(db_data_dir_backup, force=True)
             if os.path.exists(db_data_dir):
                 shutil.copytree(db_data_dir, db_data_dir_backup)
 
     @staticmethod
     def _rollback_directories(install_dir: str, install_dir_backup: str):
-        shutil.rmtree(install_dir, ignore_errors=True)
+        safe_rmtree(install_dir, force=True)
         if os.path.exists(install_dir_backup):
             shutil.move(install_dir_backup, install_dir)
 
@@ -776,7 +780,7 @@ class DatabaseManager:
     ) -> None:
         self._rollback_directories(install_dir, install_dir_backup)
         if backup_data and os.path.exists(db_data_dir_backup):
-            shutil.rmtree(db_data_dir, ignore_errors=True)
+            safe_rmtree(db_data_dir, force=True)
             shutil.move(db_data_dir_backup, db_data_dir)
         if os.path.exists(zip_path):
             try:
@@ -837,7 +841,7 @@ class DatabaseManager:
             engine_title = {'mysql': 'MariaDB', 'redis': 'Redis'}.get(db_obj.get('engine'), 'PostgreSQL')
             db_obj['name'] = f"{engine_title} {new_version}"
             write_json(self.config_path, data)
-            shutil.rmtree(install_dir_backup, ignore_errors=True)
+            safe_rmtree(install_dir_backup, force=True)
 
             self._log("backend.database.update_success", "success")
             self._progress(100, "backend.database.update_complete")
@@ -867,8 +871,8 @@ class DatabaseManager:
                 return {"status": "error", "message": "backend.database.running_cannot_remove"}
 
             install_dir, data_dir = db_to_remove.get('installDir'), db_to_remove.get('dataDir')
-            if install_dir and os.path.exists(install_dir): shutil.rmtree(install_dir, ignore_errors=True)
-            if delete_data and data_dir and os.path.exists(data_dir): shutil.rmtree(data_dir, ignore_errors=True)
+            if install_dir and os.path.exists(install_dir): safe_rmtree(install_dir, force=True)
+            if delete_data and data_dir and os.path.exists(data_dir): safe_rmtree(data_dir, force=True)
                 
             data = [db for db in data if db['id'] != db_id]
             write_json(self.config_path, data)

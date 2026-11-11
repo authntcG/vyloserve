@@ -1666,7 +1666,10 @@
             "port_in_use": "Port {{port}} is already in use by another process.",
             "no_start_script": "Could not find 'start-dev.bat' or recognized start command.",
             "auto_create_db_success": "Database '{{name}}' created and configured for project.",
-            "auto_create_db_failed": "Failed to auto-create database '{{name}}': {{err}}"
+            "auto_create_db_failed": "Failed to auto-create database '{{name}}': {{err}}",
+            "permissions_fixed": "Project file permissions and ownership have been successfully normalized.",
+            "permissions_fix_failed": "Failed to normalize project file permissions.",
+            "folder_not_found": "Project directory not found on disk."
         },
         "ssl": {
             "creating_root_ca": "Creating VyloServe Root CA (Local Certificate Authority)...",
@@ -1683,6 +1686,9 @@
             "project_module_not_loaded": "Project module not loaded.",
             "closing_app": "Closing application...",
             "ping_received": "Received ping from UI: {{data}}"
+        },
+        "system": {
+            "service_conflict_detected": "Port {{port}} is occupied by active system service '{{service}}'. Please stop it before starting this service."
         },
         "updater": {
             "network_error": "Network error while checking for updates.",

@@ -455,3 +455,100 @@ def test_parse_ini_key_values_missing_file():
     from core.utils.file_utils import parse_ini_key_values
     assert parse_ini_key_values("non_existent_file.ini", {"key": "val"}) == {}
 
+
+def test_safe_rmtree_happy_path(tmp_path):
+    from core.utils.file_utils import safe_rmtree
+    target = tmp_path / "subfolder"
+    target.mkdir()
+    (target / "file.txt").write_text("hello")
+    assert target.exists()
+
+    success = safe_rmtree(str(target))
+    assert success is True
+    assert not target.exists()
+
+
+def test_safe_rmtree_non_existent():
+    from core.utils.file_utils import safe_rmtree
+    assert safe_rmtree("/path/that/definitely/does/not/exist_12345") is True
+    assert safe_rmtree("") is True
+
+
+def test_safe_rmtree_read_only_files(tmp_path):
+    import stat
+    from core.utils.file_utils import safe_rmtree
+    target = tmp_path / "readonly_dir"
+    target.mkdir()
+    ro_file = target / "locked.txt"
+    ro_file.write_text("protected")
+    # Make file read-only
+    os.chmod(str(ro_file), stat.S_IREAD)
+
+    success = safe_rmtree(str(target))
+    assert success is True
+    assert not target.exists()
+
+
+def test_safe_rmtree_linux_pkexec_fallback(tmp_path):
+    from core.utils.file_utils import safe_rmtree
+    target = tmp_path / "stubborn_dir"
+    target.mkdir()
+
+    with patch('sys.platform', 'linux'):
+        with patch('shutil.rmtree') as mock_rm:
+            # Simulate shutil.rmtree failing to remove directory
+            mock_rm.side_effect = PermissionError("Access denied")
+            with patch('shutil.which', return_value='/usr/bin/pkexec'):
+                with patch('subprocess.run') as mock_sub:
+                    mock_sub.return_value = MagicMock(return_code=0)
+                    with patch('os.path.exists', side_effect=[True, True, False]):
+                        res = safe_rmtree(str(target), force=True)
+                        assert res is True
+                        mock_sub.assert_called_once()
+                        assert mock_sub.call_args[0][0][:3] == ['/usr/bin/pkexec', 'rm', '-rf']
+
+
+def test_fix_file_permissions_windows():
+    from core.utils.file_utils import fix_file_permissions
+    with patch('sys.platform', 'win32'):
+        assert fix_file_permissions('/any/path') is True
+
+
+def test_fix_file_permissions_linux_native(tmp_path):
+    from core.utils.file_utils import fix_file_permissions
+    proj_dir = tmp_path / "test_project"
+    proj_dir.mkdir()
+    sub_file = proj_dir / "index.php"
+    sub_file.write_text("<?php echo 1;")
+
+    with patch('sys.platform', 'linux'):
+        with patch('os.getuid', return_value=1000):
+            with patch('os.getgid', return_value=1000):
+                # When stats match, no pkexec needed
+                mock_stat = MagicMock(st_uid=1000, st_gid=1000)
+                with patch('os.stat', return_value=mock_stat):
+                    with patch('os.lstat', return_value=mock_stat):
+                        res = fix_file_permissions(str(proj_dir), recursive=True)
+                        assert res is True
+
+
+def test_fix_file_permissions_linux_foreign_ownership_calls_pkexec(tmp_path):
+    import stat
+    from core.utils.file_utils import fix_file_permissions
+    proj_dir = tmp_path / "foreign_project"
+    proj_dir.mkdir()
+
+    with patch('sys.platform', 'linux'):
+        with patch('os.getuid', return_value=1000):
+            with patch('os.getgid', return_value=1000):
+                mock_stat = MagicMock(st_uid=33, st_gid=33, st_mode=stat.S_IFDIR | 0o755)  # www-data
+                with patch('os.stat', return_value=mock_stat):
+                    with patch('shutil.which', return_value='/usr/bin/pkexec'):
+                        with patch('subprocess.run') as mock_sub:
+                            mock_sub.return_value = MagicMock(returncode=0)
+                            res = fix_file_permissions(str(proj_dir), recursive=True)
+                            assert res is True
+                            mock_sub.assert_called_once()
+                            assert mock_sub.call_args[0][0][:4] == ['/usr/bin/pkexec', 'chown', '-R', '1000:1000']
+
+

@@ -46,6 +46,7 @@ export default defineConfig({
     setupFiles: ['./tests/setup.ts'],
     include: ['tests/**/*.test.{ts,tsx}'],
     css: false,
+    execArgv: ['--harmony-iterator-helpers', '--require', './tests/polyfill.cjs'],
     coverage: {
       provider: 'v8',
       // 'lcov' menghasilkan coverage/lcov.info, dibaca SonarQube lewat
