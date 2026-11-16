@@ -1052,3 +1052,218 @@ def test_modular_collectors_empty_or_missing(ai_manager):
     assert lines == []
     assert p_map == {}
 
+
+def test_get_doc_ai_info_success(ai_manager):
+    ai_manager._get_settings = MagicMock(return_value={
+        "ai_provider": "ollama",
+        "ai_model": "llama3:latest",
+        "ai_api_key": "",
+        "ai_base_url": "http://localhost:11434/v1"
+    })
+    res = ai_manager.get_doc_ai_info()
+    assert res["status"] == "success"
+    assert res["data"]["provider"] == "ollama"
+    assert res["data"]["is_local"] is True
+    assert res["data"]["is_configured"] is True
+
+
+def test_abort_doc_generation(ai_manager):
+    res = ai_manager.abort_doc_generation()
+    assert res["status"] == "success"
+    assert ai_manager._doc_abort_event.is_set()
+
+
+def test_doc_query_empty_doc(ai_manager):
+    res = ai_manager.doc_query(prompt="summary", doc_content="", query_type="summary")
+    assert res["status"] == "error"
+    assert res["message"] == "backend.md.doc_empty"
+
+
+def test_doc_query_empty_prompt_for_qa(ai_manager):
+    res = ai_manager.doc_query(prompt="", doc_content="# Title", query_type="qa")
+    assert res["status"] == "error"
+    assert res["message"] == "backend.ai.empty_prompt"
+
+
+def test_doc_query_spawns_thread_and_emits(ai_manager):
+    ai_manager._get_settings = MagicMock(return_value={
+        "ai_provider": "gemini",
+        "ai_model": "gemini-3.5-flash-lite",
+        "ai_api_key": "test_key",
+        "ai_temperature": 0.3
+    })
+    with patch("threading.Thread") as mock_thread:
+        res = ai_manager.doc_query(prompt="", doc_content="# Doc Content", query_type="summary")
+        assert res["status"] == "success"
+        assert res["message_id"].startswith("doc_")
+        mock_thread.assert_called_once()
+
+
+def test_doc_stream_worker_handles_timeout(ai_manager):
+    import socket
+    ai_manager.api.emit_doc_ai_chunk = MagicMock()
+    with patch("urllib.request.urlopen", side_effect=socket.timeout("Socket timed out")):
+        ai_manager._doc_stream_worker(
+            message_id="doc_test_123",
+            prompt="",
+            doc_content="# Some text",
+            query_type="summary",
+            provider="gemini",
+            model="gemini-3.5-flash-lite",
+            api_key="fake_key",
+            base_url="",
+            temperature=0.3
+        )
+        ai_manager.api.emit_doc_ai_chunk.assert_called_once_with(
+            chunk="",
+            is_done=True,
+            error="backend.ai.timeout",
+            message_id="doc_test_123"
+        )
+
+
+def test_doc_stream_worker_budgets_oversized_doc_for_qa(ai_manager):
+    ai_manager.api.emit_doc_ai_chunk = MagicMock()
+    oversized = "# Large\n" + ("x" * 35000)
+    captured_payload = {}
+
+    def fake_build_gemini_payload(prompt, img, hist, temp, system_instruction=None):
+        captured_payload["prompt"] = prompt
+        return {"contents": []}
+
+    ai_manager._build_gemini_payload = fake_build_gemini_payload
+
+    with patch("urllib.request.urlopen") as mock_urlopen:
+        mock_resp = MagicMock()
+        mock_resp.__enter__.return_value = mock_resp
+        mock_urlopen.return_value = mock_resp
+        with patch.object(ai_manager, "_consume_gemini_stream"):
+            ai_manager._doc_stream_worker(
+                message_id="doc_qa_test_budget",
+                prompt="Explain this",
+                doc_content=oversized,
+                query_type="qa",
+                provider="gemini",
+                model="gemini-3.5-flash-lite",
+                api_key="fake_key",
+                base_url="",
+                temperature=0.3
+            )
+
+    assert "Note: Document content truncated" in captured_payload["prompt"]
+
+
+def test_prepare_doc_for_summary_normal_and_empty(ai_manager):
+    assert ai_manager._prepare_doc_for_summary("") == ""
+    short_doc = "# Title\n\nShort document description."
+    assert ai_manager._prepare_doc_for_summary(short_doc) == short_doc
+
+
+def test_prepare_doc_for_summary_collapses_code_blocks(ai_manager):
+    code_lines = "\n".join([f"line_{i} = {i}" for i in range(30)])
+    doc_with_code = f"# Code Sample\n\n```python\n{code_lines}\n```\n\nEnd."
+    # Set max_chars low enough to trigger or check collapse directly
+    condensed = ai_manager._prepare_doc_for_summary(doc_with_code, max_chars=100)
+    assert "lines of code omitted for summary" in condensed
+    assert "line_0 = 0" in condensed
+    assert "line_29 = 29" in condensed
+
+
+def test_prepare_doc_for_summary_huge_12000_words_doc(ai_manager):
+    # Simulate a 12,000-word / 80,000-char markdown document
+    sections = ["# Architecture & Overview\n" + ("Introductory context and background text. " * 300)]
+    for i in range(1, 15):
+        sections.append(f"\n## Section {i}: Detailed Component Design\n" + ("Component specification detail. " * 200))
+        sections.append("\n```json\n" + "\n".join([f'  "key_{j}": "value_{j}",' for j in range(25)]) + "\n```\n")
+    sections.append("\n## Final Recommendations & Summary\n" + ("Final concluding notes and requirements. " * 200))
+
+    huge_doc = "\n".join(sections)
+    assert len(huge_doc) > 60000
+
+    condensed = ai_manager._prepare_doc_for_summary(huge_doc, max_chars=24000)
+    assert len(condensed) <= 26000
+    assert "# Architecture & Overview" in condensed
+    assert "Final Recommendations & Summary" in condensed
+    assert "Condensed Sections & Headings" in condensed or "omitted for summary" in condensed
+
+
+def test_doc_query_message_id_prefix(ai_manager):
+    ai_manager._get_settings = MagicMock(return_value={
+        "ai_provider": "gemini",
+        "ai_api_key": "test_key",
+        "ai_model": "gemini-3.5-flash-lite",
+    })
+    with patch("threading.Thread"):
+        res_sum = ai_manager.doc_query(prompt="", doc_content="# Doc", query_type="summary")
+        assert res_sum["status"] == "success"
+        assert res_sum["message_id"].startswith("doc_sum_")
+
+        res_qa = ai_manager.doc_query(prompt="Hello", doc_content="# Doc", query_type="qa")
+        assert res_qa["status"] == "success"
+        assert res_qa["message_id"].startswith("doc_qa_")
+
+
+def test_collect_related_workspace_docs_finds_and_ranks_relevant_files(ai_manager, tmp_path):
+    active_file = tmp_path / "index.md"
+    active_file.write_text("# Home\nWelcome to documentation.", encoding="utf-8")
+
+    auth_file = tmp_path / "auth.md"
+    auth_file.write_text("# Authentication\nUse JWT bearer tokens for API authentication.", encoding="utf-8")
+
+    db_file = tmp_path / "database.md"
+    db_file.write_text("# Database Setup\nMySQL and SQLite configuration guides.", encoding="utf-8")
+
+    # Invalid folder path returns empty list
+    assert ai_manager._collect_related_workspace_docs("", "", "auth") == []
+
+    # Query matching auth
+    results = ai_manager._collect_related_workspace_docs(
+        str(tmp_path),
+        str(active_file),
+        "How do I configure JWT authentication tokens?"
+    )
+    assert len(results) > 0
+    # First match should be auth.md
+    assert results[0][0] == "auth.md"
+    assert "JWT bearer tokens" in results[0][1]
+
+    # Active file must never be in related docs
+    rel_paths = [r[0] for r in results]
+    assert "index.md" not in rel_paths
+
+
+def test_doc_stream_worker_includes_related_workspace_docs_and_citations(ai_manager, tmp_path):
+    ai_manager._collect_related_workspace_docs = MagicMock(return_value=[
+        ("specs/oauth.md", "# OAuth\nToken endpoint is /oauth/token")
+    ])
+    ai_manager._build_gemini_payload = MagicMock(return_value={})
+
+    mock_resp = MagicMock()
+    mock_resp.__enter__.return_value = []
+    mock_resp.__exit__.return_value = None
+
+    with patch("urllib.request.urlopen", return_value=mock_resp):
+        ai_manager._doc_stream_worker(
+            message_id="doc_qa_999",
+            prompt="What is the token endpoint?",
+            doc_content="# Main Doc",
+            query_type="qa",
+            provider="gemini",
+            model="gemini-3.5-flash-lite",
+            api_key="fake_key",
+            base_url="",
+            temperature=0.3,
+            doc_path="/path/main.md",
+            folder_path="/path"
+        )
+
+    # Check payload call args
+    call_kwargs = ai_manager._build_gemini_payload.call_args
+    final_prompt = call_kwargs[0][0]
+    system_instruction = call_kwargs[1]["system_instruction"]
+
+    assert "Other Documents in Workspace:" in final_prompt
+    assert "### Related Document: specs/oauth.md" in final_prompt
+    assert "References: [filename1.md, filename2.md]" in system_instruction
+
+

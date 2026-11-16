@@ -1,3 +1,4 @@
+import json
 import os
 import pytest
 from unittest.mock import patch, MagicMock
@@ -453,4 +454,526 @@ def test_install_git_linux_auth_cancelled(git_manager):
         res = git_manager.install_git("system", "git", "system")
         assert res['status'] == 'cancelled'
         assert res['message'] == 'backend.git.install_cancelled'
+
+
+# ==========================================
+# Unit tests for Git Account & Identity Management
+# ==========================================
+
+def test_mask_token(git_manager):
+    assert git_manager._mask_token("") == ""
+    assert git_manager._mask_token(None) == ""
+    assert git_manager._mask_token("short") == "••••••••"
+    assert git_manager._mask_token("12345678") == "••••••••"
+    assert git_manager._mask_token("1234567890abcdef") == "••••••••"
+
+
+def test_get_git_accounts(git_manager):
+    mock_data = {
+        "default_account_id": "acc-1",
+        "accounts": [
+            {
+                "id": "acc-1",
+                "label": "Work GitHub",
+                "endpoint": "github.com",
+                "username": "workuser",
+                "email": "work@company.com",
+                "auth_mode": "pat",
+                "token": "ghp_1234567890abcdef",
+            }
+        ]
+    }
+    with patch.object(git_manager, "_read_accounts_file", return_value=mock_data), \
+         patch.object(git_manager, "get_git_config", return_value={"status": "success", "data": {"name": "workuser", "email": "work@company.com"}}):
+        res = git_manager.get_git_accounts()
+        assert res["status"] == "success"
+        assert len(res["accounts"]) == 1
+        acc = res["accounts"][0]
+        assert acc["id"] == "acc-1"
+        assert acc["is_default"] is True
+        assert acc["is_push_active"] is True
+        assert acc["has_token"] is True
+        assert acc["masked_token"] == "••••••••"
+        assert "token" not in acc  # raw token must not leak
+        assert res["active_push"]["name"] == "workuser"
+        assert res["active_push"]["email"] == "work@company.com"
+
+
+def test_save_git_account_validation_error(git_manager):
+    res = git_manager.save_git_account({"username": "", "email": "test@dev.com"})
+    assert res["status"] == "error"
+    assert res["message"] == "backend.git.missing_username"
+
+    res = git_manager.save_git_account({"username": "octocat", "email": ""})
+    assert res["status"] == "error"
+    assert res["message"] == "backend.git.missing_email"
+
+
+def test_save_git_account_pat_and_default(git_manager):
+    mock_data = {"default_account_id": None, "accounts": []}
+    with patch.object(git_manager, "_read_accounts_file", return_value=mock_data), \
+         patch.object(git_manager, "_write_accounts_file") as mock_write, \
+         patch.object(git_manager, "_verify_github_token_via_api", return_value=({"login": "octocat", "id": 1}, None)), \
+         patch.object(git_manager, "_store_git_credential") as mock_store_cred, \
+         patch.object(git_manager, "set_git_config") as mock_set_cfg:
+        
+        account_input = {
+            "label": "Personal GitHub",
+            "endpoint": "https://github.com/profile/",
+            "username": "octocat",
+            "email": "octo@cat.org",
+            "protocol": "https",
+            "auth_mode": "pat",
+            "token": "ghp_supersecrettoken123",
+            "set_as_default": True
+        }
+        res = git_manager.save_git_account(account_input)
+        assert res["status"] == "success"
+        assert res["message"] == "backend.git.account_saved"
+
+        # Host should be cleaned
+        written_data = mock_write.call_args[0][0]
+        assert len(written_data["accounts"]) == 1
+        saved = written_data["accounts"][0]
+        assert saved["endpoint"] == "github.com"
+        assert saved["token"] == "ghp_supersecrettoken123"
+        assert written_data["default_account_id"] == saved["id"]
+
+        mock_set_cfg.assert_called_once_with("octocat", "octo@cat.org")
+        mock_store_cred.assert_called_once_with("https", "github.com", "octocat", "ghp_supersecrettoken123")
+
+
+def test_save_git_account_update_existing(git_manager):
+    mock_data = {
+        "default_account_id": "acc-old",
+        "accounts": [
+            {
+                "id": "acc-old",
+                "label": "Old Label",
+                "endpoint": "gitlab.com",
+                "username": "olduser",
+                "email": "old@example.com",
+                "protocol": "https",
+                "auth_mode": "pat",
+                "token": "old_token_12345678",
+            }
+        ]
+    }
+    with patch.object(git_manager, "_read_accounts_file", return_value=mock_data), \
+         patch.object(git_manager, "_write_accounts_file") as mock_write:
+        
+        # Updating without passing token should retain existing token
+        update_input = {
+            "id": "acc-old",
+            "label": "Updated Label",
+            "endpoint": "gitlab.com",
+            "username": "newuser",
+            "email": "new@example.com",
+            "protocol": "ssh",
+            "auth_mode": "ssh",
+            "ssh_key_path": "~/.ssh/id_ed25519",
+        }
+        res = git_manager.save_git_account(update_input)
+        assert res["status"] == "success"
+
+        saved = mock_write.call_args[0][0]["accounts"][0]
+        assert saved["label"] == "Updated Label"
+        assert saved["username"] == "newuser"
+        assert saved["token"] == "old_token_12345678"
+        assert saved["ssh_key_path"] == "~/.ssh/id_ed25519"
+
+
+def test_delete_git_account(git_manager):
+    mock_data = {
+        "default_account_id": "acc-1",
+        "accounts": [
+            {
+                "id": "acc-1",
+                "label": "Work GitHub",
+                "endpoint": "github.com",
+                "username": "workuser",
+                "email": "work@company.com",
+                "protocol": "https",
+                "auth_mode": "pat",
+                "token": "ghp_1234567890abcdef",
+            },
+            {
+                "id": "acc-2",
+                "label": "Personal GitLab",
+                "endpoint": "gitlab.com",
+                "username": "myuser",
+                "email": "my@gitlab.org",
+                "protocol": "ssh",
+                "auth_mode": "ssh",
+            }
+        ]
+    }
+    with patch.object(git_manager, "_read_accounts_file", return_value=mock_data), \
+         patch.object(git_manager, "_write_accounts_file") as mock_write, \
+         patch.object(git_manager, "_delete_git_credential") as mock_del_cred, \
+         patch.object(git_manager, "set_git_config") as mock_set_cfg:
+        
+        # Delete acc-1 (which is default)
+        res = git_manager.delete_git_account("acc-1")
+        assert res["status"] == "success"
+        assert res["message"] == "backend.git.account_deleted"
+        mock_del_cred.assert_called_once_with("https", "github.com", "workuser")
+
+        written_data = mock_write.call_args[0][0]
+        assert len(written_data["accounts"]) == 1
+        assert written_data["accounts"][0]["id"] == "acc-2"
+        # Since default was acc-1, default falls back to first remaining acc-2
+        assert written_data["default_account_id"] == "acc-2"
+        mock_set_cfg.assert_called_once_with("myuser", "my@gitlab.org")
+
+        # Delete non-existent account
+        res2 = git_manager.delete_git_account("non-existent")
+        assert res2["status"] == "error"
+        assert res2["message"] == "backend.git.account_not_found"
+
+
+def test_set_default_git_account(git_manager):
+    mock_data = {
+        "default_account_id": "acc-1",
+        "accounts": [
+            {
+                "id": "acc-1",
+                "label": "Work GitHub",
+                "username": "workuser",
+                "email": "work@corp.com"
+            },
+            {
+                "id": "acc-2",
+                "label": "Home GitHub",
+                "username": "homeuser",
+                "email": "home@dev.org"
+            }
+        ]
+    }
+    with patch.object(git_manager, "_read_accounts_file", return_value=mock_data), \
+         patch.object(git_manager, "_write_accounts_file") as mock_write, \
+         patch.object(git_manager, "set_git_config") as mock_set_cfg:
+        
+        res = git_manager.set_default_git_account("acc-2")
+        assert res["status"] == "success"
+        assert res["message"] == "backend.git.account_default_set"
+        assert mock_write.call_args[0][0]["default_account_id"] == "acc-2"
+        mock_set_cfg.assert_called_once_with("homeuser", "home@dev.org")
+
+        # Non-existent
+        res_err = git_manager.set_default_git_account("acc-999")
+        assert res_err["status"] == "error"
+        assert res_err["message"] == "backend.git.account_not_found"
+
+
+def test_get_ssh_keys(git_manager):
+    from unittest.mock import mock_open
+    with patch("os.path.isdir", return_value=True), \
+         patch("os.path.isfile", return_value=True), \
+         patch("os.listdir", return_value=["id_ed25519.pub", "id_ed25519", "known_hosts", "other.txt"]), \
+         patch("builtins.open", mock_open(read_data="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG5... user@laptop\n")):
+        res = git_manager.get_ssh_keys()
+        assert res["status"] == "success"
+        assert len(res["data"]) == 1
+        key = res["data"][0]
+        assert key["filename"] == "id_ed25519.pub"
+        assert key["type"] == "ssh-ed25519"
+        assert key["comment"] == "user@laptop"
+        assert key["public_key"].startswith("ssh-ed25519")
+
+
+def test_get_ssh_keys_dir_not_found(git_manager):
+    with patch("os.path.isdir", return_value=False):
+        res = git_manager.get_ssh_keys()
+        assert res["status"] == "success"
+        assert res["data"] == []
+
+
+def test_store_and_delete_git_credential(git_manager):
+    # Empty params
+    assert git_manager._store_git_credential("", "", "", "") is False
+    assert git_manager._delete_git_credential("", "", "") is False
+
+    mock_proc = MagicMock()
+    mock_proc.returncode = 0
+    mock_proc.communicate.return_value = ("", "")
+
+    with patch.object(git_manager, "_get_git_exe", return_value="git"), \
+         patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+        
+        ok_store = git_manager._store_git_credential("https", "github.com", "user", "secret")
+        assert ok_store is True
+        mock_proc.communicate.assert_called_with(input="protocol=https\nhost=github.com\nusername=user\npassword=secret\n\n", timeout=2)
+
+        ok_del = git_manager._delete_git_credential("https", "github.com", "user")
+        assert ok_del is True
+        mock_proc.communicate.assert_called_with(input="protocol=https\nhost=github.com\nusername=user\n\n", timeout=2)
+
+
+def test_get_git_account_projects_empty(git_manager):
+    with patch.object(git_manager, "_read_accounts_file", return_value={"accounts": []}):
+        res = git_manager.get_git_account_projects("none")
+        assert res["status"] == "success"
+        assert res["data"]["projects"] == []
+
+
+def test_get_git_account_projects_github_and_local(git_manager, tmp_path):
+    mock_acc = {
+        "id": "acc-git-1",
+        "label": "My GitHub",
+        "endpoint": "github.com",
+        "username": "octocat",
+        "token": "ghp_tok",
+        "protocol": "https",
+        "auth_mode": "pat",
+    }
+    mock_config = {
+        "accounts": [mock_acc],
+        "default_account_id": "acc-git-1",
+    }
+
+    # Setup local www directory with a matching repo
+    www_dir = tmp_path / "www"
+    repo_dir = www_dir / "my-octo-app"
+    git_dir = repo_dir / ".git"
+    git_dir.mkdir(parents=True)
+    cfg_file = git_dir / "config"
+    cfg_file.write_text("[remote \"origin\"]\n\turl = https://github.com/octocat/local-octo.git\n", encoding="utf-8")
+
+    api_response = [
+        {
+            "id": 999,
+            "name": "spoon-knife",
+            "full_name": "octocat/spoon-knife",
+            "private": False,
+            "html_url": "https://github.com/octocat/spoon-knife",
+            "ssh_url": "git@github.com:octocat/spoon-knife.git",
+            "clone_url": "https://github.com/octocat/spoon-knife.git",
+            "default_branch": "main",
+            "updated_at": "2026-11-13T12:00:00Z",
+        }
+    ]
+    mock_resp = MagicMock()
+    mock_resp.status = 200
+    mock_resp.read.return_value = json.dumps(api_response).encode("utf-8")
+    mock_resp.__enter__.return_value = mock_resp
+
+    with patch.object(git_manager, "_read_accounts_file", return_value=mock_config), \
+         patch.object(git_manager, "root_dir", str(tmp_path)), \
+         patch("urllib.request.urlopen", return_value=mock_resp):
+
+        res = git_manager.get_git_account_projects("acc-git-1")
+        assert res["status"] == "success"
+        projects = res["data"]["projects"]
+        assert len(projects) == 2
+        # Remote project
+        assert projects[0]["id"] == "999"
+        assert projects[0]["source"] == "remote"
+        assert projects[0]["visibility"] == "public"
+        # Local project
+        assert projects[1]["id"] == "local_my-octo-app"
+        assert projects[1]["source"] == "local"
+        assert projects[1]["full_name"] == "octocat/local-octo"
+
+
+def test_save_git_account_github_invalid_password_rejected(git_manager):
+    mock_data = {"default_account_id": None, "accounts": []}
+    with patch.object(git_manager, "_read_accounts_file", return_value=mock_data), \
+         patch.object(git_manager, "_verify_github_token_via_api", return_value=(None, "HTTP 401: Unauthorized")):
+        res = git_manager.save_git_account({
+            "label": "Personal",
+            "endpoint": "github.com",
+            "username": "authntcG",
+            "email": "user@example.com",
+            "protocol": "https",
+            "auth_mode": "credentials",
+            "token": "plainpassword123",
+        })
+        assert res["status"] == "error"
+        assert res["message"] == "backend.git.github_pat_required"
+
+
+def test_get_git_account_projects_github_401_falls_back_to_public_repos(git_manager, tmp_path):
+    import urllib.error
+    mock_acc = {
+        "id": "acc-git-1",
+        "label": "Personal",
+        "endpoint": "github.com",
+        "username": "authntcG",
+        "token": "plainpassword123",
+        "protocol": "https",
+        "auth_mode": "credentials",
+    }
+    mock_config = {
+        "accounts": [mock_acc],
+        "default_account_id": "acc-git-1",
+    }
+
+    public_api_response = [
+        {
+            "id": 555,
+            "name": "vyloserve",
+            "full_name": "authntcG/vyloserve",
+            "private": False,
+            "html_url": "https://github.com/authntcG/vyloserve",
+            "ssh_url": "git@github.com:authntcG/vyloserve.git",
+            "clone_url": "https://github.com/authntcG/vyloserve.git",
+            "default_branch": "main",
+            "updated_at": "2026-11-14T00:00:00Z",
+        }
+    ]
+    mock_pub_resp = MagicMock()
+    mock_pub_resp.status = 200
+    mock_pub_resp.read.return_value = json.dumps(public_api_response).encode("utf-8")
+    mock_pub_resp.__enter__.return_value = mock_pub_resp
+
+    def fake_urlopen(req, timeout=10):
+        url_str = req.full_url if hasattr(req, "full_url") else str(req)
+        if "/user/repos" in url_str:
+            raise urllib.error.HTTPError(url_str, 401, "Unauthorized", {}, None)
+        return mock_pub_resp
+
+    with patch.object(git_manager, "_read_accounts_file", return_value=mock_config), \
+         patch.object(git_manager, "root_dir", str(tmp_path)), \
+         patch("urllib.request.urlopen", side_effect=fake_urlopen):
+        res = git_manager.get_git_account_projects("acc-git-1")
+        assert res["status"] == "success"
+        data = res["data"]
+        assert len(data["projects"]) == 1
+        assert data["projects"][0]["name"] == "vyloserve"
+        assert data["auth_warning"] is True
+
+
+def test_git_mask_token_constant_removal_of_slices(git_manager):
+    assert git_manager._mask_token("ghp_1234567890abcdef") == "••••••••"
+    assert git_manager._mask_token("glpat-1234567890") == "••••••••"
+    assert git_manager._mask_token("") == ""
+
+
+def test_get_git_accounts_vpn_probing(git_manager):
+    mock_config = {
+        "accounts": [
+            {
+                "id": "acc-vpn",
+                "label": "Work GitLab",
+                "endpoint": "git.neuron.id",
+                "username": "galih",
+                "email": "galih@neuron.id",
+                "requires_vpn": True,
+            }
+        ],
+        "default_account_id": "acc-vpn",
+    }
+    with patch.object(git_manager, "_read_accounts_file", return_value=mock_config), \
+         patch("core.services.git_manager.check_host_reachability", return_value={"reachable": False, "host": "git.neuron.id"}):
+        res = git_manager.get_git_accounts()
+        assert res["status"] == "success"
+        acc = res["accounts"][0]
+        assert acc["requires_vpn"] is True
+        assert acc["vpn_reachable"] is False
+
+
+def test_get_git_account_projects_vpn_unreachable_short_circuit(git_manager, tmp_path):
+    mock_acc = {
+        "id": "acc-vpn-proj",
+        "label": "Internal Repo",
+        "endpoint": "git.neuron.id",
+        "username": "galih",
+        "email": "galih@neuron.id",
+        "requires_vpn": True,
+        "token": "glpat-secret",
+    }
+    mock_config = {"accounts": [mock_acc], "default_account_id": "acc-vpn-proj"}
+
+    # Siapkan repo lokal di www/internal_app
+    www_dir = tmp_path / "www"
+    www_dir.mkdir(parents=True, exist_ok=True)
+    git_dir = www_dir / "internal_app" / ".git"
+    git_dir.mkdir(parents=True, exist_ok=True)
+    (git_dir / "config").write_text('[remote "origin"]\n\turl = https://git.neuron.id/team/internal_app.git\n')
+
+    with patch.object(git_manager, "_read_accounts_file", return_value=mock_config), \
+         patch.object(git_manager, "root_dir", str(tmp_path)), \
+         patch("core.services.git_manager.check_host_reachability", return_value={"reachable": False, "host": "git.neuron.id"}), \
+         patch("urllib.request.urlopen") as mock_url:
+        res = git_manager.get_git_account_projects("acc-vpn-proj")
+        assert res["status"] == "success"
+        data = res["data"]
+        assert data["vpn_blocked"] is True
+        assert data["vpn_host"] == "git.neuron.id"
+        mock_url.assert_not_called()  # Short-circuited! No remote API hang
+        # Local repos still discovered
+        assert len(data["projects"]) == 1
+        assert data["projects"][0]["name"] == "internal_app"
+        assert data["projects"][0]["source"] == "local"
+
+
+def test_discover_legacy_git_accounts_ignores_helperselector(git_manager, tmp_path):
+    gitconfig_content = """
+[user]
+    name = Galih Respati
+    email = galih@neuron.id
+[credential "helperselector"]
+    selected = manager
+[credential "https://git.neuron.id"]
+    provider = generic
+"""
+    gitconfig_file = tmp_path / ".gitconfig"
+    gitconfig_file.write_text(gitconfig_content)
+
+    with patch("os.path.expanduser", return_value=str(gitconfig_file)), \
+         patch("os.path.isfile", return_value=True), \
+         patch.object(git_manager, "_get_stored_git_credential", return_value=""):
+        discovered = git_manager._discover_legacy_git_accounts([])
+        endpoints = [d["endpoint"] for d in discovered]
+        assert "git.neuron.id" in endpoints
+        assert "helperselector" not in endpoints
+
+
+def test_append_github_repo_list_and_try_fetch(git_manager):
+    # Test _append_github_repo_list
+    seen = set()
+    projects = []
+    raw = [
+        {"name": "proj1", "full_name": "user/proj1", "private": False},
+        {"name": "proj2", "full_name": "user/proj2", "private": True},
+    ]
+    git_manager._append_github_repo_list(raw, "acc_1", "github.com", seen, projects)
+    assert len(projects) == 2
+    assert "user/proj1" in seen
+    assert "user/proj2" in seen
+
+    # Calling again ignores duplicate
+    git_manager._append_github_repo_list(raw, "acc_1", "github.com", seen, projects)
+    assert len(projects) == 2
+
+    # Non-list input is gracefully ignored
+    git_manager._append_github_repo_list(None, "acc_1", "github.com", seen, projects)
+    assert len(projects) == 2
+
+    # Test _try_fetch_github_repos success
+    mock_resp = MagicMock()
+    mock_resp.status = 200
+    mock_resp.read.return_value = b'[{"name": "proj3", "full_name": "user/proj3", "private": false}]'
+    mock_resp.__enter__.return_value = mock_resp
+
+    with patch("urllib.request.urlopen", return_value=mock_resp):
+        succeeded, is_auth = git_manager._try_fetch_github_repos(
+            "https://api.github.com/user/repos", "Bearer tok", "acc_1", "github.com", seen, projects
+        )
+        assert succeeded is True
+        assert is_auth is False
+        assert len(projects) == 3
+
+    # Test _try_fetch_github_repos 401 HTTP error
+    import urllib.error
+    http_err = urllib.error.HTTPError("url", 401, "Unauthorized", {}, None)
+    with patch("urllib.request.urlopen", side_effect=http_err):
+        succeeded, is_auth = git_manager._try_fetch_github_repos(
+            "https://api.github.com/user/repos", "Bearer tok", "acc_1", "github.com", seen, projects
+        )
+        assert succeeded is False
+        assert is_auth is True
+
+
 

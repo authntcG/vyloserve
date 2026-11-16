@@ -37,6 +37,8 @@ DB_STARTUP_LOG = "db_startup.log"
 SCHEMA_NAME_PATTERN = re.compile(r'^\w{1,64}$')
 SYSTEM_SCHEMAS = {'information_schema', 'performance_schema', 'mysql', 'sys', 'postgres', 'template0', 'template1'}
 MARIADB_CACHE_TTL_SECONDS = 43200  # 12 jam
+EXT_TAR_GZ = ".tar.gz"
+MYSQL_SSL_DISABLE_FLAG = "--ssl=0"
 
 MSG_MUST_BE_RUNNING = "backend.database.must_be_running"
 MSG_SCHEMA_CLI_NOT_FOUND = "backend.database.schema_cli_not_found"
@@ -571,8 +573,10 @@ class DatabaseManager:
         if not os.path.exists(installer):
             raise RuntimeError(f"MariaDB Init Error: installer tidak ditemukan di {installer}")
         if sys.platform != 'win32' and os.path.exists(installer):
-            try: os.chmod(installer, 0o755)
-            except OSError: pass
+            try:
+                os.chmod(installer, 0o700)
+            except OSError:
+                pass
 
         cmd = [installer, f"--datadir={db_data_dir}"]
         if sys.platform != 'win32':
@@ -603,6 +607,34 @@ class DatabaseManager:
             )
             with open(conf_path, 'w', encoding='utf-8') as f:
                 f.write(default_conf)
+
+    def ensure_instance_config(self, db_obj: dict) -> bool:
+        """
+        Memeriksa dan meregenerasi file konfigurasi (my.ini / redis.conf) jika terhapus
+        dari dataDir, tanpa merusak berkas tabel/data SQL milik pengguna.
+        """
+        data_dir = db_obj.get('dataDir')
+        if not data_dir or not os.path.exists(data_dir):
+            return False
+
+        engine = str(db_obj.get('engine') or 'mysql').lower()
+        port = db_obj.get('port', 3306)
+        repaired = False
+
+        if engine == 'mysql':
+            my_ini_path = os.path.join(data_dir, MY_INI)
+            if not os.path.exists(my_ini_path):
+                content = f"{MYSQLD_SECTION}\nport={port}\ndatadir={data_dir}\n"
+                with open(my_ini_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                repaired = True
+        elif engine == 'redis':
+            redis_conf_path = os.path.join(data_dir, REDIS_CONF)
+            if not os.path.exists(redis_conf_path):
+                self._init_redis(db_obj.get('installDir', ''), data_dir)
+                repaired = True
+
+        return repaired
 
     def _init_postgres(self, install_dir: str, db_data_dir: str, root_pass: str):
         exe_name = 'initdb.exe' if sys.platform == 'win32' else 'initdb'
@@ -685,6 +717,14 @@ class DatabaseManager:
         if os.path.exists(install_dir): safe_rmtree(install_dir, force=True)
         if not is_existing_data and os.path.exists(db_data_dir): safe_rmtree(db_data_dir, force=True)
 
+    @staticmethod
+    def _resolve_archive_extension(url: str) -> str:
+        if url and url.lower().endswith(".jar"):
+            return ".jar"
+        if url and url.lower().endswith(EXT_TAR_GZ):
+            return EXT_TAR_GZ
+        return ".zip"
+
     # ==========================================
     # SYNCHRONOUS INSTALLATION ENGINE (SUPER FAST)
     # ==========================================
@@ -692,12 +732,7 @@ class DatabaseManager:
         db_id = f"{engine}_{version.replace('.', '_')}"
         install_dir = os.path.join(self.bin_dir, db_id) 
         db_data_dir = os.path.join(self.data_dir, db_id) 
-        if url and url.lower().endswith(".jar"):
-            ext = ".jar"
-        elif url and url.lower().endswith(".tar.gz"):
-            ext = ".tar.gz"
-        else:
-            ext = ".zip"
+        ext = self._resolve_archive_extension(url)
         zip_path = os.path.join(self.bin_dir, f"{db_id}{ext}")
 
         is_existing_data = os.path.exists(db_data_dir) and len(os.listdir(db_data_dir)) > 0
@@ -711,8 +746,8 @@ class DatabaseManager:
             if engine == 'mysql':
                 self._progress(2, "backend.database.tracking_mariadb")
                 url = self._resolve_mariadb_url(version)
-                if url and url.lower().endswith(".tar.gz") and not zip_path.endswith(".tar.gz"):
-                    zip_path = os.path.join(self.bin_dir, f"{db_id}.tar.gz")
+                if url and url.lower().endswith(EXT_TAR_GZ) and not zip_path.endswith(EXT_TAR_GZ):
+                    zip_path = os.path.join(self.bin_dir, f"{db_id}{EXT_TAR_GZ}")
 
             def log_cb(msg, lvl): 
                 self._log(msg, lvl)
@@ -826,11 +861,7 @@ class DatabaseManager:
         db_data_dir_backup = db_data_dir + "_backup"
         token = InstallationManager.get_token("database")
 
-        ext = ".zip"
-        if url and url.lower().endswith(".jar"):
-            ext = ".jar"
-        elif url and url.lower().endswith(".tar.gz"):
-            ext = ".tar.gz"
+        ext = self._resolve_archive_extension(url)
         zip_path = os.path.join(self.bin_dir, f"update{ext}")
 
         try:
@@ -1236,7 +1267,7 @@ class DatabaseManager:
         cli = self._resolve_db_cli(db_obj, 'mysql')
         if not cli:
             return None, {"status": "error", "message": MSG_SCHEMA_CLI_NOT_FOUND, "args": {"cli": "mysql"}}
-        cmd = [cli, "-u", "root", f"-P{db_obj['port']}", "-h", "127.0.0.1", "--ssl=0"]
+        cmd = [cli, "-u", "root", f"-P{db_obj['port']}", "-h", "127.0.0.1", MYSQL_SSL_DISABLE_FLAG]
         if extra_args:
             cmd.extend(extra_args)
         cmd.extend(["-e", query])
@@ -1347,7 +1378,7 @@ class DatabaseManager:
         cli = self._resolve_db_cli(db_obj, 'mysqldump') or self._resolve_db_cli(db_obj, 'mariadb-dump')
         if not cli:
             return {"status": "error", "message": MSG_SCHEMA_CLI_NOT_FOUND, "args": {"cli": "mysqldump"}}
-        cmd = [cli, "-u", "root", f"-P{db_obj['port']}", "-h", "127.0.0.1", "--ssl=0", schema_name]
+        cmd = [cli, "-u", "root", f"-P{db_obj['port']}", "-h", "127.0.0.1", MYSQL_SSL_DISABLE_FLAG, schema_name]
         if pw:
             cmd.insert(2, f"-p{pw}")
         with open(target_path, 'wb') as out_f:
@@ -1412,7 +1443,7 @@ class DatabaseManager:
         cli = self._resolve_db_cli(db_obj, 'mysql')
         if not cli:
             return {"status": "error", "message": MSG_SCHEMA_CLI_NOT_FOUND, "args": {"cli": "mysql"}}
-        cmd = [cli, "-u", "root", f"-P{db_obj['port']}", "-h", "127.0.0.1", "--ssl=0", schema_name]
+        cmd = [cli, "-u", "root", f"-P{db_obj['port']}", "-h", "127.0.0.1", MYSQL_SSL_DISABLE_FLAG, schema_name]
         if pw:
             cmd.insert(2, f"-p{pw}")
         with open(source_path, 'rb') as in_f:
@@ -1459,6 +1490,147 @@ class DatabaseManager:
 
             self._log("backend.database.schema_import_success", "success", {"name": schema_name})
             return {"status": "success", "message": "backend.database.schema_import_success", "args": {"name": schema_name}}
+        except Exception as e:
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    # ==========================================
+    # REDIS QUICK ACTIONS & METRICS
+    # ==========================================
+    @staticmethod
+    def _parse_redis_key_value_lines(text: str) -> tuple[dict, int]:
+        parsed = {}
+        total_keys = 0
+        for line in text.splitlines():
+            clean = line.strip()
+            if not clean or clean.startswith('#') or ':' not in clean:
+                continue
+            k, v = clean.split(':', 1)
+            k, v = k.strip(), v.strip()
+            parsed[k] = v
+            if k.startswith('db') and 'keys=' in v:
+                m = re.search(r'keys=(\d+)', v)
+                if m:
+                    total_keys += int(m.group(1))
+        return parsed, total_keys
+
+    def _parse_redis_info_text(self, text: str) -> dict:
+        parsed, total_keys = self._parse_redis_key_value_lines(text)
+
+        clients = int(parsed.get('connected_clients', 0)) if parsed.get('connected_clients', '').isdigit() else 0
+        uptime_days = int(parsed.get('uptime_in_days', 0)) if parsed.get('uptime_in_days', '').isdigit() else 0
+        uptime_seconds = int(parsed.get('uptime_in_seconds', 0)) if parsed.get('uptime_in_seconds', '').isdigit() else 0
+        ops_per_sec = int(parsed.get('instantaneous_ops_per_sec', 0)) if parsed.get('instantaneous_ops_per_sec', '').isdigit() else 0
+        used_memory_human = parsed.get('used_memory_human', '0B')
+        used_memory_peak_human = parsed.get('used_memory_peak_human', '0B')
+        redis_version = parsed.get('redis_version', '')
+
+        return {
+            "version": redis_version,
+            "uptime_days": uptime_days,
+            "uptime_seconds": uptime_seconds,
+            "clients": clients,
+            "used_memory_human": used_memory_human,
+            "used_memory_peak_human": used_memory_peak_human,
+            "total_keys": total_keys,
+            "ops_per_sec": ops_per_sec,
+            "raw": parsed
+        }
+
+    @staticmethod
+    def _send_redis_socket(port: int, pw: str, cmd_str: str) -> Tuple[bool, str]:
+        import socket
+        try:
+            with socket.create_connection(('127.0.0.1', port), timeout=2.0) as s:
+                s.settimeout(2.0)
+                if pw:
+                    s.sendall(f"AUTH {pw}\r\n".encode('utf-8'))
+                    auth_resp = s.recv(1024).decode('utf-8', errors='replace')
+                    if not auth_resp.startswith("+OK"):
+                        return False, f"AUTH error: {auth_resp.strip()}"
+                s.sendall(f"{cmd_str}\r\n".encode('utf-8'))
+                chunks = []
+                while True:
+                    try:
+                        chunk = s.recv(4096)
+                        if not chunk:
+                            break
+                        chunks.append(chunk)
+                        if b"+OK\r\n" in chunk or b"-ERR" in chunk or len(chunk) < 4096:
+                            break
+                    except socket.timeout:
+                        break
+                data = b"".join(chunks).decode('utf-8', errors='replace')
+                if data:
+                    return True, data
+        except Exception:
+            pass
+        return False, ""
+
+    def _execute_redis_command(self, db_obj: dict, cmd_tokens: list) -> Tuple[bool, str]:
+        port = int(db_obj.get('port', 6379))
+        pw = db_obj.get('rootPassword', '')
+        cmd_str = " ".join(cmd_tokens)
+
+        # 1. Try TCP socket
+        sock_ok, sock_data = self._send_redis_socket(port, pw, cmd_str)
+        if sock_ok or (sock_data and sock_data.startswith("AUTH error:")):
+            return sock_ok, sock_data
+
+        # 2. Fallback to redis-cli if available
+        cli = self._resolve_db_cli(db_obj, 'redis-cli')
+        if cli:
+            cmd = [cli, "-p", str(port)]
+            if pw:
+                cmd.extend(["-a", pw])
+            cmd.extend(cmd_tokens)
+            try:
+                res = subprocess.run(cmd, capture_output=True, text=True, creationflags=get_silent_flags(), timeout=5)
+                if res.returncode == 0:
+                    return True, res.stdout
+                return False, res.stderr or res.stdout
+            except Exception as e:
+                return False, str(e)
+
+        return False, "Failed to connect to Redis"
+
+    def get_redis_stats(self, db_id: str) -> dict:
+        try:
+            data = read_json(self.config_path)
+            db_obj = next((db for db in data if db['id'] == db_id), None)
+            if not db_obj:
+                return {"status": "error", "message": DB_NOT_FOUND_MSG}
+            if db_obj.get('engine') != 'redis':
+                return {"status": "error", "message": "backend.database.not_redis_instance"}
+            if not check_port_in_use(db_obj['port']):
+                return {"status": "error", "message": MSG_MUST_BE_RUNNING}
+
+            success, output = self._execute_redis_command(db_obj, ["INFO"])
+            if not success or not output:
+                return {"status": "error", "message": "backend.database.redis_command_failed", "args": {"err": output}}
+
+            stats = self._parse_redis_info_text(output)
+            return {"status": "success", "stats": stats}
+        except Exception as e:
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def flush_redis_db(self, db_id: str, async_flush: bool = True) -> dict:
+        try:
+            data = read_json(self.config_path)
+            db_obj = next((db for db in data if db['id'] == db_id), None)
+            if not db_obj:
+                return {"status": "error", "message": DB_NOT_FOUND_MSG}
+            if db_obj.get('engine') != 'redis':
+                return {"status": "error", "message": "backend.database.not_redis_instance"}
+            if not check_port_in_use(db_obj['port']):
+                return {"status": "error", "message": MSG_MUST_BE_RUNNING}
+
+            cmd_tokens = ["FLUSHALL", "ASYNC"] if async_flush else ["FLUSHALL"]
+            success, output = self._execute_redis_command(db_obj, cmd_tokens)
+            if not success or ("+OK" not in output and "OK" not in output):
+                return {"status": "error", "message": "backend.database.redis_flush_failed", "args": {"err": output}}
+
+            self._log("backend.database.redis_flushed", "success", {"port": db_obj['port']})
+            return {"status": "success", "message": "backend.database.redis_flushed", "args": {"port": db_obj['port']}}
         except Exception as e:
             return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
         

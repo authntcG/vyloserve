@@ -20,6 +20,12 @@ from core.utils.cancellation import InstallationManager, OperationCancelledError
 PHP_INI = "php.ini"
 MSG_UNEXPECTED_ERROR = "backend.error.unexpected"
 MSG_INSTALL_CANCELLED = "backend.php.install_cancelled"
+MSG_PHP_LINUX_INSTALLING = "backend.php.linux_installing"
+MSG_PHP_AUTH_CANCELLED = "backend.php.auth_cancelled"
+MSG_PHP_INSTALL_FAILED = "backend.php.install_failed"
+MSG_PHP_LINUX_INSTALL_SUCCESS = "backend.php.linux_install_success"
+MSG_PHP_FATAL_ERROR = "backend.php.fatal_error"
+MSG_PHP_STOPPED = "backend.php.stopped"
 PHP_WIN_PATTERN = re.compile(r'(php-(\d+\.\d+\.\d+)-Win32-[a-zA-Z0-9]+-x64\.zip)')
 PHP_NIX_PATTERN = re.compile(r'(php-(\d+\.\d+\.\d+)\.tar\.gz)')
 
@@ -48,6 +54,54 @@ class PhpManager:
                         except Exception: pass
         return port, memory_limit
 
+    def _find_system_php_binary(self, clean_paths: list, vyloserve_bin: str) -> Optional[str]:
+        for cand in ['php', 'php8.3', 'php8.2', 'php8.1', 'php8.0', 'php7.4']:
+            found = shutil.which(cand, path=os.pathsep.join(clean_paths))
+            if found:
+                real_target = os.path.normpath(os.path.realpath(found)).lower()
+                if not real_target.startswith(vyloserve_bin) and vyloserve_bin not in real_target:
+                    return found
+        return None
+
+    def _probe_system_php_meta(self, found_path: str) -> tuple:
+        version_str = "Unknown"
+        memory_limit = "128M"
+        cflags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+        try:
+            res = subprocess.run([found_path, '-v'], capture_output=True, text=True, creationflags=cflags, timeout=5)
+            out = res.stdout.strip() or res.stderr.strip()
+            match = re.search(r'PHP\s+(\d+\.\d+\.\d+)', out)
+            if match:
+                version_str = match.group(1)
+            elif out:
+                version_str = out.split('\n')[0].strip()
+        except Exception:
+            pass
+
+        try:
+            res_mem = subprocess.run([found_path, '-r', 'echo ini_get("memory_limit");'], capture_output=True, text=True, creationflags=cflags, timeout=5)
+            out_mem = res_mem.stdout.strip()
+            if out_mem:
+                memory_limit = out_mem
+        except Exception:
+            pass
+        return version_str, memory_limit
+
+    def _is_system_php_fpm_running(self, vyloserve_bin: str) -> bool:
+        try:
+            import psutil
+            for proc in psutil.process_iter(['name', 'exe']):
+                try:
+                    pname = (proc.info.get('name') or '').lower()
+                    pexe = (proc.info.get('exe') or '').lower()
+                    if 'php-fpm' in pname and vyloserve_bin not in pexe:
+                        return True
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+        except Exception:
+            pass
+        return False
+
     def _check_system_php(self) -> dict:
         """
         Mendeteksi instalasi PHP CLI / FPM bawaan OS (misalnya /usr/bin/php pada Linux).
@@ -61,56 +115,12 @@ class PhpManager:
             if std_dir not in clean_paths and os.path.isdir(std_dir):
                 clean_paths.append(std_dir)
 
-        found_path = None
-        for cand in ['php', 'php8.3', 'php8.2', 'php8.1', 'php8.0', 'php7.4']:
-            found = shutil.which(cand, path=os.pathsep.join(clean_paths))
-            if found:
-                real_target = os.path.normpath(os.path.realpath(found)).lower()
-                if real_target.startswith(vyloserve_bin) or vyloserve_bin in real_target:
-                    continue
-                found_path = found
-                break
-
+        found_path = self._find_system_php_binary(clean_paths, vyloserve_bin)
         if not found_path:
             return {"exists": False, "version": "", "path": "", "status": "stopped", "memory_limit": ""}
 
-        version_str = "Unknown"
-        try:
-            cflags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
-            res = subprocess.run([found_path, '-v'], capture_output=True, text=True, creationflags=cflags, timeout=5)
-            out = res.stdout.strip() or res.stderr.strip()
-            match = re.search(r'PHP\s+(\d+\.\d+\.\d+)', out)
-            if match:
-                version_str = match.group(1)
-            elif out:
-                version_str = out.split('\n')[0].strip()
-        except Exception:
-            pass
-
-        memory_limit = "128M"
-        try:
-            cflags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
-            res_mem = subprocess.run([found_path, '-r', 'echo ini_get("memory_limit");'], capture_output=True, text=True, creationflags=cflags, timeout=5)
-            out_mem = res_mem.stdout.strip()
-            if out_mem:
-                memory_limit = out_mem
-        except Exception:
-            pass
-
-        is_running = False
-        try:
-            import psutil
-            for proc in psutil.process_iter(['name', 'exe']):
-                try:
-                    pname = (proc.info.get('name') or '').lower()
-                    pexe = (proc.info.get('exe') or '').lower()
-                    if 'php-fpm' in pname and vyloserve_bin not in pexe:
-                        is_running = True
-                        break
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass
-        except Exception:
-            pass
+        version_str, memory_limit = self._probe_system_php_meta(found_path)
+        is_running = self._is_system_php_fpm_running(vyloserve_bin)
 
         return {
             "exists": True,
@@ -157,25 +167,32 @@ class PhpManager:
 
         return instances
     
+    @staticmethod
+    def _update_single_posix_symlink(src: str, link_path: str, target_path: str, enable: bool):
+        try:
+            if enable:
+                if os.path.exists(src):
+                    if os.path.islink(link_path) or os.path.exists(link_path):
+                        os.unlink(link_path)
+                    os.symlink(src, link_path)
+            else:
+                if os.path.islink(link_path) and os.path.realpath(link_path).startswith(os.path.realpath(target_path)):
+                    os.unlink(link_path)
+        except Exception:
+            pass
+
+    def _toggle_posix_user_symlink(self, target_path: str, enable: bool):
+        user_bin = os.path.expanduser('~/.local/bin')
+        os.makedirs(user_bin, exist_ok=True)
+        for bin_name in ['php', 'composer']:
+            src = os.path.join(target_path, bin_name)
+            link_path = os.path.join(user_bin, bin_name)
+            self._update_single_posix_symlink(src, link_path, target_path, enable)
+
     def toggle_global_path(self, target_path: str, enable: bool):
         """ Mengatur PATH OS dinamis agar command 'php' dan 'composer' terhubung ke versi yang aktif """
         if sys.platform != 'win32':
-            user_bin = os.path.expanduser('~/.local/bin')
-            os.makedirs(user_bin, exist_ok=True)
-            for bin_name in ['php', 'composer']:
-                src = os.path.join(target_path, bin_name)
-                link_path = os.path.join(user_bin, bin_name)
-                try:
-                    if enable:
-                        if os.path.exists(src):
-                            if os.path.islink(link_path) or os.path.exists(link_path):
-                                os.unlink(link_path)
-                            os.symlink(src, link_path)
-                    else:
-                        if os.path.islink(link_path) and os.path.realpath(link_path).startswith(os.path.realpath(target_path)):
-                            os.unlink(link_path)
-                except Exception:
-                    pass
+            self._toggle_posix_user_symlink(target_path, enable)
             return
         try:
             from core.utils.system_utils import modify_user_path
@@ -209,7 +226,7 @@ class PhpManager:
         }
         return version_map, offline_detected
 
-    def _install_php_linux(self, port: int) -> dict:
+    def _install_php_linux(self) -> dict:
         pkexec = shutil.which("pkexec")
         apt_get = shutil.which("apt-get")
         dnf = shutil.which("dnf")
@@ -218,41 +235,41 @@ class PhpManager:
         if not pkexec:
             return {"status": "error", "message": "backend.php.no_pkexec"}
 
-        self._log("backend.php.linux_installing", "info")
+        self._log(MSG_PHP_LINUX_INSTALLING, "info")
         self._progress(20, "backend.php.linux_updating_repo")
 
         try:
             if apt_get:
                 run_silent_command([pkexec, apt_get, "update"])
-                self._progress(50, "backend.php.linux_installing")
+                self._progress(50, MSG_PHP_LINUX_INSTALLING)
                 pkgs = ["php", "php-cli", "php-fpm", "php-common", "php-mbstring", "php-curl", "php-xml"]
                 res = subprocess.run([pkexec, apt_get, "install", "-y", *pkgs], capture_output=True, text=True)
             elif dnf:
-                self._progress(50, "backend.php.linux_installing")
+                self._progress(50, MSG_PHP_LINUX_INSTALLING)
                 pkgs = ["php", "php-cli", "php-fpm", "php-common", "php-mbstring", "php-xml"]
                 res = subprocess.run([pkexec, dnf, "install", "-y", *pkgs], capture_output=True, text=True)
             elif pacman:
-                self._progress(50, "backend.php.linux_installing")
+                self._progress(50, MSG_PHP_LINUX_INSTALLING)
                 res = subprocess.run([pkexec, pacman, "-S", "--noconfirm", "php", "php-fpm"], capture_output=True, text=True)
             else:
                 return {"status": "error", "message": "backend.php.unsupported_linux_distro"}
 
             if res.returncode in (126, 127):
-                self._progress(0, "backend.php.auth_cancelled")
-                self._log("backend.php.auth_cancelled", "warn")
-                return {"status": "error", "message": "backend.php.auth_cancelled"}
+                self._progress(0, MSG_PHP_AUTH_CANCELLED)
+                self._log(MSG_PHP_AUTH_CANCELLED, "warn")
+                return {"status": "error", "message": MSG_PHP_AUTH_CANCELLED}
 
             if res.returncode != 0:
                 err_msg = res.stderr.strip() if res.stderr else "Installation failed"
-                self._progress(0, "backend.php.install_failed")
-                return {"status": "error", "message": "backend.php.install_failed", "args": {"e": err_msg[:120]}}
+                self._progress(0, MSG_PHP_INSTALL_FAILED)
+                return {"status": "error", "message": MSG_PHP_INSTALL_FAILED, "args": {"e": err_msg[:120]}}
 
-            self._progress(100, "backend.php.linux_install_success")
-            self._log("backend.php.linux_install_success", "success")
+            self._progress(100, MSG_PHP_LINUX_INSTALL_SUCCESS)
+            self._log(MSG_PHP_LINUX_INSTALL_SUCCESS, "success")
 
-            return {"status": "success", "message": "backend.php.linux_install_success"}
+            return {"status": "success", "message": MSG_PHP_LINUX_INSTALL_SUCCESS}
         except Exception as e:
-            return {"status": "error", "message": "backend.php.install_failed", "args": {"e": str(e)}}
+            return {"status": "error", "message": MSG_PHP_INSTALL_FAILED, "args": {"e": str(e)}}
 
     def get_versions(self):
         try:
@@ -307,7 +324,7 @@ class PhpManager:
         with open(composer_sh, 'w', encoding='utf-8') as f:
             f.write('#!/bin/sh\nexec php "$(dirname "$0")/composer.phar" "$@"\n')
         try:
-            os.chmod(composer_sh, os.stat(composer_sh).st_mode | 0o755)
+            os.chmod(composer_sh, os.stat(composer_sh).st_mode | 0o700)
         except OSError:
             pass
 
@@ -371,9 +388,31 @@ class PhpManager:
         with open(os.path.join(target_dir, PHP_INI), 'w') as f:
             f.write(ini_content)
 
+    def ensure_php_config(self, version: str, port: int = 9000) -> bool:
+        """
+        Memeriksa dan meregenerasi php.ini atau composer script jika hilang dari target_dir.
+        """
+        target_dir = os.path.join(self.base_dir, version)
+        if not os.path.exists(target_dir):
+            return False
+
+        ini_path = os.path.join(target_dir, PHP_INI)
+        repaired = False
+        if not os.path.exists(ini_path):
+            self._write_default_php_ini(target_dir, version, port)
+            repaired = True
+
+        composer_phar = os.path.join(target_dir, "composer.phar")
+        composer_bat = os.path.join(target_dir, "composer.bat")
+        if os.path.exists(composer_phar) and not os.path.exists(composer_bat):
+            self._install_composer(target_dir)
+            repaired = True
+
+        return repaired
+
     def install_version(self, version: str, filename: str, port: int, is_update: bool = False):
         if filename == "system" or version == "system":
-            return self._install_php_linux(port)
+            return self._install_php_linux()
 
         target_dir = os.path.join(self.base_dir, version)
         file_path = os.path.join(self.base_dir, filename)
@@ -506,10 +545,10 @@ class PhpManager:
         try:
             if open_path_in_file_manager(target):
                 return {"status": "success", "message": "backend.php.opened"}
-            return {"status": "error", "message": "backend.php.fatal_error"}
+            return {"status": "error", "message": MSG_PHP_FATAL_ERROR}
         except Exception as e:
-            self._log("backend.php.fatal_error", "error", {"e": str(e)})
-            return {"status": "error", "message": "backend.php.fatal_error", "args": {"e": str(e)}}
+            self._log(MSG_PHP_FATAL_ERROR, "error", {"e": str(e)})
+            return {"status": "error", "message": MSG_PHP_FATAL_ERROR, "args": {"e": str(e)}}
 
     # ---> FIX: Tambahkan Log Sukses <---
     def uninstall_version(self, version: str):
@@ -561,6 +600,27 @@ class PhpManager:
                 self.api.apache.update_global_php_proxy(port)
         except Exception: pass
 
+    @staticmethod
+    def _find_fpm_pool_dir(short_ver: str) -> Optional[str]:
+        pool_dirs = []
+        if short_ver:
+            pool_dirs.append(f"/etc/php/{short_ver}/fpm/pool.d")
+        pool_dirs.extend(["/etc/php-fpm.d", "/etc/php/fpm/pool.d"])
+        for pd in pool_dirs:
+            if os.path.isdir(pd):
+                return pd
+        return None
+
+    @staticmethod
+    def _is_fpm_pool_needed(conf_file: str, pool_content: str) -> bool:
+        if not os.path.exists(conf_file):
+            return True
+        try:
+            with open(conf_file, 'r', encoding='utf-8') as f:
+                return pool_content.strip() != f.read().strip()
+        except Exception:
+            return True
+
     def _ensure_vyloserve_fpm_pool(self, php_version: str) -> Optional[str]:
         if sys.platform == 'win32':
             return None
@@ -571,20 +631,7 @@ class PhpManager:
         digits = re.findall(r'\d+', php_version)
         short_ver = '.'.join(digits[:2]) if digits else ''
 
-        pool_dirs = []
-        if short_ver:
-            pool_dirs.append(f"/etc/php/{short_ver}/fpm/pool.d")
-        pool_dirs.extend([
-            "/etc/php-fpm.d",
-            "/etc/php/fpm/pool.d"
-        ])
-
-        target_pool_dir = None
-        for pd in pool_dirs:
-            if os.path.isdir(pd):
-                target_pool_dir = pd
-                break
-
+        target_pool_dir = self._find_fpm_pool_dir(short_ver)
         if not target_pool_dir:
             return None
 
@@ -607,36 +654,42 @@ class PhpManager:
         )
 
         pkexec = shutil.which("pkexec")
-        needed = True
-        if os.path.exists(conf_file):
-            try:
-                with open(conf_file, 'r', encoding='utf-8') as f:
-                    if pool_content.strip() == f.read().strip():
-                        needed = False
-            except Exception:
-                needed = True
-
-        if needed and pkexec:
-            import tempfile
-            temp_pool = os.path.join(tempfile.gettempdir(), f"vyloserve_pool_{os.getpid()}.conf")
-            try:
-                with open(temp_pool, 'w', encoding='utf-8') as f:
-                    f.write(pool_content)
-                res = subprocess.run([pkexec, "cp", temp_pool, conf_file], capture_output=True)
-                if res.returncode == 0:
-                    subprocess.run([pkexec, "chmod", "644", conf_file], capture_output=True)
-                    systemctl = shutil.which("systemctl")
-                    svc_name = f"php{short_ver}-fpm" if short_ver else "php-fpm"
-                    if systemctl:
-                        subprocess.run([pkexec, systemctl, "reload", svc_name], capture_output=True)
-            except Exception:
-                pass
-            finally:
-                if os.path.exists(temp_pool):
-                    try: os.remove(temp_pool)
-                    except OSError: pass
+        if self._is_fpm_pool_needed(conf_file, pool_content) and pkexec:
+            self._write_vyloserve_fpm_pool(conf_file, pool_content, pkexec, short_ver)
 
         return sock_path
+
+    def _write_vyloserve_fpm_pool(self, conf_file: str, pool_content: str, pkexec: str, short_ver: str):
+        import tempfile
+        temp_pool = os.path.join(tempfile.gettempdir(), f"vyloserve_pool_{os.getpid()}.conf")
+        try:
+            with open(temp_pool, 'w', encoding='utf-8') as f:
+                f.write(pool_content)
+            res = subprocess.run([pkexec, "cp", temp_pool, conf_file], capture_output=True)
+            if res.returncode == 0:
+                subprocess.run([pkexec, "chmod", "644", conf_file], capture_output=True)
+                systemctl = shutil.which("systemctl")
+                svc_name = f"php{short_ver}-fpm" if short_ver else "php-fpm"
+                if systemctl:
+                    subprocess.run([pkexec, systemctl, "reload", svc_name], capture_output=True)
+        except Exception:
+            pass
+        finally:
+            if os.path.exists(temp_pool):
+                try: os.remove(temp_pool)
+                except OSError: pass
+
+    @staticmethod
+    def _run_systemctl_action(systemctl: Optional[str], pkexec: Optional[str], action: str, svc: str) -> bool:
+        if systemctl:
+            res = subprocess.run([systemctl, action, svc], capture_output=True)
+            if res.returncode == 0:
+                return True
+            if pkexec:
+                res_pk = subprocess.run([pkexec, systemctl, action, svc], capture_output=True)
+                if res_pk.returncode == 0:
+                    return True
+        return False
 
     def _toggle_system_php_service(self, enable: bool) -> bool:
         if sys.platform == 'win32':
@@ -658,18 +711,30 @@ class PhpManager:
         pkexec = shutil.which("pkexec")
         action = "start" if enable else "stop"
         for svc in services:
-            if systemctl:
-                res = subprocess.run([systemctl, action, svc], capture_output=True)
-                if res.returncode == 0:
-                    return True
-                if pkexec:
-                    res_pk = subprocess.run([pkexec, systemctl, action, svc], capture_output=True)
-                    if res_pk.returncode == 0:
-                        return True
+            if self._run_systemctl_action(systemctl, pkexec, action, svc):
+                return True
         if not enable:
             subprocess.run(['pkill', '-f', 'php-fpm'], capture_output=True)
             return True
         return False
+
+    def _start_system_php(self, version: str) -> dict:
+        if self._toggle_system_php_service(True):
+            self._log("backend.php.started", "success", {"version": version})
+            if hasattr(self, 'api') and hasattr(self.api, 'emit_service_status'):
+                self.api.emit_service_status('php', True)
+            return {"status": "success", "message": "backend.php.started", "args": {"version": version}}
+        php_cgi = shutil.which("php-cgi")
+        if php_cgi:
+            try:
+                self.processes[version] = start_silent_process([php_cgi, "-b", "127.0.0.1:9000"])
+                time.sleep(0.5)
+                if self.processes[version].poll() is None:
+                    self._log("backend.php.fastcgi_started", "success", {"version": version, "port": 9000})
+                    return {"status": "success", "message": "backend.php.fastcgi_success"}
+            except Exception:
+                pass
+        return {"status": "error", "message": "backend.php.cgi_failed", "args": {"port": 9000}}
 
     def start_php(self, version: str):
         if version in self.processes and self.processes[version].poll() is None:
@@ -679,22 +744,7 @@ class PhpManager:
         if not os.path.exists(target_dir):
             system_php = self._check_system_php()
             if system_php.get("exists") and (version == system_php.get("version") or version == "system"):
-                if self._toggle_system_php_service(True):
-                    self._log("backend.php.started", "success", {"version": version})
-                    if hasattr(self, 'api') and hasattr(self.api, 'emit_service_status'):
-                        self.api.emit_service_status('php', True)
-                    return {"status": "success", "message": "backend.php.started", "args": {"version": version}}
-                php_cgi = shutil.which("php-cgi")
-                if php_cgi:
-                    try:
-                        self.processes[version] = start_silent_process([php_cgi, "-b", "127.0.0.1:9000"])
-                        time.sleep(0.5)
-                        if self.processes[version].poll() is None:
-                            self._log("backend.php.fastcgi_started", "success", {"version": version, "port": 9000})
-                            return {"status": "success", "message": "backend.php.fastcgi_success"}
-                    except Exception:
-                        pass
-                return {"status": "error", "message": "backend.php.cgi_failed", "args": {"port": 9000}}
+                return self._start_system_php(version)
             return {"status": "error", "message": "backend.php.binary_not_found"}
         
         exe_path = os.path.join(target_dir, "php-cgi.exe" if sys.platform == 'win32' else "php-cgi")
@@ -725,30 +775,31 @@ class PhpManager:
         except Exception as e:
             return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
+    def _stop_system_php_instance(self, version: str) -> dict:
+        self._toggle_system_php_service(False)
+        if version in self.processes:
+            proc = self.processes.pop(version, None)
+            if proc and proc.poll() is None:
+                kill_process_tree(proc.pid)
+        self._log(MSG_PHP_STOPPED, "success", {"version": version})
+        return {"status": "success", "message": MSG_PHP_STOPPED, "args": {"version": version}}
+
     def stop_php(self, version: str):
         target_dir = os.path.join(self.base_dir, version)
         if not os.path.exists(target_dir):
             system_php = self._check_system_php()
             if system_php.get("exists") and (version == system_php.get("version") or version == "system"):
-                self._toggle_system_php_service(False)
-                if version in self.processes:
-                    proc = self.processes.pop(version, None)
-                    if proc and proc.poll() is None:
-                        kill_process_tree(proc.pid)
-                self._log("backend.php.stopped", "success", {"version": version})
-                return {"status": "success", "message": "backend.php.stopped", "args": {"version": version}}
+                return self._stop_system_php_instance(version)
 
         if version in self.processes:
-            proc = self.processes[version]
-            if proc.poll() is None:
+            proc = self.processes.pop(version, None)
+            if proc and proc.poll() is None:
                 kill_process_tree(proc.pid)
-            self.processes.pop(version, None)
-
             self.toggle_global_path(target_dir, enable=False)
 
         if hasattr(self, 'api') and hasattr(self.api, 'emit_service_status'):
             self.api.emit_service_status('php', self.check_is_running())
-        return {"status": "success", "message": "backend.php.stopped", "args": {"version": version}}
+        return {"status": "success", "message": MSG_PHP_STOPPED, "args": {"version": version}}
 
     def _has_portable_versions(self) -> bool:
         if not os.path.exists(self.base_dir): return False

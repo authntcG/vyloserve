@@ -447,7 +447,10 @@ def test_check_via_env_ignores_symlinks_to_vyloserve(runtimes_manager, tmp_path)
 
     # Symlink in user_bin pointing into vyloserve_bin
     symlink_go = user_bin / "go"
-    symlink_go.symlink_to(real_vylo_go)
+    try:
+        symlink_go.symlink_to(real_vylo_go)
+    except OSError:
+        pytest.skip("Symlink creation requires elevated privileges on Windows")
 
     with patch('sys.platform', 'linux'), \
          patch('os.environ.copy', return_value={'PATH': str(user_bin)}):

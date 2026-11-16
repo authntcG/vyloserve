@@ -1432,3 +1432,269 @@ untimes, dan git.
      - Menambahkan unit test baru `test_check_via_env_ignores_symlinks_to_vyloserve` dan `test_set_active_version_switches_linux` di `tests/test_services/test_runtimes_manager.py`.
      - 835 tes backend pytest dan 924 tes frontend vitest lulus 100%.
      - Live smoke test pada lingkungan Linux mengonfirmasi bahwa symlink aktif di `~/.local/bin` dapat berpindah versi secara mulus tanpa memicu false positive deteksi native.
+
+### 98. Clipping Bawah Sticky Card & Double Scrollbar pada Module Markdown Viewer Akibat Container Non-FillScreen — SUDAH DIPERBAIKI
+- **Lokasi:**
+  - `frontend/src/App.tsx` (`AppPagesView`, `isFillScreen`)
+  - `frontend/src/menu/tools/markdown-viewer/Main.tsx`
+  - `frontend/src/components/LogsPanel.tsx`
+  - `frontend/tests/components/LogsPanel.test.tsx`
+  - `frontend/tests/menu/tools/markdown-viewer/Main.test.tsx`
+  - `AGENTS.md` (Rule 39)
+  - `docs/frontend_ui.md` (§4.6)
+- **Masalah:**
+  1. *Clipping Viewport Awal & Kontrol Bawah Terkubur:* Pada module Markdown Viewer, card Treeview dan Doc AI Copilot awalnya menggunakan kalkulasi `calc(100vh - 240px)` (atau kalkulasi dinamis berbasis `--system-logs-height`) dengan CSS `position: sticky`. Namun, container induk `AppPagesView` pada saat itu bukan bertipe `isFillScreen` (berbeda dari AI Assistant dan Terminal), melainkan memiliki `overflow-y-auto` dengan padding `py-8` (32px) dan `PageHeader` (~70px) di atas grid workspace. Akibatnya, pada posisi scroll awal (`scrollTop = 0`), grid workspace dimulai pada `Y ~= 126px`. Card yang tingginya dihitung relatif terhadap `100vh` otomatis meluber ~126px melampaui batas bawah layar ke balik System Logs. Pengguna mendapati tombol composer input chat AI dan tombol bawah treeview terpotong dan tersembunyi.
+  2. *Sindrom Double Scrollbar & Header Card Menghilang:* Ketika pengguna mencoba melakukan scroll ke bawah untuk melihat input chat yang terpotong, yang ter-scroll adalah container halaman luar (`AppPagesView`). Hal ini menyebabkan `PageHeader` dan header card (`AI Doc Copilot`) ikut ter-scroll ke atas dan menghilang keluar layar, sementara pembacaan isi dokumen di kolom tengah bertabrakan dengan scrollbar halaman luar.
+- **Solusi:**
+  1. *Promosi Markdown Viewer ke Fill-Screen Workspace (`App.tsx`):*
+     Mengikutsertakan `'docs-reader'` ke dalam flag `isFillScreen` (`const isFillScreen = activeMenu === 'ai-assistant' || activeMenu === 'terminal' || activeMenu === 'docs-reader';`) dan membungkus `<DocsReaderMain />` dengan `flex-1 min-h-0 flex flex-col w-full h-full`, konsisten dengan arsitektur Terminal dan AI Assistant.
+  2. *Arsitektur 3-Pane Internal Scrolling (`Main.tsx`):*
+     - Menjadikan `DocsReaderMain` sebagai layout flexbox penuh (`flex-1 min-h-0 flex flex-col w-full h-full gap-4`) dengan `PageHeader` `shrink-0`.
+     - Ketika mode workspace aktif (`rootPath`), grid menggunakan `flex-1 min-h-0 grid items-stretch`.
+     - Ketiga panel (Treeview, Document Reader, dan Doc AI Copilot) menggunakan `h-full min-h-0 flex flex-col` dengan scrollbar internal masing-masing (`flex-1 min-h-0 overflow-y-auto`).
+     - Composer input chat AI di kanan dan tombol header di tengah/kiri selalu *pinned* presisi di batas atas dan bawah kartu.
+     - Scroll pada dokumen teks hanya menggerakkan isi dokumen tanpa pernah menggeser panel Treeview, tanpa menggeser panel AI Copilot, dan tanpa scrollbar ganda pada halaman luar.
+     - Koordinasi dinamis variabel `--system-logs-height` dari `LogsPanel.tsx` tetap dipertahankan untuk penempatan `position: fixed` pada Peek Drawer dan Edge Arrow handle.
+  3. *Verifikasi & Pengujian:*
+     - 50 tes vitest Markdown Viewer lulus 100%.
+     - 25 tes pytest backend dan tes paritas translation key lulus 100%.
+     - Kompilasi build produksi `npm run build` berhasil tanpa galat TypeScript.
+
+### 99. Asimetri Ikon Sidebar saat Collapsed (Off-Center) & Hilangnya Scrollbar serta Footer Terpotong pada Resolusi Vertikal Kecil — SUDAH DIPERBAIKI
+- **Lokasi:**
+  - `frontend/src/components/Sidebar.tsx` (`SidebarHeader`, `ServiceNavItem`, `PlainNavItem`, `SidebarFooter`, main nav JSX)
+  - `frontend/src/index.css` (`.custom-scrollbar` utility)
+  - `frontend/tests/components/Sidebar.test.tsx`
+  - `docs/frontend_ui.md` (§4.4)
+- **Masalah:**
+  1. *Asimetri Ikon Off-Center pada Mode Rail 80px:* Ketika sidebar terlipat (`isDesktopCollapsed = true`), tombol menu navigasi mewarisi styling mode expanded: `w-full text-left flex items-center gap-3 px-3 py-2.5`. Hal ini menempatkan ikon selebar 20px berjarak 20px dari tepi kiri (X = 20px - 40px), sehingga titik tengah ikon berada pada X = 30px (bergeser ~10px ke kiri dari sumbu simetri rail 80px di X = 40px). Kondisi ini melanggar *Gestalt Law of Symmetry* dan memicu ketidaknyamanan visual (cognitive dissonance).
+  2. *Hilangnya Scrollbar & Terpotongnya Menu Navigasi Bawah:* Container navigasi tengah sebelumnya memiliki kondisi `isDesktopCollapsed ? 'overflow-visible' : 'overflow-y-auto overflow-x-hidden'` (peninggalan artefak lawas saat mencoba membuat hover flyout). Akibatnya, pada mode collapsed, daftar menu (14 item) memanjang tak berbatas melebihi tinggi layar. Pada layar atau jendela berukuran vertikal kecil (mis. tinggi <= 768px), ikon menu di bagian bawah (seperti QR Generator, Base64, URL Encode) terpotong dan tidak dapat diakses sama sekali karena ketiadaan scrollbar.
+  3. *Footer Mengapung ke Luar Layar & Tombol Settings Runtuh:* Akibat container navigasi `overflow-visible`, elemen `SidebarFooter` (`mt-auto`) terdorong keluar dari bagian bawah layar. Selain itu, header atas tidak memiliki `shrink-0` dan toggle button tidak terpusat di rail 80px.
+- **Solusi:**
+  1. *Presisi Ergonomi Squircle Terpusat & Anti-Shrink (Centering, Static Icons & Fitts's Law):*
+     - Pada `ServiceNavItem`, `PlainNavItem`, dan `filteredMain`, tombol saat `isDesktopCollapsed` dirender dengan styling squircle terpusat: `w-11 h-11 shrink-0 mx-auto flex items-center justify-center rounded-xl cursor-pointer transition-colors`. Atribut `shrink-0` mencegah flexbox mengompresi / meresize tombol secara vertikal saat tinggi layar menyusut.
+     - Ikon menu menggunakan ukuran statis `text-[24px] shrink-0` seragam di seluruh state (baik expanded maupun collapsed), menjamin ikon tidak pernah mengalami distorsi atau perubahan dimensi.
+     - Ukuran 44x44px (`w-11 h-11`) memenuhi standar Fitts's Law dan pedoman WCAG touch target minimum (44x44px) dengan presisi simetri sempurna di tengah rail 80px (margin kiri-kanan masing-masing 18px).
+     - Label teks tetap hadir di DOM sebagai `<span className="sr-only">{label}</span>` sehingga screen reader dan pengujian aksesibilitas tetap membaca nama menu dengan tepat.
+     - Ditambahkan atribut `title` dan `aria-label` native tooltip di setiap item nav collapsed.
+  2. *Ambient Running Status Indicator:*
+     - Pada layanan aktif (`Apache`, `PHP`, `Database`) di `ServiceNavItem`, status running divisualisasikan dengan ambient emerald dot di sudut kanan atas squircle: `absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-900`.
+     - Tooltip status informatif: `"Apache (Running)"` / `"Apache (Stopped)"`.
+  3. *Divider Horizontal Halus Pengganti Section Headers:*
+     - Teks judul seksi (`SERVICES`, `TOOLS`, `UTILITIES`) digantikan oleh garis divider tipis terpusat: `<div className="w-8 h-px bg-slate-200 dark:bg-slate-800 mx-auto my-1.5 shrink-0" role="separator" />`.
+  4. *Stylized Scrollbar Seragam Tanpa Arrow (Slim 5px White Translucent):*
+     - Mengubah container navigasi tengah menjadi seragam: `flex flex-col gap-1 py-2 px-2 flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar`.
+     - Menghapus deklarasi `scrollbar-width` dan `scrollbar-color` yang memicu browser Chromium/Edge WebView2 mengaktifkan scrollbar native Windows (yang memunculkan tombol panah arrow segitiga ▲/▼ dan ketebalan native yang mengganggu).
+     - Menyelaraskan seluruh scrollbar (baik global maupun `.custom-scrollbar`) menggunakan WebKit styling murni dengan `width: 5px`, `::-webkit-scrollbar-button { display: none !important; width: 0; height: 0; }` (menjamin 0 simbol panah arrow), track transparan, dan thumb kapsul ramping `bg-slate-400/40 dark:bg-white/25 rounded-full hover:bg-slate-500/60 dark:hover:bg-white/45`. Tampilan scrollbar di Sidebar kini 100% identik dan seragam dengan modul-modul lainnya (putih tipis transparan, tidak tebal, dan bebas dari simbol panah arrow).
+     - `SidebarFooter` dikunci dengan `shrink-0 mt-auto bg-surface dark:bg-slate-900 z-10`, menjamin ikon System Load (`memory` + CPU%) dan Notification Bell (`NotificationBell`) selalu ter-pin kokoh di bagian bawah layar tanpa pernah terpotong atau keluar dari viewport saat menu di-scroll.
+     - `SidebarHeader` diberikan `shrink-0` dengan toggle button terpusat `justify-center w-full` saat collapsed.
+- **Pengujian & Verifikasi:**
+  - 29 unit test di `frontend/tests/components/Sidebar.test.tsx` lulus 100%, mencakup verifikasi centering classes (`w-11`, `h-11`, `mx-auto`, `justify-center`), scroll container classes (`overflow-y-auto`, `min-h-0`, `.custom-scrollbar`), running indicator dot (`bg-emerald-500`), role separator, dan persistensi footer pinning (`shrink-0`, `mt-auto`).
+  - Seluruh rangkaian test terkait (`LogsPanel.test.tsx`, `i18n.test.ts`, `test_i18n_keys.py`) lulus 100%.
+  - Kompilasi build produksi TypeScript & Vite (`npm run build`) sukses tanpa peringatan/error.
+
+### 100. Gagal Autentikasi GitLab OAuth/PAT Karena Error Ekstraksi Profil & Missing Fallback ke REST API — SUDAH DIPERBAIKI
+- **Lokasi:**
+  - `core/services/gitlab_manager.py` (`authenticate()`, `_verify_gitlab_token_via_api()`)
+  - `tests/test_services/test_gitlab_manager.py`
+- **Masalah:**
+  - Saat menghubungkan akun GitLab menggunakan mode OAuth atau token `glpat-`, pemanggilan `authenticate()` mengalami kegagalan dengan pesan kesalahan: `authentication failed for <host>. please check your token and host: {{e}}`.
+  - Akar masalah pertama: `glab auth login` mengabaikan masukan token OAuth melalui argumen standar dan mencoba interaksi TTY interaktif jika stdin ditutup prematur.
+  - Akar masalah kedua: Ekstraksi identitas akun hanya bergantung pada output regex CLI `glab`, bukan REST API resmi GitLab (`/api/v4/user`). Ketika CLI tidak terkonfigurasi atau host self-hosted memiliki pesan banner selamat datang kustom, parser gagal mendeteksi username pengguna.
+- **Solusi:**
+  - Menambahkan metode validasi langsung `_verify_gitlab_token_via_api(host, token, auth_type)` yang memanggil endpoint resmi GitLab `/api/v4/user` dengan header `PRIVATE-TOKEN` (untuk mode PAT/credentials) dan header `Authorization: Bearer <token>` (untuk mode OAuth).
+  - Mengisolasi environment `GITLAB_TOKEN` dan `GITLAB_HOST` saat memanggil CLI subprocess `glab api user --hostname <host>` sebagai fallback andal jika panggilan HTTP langsung terhalang proxy/SSL lokal.
+  - Mendukung input mode `credentials` (Username & Password / PAT) yang otomatis menyinkronkan token ke Git Credential Helper native Windows agar operasi push/pull repository tidak lagi meminta password manual.
+
+### 101. Tailwind CSS v4 `@theme { --spacing-*: ... }` Membajak Utility Container Max-Width (`max-w-md`, `max-w-sm`) & Memicu Text Truncation — SUDAH DIPERBAIKI
+- **Lokasi:**
+  - `frontend/src/index.css` (`@theme`)
+  - `frontend/src/components/HeaderMobile.tsx`
+  - `frontend/src/components/EmptyState.tsx`
+  - `frontend/src/menu/tools/git/GitComponents.tsx`
+  - `frontend/src/menu/tools/git/GitLabIntegrationTab.tsx`
+- **Masalah:**
+  - Pada kartu akun Git dan GitLab (misalnya Empty State atau deskripsi kartu), teks panjang seperti `"Connect your GitLab account or add self-hosted instances..."` atau `"Add an account to manage push identity..."` tidak membentang secara horizontal ke samping, melainkan terpotong sempit dan memanjang ke bawah seperti tampilan mobile kecil di tengah desktop yang luas.
+  - Investigasi akar masalah menemukan bahwa di `frontend/src/index.css`, blok `@theme` mendefinisikan custom spacing token: `--spacing-header-height: 4rem;` dan `--spacing-header-mobile-height: 3.5rem;`. Di Tailwind CSS v4, mendefinisikan namespace `--spacing-*` di dalam `@theme` tanpa ekstensi eksplisit dapat menimpa dan mengacaukan kalkulasi rentang lebar standar (`max-w-sm`, `max-w-md`, `max-w-lg`), menyebabkan utility `max-w-md` berkolaps menjadi sempit drastis.
+- **Solusi:**
+  - Menghapus deklarasi `--spacing-*` dari blok `@theme` di `index.css` dan mempertahankan variabel CSS custom murni di blok root (`--header-height: 4rem;` dan `--header-mobile-height: 3.5rem;`).
+  - Mengubah penggunaan di `HeaderMobile.tsx` menjadi utility Tailwind standar `h-14` (3.5rem) dan `pt-14`.
+  - Memperbarui seluruh kontainer deskripsi teks kartu Git, GitLab, dan Empty State dari pembatas sempit ke standar desktop `max-w-2xl mx-auto text-center`, sehingga teks dapat terbaca lega dan membentang proporsional ke samping.
+
+### 102. Pembekuan Tak Berbatas Waktu (Infinite Hang) pada Git Credential Helper di Windows Tanpa Environment Non-Interaktif — SUDAH DIPERBAIKI
+- **Lokasi:**
+  - `core/services/git_manager.py` (`_store_git_credential()`, `_delete_git_credential()`)
+  - `core/services/gitlab_manager.py` (`remove_gitlab_account()`, `authenticate()`)
+  - `tests/test_services/test_git_manager.py`
+  - `tests/test_services/test_gitlab_manager.py`
+- **Masalah:**
+  - Ketika menjalankan unit test (seperti `test_remove_gitlab_account` atau `test_save_git_account`), proses pengujian membeku (*hang*) tanpa henti selama lebih dari 12 menit.
+  - Investigasi akar masalah menemukan bahwa pada instalasi Git for Windows (termasuk PortableGit), konfigurasi sistem bawaan mengaktifkan `credential.helper = helper-selector`. Ketika backend mengeksekusi `git credential approve` atau `git credential reject` melalui `subprocess.run()`, proses memunculkan dialog GUI interaktif Windows atau menunggu input konsol stdin yang tidak pernah datang pada background test runner, memicu deadlock permanen.
+- **Solusi:**
+  - Mengganti pemanggilan subprocess di `_store_git_credential` dan `_delete_git_credential` menggunakan `subprocess.Popen` dengan `stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL`.
+  - Menyuntikkan environment non-interaktif eksplisit: `GIT_TERMINAL_PROMPT = "0"` dan `GCM_INTERACTIVE = "never"` untuk mematikan semua helper GUI interaktif di tingkat OS.
+  - Menambahkan pembatas timeout ketat 2 detik (`proc.communicate(input=..., timeout=2)`) dengan fail-safe `proc.kill()` jika proses tidak selesai dalam waktu 2 detik.
+  - Memastikan seluruh unit test meng-mock `_store_git_credential` dan `_delete_git_credential` secara presisi, memangkas durasi eksekusi test dari >12 menit menjadi hanya ~2.3 detik.
+
+### 103. Bug Ikon Folder Rusak dengan Teks `"_GIT"` Meluber Keluar Kotak Akibat Ligature Tidak Valid (`folder_git`) pada Material Symbols — SUDAH DIPERBAIKI
+- **Lokasi:**
+  - `frontend/src/menu/tools/git/GitComponents.tsx` (`GitAssignedProjectsCard`)
+  - `frontend/src/menu/tools/git/GitLabIntegrationTab.tsx` (`GitLabAssignedProjectsCard`)
+- **Masalah:**
+  - Pada daftar proyek GitLab dan kartu proyek di modul Git & GitLab, ikon folder muncul berbarengan dengan tulisan `"_GIT"` berukuran besar yang keluar dari batas kotak ikon `32x32px` (`w-8 h-8`).
+  - Akar masalah: Kode merender string ligature `'folder_git'` (nama ikon dari *Lucide Icons* yang tidak ada di dalam font `@fontsource/material-symbols-outlined`). Karena font Material Symbols menggunakan mekanisme OpenType Ligature (`liga`), prefix `folder` dicocokkan sebagai gambar ikon Folder (📁), sedangkan sisa karakter `_git` yang tidak memiliki ligature dirender sebagai huruf teks mentah `"_GIT"` di sebelah ikon folder.
+- **Solusi:**
+  - Mengganti seluruh penggunaan `'folder_git'` menjadi ligature resmi Material Symbols Outlined yang valid (`'folder'` untuk proyek remote dan `'folder_open'` untuk proyek lokal / empty state).
+  - Menambahkan `overflow-hidden select-none` pada kontainer kotak ikon (`w-8 h-8 rounded-lg ...`) sebagai pelindung visual.
+
+### 104. Daftar Proyek GitHub Kosong Seusai Login Akibat Penolakan Password Biasa oleh GitHub API & Ketiadaan Fallback Publik — SUDAH DIPERBAIKI
+- **Lokasi:**
+  - `core/services/git_manager.py` (`save_git_account()`, `get_git_account_projects()`, `_verify_github_token_via_api()`)
+  - `frontend/src/context/GitContext.tsx` (`handleSaveAccount()`, `handleSetDefaultAccount()`, `handleDeleteAccount()`)
+  - `frontend/src/menu/tools/git/GitAccountModal.tsx`
+  - `frontend/src/menu/tools/git/GitComponents.tsx` (`GitAssignedProjectsCard`)
+- **Masalah:**
+  - Ketika pengguna menambahkan akun GitHub menggunakan mode `credentials` (*Username & Password / PAT*) dan memasukkan password akun biasa (bukan Personal Access Token `ghp_...`), panggilan ke `https://api.github.com/user/repos` ditolak dengan `HTTP 401 Unauthorized` (karena GitHub telah menghentikan autentikasi password biasa sejak Agustus 2021).
+  - Blok `except Exception: pass` menelan error 401 tanpa melakukan fallback ke endpoint publik `https://api.github.com/users/{username}/repos` dan tanpa mengirimkan peringatan ke UI.
+  - Selain itu, `handleSaveAccount()` di `GitContext.tsx` tidak memanggil `fetchProjects()` seusai menyimpan akun baru.
+- **Solusi:**
+  - Menambahkan validasi token langsung ke `https://api.github.com/user` (`_verify_github_token_via_api`) saat menyimpan akun GitHub, serta mendukung login OAuth interaktif browser via `git-credential-manager.exe` untuk mode `gcm`.
+  - Menambahkan fallback otomatis ke `https://api.github.com/users/{handle}/repos` dan flag `auth_warning: True` jika token tersimpan ditolak (HTTP 401/403), disertai banner `<InfoBox tone="warning">` dan tombol *Update Token* di UI.
+  - Memastikan `handleSaveAccount`, `handleSetDefaultAccount`, dan `handleDeleteAccount` di `GitContext.tsx` serta `GitLabContext.tsx` langsung memanggil `await fetchProjects(...)`.
+
+### 105. Potongan Karakter Kredensial Token Terekspos di UI & Update Action Hilang dari Dropdown CLI — SUDAH DIPERBAIKI
+- **Lokasi:**
+  - `core/services/git_manager.py` (`_mask_token()`)
+  - `core/services/gitlab_manager.py` (`_mask_token()`)
+  - `frontend/src/menu/tools/git/GitComponents.tsx` (`GitAccountsCard`)
+  - `frontend/src/menu/tools/git/GitLabIntegrationTab.tsx` (`GitLabCoreSystemCard`, Connected Accounts)
+  - `frontend/src/context/GitLabContext.tsx` (`handleUpdateClick()`, `fetchStatus()`)
+- **Masalah:**
+  - Card daftar akun Git dan GitLab menampilkan potongan token asli (`ghp_••••abcd` / `glpa••••1234`), melanggar prinsip *security in depth* dan membuat credential berisiko terekspos saat *screen sharing*.
+  - Dropdown options pada kartu GitLab CLI tidak menyajikan opsi perbarui versi (*Update to vX.Y.Z*) saat sistem mendeteksi rilis versi yang lebih baru di server GitLab.
+- **Solusi:**
+  - Menghapus rendering potongan token dari komponen UI akun Git dan GitLab, serta mengubah backend `_mask_token()` agar mengembalikan konstanta `"••••••••"` statis tanpa melakukan *slicing* karakter token mentah.
+  - Menambahkan aksi `"upgrade"` (`ui.update.update_to_target`) pada burger menu dropdown GitLab CLI ketika versi terbaru terdeteksi lebih tinggi dari versi terpasang, lengkap dengan dialog konfirmasi alert kustom dan progress tracking.
+
+### 106. Pembekuan / Error Saat Akses Git/GitLab Host Internal Tanpa VPN & Deteksi Akun Warisan — SUDAH DIPERBAIKI
+- **Lokasi:**
+  - `core/services/git_manager.py` (`_discover_legacy_git_accounts()`, `save_git_account()`, `get_git_account_projects()`)
+  - `core/services/gitlab_manager.py` (`_parse_glab_config_yml()`, `_migrate_legacy_glab_config()`, `authenticate()`, `get_account_projects()`, `get_recent_issues()`)
+  - `core/services/terminal.py` (`_detect_git_entry()`, `_detect_gitlab_entry()`, `_apply_engine_env_vars()`)
+  - `core/utils/network_utils.py` (`check_host_reachability()`)
+  - `frontend/src/menu/tools/git/GitAccountModal.tsx` & `GitLabAccountModal.tsx`
+  - `frontend/src/context/GitContext.tsx` & `GitLabContext.tsx`
+  - `frontend/src/menu/tools/git/GitComponents.tsx` & `GitLabIntegrationTab.tsx`
+- **Masalah:**
+  - Saat membuka menu Git atau GitLab untuk akun internal organisasi (misal `git.neuron.id`) tanpa terhubung ke VPN, proses backend mencoba melakukan panggilan REST API atau CLI glab ke host remote. Karena jaringan tidak dapat dijangkau, proses membeku hingga 15-30 detik atau melemparkan error pop-up tak terduga.
+  - Akun yang sudah terkonfigurasi di file bawaan glab (`%LOCALAPPDATA%\glab-cli\config.yml`) atau `~/.gitconfig` tidak terbaca di instalasi VyloServe.
+  - Biner Git dan GitLab portabel yang diisolasi (tidak diregistrasikan ke system PATH OS) tidak dapat diakses di terminal saat pengguna memilih environment profile `VyloServe Stack`.
+- **Solusi:**
+  - Mengimplementasikan helper probe socket cepat `check_host_reachability(host, default_port=443, timeout=1.5)` non-blocking di `core/utils/network_utils.py`.
+  - Menambahkan opsi `requires_vpn` pada modal Add/Edit Account Git dan GitLab. Jika flag aktif dan host tidak dapat dijangkau, pemanggilan API remote di-*short-circuit* (dilewati dengan cepat) dan UI menampilkan banner peringatan graceful *"VPN Connection Required"* dengan tombol *"Retry Connection"*, sementara repositori lokal di `www/` tetap dapat dipindai dan ditampilkan tanpa freeze.
+  - Menambahkan migrasi otomatis akun warisan dari `~/.gitconfig`, Windows Credential Helper, dan `%LOCALAPPDATA%\glab-cli\config.yml` (khususnya host `git.neuron.id` dan user `galih`).
+  - Menambahkan deteksi `git` dan `glab` portabel yang terisolasi ke dalam `get_runtimes_matrix()` di `core/services/terminal.py` dan menginjeksi direktori binernya (beserta `usr/bin`, `mingw64/bin` PortableGit) ke variabel PATH saat memilih environment `VyloServe Stack`.
+
+### 107. Standardisasi Ekstensi Reusable `<Card>` (`headerActions`), Strict Typing `<InfoBox>` (`tone`/`icon`), dan `<FieldLabel>` — SUDAH DIPERBAIKI
+- **Lokasi:**
+  - `frontend/src/components/Card.tsx`
+  - `frontend/src/menu/tools/port-manager/Main.tsx`
+  - `frontend/src/menu/utilities/json-studio/Main.tsx`
+  - `frontend/src/menu/utilities/jwt-debugger/Main.tsx`
+  - `frontend/src/utils/jwtDebugger.ts`
+- **Masalah:**
+  - Komponen generik `<Card>` awalnya hanya memiliki slot `dropdownActions` (tombol burger `more_vert`) dan `footerActions`. Modul yang membutuhkan tombol aksi di kanan atas judul kartu (seperti tombol *Sample*, *Clear*, atau *Copy*) terpaksa menjejalkannya di dalam `children` atau menduplikasi header manual, yang merusak keseragaman layout.
+  - Saat penulisan komponen baru, terjadi ketidakcocokan tipe terhadap kontrak primitif UI: `<InfoBox>` membutuhkan prop `tone` dan wajib memiliki `icon`, `<FieldLabel>` menggunakan `children` dan `visuallyHidden` (bukan prop `label`), serta `<StatusBadge>` membutuhkan prop `status` (bukan `label`).
+  - Web Crypto API `subtle.verify()` menolak passing objek `Uint8Array` bertipe `Uint8Array<ArrayBufferLike>` pada TypeScript strict mode karena kompatibilitas `SharedArrayBuffer` vs `ArrayBuffer`.
+- **Solusi:**
+  - Menambahkan prop resmi `headerActions?: ReactNode` pada `Card.tsx` yang dirender di samping `dropdownActions` di pojok kanan atas kartu, serta mengatur `gridCols="grid-cols-1"` pada kartu utilitas single-column agar kontennya tidak terbelah menjadi 4 kolom CSS grid secara tak sengaja.
+  - Memperbaiki seluruh pemanggilan komponen reusable ke kontrak aslinya (`<InfoBox tone="warning" icon="warning">`, `<FieldLabel htmlFor="..." visuallyHidden>{text}</FieldLabel>`, dll.).
+  - Mengonversi buffer `subtle.verify()` secara eksplisit menggunakan `.buffer as ArrayBuffer` untuk menjamin keamanan tipe TypeScript DOM.
+
+### 108. Popover Menu Settings di Sidebar Terpotong / Tidak Muncul Karena `overflow-hidden` pada `SidebarFooter` — SUDAH DIPERBAIKI
+- **Lokasi:**
+  - `frontend/src/components/Sidebar.tsx`
+  - `frontend/tests/components/Sidebar.test.tsx`
+- **Masalah:**
+  - Saat pengguna menekan tombol gear (Settings) di footer Sidebar (mode normal/expanded), menu popover yang berisi opsi "Settings" dan "Quit" tidak muncul ke layar.
+- **Penyebab (Root Cause):**
+  - Pada pembaruan transisi zero-bleed sidebar sebelumnya, class `overflow-hidden` ditambahkan ke kontainer pembungkus `SidebarFooter` (`div.border-t.mt-auto`). Karena kontainer ini merupakan *relative containing block* untuk menu popover yang diposisikan secara absolut di atasnya (`absolute bottom-full mb-2`), aturan rendering CSS browser memotong (*clipping*) 100% elemen popover yang berada di luar area vertikal `SidebarFooter` (~56px). Tes jsdom lolos sebelumnya karena jsdom tidak menghitung *CSS bounding box clipping*.
+- **Solusi:**
+  - Menghapus `overflow-hidden` dari elemen `SidebarFooter` di `Sidebar.tsx`. Kontainer induk `<nav>` sendiri sudah memiliki `overflow-hidden` untuk membatasi transisi lebar sidebar, dan label `system_load` sudah memiliki isolasi `overflow-hidden truncate` sendiri, sehingga penghapusan ini aman tanpa risiko visual bleed.
+  - Menambahkan atribut aksesibilitas lengkap pada tombol gear (`title`, `aria-label`, `aria-haspopup="true"`, `aria-expanded`) serta menambahkan listener keyboard `Escape` untuk menutup popover secara ergonomis.
+  - Menambahkan regression unit test di `Sidebar.test.tsx` yang memvalidasi bahwa `SidebarFooter` tidak memiliki `overflow-hidden` dan bahwa penekanan tombol `Escape` atau klik di luar menutup menu dengan benar.
+
+### 109. Warna Teks Input Port Menjadi Hitam di Tema Gelap & Standarisasi Komponen Reusable `<Input>` Serta Signifier Horizontal Scroll `<FilterChips>` — SUDAH DIPERBAIKI
+- **Lokasi:**
+  - `frontend/src/components/Input.tsx` (komponen baru)
+  - `frontend/src/components/FilterChips.tsx`
+  - `frontend/src/menu/tools/mail-sandbox/components/MailServerCard.tsx`
+  - `frontend/src/menu/tools/mail-sandbox/components/MailInboxList.tsx`
+  - `frontend/src/menu/tools/webhook-inspector/components/WebhookListenerCard.tsx`
+  - `frontend/src/menu/tools/webhook-inspector/components/WebhookHistoryList.tsx`
+  - `frontend/src/menu/tools/webhook-inspector/components/WebhookResponseConfigModal.tsx`
+  - `frontend/src/menu/tools/webhook-inspector/components/ApiClientWorkspace.tsx`
+  - `frontend/tests/components/Input.test.tsx`
+  - `frontend/tests/components/FilterChips.test.tsx`
+- **Masalah:**
+  - Input port pada Mail Sandbox (`MailServerCard.tsx`) dan Webhook Inspector (`WebhookListenerCard.tsx`) menampilkan angka port berwarna hitam pekat di atas background gelap (`dark:bg-slate-800`), sehingga hampir tidak terbaca di seluruh tema gelap (kontras < 1.5:1, gagal WCAG 2.1 AA). Hal ini terjadi karena komponen input ditulis manual tanpa menyertakan class warna teks eksplisit (`text-slate-900 dark:text-slate-100`), sehingga browser menerapkan *user-agent stylesheet* default (`input { color: canvastext / #000000 }`).
+  - Tidak adanya komponen primitif `<Input>` di `components/` menyebabkan duplikasi kode styling input di banyak file secara manual.
+  - Pada `<FilterChips>` yang menggunakan `overflow-x-auto no-scrollbar`, ketika ruang horizontal menyempit (mis. di kolom split `lg:col-span-4` atau layar resolusi minimum `1024x768`), chip yang terpotong terlihat seperti bug layout terpotong (*hard-clip*) karena ketiadaan *Signifier* (penanda visual kontinuitas Gestalt). Selain itu, kursor mouse Windows desktop tidak dapat menggeser kontainer secara horizontal menggunakan roda mouse vertikal tanpa menekan tombol Shift.
+- **Solusi:**
+  - Membuat komponen primitif reusable `<Input>` (`frontend/src/components/Input.tsx`) dengan jaminan token warna theme-aware di ke-15 tema, dukungan `size` (`sm`/`md`), `mono`, `leftIcon`, `rightIcon`, tombol `onClear`, dan `forwardRef` native.
+  - Memigrasikan seluruh input port, search bar, dan config input di Mail Sandbox dan Webhook Inspector ke komponen `<Input>`.
+  - Meningkatkan `<FilterChips.tsx>` dengan deteksi overflow dinamis (`ResizeObserver` + `onScroll`), gradasi transisi lembut (*edge fade mask*) dan tombol panah mini (`‹` / `›`) yang hanya muncul saat konten meluber, konversi putaran roda mouse vertikal ke scroll horizontal (`onWheel`), serta auto-scroll chip terpilih ke area pandang (`scrollIntoView`).
+  - Menambahkan key i18n sinkron `common.scroll_left` dan `common.scroll_right` pada kedua locale (`en` & `id`), serta menambahkan 18 unit tests baru di `Input.test.tsx` dan `FilterChips.test.tsx`.
+
+### 110. Startup Module Health Check, Self-Healing Auto-Recovery, Safe Cleansing, & DBeaver-Style Bootstrapper Loading — SUDAH DIIMPLEMENTASIKAN
+- **Lokasi:**
+  - `core/services/health_manager.py` (layanan backend baru)
+  - `core/api.py` (`emit_bootstrap_status()`, `run_startup_health_check()`)
+  - `core/services/apache.py` (`restore_httpd_conf()`)
+  - `core/services/php.py` (`ensure_php_config()`)
+  - `core/services/database.py` (`ensure_instance_config()`)
+  - `frontend/src/components/skeleton/AppSkeletonLayout.tsx` (DBeaver Bootstrapper Overlay)
+  - `frontend/src/App.tsx` (alur pemanggilan health check dan Alert modal laporan)
+  - `tests/test_services/test_health_manager.py` (11 unit tests baru)
+  - `frontend/tests/components/skeleton/AppSkeletonLayout.test.tsx` & `frontend/tests/App.test.tsx`
+- **Tantangan & Kebutuhan Desain:**
+  - Saat file biner atau konfigurasi modul terhapus (mis. oleh antivirus atau edit manual yang salah), aplikasi mengalami kegagalan proses tanpa penanganan otomatis.
+  - Namun, penghapusan naif saat recovery gagal berisiko fatal: jika pengguna sedang offline (tanpa internet), modul bisa terhapus sia-sia (*false purge*), dan pada database, penghapusan biner tidak boleh menghapus `dataDir` (tabel/data SQL berharga milik pengguna).
+  - Selain itu, proses startup membutuhkan indikator status visual yang elegan tanpa lompatan tata letak (Zero CLS).
+- **Solusi:**
+  - Mengimplementasikan `HealthManager` dengan arsitektur 3-Tier Self-Healing:
+    - **Tier 1 (Instant Local Config Recovery, < 150ms):** Meregenerasi `php.ini`, `httpd.conf`, `vhosts.conf`, `my.ini`, dan `redis.conf` secara lokal serta membersihkan file/folder orphan `temp_*`.
+    - **Tier 2 (Online Binary Auto-Recovery):** Mengunduh ulang biner yang hilang dari mirror online jika tersedia dan koneksi internet aktif.
+    - **Tier 3 (Safe Cleansing & Proteksi Data SQL):** Jika versi online sudah tidak tersedia, modul yang rusak dihapus dan konfigurasinya dicabut dari JSON/PATH, namun **`dataDir` database tetap diamankan** dan jalurnya dilaporkan kepada pengguna.
+    - **Proteksi Mode Offline:** Modul yang rusak tidak dihapus saat pengguna sedang offline (*deferred offline*).
+  - Menghadirkan **DBeaver-Style Bootstrapper Overlay** di atas `AppSkeletonLayout` dengan progress bar halus dan status verifikasi real-time yang langsung bertransisi tanpa kedip ke Dashboard.
+  - Menambahkan laporan dialog Alert modal jika terdapat modul yang dibersihkan atau ditangguhkan secara offline.
+
+### 111. Uncancelled Background `threading.Timer` Memanggil `os._exit(0)` Membunuh Test Suite Pytest — SUDAH DIPERBAIKI
+- **Lokasi:**
+  - `main.py` (`AppLifecycle.perform_exit()`)
+  - `tests/test_main.py`
+- **Masalah:**
+  - `AppLifecycle.perform_exit()` menyalakan failsafe watchdog timer `threading.Timer(3.0, lambda: os._exit(0)).start()` tanpa menyimpan referensinya dan tanpa membatalkannya di blok `finally:`.
+  - Ketika test runner `pytest` menjalankan `tests/test_main.py`, unit test untuk `perform_exit()` me-mock `os._exit` selama durasi pemanggilan fungsi (~10ms). Segera setelah test tersebut selesai, mock unpatch kembali ke `os._exit` asli bawaan OS.
+  - Tepat 3.0 detik kemudian di tengah eksekusi test suite (saat pytest baru menjalankan ~1% dari total 1.158 test), thread timer tersebut memicu pemanggilan `os._exit(0)` asli OS. Proses pytest langsung terbunuh secara instan dengan exit code 0, menyebabkan kegagalan penulisan `coverage.xml` baru (file coverage menjadi basi/stale dan 7 modul backend baru terbaca 0% covered oleh SonarQube).
+- **Solusi:**
+  - Menyimpan instance timer ke variabel lokal `watchdog = threading.Timer(3.0, lambda: os._exit(0))`, menandainya sebagai daemon thread (`watchdog.daemon = True`), dan di dalam blok `finally:` memanggil `watchdog.cancel()` tepat sebelum `os._exit(0)`.
+  - Memperbarui `tests/test_main.py` dengan assertion eksplisit untuk memverifikasi `watchdog.start()` dan `watchdog.cancel()` dipanggil secara konsisten.
+
+### 112. Translasi Bootstrapper Hilang pada Mode Production (`sys.frozen`), False-Positive Corrupted Report pada GitLab CLI, dan Kelengkapan Dependensi PyInstaller `main.spec` — SUDAH DIPERBAIKI
+- **Lokasi:**
+  - `main.spec` (`datas`, `webview_datas`, `certifi_datas`)
+  - `core/utils/splash_window.py` (`_load_locale()`)
+  - `core/services/health_manager.py` (`_check_glab()`, `check_health()`)
+  - `tests/test_utils/test_splash_window.py`
+  - `tests/test_services/test_health_manager.py`
+- **Masalah:**
+  1. Saat aplikasi dikompilasi menggunakan PyInstaller (`main.spec`), direktori translasi `frontend/src/locales/` tidak disertakan di dalam array `datas`. Akibatnya, pada mode production (`sys.frozen = True`), bootstrapper native splash screen (`SplashWindow`) tidak menemukan berkas `translation.json` di dalam folder sementara `sys._MEIPASS`. Hal ini menyebabkan teks status inisialisasi pada splash screen kosong atau hanya menampilkan translation key mentah (seperti `backend.health.cleanup_orphans`) saat aplikasi baru dibuka.
+  2. Fungsi `_load_locale()` di `splash_window.py` mengonstruksi path secara relatif dari direktori kerja, sehingga gagal membaca file locale saat dijalankan dari executable hasil packaging PyInstaller.
+  3. Pada `HealthManager._check_glab()`, evaluasi integritas modul GitLab CLI menganggap modul berstatus "corrupted" jika biner `glab.exe` tidak ditemukan pada path yang ditentukan, padahal modul tersebut memang belum pernah diinstal oleh pengguna (status belum terpasang). Akibatnya, pada mode production selalu muncul laporan peringatan palsu (*false-positive*) "GitLab CLI module corrupted" setiap kali aplikasi dibuka pertama kali.
+- **Solusi:**
+  1. Memperbarui `main.spec` dengan menambahkan mapping `('frontend/src/locales', 'frontend/src/locales')` pada tuple `datas`, serta memastikan dependensi `webview_datas` dan `certifi_datas` diikutsertakan secara deklaratif.
+  2. Memperbarui `core/utils/splash_window.py` dengan helper `get_resource_path()` yang secara transparan mencari berkas locale di `sys._MEIPASS` saat `sys.frozen` aktif, dengan fallback ke direktori proyek saat development.
+  3. Memperbaiki logika `_check_glab()` di `core/services/health_manager.py`: membedakan kondisi "belum terpasang" (`installed = False` pada konfigurasi) dari kondisi "rusak" (tercatat terinstal namun biner `glab.exe` hilang secara fisik). Jika modul belum diinstal pengguna, health check menandainya sebagai non-fatal/skipped tanpa menaikkan error report ke layar.
+  4. Menambahkan test suite komprehensif di `tests/test_utils/test_splash_window.py` dan `tests/test_services/test_health_manager.py` yang memverifikasi skenario `sys.frozen`, pemuatan translasi bilingual, dan penanganan status uninstalled glab.

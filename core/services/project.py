@@ -18,7 +18,7 @@ from core.utils.system_utils import (
     kill_process_tree,
     set_path_in_env,
 )
-from core.utils.file_utils import read_json, write_json, read_log_tail, safe_rmtree, fix_file_permissions
+from core.utils.file_utils import read_json, write_json, read_log_tail, read_new_lines, safe_rmtree, fix_file_permissions
 
 
 MSG_UNEXPECTED_ERROR = "backend.error.unexpected"
@@ -63,6 +63,13 @@ MSG_RUNTIME_NOT_INSTALLED = "backend.project.runtime_not_installed"
 MSG_SCAFFOLDING_PROJECT = "backend.project.scaffolding_project"
 MSG_AUTO_CREATE_DB_FAILED = "backend.project.auto_create_db_failed"
 MSG_PROJECT_NOT_FOUND = "backend.project.project_not_found"
+MSG_PROJECT_DIRECTORY_NOT_FOUND = "backend.project.directory_not_found"
+MSG_PATH_TRAVERSAL = "backend.error.path_traversal"
+COMPOSER_JSON = "composer.json"
+FILE_MVNW_CMD = "mvnw.cmd"
+DIR_VENV = ".venv"
+PUBLIC_DIR_SLASH = "/public"
+PUBLIC_DIR_BACKSLASH = "\\public"
 
 class ProjectManager:
     """Manager untuk setup Virtual Host, Auto-Framework, dan .htaccess"""
@@ -281,13 +288,13 @@ class ProjectManager:
         custom, bukan dari Laravel) DAN "composer.json" (lazim di banyak framework),
         sehingga heuristik nama-file saja salah mendeteksinya sebagai Laravel.
         """
-        composer = read_json(os.path.join(directory, "composer.json"), dict)
+        composer = read_json(os.path.join(directory, COMPOSER_JSON), dict)
         return package in composer.get("require", {}) or package in composer.get("require-dev", {})
 
     def detect_framework(self, directory: str) -> str:
         if not os.path.isdir(directory): return "raw"
         files = os.listdir(directory)
-        if "artisan" in files and "composer.json" in files and self._composer_requires(directory, "laravel/framework"):
+        if "artisan" in files and COMPOSER_JSON in files and self._composer_requires(directory, "laravel/framework"):
             return "laravel"
         if "spark" in files and "public" in files and self._composer_requires(directory, "codeigniter4/framework"):
             return "codeigniter"
@@ -640,9 +647,7 @@ class ProjectManager:
         cmd.extend(args)
         return cmd
 
-    def _resolve_php_exe(self, php_version: str) -> Optional[str]:
-        version_str = str(php_version or '').strip()
-        # 1. Cek portable binary di bin/php/<version>
+    def _find_portable_php(self, version_str: str) -> Optional[str]:
         if sys.platform == 'win32':
             cand = os.path.join(self.bin_dir, 'php', version_str, 'php.exe')
             if os.path.exists(cand):
@@ -652,30 +657,45 @@ class ProjectManager:
                 cand = os.path.join(self.bin_dir, 'php', version_str, sub)
                 if os.path.exists(cand):
                     return cand
+        return None
 
-        # 2. Cek binary sistem versi spesifik (mis. php8.3, php8.2) jika ada angka versi
+    def _find_system_php_by_version(self, version_str: str) -> Optional[str]:
+        clean_match = re.search(r'(\d+)(?:\.(\d+))?', version_str)
+        names = [f"php{version_str}"]
+        if clean_match:
+            major = clean_match.group(1)
+            minor = clean_match.group(2)
+            if minor is not None:
+                names.extend([f"php{major}.{minor}", f"php{major}"])
+            else:
+                names.append(f"php{major}")
+        for name in names:
+            found = shutil.which(name)
+            if found:
+                return found
+        def_php = shutil.which("php")
+        if def_php:
+            try:
+                cflags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+                out = subprocess.run([def_php, "-r", "echo PHP_VERSION;"], capture_output=True, text=True, creationflags=cflags, timeout=2).stdout
+                if out and out.strip().startswith(version_str):
+                    return def_php
+            except Exception:
+                pass
+        return None
+
+    def _resolve_php_exe(self, php_version: str) -> Optional[str]:
+        version_str = str(php_version or '').strip()
+        # 1. Cek portable binary di bin/php/<version>
+        portable = self._find_portable_php(version_str)
+        if portable:
+            return portable
+
+        # 2. Cek binary sistem versi spesifik jika ada angka versi
         if version_str:
-            clean_ver = re.findall(r'\d+\.\d+|\d+', version_str)
-            names = [f"php{version_str}"]
-            if clean_ver:
-                names.extend([f"php{clean_ver[0]}", f"php{clean_ver[0].split('.')[0]}"])
-            for name in names:
-                found = shutil.which(name)
-                if found:
-                    return found
-            # Jika user meminta versi spesifik (seperti "9.9"), periksa apakah system default php versinya cocok
-            def_php = shutil.which("php")
-            if def_php:
-                try:
-                    cflags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
-                    out = subprocess.run([def_php, "-r", "echo PHP_VERSION;"], capture_output=True, text=True, creationflags=cflags, timeout=2).stdout
-                    if out and out.strip().startswith(version_str):
-                        return def_php
-                except Exception:
-                    pass
-            return None
+            return self._find_system_php_by_version(version_str)
 
-        # 3. Jika tidak ada versi spesifik yang diminta, gunakan binary php default di PATH
+        # 3. Default binary di PATH
         found_def = shutil.which("php")
         if found_def:
             return found_def
@@ -767,7 +787,30 @@ class ProjectManager:
 
 
     @staticmethod
-    def _post_install_laravel(target_dir: str, php_exe: str, php_ini_path: str, custom_env: dict, cflags: int):
+    def _try_chmod_safe(path: str, mode: int):
+        try:
+            os.chmod(path, mode)  # NOSONAR python:S2612
+        except Exception:
+            pass
+
+    @classmethod
+    def _chmod_subpath_tree(cls, subpath: str):
+        for root, dirs, files in os.walk(subpath):
+            for d in dirs:
+                cls._try_chmod_safe(os.path.join(root, d), 0o775)
+            for f in files:
+                cls._try_chmod_safe(os.path.join(root, f), 0o664)
+        cls._try_chmod_safe(subpath, 0o775)
+
+    @classmethod
+    def _fix_laravel_linux_permissions(cls, target_dir: str):
+        for sub in ["storage", "bootstrap/cache"]:
+            subpath = os.path.join(target_dir, sub)
+            if os.path.exists(subpath):
+                cls._chmod_subpath_tree(subpath)
+
+    @classmethod
+    def _post_install_laravel(cls, target_dir: str, php_exe: str, php_ini_path: str, custom_env: dict, cflags: int):
         import shutil
         env_example = os.path.join(target_dir, '.env.example')
         env_file = os.path.join(target_dir, '.env')
@@ -782,18 +825,7 @@ class ProjectManager:
         except Exception:
             pass
         if sys.platform != 'win32':
-            for sub in ["storage", "bootstrap/cache"]:
-                subpath = os.path.join(target_dir, sub)
-                if os.path.exists(subpath):
-                    for root, dirs, files in os.walk(subpath):
-                        for d in dirs:
-                            try: os.chmod(os.path.join(root, d), 0o777)
-                            except Exception: pass
-                        for f in files:
-                            try: os.chmod(os.path.join(root, f), 0o666)
-                            except Exception: pass
-                    try: os.chmod(subpath, 0o777)
-                    except Exception: pass
+            cls._fix_laravel_linux_permissions(target_dir)
 
     @staticmethod
     def _post_install_ci4(target_dir: str):
@@ -916,6 +948,16 @@ class ProjectManager:
                     cands.append(py_variant)
         return cands
 
+    @staticmethod
+    def _match_external_path(ext_path: str, cands: list[str]) -> Optional[str]:
+        for cand in cands:
+            if os.path.basename(ext_path).lower() == cand.lower():
+                return ext_path
+            sibling = os.path.join(os.path.dirname(ext_path), cand)
+            if os.path.isfile(sibling):
+                return sibling
+        return None
+
     def _resolve_external_bin(self, engine: str, exe_name: str) -> Optional[str]:
         rm = getattr(self.api, 'runtimes_manager', None)
         if rm and hasattr(rm, '_check_external_installation'):
@@ -923,12 +965,23 @@ class ProjectManager:
             ext_path = ext.get('path') if isinstance(ext, dict) and ext.get('exists') else None
             if ext_path:
                 cands = self._get_binary_candidates_for_exe(exe_name)
-                for cand in cands:
-                    if os.path.basename(ext_path).lower() == cand.lower():
-                        return ext_path
-                    sibling = os.path.join(os.path.dirname(ext_path), cand)
-                    if os.path.exists(sibling) and os.path.isfile(sibling):
-                        return sibling
+                return self._match_external_path(ext_path, cands)
+        return None
+
+    @staticmethod
+    def _find_in_engine_dir(engine_dir: str, cands: list[str]) -> Optional[str]:
+        search_dirs = [
+            os.path.join(engine_dir, 'bin'),
+            engine_dir,
+            os.path.join(engine_dir, 'Scripts')
+        ]
+        for s_dir in search_dirs:
+            if not os.path.exists(s_dir):
+                continue
+            for cand in cands:
+                target = os.path.join(s_dir, cand)
+                if os.path.isfile(target):
+                    return target
         return None
 
     def _resolve_runtime_bin(self, engine: str, exe_name: str, version: Optional[str] = None) -> Optional[str]:
@@ -936,18 +989,9 @@ class ProjectManager:
         engine_dir = rm._get_engine_dir(engine, version=version) if rm and hasattr(rm, '_get_engine_dir') else None
         cands = self._get_binary_candidates_for_exe(exe_name)
         if engine_dir:
-            search_dirs = [
-                os.path.join(engine_dir, 'bin'),
-                engine_dir,
-                os.path.join(engine_dir, 'Scripts')
-            ]
-            for s_dir in search_dirs:
-                if not os.path.exists(s_dir):
-                    continue
-                for cand in cands:
-                    target = os.path.join(s_dir, cand)
-                    if os.path.exists(target) and os.path.isfile(target):
-                        return target
+            found_target = self._find_in_engine_dir(engine_dir, cands)
+            if found_target:
+                return found_target
 
         ext_found = self._resolve_external_bin(engine, exe_name)
         if ext_found:
@@ -971,10 +1015,10 @@ class ProjectManager:
             stripped = line.strip()
             if stripped.lower() in ("pause", "@echo off"):
                 continue
-            if stripped.startswith("call .venv\\Scripts\\activate.bat") or stripped.startswith("call .venv/Scripts/activate.bat"):
-                sh_lines.append(". .venv/bin/activate")
-            elif stripped.startswith("mvnw.cmd"):
-                sh_lines.append(stripped.replace("mvnw.cmd", "./mvnw"))
+            if stripped.startswith(("call .venv\\Scripts\\activate.bat", "call .venv/Scripts/activate.bat")):
+                sh_lines.append(f". {DIR_VENV}/bin/activate")
+            elif stripped.startswith(FILE_MVNW_CMD):
+                sh_lines.append(stripped.replace(FILE_MVNW_CMD, "./mvnw"))
             else:
                 sh_lines.append(line)
         sh_content = "\n".join(sh_lines).strip()
@@ -982,7 +1026,7 @@ class ProjectManager:
         with open(sh_path, "w", encoding="utf-8") as f:
             f.write(f"#!/bin/sh\n{sh_content}\n")
         try:
-            os.chmod(sh_path, os.stat(sh_path).st_mode | 0o755)
+            os.chmod(sh_path, os.stat(sh_path).st_mode | 0o700)
         except OSError:
             pass
 
@@ -1158,7 +1202,7 @@ class ProjectManager:
 
     def _setup_python_venv(self, py_exe: str, target_dir: str, custom_env: dict) -> Tuple[bool, str, Optional[str]]:
         self._progress(25, "backend.project.creating_venv")
-        venv_dir = os.path.join(target_dir, ".venv")
+        venv_dir = os.path.join(target_dir, DIR_VENV)
         ok, err_out = self._run_cli_or_pty([py_exe, "-m", "venv", venv_dir], cwd=target_dir, env=custom_env)
         if not ok:
             return False, py_exe, err_out
@@ -1254,7 +1298,7 @@ class ProjectManager:
             return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
     def _write_python_starter_files(self, framework: str, target_dir: str, proxy_port: int, use_venv: bool = False):
-        venv_prefix = "call .venv\\Scripts\\activate.bat\n" if use_venv else ""
+        venv_prefix = f"call {DIR_VENV}\\Scripts\\activate.bat\n" if use_venv else ""
         if framework == "fastapi":
             with open(os.path.join(target_dir, FILE_MAIN_PY), "w", encoding="utf-8") as f:
                 f.write("from fastapi import FastAPI\napp = FastAPI()\n\n@app.get('/')\ndef root():\n    return {'message': 'Welcome to VyloServe (FastAPI)'}\n")
@@ -1408,7 +1452,7 @@ func main() {{
                 os.makedirs(props_dir, exist_ok=True)
                 with open(os.path.join(props_dir, "application.properties"), "a", encoding="utf-8") as f:
                     f.write(f"\nserver.address=127.0.0.1\nserver.port={proxy_port}\n")
-                self._write_start_dev_bat(target_dir, "mvnw.cmd spring-boot:run\npause")
+                self._write_start_dev_bat(target_dir, f"{FILE_MVNW_CMD} spring-boot:run\npause")
             else:
                 with open(os.path.join(target_dir, "Main.java"), "w", encoding="utf-8") as f:
                     f.write(f"""import com.sun.net.httpserver.HttpServer;
@@ -1489,7 +1533,7 @@ public class Main {{
         try:
             with open(hosts_path, 'w', encoding='utf-8') as f: f.write(final_content)
             return {"status": "success", "message": "backend.project.hosts_updated"}
-        except (PermissionError, OSError):
+        except OSError:
             self._log("backend.project.request_uac", "info")
             if sys.platform == 'win32':
                 result = ctypes.windll.shell32.ShellExecuteW(None, "runas", "cmd.exe", f'/c copy /Y "{temp_file}" "{hosts_path}"', None, 0)
@@ -1696,42 +1740,150 @@ public class Main {{
             return r"C:\Windows\System32\drivers\etc\hosts"
         return "/etc/hosts"
 
+    @staticmethod
+    def _filter_existing_hosts_lines(lines: list) -> list:
+        clean_lines, skip = [], False
+        for line in lines:
+            if "# --- BEGIN VYLOSERVE HOSTS ---" in line:
+                skip = True
+            if not skip:
+                clean_lines.append(line)
+            if "# --- END VYLOSERVE HOSTS ---" in line:
+                skip = False
+        return clean_lines
+
+    @staticmethod
+    def _build_new_hosts_block(projects: list) -> Tuple[str, bool]:
+        new_hosts_block = "\n# --- BEGIN VYLOSERVE HOSTS ---\n"
+        has_domains = False
+        for p in projects:
+            if p.get('domain'):
+                new_hosts_block += f"127.0.0.1 {p['domain']}\n"
+                has_domains = True
+        new_hosts_block += "# --- END VYLOSERVE HOSTS ---\n"
+        return new_hosts_block, has_domains
+
     def sync_windows_hosts(self):
         hosts_path = self._get_hosts_path()
         try:
             lines = []
             if os.path.exists(hosts_path):
-                with open(hosts_path, 'r', encoding='utf-8') as f: lines = f.readlines()
-            
-            clean_lines, skip = [], False
-            for line in lines:
-                if "# --- BEGIN VYLOSERVE HOSTS ---" in line: skip = True
-                if not skip: clean_lines.append(line)
-                if "# --- END VYLOSERVE HOSTS ---" in line: skip = False; continue
+                with open(hosts_path, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
 
+            clean_lines = self._filter_existing_hosts_lines(lines)
             projects = self._read_projects()
-            new_hosts_block = "\n# --- BEGIN VYLOSERVE HOSTS ---\n"
-            has_domains = False
-            for p in projects:
-                if p.get('domain'):
-                    new_hosts_block += f"127.0.0.1 {p['domain']}\n"; has_domains = True
-            new_hosts_block += "# --- END VYLOSERVE HOSTS ---\n"
+            new_hosts_block, has_domains = self._build_new_hosts_block(projects)
 
             final_content = "".join(clean_lines) + (new_hosts_block if has_domains else "")
 
             temp_file = os.path.join(tempfile.gettempdir(), f'vyloserve_hosts_{os.getpid()}_{int(time.time())}.txt')
-            with open(temp_file, 'w', encoding='utf-8') as f: f.write(final_content)
+            with open(temp_file, 'w', encoding='utf-8') as f:
+                f.write(final_content)
 
             try:
                 return self._write_hosts_with_uac(hosts_path, final_content, temp_file)
             finally:
                 if os.path.exists(temp_file):
-                    try: os.remove(temp_file)
-                    except OSError: pass
+                    try:
+                        os.remove(temp_file)
+                    except OSError:
+                        pass
         except Exception as e:
             return {"status": "error", "message": "backend.project.hosts_error", "args": {"e": str(e)}}
 
     sync_hosts = sync_windows_hosts
+
+    @staticmethod
+    def _check_hosts_writability(hosts_path: str, hosts_exists: bool) -> bool:
+        if not hosts_exists:
+            return False
+        try:
+            with open(hosts_path, 'a', encoding='utf-8') as f:
+                # Test write capability by checking file descriptor
+                return f.writable()
+        except Exception:
+            return False
+
+    @staticmethod
+    def _read_hosts_content(hosts_path: str, hosts_exists: bool) -> str:
+        if not hosts_exists:
+            return ""
+        try:
+            with open(hosts_path, 'r', encoding='utf-8', errors='replace') as f:
+                return f.read()
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _build_domain_host_entries(projects: list, hosts_content: str) -> list:
+        entries = []
+        for p in projects:
+            domain = str(p.get('domain', '') or '').strip()
+            if not domain:
+                continue
+            pattern = rf'^\s*127\.0\.0\.1\s+{re.escape(domain)}\b'
+            is_mapped = bool(re.search(pattern, hosts_content, re.MULTILINE))
+            entries.append({
+                "id": p.get('id', ''),
+                "name": p.get('name', ''),
+                "domain": domain,
+                "target_ip": "127.0.0.1",
+                "is_mapped": is_mapped
+            })
+        return entries
+
+    def get_ssl_hosts_overview(self) -> dict:
+        """Mengambil ringkasan status SSL Root CA dan pemetaan hosts file untuk semua projek"""
+        try:
+            ca_installed = False
+            cert_exists = False
+            cert_path = ""
+            if hasattr(self.api, 'ssl') and self.api.ssl:
+                cert_path = getattr(self.api.ssl, 'ca_crt', '')
+                cert_exists = os.path.exists(cert_path) if cert_path else False
+                if hasattr(self.api.ssl, 'is_ca_installed'):
+                    ca_installed = self.api.ssl.is_ca_installed()
+
+            hosts_path = self._get_hosts_path()
+            hosts_exists = os.path.exists(hosts_path)
+            is_writable = self._check_hosts_writability(hosts_path, hosts_exists)
+            hosts_content = self._read_hosts_content(hosts_path, hosts_exists)
+
+            projects = self.get_projects()
+            entries = self._build_domain_host_entries(projects, hosts_content)
+
+            return {
+                "status": "success",
+                "ca": {
+                    "installed": ca_installed,
+                    "cert_exists": cert_exists,
+                    "cert_path": cert_path,
+                    "name": "VyloServe Local Root CA"
+                },
+                "hosts": {
+                    "path": hosts_path,
+                    "exists": hosts_exists,
+                    "is_writable": is_writable,
+                    "entries": entries
+                }
+            }
+        except Exception as e:
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
+    def sync_all_hosts(self) -> dict:
+        """Sinkronisasi ulang semua virtual host Apache dan domain projek ke hosts file OS"""
+        try:
+            hosts_res = self.sync_windows_hosts()
+            if isinstance(hosts_res, dict) and hosts_res.get('status') == 'error':
+                return hosts_res
+
+            if hasattr(self, 'sync_apache_vhosts'):
+                self.sync_apache_vhosts()
+            
+            return {"status": "success", "message": "backend.project.hosts_all_synced"}
+        except Exception as e:
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
     def _generate_proxy_vhost_block(self, p: dict, domain: str, tunnel_alias: str) -> str:
         proxy_port = self._validate_proxy_port(p.get('proxy_port')) or 3000
@@ -1777,42 +1929,50 @@ public class Main {{
             pass
         return False
 
-    def _resolve_linux_php_socket(self, php_version: str, php_port: int = 0) -> Optional[str]:
-        if sys.platform == 'win32':
-            return None
-        if not self._is_system_php(php_version) and php_port > 0 and php_port != 9000:
-            return None
-
+    @staticmethod
+    def _get_linux_fpm_socket_candidates(short_ver: str) -> list:
         candidates = []
-        short_ver = ""
-        if php_version:
-            digits = re.findall(r'\d+', php_version)
-            if digits:
-                short_ver = '.'.join(digits[:2])
-                candidates.extend([
-                    f"/run/php/php{short_ver}-fpm-vyloserve.sock",
-                    f"/var/run/php/php{short_ver}-fpm-vyloserve.sock",
-                    f"/run/php/php{short_ver}-fpm.sock",
-                    f"/var/run/php/php{short_ver}-fpm.sock",
-                ])
+        if short_ver:
+            candidates.extend([
+                f"/run/php/php{short_ver}-fpm-vyloserve.sock",
+                f"/var/run/php/php{short_ver}-fpm-vyloserve.sock",
+                f"/run/php/php{short_ver}-fpm.sock",
+                f"/var/run/php/php{short_ver}-fpm.sock",
+            ])
         candidates.extend([
             "/run/php/php-fpm-vyloserve.sock",
             "/var/run/php/php-fpm-vyloserve.sock",
             "/run/php/php-fpm.sock",
             "/var/run/php/php-fpm.sock",
         ])
-        for cand in candidates:
+        return candidates
+
+    @staticmethod
+    def _fallback_system_php_socket(short_ver: str) -> Optional[str]:
+        if short_ver:
+            if os.path.exists(f"/run/php/php{short_ver}-fpm-vyloserve.sock"):
+                return f"/run/php/php{short_ver}-fpm-vyloserve.sock"
+            if os.path.isdir(f"/etc/php/{short_ver}") or os.path.isdir("/run/php"):
+                return f"/run/php/php{short_ver}-fpm.sock"
+        if os.path.isdir("/run/php") or os.path.isdir("/etc/php"):
+            return "/run/php/php-fpm.sock"
+        return None
+
+    def _resolve_linux_php_socket(self, php_version: str, php_port: int = 0) -> Optional[str]:
+        if sys.platform == 'win32':
+            return None
+        if not self._is_system_php(php_version) and php_port > 0 and php_port != 9000:
+            return None
+
+        digits = re.findall(r'\d+', php_version) if php_version else []
+        short_ver = '.'.join(digits[:2]) if digits else ""
+
+        for cand in self._get_linux_fpm_socket_candidates(short_ver):
             if os.path.exists(cand):
                 return cand
 
         if self._is_system_php(php_version):
-            if short_ver:
-                if os.path.exists(f"/run/php/php{short_ver}-fpm-vyloserve.sock"):
-                    return f"/run/php/php{short_ver}-fpm-vyloserve.sock"
-                if os.path.isdir(f"/etc/php/{short_ver}") or os.path.isdir("/run/php"):
-                    return f"/run/php/php{short_ver}-fpm.sock"
-            if os.path.isdir("/run/php") or os.path.isdir("/etc/php"):
-                return "/run/php/php-fpm.sock"
+            return self._fallback_system_php_socket(short_ver)
 
         return None
 
@@ -1915,6 +2075,10 @@ public class Main {{
             try: self.api.ssl.delete_domain_cert(domain)
             except Exception: pass
 
+    @staticmethod
+    def _strip_public_suffix(path: str) -> str:
+        return path.replace(PUBLIC_DIR_SLASH, '').replace(PUBLIC_DIR_BACKSLASH, '')
+
     def delete_project(self, project_id: str, delete_files: bool = False):
         try:
             self.stop_project_server(project_id)
@@ -1939,7 +2103,7 @@ public class Main {{
                     self.api.apache.restart_server() 
             
             if delete_files and 'path' in project_to_delete:
-                base_path = project_to_delete['path'].replace('/public', '').replace('\\public', '')
+                base_path = self._strip_public_suffix(project_to_delete['path'])
                 if os.path.exists(base_path):
                     safe_rmtree(base_path, force=True)
                 
@@ -1955,7 +2119,7 @@ public class Main {{
             if not proj:
                 return {"status": "error", "message": MSG_PROJECT_NOT_FOUND}
 
-            base_path = proj['path'].replace('/public', '').replace('\\public', '')
+            base_path = self._strip_public_suffix(proj['path'])
             if not os.path.exists(base_path):
                 return {"status": "error", "message": "backend.project.folder_not_found"}
 
@@ -2023,7 +2187,7 @@ public class Main {{
 
     @classmethod
     def _build_python_dev_bat_cmd(cls, base_path: str, framework: str, proxy_port: int) -> str:
-        venv_prefix = "call .venv\\Scripts\\activate.bat\n" if os.path.exists(os.path.join(base_path, ".venv")) else ""
+        venv_prefix = f"call {DIR_VENV}\\Scripts\\activate.bat\n" if os.path.exists(os.path.join(base_path, DIR_VENV)) else ""
         if framework == "fastapi":
             return f"{venv_prefix}python -m uvicorn main:app --host 127.0.0.1 --port {proxy_port} --reload"
         if framework == "flask":
@@ -2050,33 +2214,47 @@ public class Main {{
             self._write_start_dev_script(base_path, "go run main.go")
             return True
         if project_type == "java":
-            cmd = "mvnw.cmd spring-boot:run" if os.path.exists(os.path.join(base_path, "mvnw.cmd")) else "java Main.java"
+            cmd = f"{FILE_MVNW_CMD} spring-boot:run" if os.path.exists(os.path.join(base_path, FILE_MVNW_CMD)) else "java Main.java"
             self._write_start_dev_script(base_path, cmd)
             return True
         return False
 
+    def _apply_runtime_bin_env(self, custom_env: dict, engine: str, exe_name: str, runtime_version: Optional[str], home_var: Optional[str] = None):
+        exe_path = self._resolve_runtime_bin(engine, exe_name, version=runtime_version)
+        if not exe_path:
+            return
+        bin_dir = os.path.dirname(exe_path)
+        set_path_in_env(custom_env, [bin_dir])
+        if home_var:
+            custom_env[home_var] = os.path.dirname(bin_dir) if os.path.basename(bin_dir).lower() == "bin" else bin_dir
+
+    def _configure_engine_environment(self, custom_env: dict, project_type: str, runtime_version: Optional[str]):
+        if project_type == "node":
+            self._apply_runtime_bin_env(custom_env, "node", "node.exe", runtime_version)
+        elif project_type == "python":
+            self._apply_runtime_bin_env(custom_env, "python", EXE_PYTHON, runtime_version)
+        elif project_type == "go":
+            self._apply_runtime_bin_env(custom_env, "go", "go.exe", runtime_version, home_var="GOROOT")
+        elif project_type == "java":
+            self._apply_runtime_bin_env(custom_env, "java", "java.exe", runtime_version, home_var="JAVA_HOME")
+
     def _build_project_server_env(self, project_type: str, runtime_version: Optional[str]) -> dict:
         custom_env = os.environ.copy()
-        if project_type == "node":
-            node_exe = self._resolve_runtime_bin("node", "node.exe", version=runtime_version)
-            if node_exe:
-                set_path_in_env(custom_env, [os.path.dirname(node_exe)])
-        elif project_type == "python":
-            py_exe = self._resolve_runtime_bin("python", EXE_PYTHON, version=runtime_version)
-            if py_exe:
-                set_path_in_env(custom_env, [os.path.dirname(py_exe)])
-        elif project_type == "go":
-            go_exe = self._resolve_runtime_bin("go", "go.exe", version=runtime_version)
-            if go_exe:
-                go_bin_dir = os.path.dirname(go_exe)
-                set_path_in_env(custom_env, [go_bin_dir])
-                custom_env["GOROOT"] = os.path.dirname(go_bin_dir) if os.path.basename(go_bin_dir).lower() == "bin" else go_bin_dir
-        elif project_type == "java":
-            java_exe = self._resolve_runtime_bin("java", "java.exe", version=runtime_version)
-            if java_exe:
-                set_path_in_env(custom_env, [os.path.dirname(java_exe)])
-                custom_env["JAVA_HOME"] = os.path.dirname(os.path.dirname(java_exe)) if os.path.basename(os.path.dirname(java_exe)).lower() == "bin" else os.path.dirname(java_exe)
+        self._configure_engine_environment(custom_env, project_type, runtime_version)
         return custom_env
+
+    @staticmethod
+    def _resolve_dev_server_command(base_path: str) -> list[str]:
+        if sys.platform == 'win32':
+            return ["cmd.exe", "/c", FILE_START_DEV_BAT]
+        sh_path = os.path.join(base_path, FILE_START_DEV_SH)
+        if not os.path.exists(sh_path):
+            sh_path = os.path.join(base_path, FILE_START_DEV_BAT)
+        try:
+            os.chmod(sh_path, os.stat(sh_path).st_mode | 0o700)
+        except OSError:
+            pass
+        return ["/bin/sh", sh_path]
 
     def start_project_server(self, project_id: str) -> dict:
         try:
@@ -2107,8 +2285,7 @@ public class Main {{
                 }
 
             raw_path = project.get("path", "")
-            base_path = raw_path.replace('/public', '').replace('\\public', '')
-            base_path = os.path.normpath(base_path)
+            base_path = os.path.normpath(self._strip_public_suffix(raw_path))
             if not os.path.exists(base_path):
                 return {"status": "error", "message": "backend.project.dir_not_found"}
 
@@ -2127,18 +2304,7 @@ public class Main {{
             log_file.write(f"\n--- Starting Dev Server at {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
             log_file.flush()
 
-            if sys.platform == 'win32':
-                cmd = ["cmd.exe", "/c", FILE_START_DEV_BAT]
-            else:
-                sh_path = os.path.join(base_path, FILE_START_DEV_SH)
-                if not os.path.exists(sh_path):
-                    sh_path = os.path.join(base_path, FILE_START_DEV_BAT)
-                try:
-                    os.chmod(sh_path, os.stat(sh_path).st_mode | 0o755)
-                except OSError:
-                    pass
-                cmd = ["/bin/sh", sh_path]
-
+            cmd = self._resolve_dev_server_command(base_path)
             flags = get_silent_flags() if sys.platform == 'win32' else 0
 
             proc = subprocess.Popen(
@@ -2267,3 +2433,400 @@ public class Main {{
             return {"status": "success", "logs": ""}
         content = read_log_tail(log_path, max_lines=200)
         return {"status": "success", "logs": content}
+
+    # ==========================================
+    # ENVIRONMENT (.env) INSPECTOR & VAULT
+    # ==========================================
+    def _find_project(self, project_identifier: str) -> Optional[dict]:
+        if not project_identifier:
+            return None
+        projects = self._read_projects()
+        clean_id = str(project_identifier).strip().lower()
+        for p in projects:
+            if str(p.get("id", "")).strip().lower() == clean_id:
+                return p
+            if str(p.get("name", "")).strip().lower() == clean_id:
+                return p
+        return None
+
+    def _resolve_project_root(self, project_path: str) -> Optional[str]:
+        if not project_path:
+            return None
+        norm = os.path.normpath(project_path)
+        real = os.path.realpath(norm)
+        if not os.path.exists(real):
+            return None
+        # If pointing to public/ directory, root is parent if parent contains .env or package/composer
+        if os.path.basename(real).lower() == "public":
+            parent = os.path.dirname(real)
+            if (
+                os.path.exists(os.path.join(parent, ".env"))
+                or os.path.exists(os.path.join(parent, ".env.example"))
+                or os.path.exists(os.path.join(parent, COMPOSER_JSON))
+                or os.path.exists(os.path.join(parent, FILE_PACKAGE_JSON))
+            ):
+                return parent
+        return real
+
+    @staticmethod
+    def _parse_env_text(raw_text: str) -> Tuple[list, dict]:
+        """
+        Parses .env text into structured items and a key-value dictionary.
+        Detects sensitive keys (passwords, tokens, keys, secrets).
+        """
+        sensitive_keywords = {"secret", "key", "password", "passwd", "token", "auth", "credential", "private"}
+        items = []
+        kv_map = {}
+
+        for line_no, line in enumerate((raw_text or "").splitlines(), start=1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+
+            # Strip export prefix if present
+            if stripped.startswith("export "):
+                stripped = stripped[7:].strip()
+
+            if "=" in stripped:
+                k, v = stripped.split("=", 1)
+                clean_k = k.strip()
+                clean_v = v.strip()
+
+                # Strip wrapping single or double quotes
+                if (clean_v.startswith('"') and clean_v.endswith('"')) or (
+                    clean_v.startswith("'") and clean_v.endswith("'")
+                ):
+                    clean_v = clean_v[1:-1]
+
+                lower_k = clean_k.lower()
+                is_sensitive = any(kw in lower_k for kw in sensitive_keywords)
+
+                item = {
+                    "key": clean_k,
+                    "value": clean_v,
+                    "is_sensitive": is_sensitive,
+                    "line_no": line_no,
+                }
+                items.append(item)
+                kv_map[clean_k] = clean_v
+
+        return items, kv_map
+
+    def get_project_env_details(self, project_identifier: str) -> dict:
+        proj = self._find_project(project_identifier)
+        if not proj:
+            return {"status": "error", "message": MSG_PROJECT_NOT_FOUND}
+
+        root_dir = self._resolve_project_root(proj.get("path"))
+        if not root_dir or not os.path.isdir(root_dir):
+            return {"status": "error", "message": MSG_PROJECT_DIRECTORY_NOT_FOUND}
+
+        env_path = os.path.join(root_dir, ".env")
+        example_path = os.path.join(root_dir, ".env.example")
+
+        has_env = os.path.exists(env_path)
+        has_example = os.path.exists(example_path)
+
+        env_content = ""
+        if has_env:
+            try:
+                with open(env_path, "r", encoding="utf-8", errors="replace") as f:
+                    env_content = f.read()
+            except Exception as e:
+                return {"status": "error", "message": "backend.project.env_read_error", "args": {"e": str(e)}}
+
+        example_content = ""
+        if has_example:
+            try:
+                with open(example_path, "r", encoding="utf-8", errors="replace") as f:
+                    example_content = f.read()
+            except Exception:
+                pass
+
+        parsed_env, env_kv = self._parse_env_text(env_content)
+        parsed_example, _ = self._parse_env_text(example_content)
+
+        missing_keys = []
+        for item in parsed_example:
+            k = item["key"]
+            if k not in env_kv:
+                missing_keys.append({"key": k, "example_value": item["value"], "is_sensitive": item["is_sensitive"]})
+
+        return {
+            "status": "success",
+            "project_id": proj.get("id"),
+            "project_name": proj.get("name"),
+            "project_root": root_dir,
+            "has_env": has_env,
+            "has_example": has_example,
+            "env_content": env_content,
+            "example_content": example_content,
+            "parsed_env": parsed_env,
+            "missing_keys": missing_keys,
+            "total_env_keys": len(parsed_env),
+            "total_example_keys": len(parsed_example),
+        }
+
+    def save_project_env(self, project_identifier: str, content: str, create_snapshot: bool = True) -> dict:
+        proj = self._find_project(project_identifier)
+        if not proj:
+            return {"status": "error", "message": MSG_PROJECT_NOT_FOUND}
+
+        root_dir = self._resolve_project_root(proj.get("path"))
+        if not root_dir or not os.path.isdir(root_dir):
+            return {"status": "error", "message": MSG_PROJECT_DIRECTORY_NOT_FOUND}
+
+        env_path = os.path.join(root_dir, ".env")
+        if not os.path.realpath(env_path).startswith(os.path.realpath(root_dir)):
+            return {"status": "error", "message": MSG_PATH_TRAVERSAL}
+
+        snapshot_created = False
+        if create_snapshot and os.path.exists(env_path):
+            try:
+                vault_dir = os.path.join(self.base_dir, "env_vault", str(proj.get("id", proj.get("name"))))
+                os.makedirs(vault_dir, exist_ok=True)
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                snap_path = os.path.join(vault_dir, f"{timestamp}.env.bak")
+                if os.path.exists(snap_path):
+                    snap_path = os.path.join(vault_dir, f"{timestamp}_{int(time.time() * 1000) % 1000:03d}.env.bak")
+                shutil.copy2(env_path, snap_path)
+                snapshot_created = True
+            except Exception:
+                pass
+
+        try:
+            with open(env_path, "w", encoding="utf-8") as f:
+                f.write(content or "")
+            self._log("backend.project.env_saved", "info", {"project": proj.get("name")})
+            return {"status": "success", "message": "backend.project.env_saved", "snapshot_created": snapshot_created}
+        except Exception as e:
+            return {"status": "error", "message": "backend.project.env_save_error", "args": {"e": str(e)}}
+
+    def list_project_env_snapshots(self, project_identifier: str) -> dict:
+        proj = self._find_project(project_identifier)
+        if not proj:
+            return {"status": "error", "message": MSG_PROJECT_NOT_FOUND}
+
+        vault_dir = os.path.join(self.base_dir, "env_vault", str(proj.get("id", proj.get("name"))))
+        if not os.path.exists(vault_dir):
+            return {"status": "success", "snapshots": []}
+
+        snapshots = []
+        for f in sorted(os.listdir(vault_dir), reverse=True):
+            if f.endswith(".env.bak") and re.match(r"^[0-9_a-zA-Z\-]+\.env\.bak$", f):
+                full_path = os.path.join(vault_dir, f)
+                try:
+                    stat = os.stat(full_path)
+                    snapshots.append({
+                        "id": f,
+                        "created_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stat.st_mtime)),
+                        "timestamp_ms": int(stat.st_mtime * 1000),
+                        "size_bytes": stat.st_size,
+                    })
+                except OSError:
+                    continue
+
+        return {"status": "success", "snapshots": snapshots}
+
+    def restore_project_env_snapshot(self, project_identifier: str, snapshot_id: str) -> dict:
+        proj = self._find_project(project_identifier)
+        if not proj:
+            return {"status": "error", "message": MSG_PROJECT_NOT_FOUND}
+
+        if not snapshot_id or not re.match(r"^[0-9_a-zA-Z\-]+\.env\.bak$", snapshot_id):
+            return {"status": "error", "message": "backend.project.invalid_snapshot_id"}
+
+        vault_dir = os.path.join(self.base_dir, "env_vault", str(proj.get("id", proj.get("name"))))
+        snap_path = os.path.realpath(os.path.join(vault_dir, snapshot_id))
+        if not snap_path.startswith(os.path.realpath(vault_dir)) or not os.path.exists(snap_path):
+            return {"status": "error", "message": "backend.project.snapshot_not_found"}
+
+        root_dir = self._resolve_project_root(proj.get("path"))
+        if not root_dir or not os.path.isdir(root_dir):
+            return {"status": "error", "message": MSG_PROJECT_DIRECTORY_NOT_FOUND}
+
+        env_path = os.path.join(root_dir, ".env")
+
+        try:
+            # Backup current .env before restore
+            if os.path.exists(env_path):
+                pre_restore_snap = os.path.join(vault_dir, f"{time.strftime('%Y%m%d_%H%M%S')}_pre_restore.env.bak")
+                shutil.copy2(env_path, pre_restore_snap)
+
+            shutil.copy2(snap_path, env_path)
+            self._log("backend.project.env_restored", "info", {"project": proj.get("name"), "snapshot": snapshot_id})
+            return {"status": "success", "message": "backend.project.env_restored"}
+        except Exception as e:
+            return {"status": "error", "message": "backend.project.env_restore_error", "args": {"e": str(e)}}
+
+    def sync_project_env_example_keys(self, project_identifier: str, keys_to_sync: list = None) -> dict:
+        details = self.get_project_env_details(project_identifier)
+        if details.get("status") != "success":
+            return details
+
+        missing_keys = details.get("missing_keys", [])
+        if not missing_keys:
+            return {"status": "success", "message": "backend.project.no_missing_keys"}
+
+        filter_set = set(keys_to_sync) if keys_to_sync else None
+        lines_to_add = []
+        for item in missing_keys:
+            if filter_set is None or item["key"] in filter_set:
+                val = item.get("example_value", "")
+                lines_to_add.append(f"{item['key']}={val}")
+
+        if not lines_to_add:
+            return {"status": "success", "message": "backend.project.no_keys_selected"}
+
+        current_content = details.get("env_content", "")
+        suffix = "\n" if current_content and not current_content.endswith("\n") else ""
+        new_block = "\n# Synced from .env.example\n" + "\n".join(lines_to_add) + "\n"
+        updated_content = current_content + suffix + new_block
+
+        return self.save_project_env(project_identifier, updated_content, create_snapshot=True)
+
+    @staticmethod
+    def _collect_log_files_in_dir(current_root: str, files: list, safe_root: str, max_files: int, found_logs: list):
+        for file_name in files:
+            if file_name.lower().endswith(".log"):
+                full_path = os.path.join(current_root, file_name)
+                try:
+                    rel_path = os.path.relpath(full_path, safe_root).replace("\\", "/")
+                    stat = os.stat(full_path)
+                    found_logs.append({
+                        "path": rel_path,
+                        "name": file_name,
+                        "size_bytes": stat.st_size,
+                        "mtime": int(stat.st_mtime * 1000),
+                    })
+                except OSError:
+                    continue
+
+                if len(found_logs) >= max_files:
+                    break
+
+    def list_project_log_files(self, project_identifier: str) -> dict:
+        """
+        Scans for .log files in the project root and subdirectories
+        (e.g., storage/logs, logs, var/log).
+        """
+        proj = self._find_project(project_identifier)
+        if not proj:
+            return {"status": "error", "message": MSG_PROJECT_NOT_FOUND}
+
+        root_dir = self._resolve_project_root(proj.get("path"))
+        if not root_dir or not os.path.isdir(root_dir):
+            return {"status": "error", "message": MSG_PROJECT_DIRECTORY_NOT_FOUND}
+
+        safe_root = os.path.realpath(root_dir)
+        ignored_dirs = {
+            "vendor", "node_modules", ".git", ".svn", ".hg", "venv", DIR_VENV,
+            "__pycache__", "dist", "build", ".next", ".nuxt", "cache"
+        }
+
+        found_logs = []
+        max_files = 50
+
+        for current_root, dirs, files in os.walk(safe_root):
+            dirs[:] = [d for d in dirs if d.lower() not in ignored_dirs and not d.startswith(".")]
+
+            rel_from_root = os.path.relpath(current_root, safe_root)
+            depth = 0 if rel_from_root == "." else len(rel_from_root.replace("\\", "/").split("/"))
+            if depth > 4:
+                dirs.clear()
+                continue
+
+            self._collect_log_files_in_dir(current_root, files, safe_root, max_files, found_logs)
+            if len(found_logs) >= max_files:
+                break
+
+        found_logs.sort(key=lambda x: x["mtime"], reverse=True)
+        return {"status": "success", "log_files": found_logs}
+
+    @staticmethod
+    def _read_log_payload(target_path: str, offset: Optional[int], line_limit: int) -> dict:
+        current_size = os.path.getsize(target_path)
+        if offset is None or offset <= 0:
+            text = read_log_tail(target_path, max_lines=line_limit)
+            log_lines = text.splitlines() if text else []
+            return {
+                "status": "success",
+                "lines": log_lines,
+                "offset": current_size,
+                "size_bytes": current_size,
+            }
+        else:
+            new_lines, new_offset = read_new_lines(target_path, offset)
+            return {
+                "status": "success",
+                "lines": new_lines,
+                "offset": new_offset,
+                "size_bytes": current_size,
+            }
+
+    def get_project_app_logs(self, project_identifier: str, relative_log_path: str, offset: int = None, lines: int = 100) -> dict:
+        """
+        Reads lines from an application log file with path traversal security checks.
+        Supports initial tail read and incremental polling.
+        """
+        if not project_identifier or not relative_log_path:
+            return {"status": "error", "message": "backend.error.invalid_input", "args": {"detail": "Missing project or log path"}}
+
+        proj = self._find_project(project_identifier)
+        if not proj:
+            return {"status": "error", "message": MSG_PROJECT_NOT_FOUND}
+
+        root_dir = self._resolve_project_root(proj.get("path"))
+        if not root_dir or not os.path.isdir(root_dir):
+            return {"status": "error", "message": MSG_PROJECT_DIRECTORY_NOT_FOUND}
+
+        safe_root = os.path.realpath(root_dir)
+        clean_rel = relative_log_path.replace("\\", "/").lstrip("/")
+        target_path = os.path.realpath(os.path.join(safe_root, clean_rel))
+
+        # Path traversal guard: must be strictly inside safe_root and end with .log
+        if not (target_path == safe_root or target_path.startswith(safe_root + os.sep)) or not target_path.lower().endswith(".log"):
+            return {"status": "error", "message": MSG_PATH_TRAVERSAL}
+
+        if not os.path.exists(target_path):
+            return {"status": "error", "message": "backend.project.log_file_not_found"}
+
+        try:
+            line_limit = min(max(lines or 100, 10), 500)
+            return self._read_log_payload(target_path, offset, line_limit)
+        except Exception as e:
+            return {"status": "error", "message": "backend.project.log_read_error", "args": {"e": str(e)}}
+
+    def clear_project_app_log(self, project_identifier: str, relative_log_path: str) -> dict:
+        """
+        Truncates an application log file to 0 bytes safely.
+        """
+        if not project_identifier or not relative_log_path:
+            return {"status": "error", "message": "backend.error.invalid_input", "args": {"detail": "Missing project or log path"}}
+
+        proj = self._find_project(project_identifier)
+        if not proj:
+            return {"status": "error", "message": MSG_PROJECT_NOT_FOUND}
+
+        root_dir = self._resolve_project_root(proj.get("path"))
+        if not root_dir or not os.path.isdir(root_dir):
+            return {"status": "error", "message": MSG_PROJECT_DIRECTORY_NOT_FOUND}
+
+        safe_root = os.path.realpath(root_dir)
+        clean_rel = relative_log_path.replace("\\", "/").lstrip("/")
+        target_path = os.path.realpath(os.path.join(safe_root, clean_rel))
+
+        # Path traversal guard
+        if not (target_path == safe_root or target_path.startswith(safe_root + os.sep)) or not target_path.lower().endswith(".log"):
+            return {"status": "error", "message": MSG_PATH_TRAVERSAL}
+
+        if not os.path.exists(target_path):
+            return {"status": "error", "message": "backend.project.log_file_not_found"}
+
+        try:
+            with open(target_path, "w", encoding="utf-8") as f:
+                f.truncate(0)
+            self._log("backend.project.log_cleared", "info", {"project": proj.get("name"), "log": clean_rel})
+            return {"status": "success", "message": "backend.project.log_cleared"}
+        except Exception as e:
+            return {"status": "error", "message": "backend.project.log_clear_error", "args": {"e": str(e)}}

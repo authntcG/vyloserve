@@ -2,18 +2,25 @@ import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import DataTable, { type ColumnDef } from '../../components/DataTable';
 import ServiceToggleButton from '../../components/ServiceToggleButton';
+import TableActionMenu, {
+    tableActionItemClass,
+    tableActionItemDangerClass,
+    tableActionDividerClass,
+} from '../../components/TableActionMenu';
 import type { DbInstance, AvailableUpdate } from '../../context/DatabaseContext';
 
 export interface DatabaseTableProps {
     readonly dbInstances: readonly DbInstance[];
     readonly togglingDbId: string | null;
     readonly availableUpdates: Record<string, AvailableUpdate | null>;
+    readonly isInstalling?: boolean;
     readonly filters?: ReactNode;
     readonly emptyState?: ReactNode;
     readonly onToggleStatus: (db: DbInstance) => void;
     readonly onOpenSettings: (db: DbInstance) => void;
     readonly onOpenPasswordModal: (db: DbInstance) => void;
     readonly onOpenSchemas?: (db: DbInstance) => void;
+    readonly onFlushRedis?: (db: DbInstance) => void;
     readonly onOpenConfigFile: (db: DbInstance) => void;
     readonly onOpenDataDir: (db: DbInstance) => void;
     readonly onOpenLogs: (db: DbInstance, type: 'startup' | 'native') => void;
@@ -25,12 +32,14 @@ export default function DatabaseTable({
     dbInstances,
     togglingDbId,
     availableUpdates,
+    isInstalling,
     filters,
     emptyState,
     onToggleStatus,
     onOpenSettings,
     onOpenPasswordModal,
     onOpenSchemas,
+    onFlushRedis,
     onOpenConfigFile,
     onOpenDataDir,
     onOpenLogs,
@@ -110,6 +119,7 @@ export default function DatabaseTable({
                         type="button"
                         onClick={() => onOpenDataDir(db)}
                         title={t('database.open_data_folder')}
+                        aria-label={t('database.open_data_folder')}
                         className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded transition-colors shrink-0"
                     >
                         <span className="material-symbols-outlined text-[16px]">folder_open</span>
@@ -124,6 +134,7 @@ export default function DatabaseTable({
             render: (db) => {
                 const isRunning = db.status === 'running';
                 const isToggling = togglingDbId === db.id;
+                const update = availableUpdates[db.id];
                 let configTitle = t('database.open_my_ini');
                 if (db.engine === 'postgres') {
                     configTitle = t('database.open_postgres_conf');
@@ -146,17 +157,7 @@ export default function DatabaseTable({
                             }}
                         />
 
-                        <button
-                            type="button"
-                            onClick={() => onOpenSettings(db)}
-                            title={t('database.config')}
-                            aria-label={t('database.config')}
-                            className="p-2 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors flex items-center justify-center"
-                        >
-                            <span className="material-symbols-outlined text-[18px]">tune</span>
-                        </button>
-
-                        {db.engine !== 'redis' && (
+                        {db.engine !== 'redis' ? (
                             <button
                                 type="button"
                                 disabled={!isRunning}
@@ -167,49 +168,133 @@ export default function DatabaseTable({
                             >
                                 <span className="material-symbols-outlined text-[18px]">database</span>
                             </button>
-                        )}
-
-                        {db.engine !== 'redis' && (
+                        ) : (
                             <button
                                 type="button"
-                                onClick={() => onOpenPasswordModal(db)}
-                                title={t('database.change_password')}
-                                aria-label={t('database.change_password')}
-                                className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors flex items-center justify-center"
+                                disabled={!isRunning}
+                                onClick={() => onFlushRedis?.(db)}
+                                title={t('database.flush_redis', 'Flush Keys')}
+                                aria-label={t('database.flush_redis', 'Flush Keys')}
+                                className="p-2 border border-rose-200 dark:border-rose-900/40 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition-colors flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed"
                             >
-                                <span className="material-symbols-outlined text-[18px]">key</span>
+                                <span className="material-symbols-outlined text-[18px]">cleaning_services</span>
                             </button>
                         )}
 
                         <button
                             type="button"
-                            onClick={() => onOpenConfigFile(db)}
-                            title={configTitle}
-                            aria-label={configTitle}
-                            className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors flex items-center justify-center"
+                            onClick={() => onOpenSettings(db)}
+                            title={t('database.config')}
+                            aria-label={t('database.config')}
+                            className="p-2 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors flex items-center justify-center"
                         >
-                            <span className="material-symbols-outlined text-[18px]">description</span>
+                            <span className="material-symbols-outlined text-[18px]">tune</span>
                         </button>
 
-                        <button
-                            type="button"
-                            onClick={() => onOpenLogs(db, 'startup')}
-                            title={t('settings.log_file_startup')}
-                            aria-label={t('settings.log_file_startup')}
-                            className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors flex items-center justify-center"
-                        >
-                            <span className="material-symbols-outlined text-[18px]">history</span>
-                        </button>
+                        <TableActionMenu estimatedHeight={db.engine === 'mysql' ? 320 : 280}>
+                            {db.engine !== 'redis' ? (
+                                <button
+                                    type="button"
+                                    role="menuitem"
+                                    disabled={!isRunning}
+                                    onClick={() => onOpenSchemas?.(db)}
+                                    className={tableActionItemClass}
+                                >
+                                    <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">database</span>
+                                    <span className="truncate">{t('database.manage_schemas')}</span>
+                                </button>
+                            ) : (
+                                <button
+                                    type="button"
+                                    role="menuitem"
+                                    disabled={!isRunning}
+                                    onClick={() => onFlushRedis?.(db)}
+                                    className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                                >
+                                    <span className="material-symbols-outlined text-[16px] text-rose-500 shrink-0">cleaning_services</span>
+                                    <span className="truncate">{t('database.flush_redis')}</span>
+                                </button>
+                            )}
 
-                        <button
-                            type="button"
-                            onClick={() => onUninstallDatabase(db)}
-                            title={t('database.uninstall')}
-                            aria-label={t('database.uninstall')}
-                            className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors flex items-center justify-center"
-                        >
-                            <span className="material-symbols-outlined text-[18px]">delete</span>
-                        </button>
+                            <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => onOpenConfigFile(db)}
+                                className={tableActionItemClass}
+                            >
+                                <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">description</span>
+                                <span className="truncate">{configTitle}</span>
+                            </button>
+
+                            <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => onOpenDataDir(db)}
+                                className={tableActionItemClass}
+                            >
+                                <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">folder_open</span>
+                                <span className="truncate">{t('database.open_data_folder')}</span>
+                            </button>
+
+                            <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => onOpenLogs(db, 'startup')}
+                                className={tableActionItemClass}
+                            >
+                                <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">history</span>
+                                <span className="truncate">{t('settings.log_file_startup')}</span>
+                            </button>
+
+                            {db.engine === 'mysql' && (
+                                <button
+                                    type="button"
+                                    role="menuitem"
+                                    onClick={() => onOpenLogs(db, 'native')}
+                                    className={tableActionItemClass}
+                                >
+                                    <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">article</span>
+                                    <span className="truncate">{t('settings.log_file_native')}</span>
+                                </button>
+                            )}
+
+                            {db.engine !== 'redis' && (
+                                <button
+                                    type="button"
+                                    role="menuitem"
+                                    onClick={() => onOpenPasswordModal(db)}
+                                    className={tableActionItemClass}
+                                >
+                                    <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">key</span>
+                                    <span className="truncate">{t('database.change_password')}</span>
+                                </button>
+                            )}
+
+                            <div className={tableActionDividerClass} />
+
+                            {update && (
+                                <button
+                                    type="button"
+                                    role="menuitem"
+                                    disabled={isInstalling}
+                                    onClick={() => onUpdateDatabase(db)}
+                                    className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-primary hover:bg-slate-100 dark:hover:bg-slate-700/70 font-medium disabled:opacity-50 transition-colors cursor-pointer"
+                                >
+                                    <span className="material-symbols-outlined text-[16px] text-primary shrink-0">upgrade</span>
+                                    <span className="truncate">{t('database.update_to', { version: update.version })}</span>
+                                </button>
+                            )}
+
+                            <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => onUninstallDatabase(db)}
+                                className={tableActionItemDangerClass}
+                            >
+                                <span className="material-symbols-outlined text-[16px] text-red-500 shrink-0">delete</span>
+                                <span className="truncate">{t('database.drop_engine')}</span>
+                            </button>
+                        </TableActionMenu>
                     </div>
                 );
             },

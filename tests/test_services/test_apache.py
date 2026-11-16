@@ -920,7 +920,7 @@ def test_install_apache_linux_success(apache_manager):
     with patch('shutil.which', side_effect=lambda x: f"/usr/bin/{x}" if x in ("pkexec", "apt-get") else None), \
          patch('core.services.apache.run_silent_command', return_value=MagicMock(returncode=0)), \
          patch('core.services.apache.subprocess.run', return_value=MagicMock(returncode=0)):
-        res = apache_manager._install_apache_linux(80)
+        res = apache_manager._install_apache_linux()
         assert res['status'] == 'success'
         assert res['message'] == 'backend.apache.linux_install_success'
 
@@ -929,14 +929,14 @@ def test_install_apache_linux_auth_cancelled(apache_manager):
     with patch('shutil.which', side_effect=lambda x: f"/usr/bin/{x}" if x in ("pkexec", "apt-get") else None), \
          patch('core.services.apache.run_silent_command', return_value=MagicMock(returncode=0)), \
          patch('core.services.apache.subprocess.run', return_value=MagicMock(returncode=126)):
-        res = apache_manager._install_apache_linux(80)
+        res = apache_manager._install_apache_linux()
         assert res['status'] == 'error'
         assert res['message'] == 'backend.apache.auth_cancelled'
 
 
 def test_install_apache_linux_no_pkexec(apache_manager):
     with patch('shutil.which', return_value=None):
-        res = apache_manager._install_apache_linux(80)
+        res = apache_manager._install_apache_linux()
         assert res['status'] == 'error'
         assert res['message'] == 'backend.apache.no_pkexec'
 
@@ -952,10 +952,11 @@ def test_ensure_home_traversal_permission(apache_manager):
 
 
 def test_ensure_linux_apache_integration_debian(apache_manager, tmp_path):
+    orig_isdir = os.path.isdir
     with patch('sys.platform', 'linux'), \
          patch('core.services.apache.get_project_root', return_value=str(tmp_path)), \
          patch.object(apache_manager, 'get_status', return_value={"installed": True, "path": "/usr/sbin/apache2", "system": True}), \
-         patch('os.path.isdir', side_effect=lambda d: d in ("/etc/apache2", str(tmp_path))), \
+         patch('os.path.isdir', side_effect=lambda d: True if d == "/etc/apache2" else orig_isdir(d)), \
          patch('os.path.exists', return_value=False), \
          patch('shutil.which', return_value="/usr/bin/pkexec"), \
          patch('core.services.apache.subprocess.run', return_value=MagicMock(returncode=0)) as mock_run:
@@ -971,7 +972,7 @@ def test_ensure_linux_apache_integration_debian(apache_manager, tmp_path):
 def test_reload_server_linux_systemctl(apache_manager):
     with patch('sys.platform', 'linux'), \
          patch.object(apache_manager, 'get_status', return_value={"installed": True, "path": "/usr/sbin/apache2", "system": True}), \
-         patch('shutil.which', side_effect=lambda x: f"/usr/bin/{x}" if x in ("systemctl", "pkexec") else None), \
+         patch('shutil.which', side_effect=lambda x: f"/usr/bin/{x}" if x in ("systemctl", "pkexec", "apache2") else None), \
          patch('core.services.apache.subprocess.run', return_value=MagicMock(returncode=0)) as mock_run:
         res = apache_manager.reload_server()
         assert res['status'] == 'success'

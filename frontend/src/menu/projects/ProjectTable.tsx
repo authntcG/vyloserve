@@ -1,6 +1,11 @@
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import DataTable, { type ColumnDef, type TableSearchConfig } from '../../components/DataTable';
+import TableActionMenu, {
+    tableActionItemClass,
+    tableActionItemDangerClass,
+    tableActionDividerClass,
+} from '../../components/TableActionMenu';
 import type { ProjectData, RunningServerInfo } from '../../context/ProjectContext';
 
 export interface ProjectTableProps {
@@ -14,9 +19,112 @@ export interface ProjectTableProps {
     readonly onViewLogs?: (id: string) => void;
     readonly onOpenDocumentRoot: (path: string) => void;
     readonly onOpenSettings: (id: string) => void;
+    readonly onOpenEnv?: (id: string) => void;
+    readonly onViewAppLogs?: (project: ProjectData) => void;
     readonly onSyncHost: (id: string) => void;
     readonly onDeleteClick: (id: string) => void;
     readonly onOpenBrowser: (domain: string) => void;
+}
+
+interface ProjectTableActionMenuProps {
+    readonly project: ProjectData;
+    readonly isNonPhp: boolean;
+    readonly onOpenDocumentRoot: (path: string) => void;
+    readonly onOpenSettings: (id: string) => void;
+    readonly onOpenEnv?: (id: string) => void;
+    readonly onViewAppLogs?: (project: ProjectData) => void;
+    readonly onViewLogs?: (id: string) => void;
+    readonly onDeleteClick: (id: string) => void;
+    readonly t: any;
+}
+
+function ProjectTableActionMenu({
+    project,
+    isNonPhp,
+    onOpenDocumentRoot,
+    onOpenSettings,
+    onOpenEnv,
+    onViewAppLogs,
+    onViewLogs,
+    onDeleteClick,
+    t,
+}: ProjectTableActionMenuProps) {
+    const estimatedHeight = isNonPhp ? 290 : 255;
+
+    return (
+        <TableActionMenu estimatedHeight={estimatedHeight}>
+            <button
+                type="button"
+                role="menuitem"
+                onClick={() => onOpenDocumentRoot(project.path)}
+                className={tableActionItemClass}
+            >
+                <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">folder_open</span>
+                <span className="truncate">{t('apache.open_document_root')}</span>
+            </button>
+            <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                    window.dispatchEvent(new CustomEvent('vylo_open_terminal_project', {
+                        detail: { cwd: project.path, title: project.domain || project.name }
+                    }));
+                }}
+                className={tableActionItemClass}
+            >
+                <span className="material-symbols-outlined text-[16px] text-primary shrink-0">terminal</span>
+                <span className="truncate">{t('apache.open_in_terminal')}</span>
+            </button>
+            <button
+                type="button"
+                role="menuitem"
+                onClick={() => onOpenEnv?.(project.id)}
+                className={tableActionItemClass}
+            >
+                <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">tune</span>
+                <span className="truncate">{t('projects.btn_manage_env', 'Manage .env')}</span>
+            </button>
+            <button
+                type="button"
+                role="menuitem"
+                onClick={() => onViewAppLogs?.(project)}
+                className={tableActionItemClass}
+            >
+                <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">receipt_long</span>
+                <span className="truncate">{t('projects.btn_view_app_logs', 'Application Logs')}</span>
+            </button>
+            <button
+                type="button"
+                role="menuitem"
+                onClick={() => onOpenSettings(project.id)}
+                className={tableActionItemClass}
+            >
+                <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">tune</span>
+                <span className="truncate">{t('apache.vhost_settings')}</span>
+            </button>
+            {isNonPhp && (
+                <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => onViewLogs?.(project.id)}
+                    className={tableActionItemClass}
+                >
+                    <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">receipt_long</span>
+                    <span className="truncate">{t('projects.view_server_logs')}</span>
+                </button>
+            )}
+            <div className={tableActionDividerClass} />
+            <button
+                type="button"
+                role="menuitem"
+                onClick={() => onDeleteClick(project.id)}
+                className={tableActionItemDangerClass}
+            >
+                <span className="material-symbols-outlined text-[16px] text-red-500 shrink-0">delete</span>
+                <span className="truncate">{t('apache.delete_project')}</span>
+            </button>
+        </TableActionMenu>
+    );
 }
 
 export default function ProjectTable({
@@ -30,6 +138,8 @@ export default function ProjectTable({
     onViewLogs,
     onOpenDocumentRoot,
     onOpenSettings,
+    onOpenEnv,
+    onViewAppLogs,
     onSyncHost,
     onDeleteClick,
     onOpenBrowser,
@@ -234,65 +344,17 @@ export default function ProjectTable({
                         </button>
 
                         {/* Action Dropdown Menu */}
-                        <div className="relative group/menu inline-block text-left">
-                            <button
-                                type="button"
-                                title={t('common.actions', 'Actions')}
-                                aria-label={t('common.actions', 'Actions')}
-                                className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center justify-center"
-                            >
-                                <span className="material-symbols-outlined text-[18px]">more_vert</span>
-                            </button>
-                            <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-20 opacity-0 invisible group-hover/menu:opacity-100 group-hover/menu:visible transition-[opacity,visibility] duration-150">
-                                <button
-                                    type="button"
-                                    onClick={() => onOpenDocumentRoot(project.path)}
-                                    className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/70 transition-colors"
-                                >
-                                    <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">folder_open</span>
-                                    <span className="truncate">{t('apache.open_document_root')}</span>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        window.dispatchEvent(new CustomEvent('vylo_open_terminal_project', {
-                                            detail: { cwd: project.path, title: project.domain || project.name }
-                                        }));
-                                    }}
-                                    className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/70 transition-colors"
-                                >
-                                    <span className="material-symbols-outlined text-[16px] text-primary shrink-0">terminal</span>
-                                    <span className="truncate">{t('apache.open_in_terminal')}</span>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => onOpenSettings(project.id)}
-                                    className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/70 transition-colors"
-                                >
-                                    <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">tune</span>
-                                    <span className="truncate">{t('apache.vhost_settings')}</span>
-                                </button>
-                                {isNonPhp && (
-                                    <button
-                                        type="button"
-                                        onClick={() => onViewLogs?.(project.id)}
-                                        className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/70 transition-colors"
-                                    >
-                                        <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">receipt_long</span>
-                                        <span className="truncate">{t('projects.view_server_logs')}</span>
-                                    </button>
-                                )}
-                                <div className="border-t border-slate-100 dark:border-slate-700 my-1" />
-                                <button
-                                    type="button"
-                                    onClick={() => onDeleteClick(project.id)}
-                                    className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                                >
-                                    <span className="material-symbols-outlined text-[16px] text-red-500 shrink-0">delete</span>
-                                    <span className="truncate">{t('apache.delete_project')}</span>
-                                </button>
-                            </div>
-                        </div>
+                        <ProjectTableActionMenu
+                            project={project}
+                            isNonPhp={Boolean(isNonPhp)}
+                            onOpenDocumentRoot={onOpenDocumentRoot}
+                            onOpenSettings={onOpenSettings}
+                            onOpenEnv={onOpenEnv}
+                            onViewAppLogs={onViewAppLogs}
+                            onViewLogs={onViewLogs}
+                            onDeleteClick={onDeleteClick}
+                            t={t}
+                        />
                     </div>
                 );
             },

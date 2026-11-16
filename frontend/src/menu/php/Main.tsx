@@ -117,11 +117,17 @@ function PhpMainView() {
                                     const isRunning = php.status === 'running';
                                     const updateVer = updateMap[php.id];
                                     const isSystem = Boolean(php.is_system);
+                                    let cardStatus = 'stopped';
+                                    if (isRunning) {
+                                        cardStatus = 'running';
+                                    } else if (isSystem) {
+                                        cardStatus = t('runtimes.native_os');
+                                    }
                                     return (
                                         <Card
                                             key={php.id}
                                             title={php.name}
-                                            status={isRunning ? 'running' : (isSystem ? t('runtimes.native_os') : 'stopped')}
+                                            status={cardStatus}
                                             updateVersion={updateVer?.version || null}
                                             gridCols="grid-cols-2 md:grid-cols-3"
                                             dropdownActions={

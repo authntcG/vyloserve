@@ -4,6 +4,7 @@ import re
 import json
 import time
 import uuid
+import socket
 import threading
 import urllib.request
 import urllib.error
@@ -61,15 +62,17 @@ DEFAULT_SYSTEM_PROMPT = (
     "For a single service, output a single JSON object inside the code fence:\n"
     "```vylo_action\n"
     "{\n"
-    '  "service": "apache" | "php" | "database",\n'
-    '  "action": "start" | "stop" | "restart" | "switch_version",\n'
+    '  "service": "apache" | "php" | "database" | "gitlab",\n'
+    '  "action": "start" | "stop" | "restart" | "switch_version" | "comment_issue" | "comment_mr",\n'
     '  "target": "<version_or_id>",\n'
+    '  "params": { "repo": "<owner/repo>", "comment": "<Markdown comment draft>" },\n'
     '  "label": "<short human-readable action label>"\n'
     "}\n"
     "```\n"
     "Valid values:\n"
     "- 'apache': action 'start', 'stop', 'restart', or 'switch_version' (target is the version string, e.g. '2.4.58')\n"
     "- 'php': action 'start', 'stop' (target is version string, e.g. '8.2.12'), or 'start_all', 'stop_all' (target is 'all')\n"
+    "- 'gitlab': action 'comment_issue' or 'comment_mr' (target is issue/MR number, params contains repo and markdown draft comment)\n"
     "The VyloServe UI will automatically render each item as an interactive confirmation card with an action button for the user.\n"
     "\n\n"
     "FOLLOW-UP SUGGESTIONS:\n"
@@ -94,6 +97,10 @@ AI_TIER_PRO = "ai.tier_pro"
 AI_TIER_FREE = "ai.tier_free"
 MODEL_GEMINI_FLASH_LITE = "gemini-3.5-flash-lite"
 DEFAULT_OLLAMA_ENDPOINT = "http://localhost:11434/v1"
+MSG_AI_TIMEOUT = "backend.ai.timeout"
+DOC_STREAM_TIMEOUT = 180
+DOC_MAX_CONTENT_CHARS = 32000
+DOC_MAX_SUMMARY_CHARS = 24000
 
 
 class DocRetriever:
@@ -306,6 +313,8 @@ class AIAssistantManager:
         
         self._abort_event = threading.Event()
         self._active_thread: Optional[threading.Thread] = None
+        self._doc_abort_event = threading.Event()
+        self._active_doc_thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
 
     def _get_settings(self) -> Dict[str, Any]:
@@ -627,6 +636,20 @@ class AIAssistantManager:
         except Exception:
             pass
 
+    def _collect_gitlab_inventory(self, lines: List[str]) -> None:
+        if not hasattr(self.api, 'gitlab_manager'):
+            return
+        try:
+            st = self.api.gitlab_manager.get_glab_status()
+            if st.get("installed"):
+                ver = st.get("version") or "unknown"
+                auth = f" (Authenticated as @{st.get('username')})" if st.get("authenticated") else " (Unauthenticated)"
+                lines.append(f"- GitLab CLI (glab): v{ver}{auth}")
+            else:
+                lines.append("- GitLab CLI (glab): Not installed")
+        except Exception:
+            pass
+
     def _collect_runtimes_inventory(self, lines: List[str]) -> None:
         if not hasattr(self.api, 'runtimes_manager'):
             return
@@ -738,6 +761,7 @@ class AIAssistantManager:
         self._collect_php_inventory(lines)
         self._collect_database_inventory(lines)
         self._collect_git_inventory(lines)
+        self._collect_gitlab_inventory(lines)
         self._collect_runtimes_inventory(lines)
         project_map = self._collect_projects_inventory(lines)
         self._collect_tunnels_inventory(lines, project_map)
@@ -1194,6 +1218,36 @@ class AIAssistantManager:
             self.api.emit_ai_chunk(chunk="", is_done=True, error="backend.ai.aborted")
         return {"status": "success"}
 
+    def abort_doc_generation(self) -> Dict[str, Any]:
+        """ Membatalkan proses streaming aktif pada Document Copilot """
+        self._doc_abort_event.set()
+        if hasattr(self.api, 'emit_doc_ai_chunk'):
+            self.api.emit_doc_ai_chunk(chunk="", is_done=True, error="backend.ai.aborted")
+        return {"status": "success"}
+
+    def get_doc_ai_info(self) -> Dict[str, Any]:
+        """ Mengembalikan info provider aktif dan status konfigurasi untuk Document Copilot """
+        try:
+            settings = self._get_settings()
+            provider = settings.get("ai_provider", "gemini").lower()
+            model = settings.get("ai_model", MODEL_GEMINI_FLASH_LITE)
+            api_key = settings.get("ai_api_key", "").strip()
+            base_url = settings.get("ai_base_url", DEFAULT_OLLAMA_ENDPOINT).strip()
+            is_local = (provider == "ollama")
+            has_key = bool(api_key) if not is_local else True
+            return {
+                "status": "success",
+                "data": {
+                    "provider": provider,
+                    "model": model,
+                    "is_local": is_local,
+                    "is_configured": has_key,
+                    "base_url": base_url
+                }
+            }
+        except Exception as e:
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
+
     @staticmethod
     def _extract_active_screen(context: str) -> str:
         if not context:
@@ -1375,7 +1429,13 @@ class AIAssistantManager:
         return payload if payload else None
 
     @staticmethod
-    def _build_gemini_payload(prompt: str, context: str, history: List[Dict[str, Any]], temperature: float) -> dict:
+    def _build_gemini_payload(
+        prompt: str,
+        context: str,
+        history: List[Dict[str, Any]],
+        temperature: float,
+        system_instruction: str = DEFAULT_SYSTEM_PROMPT
+    ) -> dict:
         contents = []
         for msg in history[:-1]:
             role = "model" if msg.get("role") == "assistant" else "user"
@@ -1386,7 +1446,7 @@ class AIAssistantManager:
 
         return {
             "contents": contents,
-            "systemInstruction": {"parts": [{"text": DEFAULT_SYSTEM_PROMPT}]},
+            "systemInstruction": {"parts": [{"text": system_instruction}]},
             "generationConfig": {"temperature": temperature}
         }
 
@@ -1398,31 +1458,44 @@ class AIAssistantManager:
         parts = candidates[0].get("content", {}).get("parts", [])
         return [p.get("text", "") for p in parts if p.get("text")]
 
+    @staticmethod
+    def _update_gemini_usage(usage_collector: Optional[Dict[str, Any]], obj: dict):
+        if usage_collector is not None and "usageMetadata" in obj:
+            meta = obj["usageMetadata"]
+            usage_collector["prompt_tokens"] = meta.get("promptTokenCount", usage_collector.get("prompt_tokens", 0))
+            usage_collector["completion_tokens"] = meta.get("candidatesTokenCount", usage_collector.get("completion_tokens", 0))
+            usage_collector["total_tokens"] = meta.get("totalTokenCount", usage_collector.get("total_tokens", 0))
+
+    def _emit_stream_chunk(self, channel: str, chunk: str, message_id: str):
+        if channel == "doc":
+            if hasattr(self.api, 'emit_doc_ai_chunk'):
+                self.api.emit_doc_ai_chunk(chunk=chunk, is_done=False, message_id=message_id)
+        else:
+            if hasattr(self.api, 'emit_ai_chunk'):
+                self.api.emit_ai_chunk(chunk=chunk, is_done=False, message_id=message_id)
+
     def _consume_gemini_stream(
         self,
         resp,
         message_id: str,
         reply_collector: List[str],
-        usage_collector: Optional[Dict[str, Any]] = None
+        usage_collector: Optional[Dict[str, Any]] = None,
+        channel: str = "ai"
     ) -> None:
+        abort_ev = self._doc_abort_event if channel == "doc" else self._abort_event
         for line in resp:
-            if self._abort_event.is_set():
+            if abort_ev.is_set():
                 break
             data_json = self._parse_sse_data(line)
             if not data_json:
                 continue
             try:
                 obj = json.loads(data_json)
-                if usage_collector is not None and "usageMetadata" in obj:
-                    meta = obj["usageMetadata"]
-                    usage_collector["prompt_tokens"] = meta.get("promptTokenCount", usage_collector.get("prompt_tokens", 0))
-                    usage_collector["completion_tokens"] = meta.get("candidatesTokenCount", usage_collector.get("completion_tokens", 0))
-                    usage_collector["total_tokens"] = meta.get("totalTokenCount", usage_collector.get("total_tokens", 0))
+                self._update_gemini_usage(usage_collector, obj)
 
                 for chunk in self._extract_gemini_candidate_text(obj):
                     reply_collector.append(chunk)
-                    if hasattr(self.api, 'emit_ai_chunk'):
-                        self.api.emit_ai_chunk(chunk=chunk, is_done=False, message_id=message_id)
+                    self._emit_stream_chunk(channel, chunk, message_id)
             except Exception:
                 pass
 
@@ -1457,9 +1530,10 @@ class AIAssistantManager:
         context: str,
         history: List[Dict[str, Any]],
         model: str,
-        temperature: float
+        temperature: float,
+        system_instruction: str = DEFAULT_SYSTEM_PROMPT
     ) -> dict:
-        messages = [{"role": "system", "content": DEFAULT_SYSTEM_PROMPT}]
+        messages = [{"role": "system", "content": system_instruction}]
         for msg in history[:-1]:
             messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
 
@@ -1506,24 +1580,29 @@ class AIAssistantManager:
         usage_collector["completion_tokens"] = usage.get("completion_tokens", usage_collector.get("completion_tokens", 0))
         usage_collector["total_tokens"] = usage.get("total_tokens", usage_collector.get("total_tokens", 0))
 
-    def _emit_openai_chunk(self, obj: dict, message_id: str, reply_collector: List[str]) -> None:
+    def _emit_openai_chunk(self, obj: dict, message_id: str, reply_collector: List[str], channel: str = "ai") -> None:
         chunk_text = self._extract_openai_delta_text(obj)
         if chunk_text:
             reply_collector.append(chunk_text)
-            if hasattr(self.api, 'emit_ai_chunk'):
-                self.api.emit_ai_chunk(chunk=chunk_text, is_done=False, message_id=message_id)
+            if channel == "doc":
+                if hasattr(self.api, 'emit_doc_ai_chunk'):
+                    self.api.emit_doc_ai_chunk(chunk=chunk_text, is_done=False, message_id=message_id)
+            else:
+                if hasattr(self.api, 'emit_ai_chunk'):
+                    self.api.emit_ai_chunk(chunk=chunk_text, is_done=False, message_id=message_id)
 
     def _process_openai_stream_payload(
         self,
         data_body: str,
         message_id: str,
         reply_collector: List[str],
-        usage_collector: Optional[Dict[str, Any]] = None
+        usage_collector: Optional[Dict[str, Any]] = None,
+        channel: str = "ai"
     ) -> None:
         try:
             obj = json.loads(data_body)
             self._update_openai_stream_usage(obj, usage_collector)
-            self._emit_openai_chunk(obj, message_id, reply_collector)
+            self._emit_openai_chunk(obj, message_id, reply_collector, channel=channel)
         except Exception:
             pass
 
@@ -1532,17 +1611,19 @@ class AIAssistantManager:
         resp,
         message_id: str,
         reply_collector: List[str],
-        usage_collector: Optional[Dict[str, Any]] = None
+        usage_collector: Optional[Dict[str, Any]] = None,
+        channel: str = "ai"
     ) -> None:
+        abort_ev = self._doc_abort_event if channel == "doc" else self._abort_event
         for line in resp:
-            if self._abort_event.is_set():
+            if abort_ev.is_set():
                 break
             data_body = self._parse_sse_data(line)
             if not data_body:
                 continue
             if data_body == "[DONE]":
                 break
-            self._process_openai_stream_payload(data_body, message_id, reply_collector, usage_collector)
+            self._process_openai_stream_payload(data_body, message_id, reply_collector, usage_collector, channel=channel)
 
     def _stream_openai_compatible(
         self,
@@ -1577,3 +1658,399 @@ class AIAssistantManager:
                     if "ratelimit" in k_lower or "rate-limit" in k_lower:
                         rate_limits_collector[k_lower] = val
             self._consume_openai_stream(resp, message_id, reply_collector, usage_collector)
+
+    # =========================================================================
+    # DOCUMENT COPILOT (EPHEMERAL / ZERO-LEAKAGE)
+    # =========================================================================
+
+    def doc_query(
+        self,
+        prompt: str,
+        doc_content: str,
+        query_type: str = "qa",
+        model_override: str = "",
+        provider_override: str = "",
+        doc_path: str = "",
+        folder_path: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Streaming ephemeral query untuk Document Copilot (Markdown Viewer).
+        Zero-leakage: konteks dokumen tidak disimpan ke disk / riwayat chat global.
+        """
+        if not doc_content or not doc_content.strip():
+            return {"status": "error", "message": "backend.md.doc_empty"}
+
+        if query_type == "qa" and (not prompt or not prompt.strip()):
+            return {"status": "error", "message": "backend.ai.empty_prompt"}
+
+        settings = self._get_settings()
+        provider = (provider_override or settings.get("ai_provider", "gemini")).lower()
+        model = model_override or settings.get("ai_model", MODEL_GEMINI_FLASH_LITE)
+        if provider == "gemini" and model in ("gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"):
+            model = MODEL_GEMINI_FLASH_LITE
+        api_key = settings.get("ai_api_key", "").strip()
+        base_url = settings.get("ai_base_url", DEFAULT_OLLAMA_ENDPOINT).strip()
+        temperature = float(settings.get("ai_temperature", 0.3))
+
+        if provider != "ollama" and not api_key:
+            return {"status": "error", "message": MSG_AI_KEY_MISSING}
+
+        prefix = "doc_sum" if query_type == "summary" else "doc_qa"
+        message_id = f"{prefix}_{uuid.uuid4().hex[:10]}"
+        self._doc_abort_event.clear()
+
+        thread = threading.Thread(
+            target=self._doc_stream_worker,
+            args=(message_id, prompt, doc_content, query_type, provider, model, api_key, base_url, temperature, doc_path, folder_path),
+            daemon=True
+        )
+        self._active_doc_thread = thread
+        thread.start()
+
+        return {"status": "success", "message_id": message_id}
+
+    @staticmethod
+    def _prepare_doc_for_summary(doc_content: str, max_chars: int = DOC_MAX_SUMMARY_CHARS) -> str:
+        """
+        Intelligently condenses large markdown documents for summary generation.
+        1. Collapses large code blocks (> 5 lines) to retain structure without dumping megabytes of syntax.
+        2. Strips inline data URIs / base64 images.
+        3. Samples whole document structurally (start, section headings + intro sentences, end) if still over budget.
+        """
+        if not doc_content:
+            return ""
+
+        # 1. Collapse large code blocks: ```lang ... ``` or ~~~lang ... ~~~
+        def _collapse_code_block(match: re.Match) -> str:
+            fence = match.group(1)
+            lang = match.group(2) or ""
+            code = match.group(3)
+            lines = code.strip().splitlines()
+            if len(lines) <= 5:
+                return match.group(0)
+            return (
+                f"{fence}{lang}\n"
+                + "\n".join(lines[:2])
+                + f"\n... [{len(lines) - 4} lines of code omitted for summary] ...\n"
+                + "\n".join(lines[-2:])
+                + f"\n{fence}"
+            )
+
+        condensed = re.sub(
+            r'(```|~~~)([^\n]*)\n(.*?)\n\1',
+            _collapse_code_block,
+            doc_content,
+            flags=re.DOTALL
+        )
+
+        # 2. Strip large inline base64 images / data URIs
+        condensed = re.sub(r'data:[^;\s]+;base64,[A-Za-z0-9+/=]+', '[... inline image data omitted ...]', condensed)
+
+        if len(condensed) <= max_chars:
+            return condensed
+
+        # 3. Structural hierarchical sampling across entire document:
+        # Keep introduction & preamble (first 7,000 chars)
+        # Keep final conclusion paragraph (last 2,500 chars)
+        # For the body in between, extract every Heading (#, ##, ###) and its first 2 sentences
+        top_budget = 7000
+        bottom_budget = 2500
+        middle_budget = max(2000, max_chars - top_budget - bottom_budget)
+
+        top_part = condensed[:top_budget]
+        bottom_part = condensed[-bottom_budget:]
+        body_text = condensed[top_budget:-bottom_budget]
+
+        body_lines = body_text.splitlines()
+        sampled_lines = []
+        current_len = 0
+        capture_lines = 0
+
+        for line in body_lines:
+            trimmed = line.strip()
+            if trimmed.startswith('#'):
+                sampled_lines.append(line)
+                current_len += len(line) + 1
+                capture_lines = 2
+            elif capture_lines > 0 and trimmed:
+                snippet = trimmed[:250] + ("..." if len(trimmed) > 250 else "")
+                sampled_lines.append(snippet)
+                current_len += len(snippet) + 1
+                capture_lines -= 1
+
+            if current_len >= middle_budget:
+                sampled_lines.append("\n[... intermediate sections condensed for length ...]\n")
+                break
+
+        middle_block = "\n".join(sampled_lines)
+
+        return (
+            f"{top_part}\n\n"
+            f"<!-- === Condensed Sections & Headings === -->\n"
+            f"{middle_block}\n\n"
+            f"<!-- === Concluding Section === -->\n"
+            f"{bottom_part}"
+        )
+
+    @staticmethod
+    def _is_valid_doc_dir(dirname: str) -> bool:
+        return not dirname.startswith('.') and dirname not in ('node_modules', 'dist', 'build', 'vendor', '__pycache__')
+
+    @staticmethod
+    def _collect_markdown_in_dir(root: str, files: List[str], real_folder: str, real_active: str, candidates: List[Tuple[str, str, str]]):
+        for file in files:
+            if not file.lower().endswith(('.md', '.markdown')):
+                continue
+            full_p = os.path.realpath(os.path.join(root, file))
+            if real_active and full_p == real_active:
+                continue
+            rel_p = os.path.relpath(full_p, real_folder).replace('\\', '/')
+            candidates.append((full_p, rel_p, file.lower()))
+            if len(candidates) >= 50:
+                break
+
+    @classmethod
+    def _find_markdown_candidates(cls, real_folder: str, real_active: str) -> List[Tuple[str, str, str]]:
+        candidates = []
+        try:
+            for root, dirs, files in os.walk(real_folder):
+                dirs[:] = [d for d in dirs if cls._is_valid_doc_dir(d)]
+                cls._collect_markdown_in_dir(root, files, real_folder, real_active, candidates)
+                if len(candidates) >= 50:
+                    break
+        except Exception:
+            return []
+        return candidates
+
+    @staticmethod
+    def _score_single_candidate(full_p: str, rel_p: str, filename: str, keywords: set) -> Optional[Tuple[int, str, str, str]]:
+        score = sum(5 for kw in keywords if kw in filename)
+        score += sum(2 for kw in keywords if kw in rel_p.lower())
+        try:
+            with open(full_p, 'r', encoding='utf-8', errors='ignore') as f:
+                sample_text = f.read(1500)
+        except Exception:
+            return None
+
+        sample_lower = sample_text.lower()
+        score += sum(1 for kw in keywords if kw in sample_lower)
+        if score > 0:
+            return (score, full_p, rel_p, sample_text)
+        return None
+
+    @classmethod
+    def _score_document_candidates(cls, candidates: List[Tuple[str, str, str]], keywords: set) -> list:
+        scored = []
+        for full_p, rel_p, filename in candidates:
+            res = cls._score_single_candidate(full_p, rel_p, filename, keywords)
+            if res:
+                scored.append(res)
+        return scored
+
+    def _collect_related_workspace_docs(
+        self,
+        folder_path: str,
+        active_doc_path: str,
+        prompt: str,
+        max_files: int = 3,
+        max_chars: int = 8000
+    ) -> List[Tuple[str, str]]:
+        """
+        Discovers and ranks candidate markdown files in folder_path for cross-document context.
+        Returns a list of (rel_path, content_snippet).
+        """
+        if not folder_path or not os.path.isdir(folder_path):
+            return []
+
+        real_folder = os.path.realpath(folder_path)
+        real_active = os.path.realpath(active_doc_path) if active_doc_path else ""
+
+        words = set(re.findall(r'[a-zA-Z0-9_\-]{3,}', prompt.lower()))
+        stopwords = {
+            "the", "and", "for", "with", "that", "this", "from", "what", "how", "why",
+            "when", "where", "can", "you", "does", "doc", "document", "yang", "dan",
+            "di", "ke", "dari", "ini", "itu", "untuk", "pada", "adalah", "apakah",
+            "bagaimana", "mengapa", "bisa", "tolong", "buatkan", "jelaskan", "sebutkan"
+        }
+        keywords = {w for w in words if w not in stopwords}
+
+        candidates = self._find_markdown_candidates(real_folder, real_active)
+        if not candidates:
+            return []
+
+        scored = self._score_document_candidates(candidates, keywords)
+        scored.sort(key=lambda x: x[0], reverse=True)
+        top_matches = scored[:max_files]
+
+        if not top_matches:
+            return []
+
+        per_file_budget = max(1000, max_chars // len(top_matches))
+        results = []
+        for _, full_p, rel_p, _ in top_matches:
+            try:
+                with open(full_p, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read(per_file_budget + 500)
+                    if len(content) > per_file_budget:
+                        content = content[:per_file_budget] + "\n[... truncated ...]"
+                    results.append((rel_p, content))
+            except Exception:
+                continue
+
+        return results
+
+    def _build_doc_query_payload(
+        self, query_type: str, prompt: str, doc_content: str, doc_path: str, folder_path: str
+    ) -> Tuple[str, str]:
+        if query_type == "summary":
+            budgeted_doc = self._prepare_doc_for_summary(doc_content, DOC_MAX_SUMMARY_CHARS)
+            system_instruction = (
+                "You are VyloServe Document Copilot. Provide a clear, well-structured Markdown summary "
+                "of the provided document content. Include:\n"
+                "- Executive Summary (2-3 sentences overview)\n"
+                "- Key Points & Takeaways (bullet points)\n"
+                "- Technical Requirements / Action Items (if any)\n"
+                "Rely strictly on the document text provided. Do not hallucinate."
+            )
+            final_prompt = f"Please summarize the following document:\n\n```markdown\n{budgeted_doc}\n```"
+            return system_instruction, final_prompt
+
+        active_filename = os.path.basename(doc_path) if doc_path else "Current Document"
+        related_docs = self._collect_related_workspace_docs(folder_path, doc_path, prompt) if folder_path else []
+
+        if len(doc_content) > DOC_MAX_CONTENT_CHARS:
+            budgeted_doc = (
+                doc_content[:DOC_MAX_CONTENT_CHARS] +
+                "\n\n[... Note: Document content truncated to fit AI context budget ...]"
+            )
+        else:
+            budgeted_doc = doc_content
+
+        if related_docs:
+            system_instruction = (
+                "You are VyloServe Document Copilot. Answer the user's question accurately, concisely, "
+                "and helpfully based on the active document and any relevant related workspace documents provided. "
+                "If facts or details from other documents are used, mention their filenames clearly. "
+                "At the very end of your response, on a new line, write: 'References: [filename1.md, filename2.md]' "
+                "listing only the filenames (or relative paths) from which facts or answers were drawn. "
+                "If only the active document was used, you do not need to output a References line."
+            )
+            related_sections = [
+                f"### Related Document: {rel_p}\n```markdown\n{r_content}\n```"
+                for rel_p, r_content in related_docs
+            ]
+            related_block = "\n\n".join(related_sections)
+            final_prompt = (
+                f"Active Document ({active_filename}):\n```markdown\n{budgeted_doc}\n```\n\n"
+                f"Other Documents in Workspace:\n{related_block}\n\n"
+                f"Question: {prompt}"
+            )
+        else:
+            system_instruction = (
+                "You are VyloServe Document Copilot. Answer the user's question accurately, concisely, "
+                "and helpfully based strictly on the provided document content. "
+                "If the answer is not mentioned in the document, state clearly that it is not covered."
+            )
+            final_prompt = f"Document Content:\n```markdown\n{budgeted_doc}\n```\n\nQuestion: {prompt}"
+
+        return system_instruction, final_prompt
+
+    def _execute_doc_stream(
+        self,
+        provider: str,
+        model: str,
+        api_key: str,
+        base_url: str,
+        temperature: float,
+        final_prompt: str,
+        system_instruction: str,
+        message_id: str,
+        full_reply_chunks: list,
+        usage_collector: dict,
+        rate_limits_collector: dict
+    ):
+        if provider == "gemini":
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={api_key}"
+            payload = self._build_gemini_payload(final_prompt, "", [], temperature, system_instruction=system_instruction)
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode('utf-8'),
+                headers={"Content-Type": CONTENT_TYPE_JSON, "User-Agent": AI_USER_AGENT},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=DOC_STREAM_TIMEOUT) as resp:
+                self._consume_gemini_stream(resp, message_id, full_reply_chunks, usage_collector, channel="doc")
+        else:
+            endpoint = self._resolve_openai_endpoint(provider, base_url)
+            payload = self._build_openai_payload(final_prompt, "", [], model, temperature, system_instruction=system_instruction)
+            headers = self._build_openai_headers(provider, api_key)
+            req = urllib.request.Request(
+                endpoint,
+                data=json.dumps(payload).encode('utf-8'),
+                headers=headers,
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=DOC_STREAM_TIMEOUT) as resp:
+                if hasattr(resp, "headers"):
+                    for key, val in resp.headers.items():
+                        k_lower = key.lower()
+                        if "ratelimit" in k_lower or "rate-limit" in k_lower:
+                            rate_limits_collector[k_lower] = val
+                self._consume_openai_stream(resp, message_id, full_reply_chunks, usage_collector, channel="doc")
+
+    def _handle_doc_stream_exception(self, exc: Exception, message_id: str):
+        if isinstance(exc, (socket.timeout, TimeoutError)):
+            err_msg = MSG_AI_TIMEOUT
+        elif isinstance(exc, urllib.error.HTTPError):
+            err_msg = self._extract_http_error_detail(exc)
+        elif isinstance(exc, urllib.error.URLError):
+            err_str = str(exc).lower()
+            if "timed out" in err_str or isinstance(getattr(exc, 'reason', None), (socket.timeout, TimeoutError)):
+                err_msg = MSG_AI_TIMEOUT
+            else:
+                err_msg = str(exc)
+        else:
+            err_msg = str(exc)
+
+        if hasattr(self.api, 'emit_doc_ai_chunk'):
+            self.api.emit_doc_ai_chunk(chunk="", is_done=True, error=err_msg, message_id=message_id)
+
+    def _doc_stream_worker(
+        self,
+        message_id: str,
+        prompt: str,
+        doc_content: str,
+        query_type: str,
+        provider: str,
+        model: str,
+        api_key: str,
+        base_url: str,
+        temperature: float,
+        doc_path: str = "",
+        folder_path: str = ""
+    ):
+        full_reply_chunks = []
+        system_instruction, final_prompt = self._build_doc_query_payload(
+            query_type, prompt, doc_content, doc_path, folder_path
+        )
+
+        usage_collector: Dict[str, int] = {}
+        rate_limits_collector: Dict[str, Any] = {}
+
+        try:
+            self._execute_doc_stream(
+                provider, model, api_key, base_url, temperature,
+                final_prompt, system_instruction, message_id,
+                full_reply_chunks, usage_collector, rate_limits_collector
+            )
+
+            prompt_tokens = usage_collector.get("prompt_tokens", 0)
+            completion_tokens = usage_collector.get("completion_tokens", 0)
+            if prompt_tokens == 0 or completion_tokens == 0:
+                prompt_tokens = max(1, len(final_prompt) // 4)
+                completion_tokens = max(1, len("".join(full_reply_chunks)) // 4)
+            self.record_usage(provider, prompt_tokens, completion_tokens, rate_limits_collector)
+            if hasattr(self.api, 'emit_doc_ai_chunk'):
+                self.api.emit_doc_ai_chunk(chunk="", is_done=True, error="", message_id=message_id)
+        except Exception as e:
+            self._handle_doc_stream_exception(e, message_id)

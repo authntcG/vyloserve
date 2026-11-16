@@ -8,6 +8,7 @@
 **A one-click local web server manager for Windows.**
 
 [![Latest Release](https://img.shields.io/github/v/release/authntcG/vyloserve?label=latest%20release&style=flat-square)](https://github.com/authntcG/vyloserve/releases/latest)
+[![Version](https://img.shields.io/badge/version-v0.0.8--alpha-orange?style=flat-square)](RELEASE_NOTES.md)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows&style=flat-square)
 
@@ -25,7 +26,7 @@ It's built for web developers who want the convenience of tools like XAMPP or La
 
 Get the latest build from the [Releases page](https://github.com/authntcG/vyloserve/releases/latest). Each release ships two options:
 
-- **`VyloServe_Setup_vX.X.X.exe`** — standard installer, adds VyloServe to your Start Menu.
+- **`VyloServe_Setup_v0.0.8-alpha.exe`** — standard installer, adds VyloServe to your Start Menu.
 - **`vyloserve_portable.exe`** — no installation, just run it from anywhere.
 
 **Requirements:** Windows 10 (version 1809 or later) or Windows 11, plus the [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/). WebView2 is pre-installed on most up-to-date Windows 10/11 systems — VyloServe will prompt you to install it if it's missing.
@@ -46,6 +47,7 @@ Get the latest build from the [Releases page](https://github.com/authntcG/vylose
 ### Database (MariaDB, PostgreSQL, & Redis)
 - Install MariaDB (MySQL-compatible), PostgreSQL, or Redis (In-Memory Key-Value Store & Cache), independently or side by side.
 - Built-in Database Schema Manager: inspect, create, drop, and manage schemas across active database engines without third-party GUI clients.
+- Redis Live Stats & Monitoring: real-time RAM usage tracking (`used_memory` vs `maxmemory`), connected client count, keyspace hit/miss ratios, uptime, and an interactive ping latency tester.
 - Runs silently in the background without Windows Services, auto-tuning memory settings and avoiding port conflicts with host databases.
 - Optimized release fetching with local caching and atomic auto-rollback on install or update failure.
 - Cancellable operations with real-time progress tracking across all installation wizards.
@@ -61,6 +63,9 @@ Get the latest build from the [Releases page](https://github.com/authntcG/vylose
 - Automated Apache Virtual Hosts (`.local` domains) with reverse proxy port allocation and WebSocket proxy support.
 - Automated Windows `hosts` file synchronization (with UAC elevation prompt).
 - Integrated Dev Server process manager with live background log tailing.
+- Application Logs Viewer (`ProjectAppLogsModal`): framework runtime log tailing, severity filtering, and export.
+- Integrated `.env` Editor (`ProjectEnvModal`): password/secret key masking, line-by-line visual diffing, and automated `.env.bak` backups.
+- Custom SSL Hosts Customizer (`ProjectSslHostsModal`): configure additional domain aliases and custom SANs.
 - Interactive CLI installation modal with real-time bidirectional terminal streaming (PTY/stdin/stdout) for frameworks requiring interactive prompt answers.
 - Smart Offline Barrier: allows linking existing directories and scaffolding offline-friendly raw templates when no internet connection is available.
 
@@ -71,11 +76,13 @@ Get the latest build from the [Releases page](https://github.com/authntcG/vylose
 - Saved Sessions & Workspaces: save custom tab configurations and launch multi-tab tab groups in a single click.
 - Real-time current working directory (CWD) detection and terminal appearance customization (font family, size, cursor style, blinking, scrollback).
 
-### Git & SSL
+### Git, SSL & GitLab Integration
 - Portable Git installation with aligned in-card native OS warning, adaptive status badges (`Native OS`, `PATH Active`, `Isolated`), toggle lockout, and global git configuration (`user.name`, `user.email`).
+- GitLab CLI Integration (`GitLabManager`): manage official portable `glab.exe` binararies, connect multiple accounts (GitLab.com and Self-Hosted instances) via PAT/SSH, non-blocking VPN probing circuit breaker (`requires_vpn`), inspect issues and Merge Requests, and draft comments using AI Action Cards.
 - Local trusted Root CA generator (`VyloServeRootCA`) with automatic Windows Trust Store registration for valid HTTPS `.local` domains.
 
-### Customization
+### Customization & Self-Healing Platform
+- **Native Splash Bootstrapper & 3-Tier Self-Healing**: DBeaver/JetBrains-style instant frameless splash startup with automatic orphan process cleanup, port conflict diagnostics, and configuration file integrity verification.
 - 15 built-in color themes (VyloServe Dark/Light, Darcula, Solarized Dark/Light, High Contrast Dark/Light, Monokai, Dracula, Nord, Windows XP Luna Light, Windows XP Zune Dark, Catppuccin Mocha, Tokyo Night, Gruvbox Dark) with native Windows DWM titlebar color palette synchronization and quick theme search.
 - English and Indonesian language support.
 - Notification history panel (bell icon) with desktop notifications (`win11toast`) active when window is minimized or hidden in the tray.
@@ -104,11 +111,21 @@ Get the latest build from the [Releases page](https://github.com/authntcG/vylose
 - **Dual Interface Modes**: Switch seamlessly between a dedicated full-screen AI workspace and a global floating chat bubble accessible across all screens.
 - **Empirical Tier Probing**: Dynamic model discovery that tests API keys across rate-limited free tiers and automatically selects the highest available tier without hardcoded model constraints.
 
-### Developer Tools
+### Developer Tools & Network Diagnostics
+- **Mail Sandbox**: In-process catch-all SMTP server on port 1025. Inspect incoming emails from local applications with an isolated HTML sandbox, plain text, MIME headers, attachments, and one-click `.eml` export.
+- **Webhook Inspector**: In-process HTTP webhook daemon on port 9000. Capture incoming payment gateway and Git webhooks, inspect JSON payloads, headers, query parameters, customize HTTP status responses, and generate instant cURL replay commands.
+- **Port Manager**: Operating-system level TCP port scanner powered by `psutil`. Inspect listening ports, bound IPs, PIDs, and process names, with safe process termination guarded against core Windows processes.
 - Markdown documentation viewer with OS directory picker, recursive folder tree, custom markdown rendering, outline/TOC jump, and local media preview.
 - Base64 encode/decode for text and drag-and-drop files, featuring URL-safe mode, line wrapping (64/76/none), and direct binary decoding/download.
 - URL encode/decode with a full URI structure breakdown.
 - QR code generator supporting WiFi networks, vCard contacts, Email, SMS, and URL/plain text, complete with styling customization, logo embed, error correction, and SVG/PNG export.
+
+### Developer Utilities Hub (100% Client-Side)
+- **JSON Studio**: Collapsible tree viewer, syntax validator, minifier, 2/4-space formatter, JSONPath query evaluation, and preset templates.
+- **JWT Debugger**: Three-part color-coded decoder (Header, Payload, Signature), real-time expiration countdown, and local HMAC-SHA256 signature verification.
+- **Crypto Generator & Hasher**: Instant MD5, SHA-1, SHA-256, SHA-512 hashing, HMAC calculation, UUID v4 generator, and cryptographically secure random token & password generator.
+- **Regex & Epoch Studio**: Interactive regex tester with live match highlighting and standard flags (`g`, `i`, `m`, `s`, `u`), alongside a bidirectional Unix epoch converter (seconds/milliseconds to human-readable date and vice versa).
+- **Data Converter**: Lossless two-way format transformation between JSON, YAML, XML, and CSV.
 
 ## Documentation
 

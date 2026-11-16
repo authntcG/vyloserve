@@ -104,6 +104,18 @@ def test_build_session_env(terminal_manager, tmp_path):
     assert php_ver not in env_os_php["PATH"]
     assert os.path.join(terminal_manager.bin_dir, "node") in env_os_php["PATH"]
 
+def test_build_session_env_frozen_mode(terminal_manager, tmp_path):
+    mock_meipass = str(tmp_path / "meipass")
+    mock_winpty = os.path.join(mock_meipass, "winpty")
+    os.makedirs(mock_winpty, exist_ok=True)
+
+    with patch.object(sys, "frozen", True, create=True), \
+         patch.object(sys, "_MEIPASS", mock_meipass, create=True), \
+         patch("sys.platform", "win32"):
+        env = terminal_manager._build_session_env()
+        assert mock_winpty in env["PATH"]
+        assert mock_meipass in env["PATH"]
+
 def test_get_runtimes_matrix(terminal_manager, tmp_path):
     terminal_manager.bin_dir = str(tmp_path / "bin")
     php_ver = os.path.join(terminal_manager.bin_dir, "php", "php-8.3")
@@ -155,7 +167,11 @@ def test_create_session_success_linux(terminal_manager, tmp_path):
     mock_pty.read.side_effect = ["hello linux\n", EOFError()]
     mock_pty.exitstatus = 0
 
-    with patch("sys.platform", "linux"), patch("ptyprocess.PtyProcessUnicode.spawn", return_value=mock_pty) as mock_spawn:
+    mock_ptyprocess_mod = MagicMock()
+    mock_spawn = MagicMock(return_value=mock_pty)
+    mock_ptyprocess_mod.PtyProcessUnicode.spawn = mock_spawn
+
+    with patch("sys.platform", "linux"), patch.dict("sys.modules", {"ptyprocess": mock_ptyprocess_mod}):
         res = terminal_manager.create_session(
             shell_id="bash",
             cwd=str(tmp_path),
@@ -370,4 +386,45 @@ def test_build_session_env_with_vyloserve_stack(terminal_manager, tmp_path):
         assert "PATH" in env
         assert str(node_dir) in env["PATH"]
         assert str(py_dir / "bin") in env["PATH"]
+
+
+def test_detect_git_and_gitlab_entry_isolated(terminal_manager, tmp_path):
+    terminal_manager.bin_dir = str(tmp_path / "bin")
+    git_cmd_dir = tmp_path / "bin" / "git" / "cmd"
+    git_cmd_dir.mkdir(parents=True)
+    git_exe = git_cmd_dir / ("git.exe" if sys.platform == "win32" else "git")
+    git_exe.write_text("")
+
+    glab_dir = tmp_path / "bin" / "glab"
+    glab_dir.mkdir(parents=True)
+    glab_exe = glab_dir / ("glab.exe" if sys.platform == "win32" else "glab")
+    glab_exe.write_text("")
+
+    with patch("core.services.terminal.find_external_executable", return_value={"exists": False, "path": "", "version": ""}):
+        matrix = terminal_manager.get_runtimes_matrix()
+        assert "git" in matrix
+        assert "gitlab" in matrix
+        assert matrix["git"]["has_vyloserve"] is True
+        assert matrix["git"]["default_mode"] == str(git_cmd_dir)
+        assert matrix["gitlab"]["has_vyloserve"] is True
+        assert matrix["gitlab"]["default_mode"] == str(glab_dir)
+
+
+def test_build_session_env_with_isolated_git_and_gitlab(terminal_manager, tmp_path):
+    git_base = tmp_path / "bin" / "git"
+    (git_base / "cmd").mkdir(parents=True)
+    (git_base / "usr" / "bin").mkdir(parents=True)
+    glab_dir = tmp_path / "bin" / "glab"
+    glab_dir.mkdir(parents=True)
+
+    profile = {
+        "git": str(git_base / "cmd"),
+        "gitlab": str(glab_dir),
+    }
+
+    env = terminal_manager._build_session_env(env_profile=profile)
+    assert "PATH" in env
+    assert str(git_base / "cmd") in env["PATH"]
+    assert str(git_base / "usr" / "bin") in env["PATH"]
+    assert str(glab_dir) in env["PATH"]
 

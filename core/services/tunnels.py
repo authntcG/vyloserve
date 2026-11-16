@@ -345,32 +345,41 @@ class TunnelsManager:
         if target_dir and os.path.exists(target_dir):
             shutil.rmtree(target_dir, ignore_errors=True)
 
+    @staticmethod
+    def _try_rename_exe_with_retries(src_exe: str, target_exe: str) -> bool:
+        for _ in range(10):
+            try:
+                if os.path.exists(target_exe):
+                    os.remove(target_exe)
+                os.rename(src_exe, target_exe)
+                if sys.platform != "win32":
+                    try:
+                        os.chmod(target_exe, 0o700)
+                    except OSError:
+                        pass
+                return True
+            except Exception:
+                time.sleep(0.5)
+        return False
+
     def _normalize_zrok_exe_name(self, target_dir: str) -> None:
         """Rilis zrok terbaru kadang menamai binari 'zrok2.exe' dsb; samakan jadi zrok.exe atau zrok."""
         target_exe = os.path.join(target_dir, ZROK_EXE_NAME)
         if os.path.exists(target_exe):
             if sys.platform != "win32":
-                try: os.chmod(target_exe, 0o755)
-                except OSError: pass
+                try:
+                    os.chmod(target_exe, 0o700)
+                except OSError:
+                    pass
             return
         import glob
         pattern = os.path.join(target_dir, "zrok*.exe" if sys.platform == "win32" else "zrok*")
         exe_files = [f for f in glob.glob(pattern) if not os.path.isdir(f) and not f.endswith(('.tar.gz', '.zip'))]
         if not exe_files:
             return
-        for _ in range(10):
-            try:
-                # if dest exists for some reason, remove it
-                if os.path.exists(target_exe):
-                    os.remove(target_exe)
-                os.rename(exe_files[0], target_exe)
-                if sys.platform != "win32":
-                    try: os.chmod(target_exe, 0o755)
-                    except OSError: pass
-                return
-            except Exception:
-                time.sleep(0.5)
-        self._log(MSG_UNEXPECTED_ERROR, "error", {"e": f"Failed to rename after retries: {exe_files[0]} to {target_exe}"})
+
+        if not self._try_rename_exe_with_retries(exe_files[0], target_exe):
+            self._log(MSG_UNEXPECTED_ERROR, "error", {"e": f"Failed to rename after retries: {exe_files[0]} to {target_exe}"})
 
     def install_zrok(self, version: str = "latest") -> dict:
         token = InstallationManager.get_token("tunnels")
@@ -783,7 +792,7 @@ class TunnelsManager:
 
             if sys.platform != 'win32':
                 try:
-                    os.chmod(target_exe, 0o755)
+                    os.chmod(target_exe, 0o700)
                 except OSError:
                     pass
 

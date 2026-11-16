@@ -1,5 +1,5 @@
 ﻿import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Sidebar from '../../src/components/Sidebar';
 import { ToastProvider } from '../../src/context/ToastContext';
@@ -171,7 +171,7 @@ describe('Sidebar', () => {
         const user = userEvent.setup();
         renderSidebar();
 
-        await user.type(screen.getByPlaceholderText('sidebar.search'), 'data');
+        await user.type(screen.getByPlaceholderText('sidebar.search'), 'apache');
 
         expect(screen.queryByText('sidebar.utilities')).not.toBeInTheDocument();
         expect(screen.queryByText('QR Generator')).not.toBeInTheDocument();
@@ -244,9 +244,59 @@ describe('Sidebar', () => {
         expect(screen.getByText('settings.theme')).toBeInTheDocument();
     });
 
-    
+    it('closes the settings dropdown when Escape is pressed or when clicking outside', async () => {
+        mockPywebviewApi();
+        const user = userEvent.setup();
+        renderSidebar();
 
-    
+        await user.click(screen.getByText('settings'));
+        expect(screen.getByText('settings.settings')).toBeInTheDocument();
+
+        // Escape closes
+        fireEvent.keyDown(document, { key: 'Escape' });
+        expect(screen.queryByText('settings.settings')).not.toBeInTheDocument();
+
+        // Reopen and click outside on body
+        await user.click(screen.getByText('settings'));
+        expect(screen.getByText('settings.settings')).toBeInTheDocument();
+
+        fireEvent.mouseDown(document.body);
+        expect(screen.queryByText('settings.settings')).not.toBeInTheDocument();
+    });
+
+    it('ensures SidebarFooter does not have overflow-hidden so the settings popover is never clipped', () => {
+        mockPywebviewApi();
+        const { container } = renderSidebar({ isDesktopCollapsed: false });
+
+        const footer = container.querySelector('div.border-t.mt-auto');
+        expect(footer).not.toBeNull();
+        expect(footer).not.toHaveClass('overflow-hidden');
+    });
+
+    it('auto-closes settings dropdown when transitioning to desktop collapsed mode', async () => {
+        mockPywebviewApi();
+        const user = userEvent.setup();
+        const { rerender } = renderSidebar({ isDesktopCollapsed: false });
+
+        await user.click(screen.getByText('settings'));
+        expect(screen.getByText('settings.settings')).toBeInTheDocument();
+
+        // Rerender as collapsed
+        rerender(
+            <ToastProvider>
+                <Sidebar
+                    isMobileOpen={false}
+                    isDesktopCollapsed={true}
+                    onCloseMobile={noop}
+                    onToggleDesktop={noop}
+                    activeMenu="dashboard"
+                    onSelectMenu={noop}
+                />
+            </ToastProvider>
+        );
+
+        expect(screen.queryByText('settings.settings')).not.toBeInTheDocument();
+    });
 
     it('opens the quit-confirmation modal when "quit" is clicked', async () => {
         mockPywebviewApi();
@@ -339,5 +389,134 @@ describe('Sidebar', () => {
         const systemLoadIcon = screen.getByText('memory');
 
         expect(bellButton.compareDocumentPosition(systemLoadIcon) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('renders centered squircle navigation buttons with w-11 h-11 mx-auto in collapsed mode', async () => {
+        mockPywebviewApi();
+        renderSidebar({ isDesktopCollapsed: true });
+
+        // Dashboard (Overview) button
+        const dashboardBtn = screen.getByRole('button', { name: 'Dashboard' });
+        expect(dashboardBtn).toHaveClass('w-11', 'h-11', 'shrink-0', 'mx-auto', 'justify-center', 'rounded-xl');
+        const dashboardIcon = dashboardBtn.querySelector('.material-symbols-outlined');
+        expect(dashboardIcon).toHaveClass('text-[24px]', 'shrink-0');
+
+        // Service button (Apache)
+        const apacheBtn = await screen.findByRole('button', { name: /Apache/ });
+        expect(apacheBtn).toHaveClass('w-11', 'h-11', 'shrink-0', 'mx-auto', 'justify-center', 'rounded-xl');
+        const apacheIcon = apacheBtn.querySelector('.material-symbols-outlined');
+        expect(apacheIcon).toHaveClass('text-[24px]', 'shrink-0');
+
+        // Tool button (Git)
+        const gitBtn = screen.getByRole('button', { name: 'Git' });
+        expect(gitBtn).toHaveClass('w-11', 'h-11', 'shrink-0', 'mx-auto', 'justify-center', 'rounded-xl');
+        const gitIcon = gitBtn.querySelector('.material-symbols-outlined');
+        expect(gitIcon).toHaveClass('text-[24px]', 'shrink-0');
+    });
+
+    it('renders the navigation container with overflow-y-auto, min-h-0 and custom-scrollbar in collapsed mode', () => {
+        mockPywebviewApi();
+        const { container } = renderSidebar({ isDesktopCollapsed: true });
+
+        const navContainer = container.querySelector('.custom-scrollbar');
+        expect(navContainer).not.toBeNull();
+        expect(navContainer).toHaveClass('min-h-0', 'overflow-y-auto', 'overflow-x-hidden', 'flex-1');
+        expect(navContainer).not.toHaveClass('overflow-visible');
+    });
+
+    it('renders an ambient running indicator dot on active services in collapsed mode', async () => {
+        mockPywebviewApi({
+            get_all_services_status: vi.fn().mockResolvedValue({
+                apache: true,
+                php: false,
+                database: false,
+                cpu_load: 30,
+            }),
+        });
+        const { container } = renderSidebar({ isDesktopCollapsed: true });
+
+        // Apache is running -> should have emerald dot
+        await screen.findByRole('button', { name: /Apache/ });
+        const runningDots = container.querySelectorAll('.bg-emerald-500.rounded-full');
+        expect(runningDots.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('renders section separators in collapsed mode with role separator', () => {
+        mockPywebviewApi();
+        renderSidebar({ isDesktopCollapsed: true });
+
+        const separators = screen.getAllByRole('separator');
+        expect(separators.length).toBeGreaterThanOrEqual(2);
+        separators.forEach(sep => {
+            expect(sep).toHaveClass('w-8', 'h-px', 'mx-auto');
+        });
+    });
+
+    it('keeps footer pinned at bottom with shrink-0 and mt-auto in collapsed mode', () => {
+        mockPywebviewApi();
+        const { container } = renderSidebar({ isDesktopCollapsed: true });
+
+        const footer = container.querySelector('div.border-t.mt-auto');
+        expect(footer).not.toBeNull();
+        expect(footer).toHaveClass('shrink-0', 'mt-auto');
+    });
+
+    it('applies overflow-hidden on the root nav container to guarantee zero-bleed during width interpolation', () => {
+        mockPywebviewApi();
+        const { container } = renderSidebar({ isDesktopCollapsed: false });
+
+        const nav = container.querySelector('nav');
+        expect(nav).not.toBeNull();
+        expect(nav).toHaveClass('overflow-hidden', 'transition-[width,transform]');
+    });
+
+    it('displays the macOS-inspired expanding hover pill when hovering navigation items in collapsed mode', async () => {
+        mockPywebviewApi({
+            get_all_services_status: vi.fn().mockResolvedValue({
+                apache: true,
+                php: false,
+                database: false,
+                cpu_load: 25,
+            }),
+        });
+        const { container } = renderSidebar({ isDesktopCollapsed: true });
+
+        // Tool item (Git)
+        const gitBtn = screen.getByRole('button', { name: 'Git' });
+        expect(screen.queryByRole('tooltip')).toBeNull();
+
+        fireEvent.mouseEnter(gitBtn);
+        const tooltip = screen.getByRole('tooltip');
+        expect(tooltip).toBeInTheDocument();
+        expect(tooltip).toHaveClass('animate-vylo-pill-expand');
+        expect(tooltip).toHaveTextContent('Git');
+
+        // Mouse leave dismisses tooltip
+        fireEvent.mouseLeave(gitBtn);
+        expect(screen.queryByRole('tooltip')).toBeNull();
+
+        // Service item (Apache, running)
+        const apacheBtn = await screen.findByRole('button', { name: /Apache/ });
+        fireEvent.mouseEnter(apacheBtn);
+        const serviceTooltip = screen.getByRole('tooltip');
+        expect(serviceTooltip).toHaveTextContent('Apache');
+        expect(serviceTooltip).toHaveTextContent('Running');
+
+        // Scrolling dismisses the tooltip
+        const scrollContainer = container.querySelector('.custom-scrollbar');
+        expect(scrollContainer).not.toBeNull();
+        if (scrollContainer) {
+            fireEvent.scroll(scrollContainer);
+        }
+        expect(screen.queryByRole('tooltip')).toBeNull();
+    });
+
+    it('does not display expanding hover pill in expanded mode when items are hovered', () => {
+        mockPywebviewApi();
+        renderSidebar({ isDesktopCollapsed: false });
+
+        const dashboardBtn = screen.getByRole('button', { name: /Dashboard/ });
+        fireEvent.mouseEnter(dashboardBtn);
+        expect(screen.queryByRole('tooltip')).toBeNull();
     });
 });

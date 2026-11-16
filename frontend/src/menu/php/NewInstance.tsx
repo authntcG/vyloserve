@@ -9,6 +9,7 @@ import InfoBox from '../../components/InfoBox';
 import OfflineBanner from '../../components/OfflineBanner';
 import { useNetworkStatus, isOfflineResponse } from '../../context/NetworkContext';
 import { clampPercent } from '../../utils/progress';
+import { copyToClipboard } from '../../utils/clipboard';
 
 interface PhpVersion {
     version: string;
@@ -139,22 +140,23 @@ export default function NewPhpInstance({
     const linuxCommand = 'sudo apt update && sudo apt install -y php php-cli php-fpm php-common';
 
     const handleCopyCommand = async () => {
-        try {
-            if (navigator.clipboard && window.isSecureContext) {
-                await navigator.clipboard.writeText(linuxCommand);
-            } else {
-                const textArea = document.createElement('textarea');
-                textArea.value = linuxCommand;
-                document.body.appendChild(textArea);
-                textArea.select();
-                document.execCommand('copy');
-                document.body.removeChild(textArea);
-            }
+        const success = await copyToClipboard(linuxCommand);
+        if (success) {
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
-        } catch {
-            // Ignore clipboard errors
         }
+    };
+
+    const getPhpVersionLabel = (v: PhpVersion, index: number): string => {
+        if (v.version === 'system') return t('php.linux_system_package');
+        const latestSuffix = index === 0 ? t('php.latest_release') : '';
+        return `PHP ${v.version} ${latestSuffix}`.trim();
+    };
+
+    const getPhpPlaceholder = (): string => {
+        if (osInfo.name === 'Linux') return t('php.linux_system_package');
+        if (isOfflineOrFetchError) return t('common.offline_versions_unavailable');
+        return t('php.all_versions_installed');
     };
 
     const handleRefresh = async () => {
@@ -199,19 +201,11 @@ export default function NewPhpInstance({
                     <Select
                         options={availableVersions.map((v, index) => ({
                             value: v.version,
-                            label: v.version === 'system'
-                                ? t('php.linux_system_package')
-                                : `PHP ${v.version} ${index === 0 ? t('php.latest_release') : ''}`.trim(),
+                            label: getPhpVersionLabel(v, index),
                         }))}
                         value={version || null}
                         onChange={handleVersionChange}
-                        placeholder={
-                            osInfo.name === 'Linux'
-                                ? t('php.linux_system_package')
-                                : isOfflineOrFetchError
-                                ? t('common.offline_versions_unavailable')
-                                : t('php.all_versions_installed')
-                        }
+                        placeholder={getPhpPlaceholder()}
                         disabled={isInstalling || availableVersions.length === 0}
                         loading={isFetchingVersions}
                         loadingText={t('php.retrieving_versions')}

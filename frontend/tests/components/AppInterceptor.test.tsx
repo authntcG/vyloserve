@@ -183,4 +183,30 @@ describe('GlobalAppInterceptor', () => {
         expect(await screen.findByText('components.interceptor.copy_selection_success')).toBeInTheDocument();
         expect(screen.queryByText('components.interceptor.copy_selection_btn')).not.toBeInTheDocument();
     });
+
+    it('does not show copy menu when right-clicking inside an .xterm element or [data-custom-context-menu]', () => {
+        vi.spyOn(window, 'getSelection').mockReturnValue({
+            toString: () => 'echo "hello terminal"'
+        } as unknown as Selection);
+
+        renderWithToast(
+            <>
+                <GlobalAppInterceptor />
+                <div className="xterm" data-testid="xterm-elem">
+                    <span data-testid="xterm-inner">terminal content</span>
+                </div>
+                <div data-custom-context-menu="true" data-testid="custom-ctx-elem">
+                    <span data-testid="custom-ctx-inner">custom menu area</span>
+                </div>
+            </>
+        );
+
+        // Right-click inside xterm
+        fireEvent.contextMenu(screen.getByTestId('xterm-inner'), { clientX: 200, clientY: 200 });
+        expect(screen.queryByText('components.interceptor.copy_selection_btn')).not.toBeInTheDocument();
+
+        // Right-click inside custom-context-menu container
+        fireEvent.contextMenu(screen.getByTestId('custom-ctx-inner'), { clientX: 300, clientY: 300 });
+        expect(screen.queryByText('components.interceptor.copy_selection_btn')).not.toBeInTheDocument();
+    });
 });

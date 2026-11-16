@@ -57,6 +57,14 @@ const THEME_OPTIONS = [
 const ENGINE_ICONS: Record<string, string> = {
     php: "terminal",
     node: "javascript",
+    python: "code",
+    java: "coffee",
+    go: "speed",
+    composer: "inventory_2",
+    git: "merge",
+    gitlab: "hub",
+    mysql: "database",
+    postgres: "database",
 };
 
 const CURSOR_OPTIONS = [
@@ -361,7 +369,8 @@ export default function TerminalConfigModal({
                             <button
                                 type="button"
                                 onClick={() => handleSetAllEnv("vyloserve")}
-                                className="px-2.5 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary/20 text-xs font-medium transition-colors flex items-center gap-1 cursor-pointer"
+                                disabled={isLoadingMatrix || Object.keys(matrix).length === 0}
+                                className="px-2.5 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary/20 text-xs font-medium transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 <span aria-hidden="true" className="material-symbols-outlined text-[14px]">bolt</span>
                                 <span>VyloServe Stack</span>
@@ -369,7 +378,8 @@ export default function TerminalConfigModal({
                             <button
                                 type="button"
                                 onClick={() => handleSetAllEnv("os")}
-                                className="px-2.5 py-1 rounded-md bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 text-xs font-medium transition-colors flex items-center gap-1 cursor-pointer"
+                                disabled={isLoadingMatrix || Object.keys(matrix).length === 0}
+                                className="px-2.5 py-1 rounded-md bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 text-xs font-medium transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 <span aria-hidden="true" className="material-symbols-outlined text-[14px]">terminal</span>
                                 <span>OS Native Only</span>

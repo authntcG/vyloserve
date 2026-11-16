@@ -1,6 +1,11 @@
 import { useTranslation } from 'react-i18next';
 import DataTable, { type ColumnDef } from '../../components/DataTable';
 import ServiceToggleButton from '../../components/ServiceToggleButton';
+import TableActionMenu, {
+    tableActionItemClass,
+    tableActionItemDangerClass,
+    tableActionDividerClass,
+} from '../../components/TableActionMenu';
 import type { PhpInstance } from '../../context/PhpContext';
 
 export interface PhpTableProps {
@@ -35,12 +40,24 @@ export default function PhpTable({
             width: '130px',
             render: (php) => {
                 const isRunning = php.status === 'running';
-                return isRunning ? (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border shrink-0 bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 border-emerald-500/20 dark:border-emerald-500/30">
-                        <span className="w-1.5 h-1.5 rounded-full mr-1.5 bg-emerald-500" />
-                        {t('php.running', 'Running')}
-                    </span>
-                ) : (
+                const isSystem = Boolean(php.is_system);
+                if (isRunning) {
+                    return (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border shrink-0 bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 border-emerald-500/20 dark:border-emerald-500/30">
+                            <span className="w-1.5 h-1.5 rounded-full mr-1.5 bg-emerald-500" />
+                            {t('php.running', 'Running')}
+                        </span>
+                    );
+                }
+                if (isSystem) {
+                    return (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border shrink-0 bg-primary/10 text-primary dark:bg-primary/20 border-primary/20 dark:border-primary/30">
+                            <span className="w-1.5 h-1.5 rounded-full mr-1.5 bg-primary" />
+                            {t('runtimes.native_os')}
+                        </span>
+                    );
+                }
+                return (
                     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border shrink-0 bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-400 border-slate-200 dark:border-slate-700">
                         <span className="w-1.5 h-1.5 rounded-full mr-1.5 bg-slate-400" />
                         {t('php.stopped', 'Stopped')}
@@ -78,7 +95,7 @@ export default function PhpTable({
             header: t('php.th_port', 'FastCGI Port'),
             render: (php) => (
                 <span className="font-mono text-xs font-semibold text-primary">
-                    {php.port}
+                    {php.is_system ? '-' : php.port}
                 </span>
             ),
         },
@@ -103,6 +120,7 @@ export default function PhpTable({
                         type="button"
                         onClick={() => onOpenPhpDir(php.version)}
                         title={t('php.open_directory')}
+                        aria-label={t('php.open_directory')}
                         className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded transition-colors shrink-0"
                     >
                         <span className="material-symbols-outlined text-[16px]">folder_open</span>
@@ -117,6 +135,8 @@ export default function PhpTable({
             render: (php) => {
                 const isRunning = php.status === 'running';
                 const isToggling = togglingInstanceId === php.id;
+                const isSystem = Boolean(php.is_system);
+                const updateVer = updateMap[php.id];
 
                 return (
                     <div className="flex items-center justify-end gap-1.5">
@@ -132,33 +152,73 @@ export default function PhpTable({
                                 stopping: t('php.stopping'),
                             }}
                         />
-                        <button
-                            type="button"
-                            onClick={() => onOpenSettings(php)}
-                            title={t('php.config')}
-                            aria-label={t('php.config')}
-                            className="p-2 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors flex items-center justify-center"
-                        >
-                            <span className="material-symbols-outlined text-[18px]">tune</span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => onOpenPhpIni(php.version)}
-                            title={t('php.open_php_ini')}
-                            aria-label={t('php.open_php_ini')}
-                            className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors flex items-center justify-center"
-                        >
-                            <span className="material-symbols-outlined text-[18px]">description</span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => onUninstallPhp(php)}
-                            title={t('php.uninstall')}
-                            aria-label={t('php.uninstall')}
-                            className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors flex items-center justify-center"
-                        >
-                            <span className="material-symbols-outlined text-[18px]">delete</span>
-                        </button>
+
+                        {!isSystem && (
+                            <button
+                                type="button"
+                                onClick={() => onOpenSettings(php)}
+                                title={t('php.config')}
+                                aria-label={t('php.config')}
+                                className="p-2 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors flex items-center justify-center"
+                            >
+                                <span className="material-symbols-outlined text-[18px]">tune</span>
+                            </button>
+                        )}
+
+                        <TableActionMenu estimatedHeight={isSystem ? 70 : 190}>
+                            {!isSystem ? (
+                                <>
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        onClick={() => onOpenPhpIni(php.version)}
+                                        className={tableActionItemClass}
+                                    >
+                                        <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">description</span>
+                                        <span className="truncate">{t('php.open_php_ini')}</span>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        onClick={() => onOpenPhpDir(php.version)}
+                                        className={tableActionItemClass}
+                                    >
+                                        <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">folder_open</span>
+                                        <span className="truncate">{t('php.open_directory')}</span>
+                                    </button>
+
+                                    <div className={tableActionDividerClass} />
+
+                                    {updateVer && (
+                                        <button
+                                            type="button"
+                                            role="menuitem"
+                                            onClick={() => onUpdatePhp(php, updateVer.version, updateVer.filename)}
+                                            className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-primary hover:bg-slate-100 dark:hover:bg-slate-700/70 font-medium transition-colors cursor-pointer"
+                                        >
+                                            <span className="material-symbols-outlined text-[16px] text-primary shrink-0">upgrade</span>
+                                            <span className="truncate">{t('php.update_to', { version: updateVer.version })}</span>
+                                        </button>
+                                    )}
+
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        onClick={() => onUninstallPhp(php)}
+                                        className={tableActionItemDangerClass}
+                                    >
+                                        <span className="material-symbols-outlined text-[16px] text-red-500 shrink-0">delete</span>
+                                        <span className="truncate">{t('php.uninstall')}</span>
+                                    </button>
+                                </>
+                            ) : (
+                                <div className="px-3.5 py-2 text-xs flex items-center gap-2 text-slate-500 dark:text-slate-400">
+                                    <span className="material-symbols-outlined text-[16px] text-primary shrink-0">verified</span>
+                                    <span className="truncate">{t('php.system_managed_instance')}</span>
+                                </div>
+                            )}
+                        </TableActionMenu>
                     </div>
                 );
             },

@@ -29,7 +29,7 @@ export default function SkeletonCard({
                 role="status"
                 aria-busy="true"
                 aria-live="polite"
-                className={`bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/60 rounded-xl p-5 shadow-sm flex flex-col gap-4 motion-reduce:animate-none animate-pulse ${className}`}
+                className={`bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/60 rounded-xl p-5 shadow-sm flex flex-col gap-4 ${className}`}
             >
                 <span className="sr-only">{t('common.loading')}</span>
                 <div className="flex items-center justify-between mb-2">

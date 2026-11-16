@@ -363,4 +363,60 @@ describe('QrMain', () => {
 
         expect(screen.getByText('WIFI:T:WEP;S:GuestNetwork;P:;H:false;;')).toBeInTheDocument();
     });
+
+    it('handles download error toast when save_base64_file returns error', async () => {
+        const user = userEvent.setup();
+        renderWithToast(<QrMain />);
+
+        if (!window.pywebview) window.pywebview = { api: {} } as any;
+        if (!window.pywebview.api) window.pywebview.api = {};
+        window.pywebview.api.save_base64_file = vi.fn().mockResolvedValue({
+            status: 'error',
+            message: 'backend.common.error_saving'
+        });
+
+        await user.click(screen.getByRole('button', { name: 'tools.qr.download' }));
+        expect(await screen.findByText(/backend.common.error_saving/)).toBeInTheDocument();
+    });
+
+    it('handles JPG and SVG format downloads and contact sub-tab clear actions', async () => {
+        const user = userEvent.setup();
+        renderWithToast(<QrMain />);
+
+        if (!window.pywebview) window.pywebview = { api: {} } as any;
+        if (!window.pywebview.api) window.pywebview.api = {};
+        window.pywebview.api.save_base64_file = vi.fn().mockResolvedValue({
+            status: 'success',
+            message: 'backend.common.file_saved'
+        });
+
+        // Switch to JPG download
+        await user.click(screen.getByRole('button', { name: 'PNG' }));
+        await user.click(screen.getByRole('option', { name: 'JPG' }));
+        await user.click(screen.getByRole('button', { name: 'tools.qr.download' }));
+        expect(await screen.findByText(/backend.common.file_saved/)).toBeInTheDocument();
+
+        // Switch to SVG download
+        await user.click(screen.getByRole('button', { name: 'JPG' }));
+        await user.click(screen.getByRole('option', { name: 'SVG' }));
+        await user.click(screen.getByRole('button', { name: 'tools.qr.download' }));
+        expect(window.pywebview.api.save_base64_file).toHaveBeenCalledWith(
+            expect.stringMatching(/\.svg$/),
+            expect.any(String),
+            expect.any(Array)
+        );
+
+        // Switch to Contact -> vCard clear
+        await user.click(screen.getByRole('button', { name: 'tools.qr.type_contact' }));
+        await user.type(screen.getByLabelText('tools.qr.vcard_name'), 'John Doe');
+        expect(screen.getByLabelText('tools.qr.vcard_name')).toHaveValue('John Doe');
+        await user.click(screen.getByRole('button', { name: 'tools.qr.clear' }));
+        expect(screen.getByLabelText('tools.qr.vcard_name')).toHaveValue('');
+
+        // Switch to Contact -> Email clear
+        await user.click(screen.getByRole('button', { name: 'tools.qr.contact_email' }));
+        await user.type(screen.getByLabelText('tools.qr.email_to'), 'test@vyloserve.com');
+        await user.click(screen.getByRole('button', { name: 'tools.qr.clear' }));
+        expect(screen.getByLabelText('tools.qr.email_to')).toHaveValue('');
+    });
 });

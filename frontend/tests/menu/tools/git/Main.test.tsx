@@ -348,4 +348,48 @@ describe('GitMain', () => {
             expect(screen.queryByText('tools.git.uninstall_title')).not.toBeInTheDocument();
         }, { timeout: 5000 });
     }, 10000);
+
+    it('switches to GitLab Integration tab and renders the GitLab install button in header when uninstalled', async () => {
+        const user = userEvent.setup();
+        mockPywebviewApi({
+            ...mockGitStatus(notInstalled),
+            get_gitlab_status: vi.fn().mockResolvedValue({
+                installed: false,
+                version: null,
+                path: null,
+                is_external: false,
+                authenticated: false,
+            }),
+        });
+        renderWithToast(<GitMain />);
+
+        expect(await screen.findByText(/gitlab integration/i)).toBeInTheDocument();
+        await user.click(screen.getByText(/gitlab integration/i));
+
+        expect(await screen.findByText('tools.gitlab.not_installed_title')).toBeInTheDocument();
+        // PageHeader action renders GitLab install button
+        const installBtns = screen.getAllByRole('button', { name: /tools\.gitlab\.install_cli/i });
+        expect(installBtns.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('switches to GitLab Integration tab and shows installed badge when GitLab CLI is installed', async () => {
+        const user = userEvent.setup();
+        mockPywebviewApi({
+            ...mockGitStatus(installedNotInPath),
+            get_gitlab_status: vi.fn().mockResolvedValue({
+                installed: true,
+                version: '1.130.0',
+                path: 'C:\\vyloserve\\bin\\glab\\glab.exe',
+                is_external: false,
+                authenticated: false,
+            }),
+        });
+        renderWithToast(<GitMain />);
+
+        expect(await screen.findByText(/gitlab integration/i)).toBeInTheDocument();
+        await user.click(screen.getByText(/gitlab integration/i));
+
+        expect(await screen.findByText('tools.gitlab.cli_card_title')).toBeInTheDocument();
+        expect(screen.getByText('common.installed')).toBeInTheDocument();
+    });
 });

@@ -19,3 +19,4 @@ describe('AppSkeletonLayout', () => {
         expect(container.querySelector('main')).toBeInTheDocument();
     });
 });
+

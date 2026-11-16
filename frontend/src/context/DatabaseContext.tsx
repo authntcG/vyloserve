@@ -86,6 +86,8 @@ interface DatabaseContextValue {
     handleCancelInstall: () => Promise<void>;
     handleUpdateDatabase: (db: DbInstance) => Promise<void>;
     handleConfirmUninstall: (db: DbInstance) => Promise<void>;
+    handleFlushRedis: (db: DbInstance) => Promise<void>;
+    redisRefreshTrigger: number;
     handleSaveSettings: () => Promise<void>;
     handlePasswordSubmit: () => Promise<void>;
 }
@@ -127,6 +129,7 @@ export function DatabaseProvider({ children }: { readonly children: React.ReactN
     const hideProgressTimeoutRef = useRef<number | null>(null);
 
     const [availableUpdates, setAvailableUpdates] = useState<Record<string, AvailableUpdate>>({});
+    const [redisRefreshTrigger, setRedisRefreshTrigger] = useState(0);
 
     const newDbRef = useRef<NewDbInstanceRef>(null);
     const passwordRef = useRef<ChangePasswordRef>(null);
@@ -467,6 +470,30 @@ export function DatabaseProvider({ children }: { readonly children: React.ReactN
         setActiveSchemaDb(null);
     }, []);
 
+    const handleFlushRedis = useCallback(async (db: DbInstance) => {
+        const confirmed = await confirm({
+            title: tRef.current('database.flush_redis_confirm_title', 'Flush All Redis Keys?'),
+            message: tRef.current('database.flush_redis_confirm_desc', 'Are you sure you want to flush all keys (FLUSHALL)? All cached data and keys will be permanently deleted.'),
+            confirmText: tRef.current('database.flush_redis', 'Flush Keys'),
+            type: 'danger',
+        });
+        if (!confirmed) return;
+
+        try {
+            const api = (window as any).pywebview?.api;
+            if (!api?.flush_redis_db) return;
+            const res = await api.flush_redis_db(db.id);
+            if (res?.status === 'success') {
+                showToast(tRef.current(res.message || 'backend.database.redis_flushed', res.args || {}) as string, 'success');
+                setRedisRefreshTrigger((prev) => prev + 1);
+            } else {
+                showToast(tRef.current(res?.message || 'backend.database.redis_flush_failed', res?.args || {}) as string, 'error');
+            }
+        } catch (e: any) {
+            showToast(e?.message || 'Failed to flush Redis', 'error');
+        }
+    }, [confirm, showToast]);
+
     const value = useMemo<DatabaseContextValue>(() => ({
         dbInstances,
         isLoading,
@@ -512,6 +539,8 @@ export function DatabaseProvider({ children }: { readonly children: React.ReactN
         handleCancelInstall,
         handleUpdateDatabase,
         handleConfirmUninstall,
+        handleFlushRedis,
+        redisRefreshTrigger,
         handleSaveSettings,
         handlePasswordSubmit,
     }), [
@@ -554,6 +583,8 @@ export function DatabaseProvider({ children }: { readonly children: React.ReactN
         handleCancelInstall,
         handleUpdateDatabase,
         handleConfirmUninstall,
+        handleFlushRedis,
+        redisRefreshTrigger,
         handleSaveSettings,
         handlePasswordSubmit,
         fetchDbLogContent,
@@ -583,6 +614,8 @@ export function DatabaseProvider({ children }: { readonly children: React.ReactN
         handleInstallDatabase,
         handleUpdateDatabase,
         handleConfirmUninstall,
+        handleFlushRedis,
+        redisRefreshTrigger,
         handleSaveSettings,
         handlePasswordSubmit,
     ]);

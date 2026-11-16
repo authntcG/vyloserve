@@ -55,6 +55,12 @@ export default function ApacheInstallModal() {
         return 'download';
     };
 
+    const getApplyText = () => {
+        if (isInstalling) return t('apache.installing_start');
+        if (isNonWindows) return t('apache.install_system_package');
+        return t('apache.download_install');
+    };
+
     return (
         <Modal
             isOpen={isInstallServerOpen}
@@ -63,7 +69,7 @@ export default function ApacheInstallModal() {
             title={getTitle()}
             icon={getIcon()}
             onApply={isInstalling ? undefined : handleInstallApache}
-            applyText={isInstalling ? t('apache.installing_start') : (isNonWindows ? t('apache.install_system_package') : t('apache.download_install'))}
+            applyText={getApplyText()}
             isApplyDisabled={isFetchingVersions || isInstalling || availableVersions.length === 0 || (!isNonWindows && !isOnline)}
         >
             <ApacheInstallWizard

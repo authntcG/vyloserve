@@ -265,7 +265,7 @@ def _ensure_executable_permissions(target_dir: str):
             try:
                 if is_bin_folder or '.' not in f or f.endswith(('.sh', '.bin', '.so')):
                     current_mode = os.stat(file_path).st_mode
-                    os.chmod(file_path, current_mode | 0o755)
+                    os.chmod(file_path, current_mode | 0o755)  # NOSONAR python:S2612
             except Exception:
                 pass
 
@@ -288,6 +288,29 @@ def _extract_tar_gz(file_path: str, extract_to: str, progress_cb: Optional[Calla
 
         if progress_cb: progress_cb(80, "backend.common.extract_complete")
 
+def _dispatch_extraction(file_path: str, extract_to: str, progress_cb, cancel_check):
+    lower_path = file_path.lower()
+
+    if lower_path.endswith('.zip'):
+        try:
+            _extract_zip(file_path, extract_to, progress_cb, cancel_check=cancel_check)
+            return
+        except zipfile.BadZipFile:
+            if os.path.exists(file_path) and tarfile.is_tarfile(file_path):
+                _extract_tar_gz(file_path, extract_to, progress_cb, cancel_check=cancel_check)
+                return
+            raise
+
+    if lower_path.endswith(('.tar.gz', '.tgz', '.tar.xz', '.tar.bz2', '.tar')):
+        _extract_tar_gz(file_path, extract_to, progress_cb, cancel_check=cancel_check)
+        return
+
+    if os.path.exists(file_path):
+        if zipfile.is_zipfile(file_path):
+            _extract_zip(file_path, extract_to, progress_cb, cancel_check=cancel_check)
+        elif tarfile.is_tarfile(file_path):
+            _extract_tar_gz(file_path, extract_to, progress_cb, cancel_check=cancel_check)
+
 def extract_archive(file_path: str, extract_to: str, 
                     progress_cb: Optional[Callable[[int, str], None]] = None,
                     cancel_check: Optional[Callable[[], bool]] = None) -> bool:
@@ -308,24 +331,7 @@ def extract_archive(file_path: str, extract_to: str,
         raise OperationCancelledError(MSG_EXTRACTION_CANCELLED)
 
     try:
-        lower_path = file_path.lower()
-
-        if lower_path.endswith('.zip'):
-            try:
-                _extract_zip(file_path, extract_to, progress_cb, cancel_check=cancel_check)
-            except zipfile.BadZipFile:
-                if os.path.exists(file_path) and tarfile.is_tarfile(file_path):
-                    _extract_tar_gz(file_path, extract_to, progress_cb, cancel_check=cancel_check)
-                else:
-                    raise
-        elif lower_path.endswith(('.tar.gz', '.tgz', '.tar.xz', '.tar.bz2', '.tar')):
-            _extract_tar_gz(file_path, extract_to, progress_cb, cancel_check=cancel_check)
-        elif os.path.exists(file_path):
-            if zipfile.is_zipfile(file_path):
-                _extract_zip(file_path, extract_to, progress_cb, cancel_check=cancel_check)
-            elif tarfile.is_tarfile(file_path):
-                _extract_tar_gz(file_path, extract_to, progress_cb, cancel_check=cancel_check)
-
+        _dispatch_extraction(file_path, extract_to, progress_cb, cancel_check)
         _ensure_executable_permissions(extract_to)
         return True
     except OperationCancelledError:
@@ -503,6 +509,72 @@ def safe_rmtree(target_path: str, force: bool = True) -> bool:
 
     return not os.path.exists(target_path)
 
+def _is_foreign_stat(st, target_uid: int, target_gid: int) -> bool:
+    return st.st_uid != target_uid or st.st_gid != target_gid
+
+def _check_walk_foreign_ownership(path: str, target_uid: int, target_gid: int) -> bool:
+    for root, dirs, files in os.walk(path):
+        st_root = os.stat(root)
+        if _is_foreign_stat(st_root, target_uid, target_gid):
+            return True
+        for item in files + dirs:
+            p = os.path.join(root, item)
+            try:
+                st = os.lstat(p)
+                if _is_foreign_stat(st, target_uid, target_gid):
+                    return True
+            except OSError:
+                pass
+    return False
+
+def _check_foreign_ownership(path: str, recursive: bool, target_uid: int, target_gid: int) -> bool:
+    try:
+        if not (os.path.isdir(path) and recursive):
+            st = os.stat(path)
+            return _is_foreign_stat(st, target_uid, target_gid)
+        return _check_walk_foreign_ownership(path, target_uid, target_gid)
+    except Exception:
+        return True
+
+def _chown_with_pkexec(path: str, recursive: bool, target_uid: int, target_gid: int) -> bool:
+    pkexec = shutil.which("pkexec")
+    if not pkexec:
+        return False
+    try:
+        chown_cmd = (
+            [pkexec, "chown", "-R", f"{target_uid}:{target_gid}", path]
+            if recursive and os.path.isdir(path)
+            else [pkexec, "chown", f"{target_uid}:{target_gid}", path]
+        )
+        res = subprocess.run(chown_cmd, capture_output=True)
+        return res.returncode == 0
+    except Exception:
+        return False
+
+def _try_chmod(path: str, mode: int) -> None:
+    try:
+        os.chmod(path, mode)  # NOSONAR python:S2612
+    except OSError:
+        pass
+
+def _apply_recursive_chmod(path: str) -> None:
+    for root, _, files in os.walk(path):
+        _try_chmod(root, 0o775)
+        for f in files:
+            _try_chmod(os.path.join(root, f), 0o664)
+
+def _apply_chmod_permissions(path: str, recursive: bool) -> bool:
+    try:
+        if os.path.isdir(path) and recursive:
+            _apply_recursive_chmod(path)
+        elif os.path.isdir(path):
+            os.chmod(path, 0o775)  # NOSONAR python:S2612
+        else:
+            os.chmod(path, 0o664)  # NOSONAR python:S2612
+        return True
+    except Exception:
+        return False
+
 def fix_file_permissions(path: str, recursive: bool = True) -> bool:
     """
     Menormalkan kepemilikan dan hak akses file/direktori agar 100% dimiliki oleh
@@ -524,63 +596,8 @@ def fix_file_permissions(path: str, recursive: bool = True) -> bool:
     except AttributeError:
         return True
 
-    foreign_ownership_found = False
-
-    try:
-        if os.path.isdir(path) and recursive:
-            for root, dirs, files in os.walk(path):
-                st_root = os.stat(root)
-                if st_root.st_uid != target_uid or st_root.st_gid != target_gid:
-                    foreign_ownership_found = True
-                    break
-                for item in files + dirs:
-                    p = os.path.join(root, item)
-                    try:
-                        st = os.lstat(p)
-                        if st.st_uid != target_uid or st.st_gid != target_gid:
-                            foreign_ownership_found = True
-                            break
-                    except OSError:
-                        pass
-                if foreign_ownership_found:
-                    break
-        else:
-            st = os.stat(path)
-            if st.st_uid != target_uid or st.st_gid != target_gid:
-                foreign_ownership_found = True
-    except Exception:
-        foreign_ownership_found = True
-
-    if foreign_ownership_found:
-        pkexec = shutil.which("pkexec")
-        if pkexec:
-            try:
-                chown_cmd = [pkexec, "chown", "-R", f"{target_uid}:{target_gid}", path] if recursive and os.path.isdir(path) else [pkexec, "chown", f"{target_uid}:{target_gid}", path]
-                res = subprocess.run(chown_cmd, capture_output=True)
-                if res.returncode != 0:
-                    return False
-            except Exception:
-                return False
-        else:
+    if _check_foreign_ownership(path, recursive, target_uid, target_gid):
+        if not _chown_with_pkexec(path, recursive, target_uid, target_gid):
             return False
 
-    try:
-        if os.path.isdir(path) and recursive:
-            for root, dirs, files in os.walk(path):
-                try:
-                    os.chmod(root, 0o775)
-                except OSError:
-                    pass
-                for f in files:
-                    fp = os.path.join(root, f)
-                    try:
-                        os.chmod(fp, 0o664)
-                    except OSError:
-                        pass
-        elif os.path.isdir(path):
-            os.chmod(path, 0o775)
-        else:
-            os.chmod(path, 0o664)
-        return True
-    except Exception:
-        return False
+    return _apply_chmod_permissions(path, recursive)

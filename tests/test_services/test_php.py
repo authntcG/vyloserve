@@ -1,4 +1,5 @@
 import os
+import sys
 import pytest
 from unittest.mock import MagicMock, patch, mock_open
 from core.services.php import PhpManager
@@ -759,7 +760,7 @@ def test_install_php_linux_success(php_mgr):
     with patch('shutil.which', side_effect=lambda x: f"/usr/bin/{x}" if x in ("pkexec", "apt-get") else None), \
          patch('core.services.php.run_silent_command', return_value=MagicMock(returncode=0)), \
          patch('core.services.php.subprocess.run', return_value=MagicMock(returncode=0)):
-        res = php_mgr._install_php_linux(9000)
+        res = php_mgr._install_php_linux()
         assert res['status'] == 'success'
         assert res['message'] == 'backend.php.linux_install_success'
 
@@ -768,14 +769,14 @@ def test_install_php_linux_auth_cancelled(php_mgr):
     with patch('shutil.which', side_effect=lambda x: f"/usr/bin/{x}" if x in ("pkexec", "apt-get") else None), \
          patch('core.services.php.run_silent_command', return_value=MagicMock(returncode=0)), \
          patch('core.services.php.subprocess.run', return_value=MagicMock(returncode=126)):
-        res = php_mgr._install_php_linux(9000)
+        res = php_mgr._install_php_linux()
         assert res['status'] == 'error'
         assert res['message'] == 'backend.php.auth_cancelled'
 
 
 def test_install_php_linux_no_pkexec(php_mgr):
     with patch('shutil.which', return_value=None):
-        res = php_mgr._install_php_linux(9000)
+        res = php_mgr._install_php_linux()
         assert res['status'] == 'error'
         assert res['message'] == 'backend.php.no_pkexec'
 
@@ -805,7 +806,8 @@ def test_php_install_composer_creates_bat_and_sh(php_mgr, tmp_path):
         content = f.read()
         assert "#!/bin/sh" in content
         assert "composer.phar" in content
-    assert os.stat(sh_file).st_mode & 0o111 != 0
+    if sys.platform != 'win32':
+        assert os.stat(sh_file).st_mode & 0o111 != 0
 
 
 def test_ensure_vyloserve_fpm_pool_linux(php_mgr, tmp_path):

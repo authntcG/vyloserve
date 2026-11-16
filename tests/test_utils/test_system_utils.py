@@ -484,7 +484,8 @@ def test_sync_theme_bootstrap_file_fallback_on_invalid_theme(tmp_path):
 def test_open_path_in_file_manager_invalid_path():
     from core.utils.system_utils import open_path_in_file_manager
     assert open_path_in_file_manager("") is False
-    assert open_path_in_file_manager("/path/does/not/exist/anywhere") is False
+    with patch('sys.platform', 'linux'):
+        assert open_path_in_file_manager("/path/does/not/exist/anywhere") is False
 
 
 def test_open_path_in_file_manager_windows(tmp_path):
@@ -564,7 +565,8 @@ def test_acquire_single_instance_lock_windows():
 
 def test_acquire_single_instance_lock_linux(tmp_path):
     from core.utils.system_utils import acquire_single_instance_lock
-    with patch('sys.platform', 'linux'), patch('os.path.expanduser', return_value=str(tmp_path)):
+    mock_fcntl = MagicMock()
+    with patch('sys.platform', 'linux'), patch('os.path.expanduser', return_value=str(tmp_path)), patch.dict('sys.modules', {'fcntl': mock_fcntl}):
         is_first, handle = acquire_single_instance_lock("test_lock")
         assert is_first is True
         assert handle is not None
@@ -588,7 +590,7 @@ def test_set_path_in_env_windows():
 
 def test_set_path_in_env_linux():
     from core.utils.system_utils import set_path_in_env
-    with patch('sys.platform', 'linux'):
+    with patch('sys.platform', 'linux'), patch('os.pathsep', ':'):
         env = {"PATH": "/usr/bin:/bin"}
         result = set_path_in_env(env, ["/opt/vyloserve/bin/node", "/opt/vyloserve/bin/python"])
         assert "PATH" in result
@@ -600,7 +602,7 @@ def test_set_path_in_env_linux():
 
 def test_set_path_in_env_deduplication():
     from core.utils.system_utils import set_path_in_env
-    with patch('sys.platform', 'linux'):
+    with patch('sys.platform', 'linux'), patch('os.pathsep', ':'):
         env = {"PATH": "/bin:/usr/bin"}
         result = set_path_in_env(env, ["/opt/vyloserve/bin", "/bin"])
         parts = result["PATH"].split(os.pathsep)

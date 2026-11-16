@@ -7,6 +7,7 @@ import Select from '../../components/Select';
 import FieldLabel from '../../components/FieldLabel';
 import OfflineBanner from '../../components/OfflineBanner';
 import { useNetworkStatus } from '../../context/NetworkContext';
+import { copyToClipboard } from '../../utils/clipboard';
 
 export interface ApacheVersionData {
     version: string;
@@ -94,22 +95,23 @@ export default function ApacheInstallWizard({
     const linuxCommand = 'sudo apt update && sudo apt install -y apache2';
 
     const handleCopyCommand = async () => {
-        try {
-            if (navigator.clipboard && window.isSecureContext) {
-                await navigator.clipboard.writeText(linuxCommand);
-            } else {
-                const textArea = document.createElement('textarea');
-                textArea.value = linuxCommand;
-                document.body.appendChild(textArea);
-                textArea.select();
-                document.execCommand('copy');
-                document.body.removeChild(textArea);
-            }
+        const success = await copyToClipboard(linuxCommand);
+        if (success) {
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
-        } catch {
-            // Ignore clipboard errors
         }
+    };
+
+    const getVersionLabel = (v: ApacheVersionData, index: number): string => {
+        if (v.version === 'system') return t('apache.linux_system_package');
+        const latestSuffix = index === 0 ? t('apache.latest_stable') : '';
+        return `Apache ${v.version} ${latestSuffix}`.trim();
+    };
+
+    const getVersionPlaceholder = (): string => {
+        if (osInfo.name !== 'Windows') return t('apache.linux_system_package');
+        if (isOfflineOrUnavailable) return t('common.offline_versions_unavailable');
+        return t('apache.server_up_to_date');
     };
 
     const handleRefresh = async () => {
@@ -151,19 +153,11 @@ export default function ApacheInstallWizard({
                         searchable={false}
                         options={versions.map((v, index) => ({
                             value: v.version,
-                            label: v.version === 'system'
-                                ? t('apache.linux_system_package')
-                                : `Apache ${v.version} ${index === 0 ? t('apache.latest_stable') : ''}`.trim(),
+                            label: getVersionLabel(v, index),
                         }))}
                         value={version || null}
                         onChange={handleVersionChange}
-                        placeholder={
-                            osInfo.name !== 'Windows'
-                                ? t('apache.linux_system_package')
-                                : isOfflineOrUnavailable
-                                ? t('common.offline_versions_unavailable')
-                                : t('apache.server_up_to_date')
-                        }
+                        placeholder={getVersionPlaceholder()}
                         disabled={isInstalling || versions.length === 0}
                         loading={isFetchingVersions}
                         loadingText={t('apache.retrieving_releases')}

@@ -193,7 +193,7 @@ def acquire_single_instance_lock(lock_name: str) -> Tuple[bool, Any]:
         lock_file = open(lock_file_path, 'w')
         fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
         return True, lock_file
-    except (BlockingIOError, OSError):
+    except OSError:
         return False, None
     except Exception:
         return True, None
@@ -458,29 +458,25 @@ def _find_in_extra_paths(extra_paths: Optional[List[str]]) -> Optional[str]:
                 return ep
     return None
 
-def _lookup_external_executable(
+def _find_via_windows(
     command: str,
-    vyloserve_bin: str = "",
+    clean_vylo: str,
     extra_paths: Optional[List[str]] = None
 ) -> Optional[str]:
-    import shutil
-    clean_vylo = os.path.normpath(vyloserve_bin).lower() if vyloserve_bin else ""
+    found = _find_via_where_cmd(command, clean_vylo)
+    if found:
+        return found
 
-    if sys.platform == 'win32':
-        found = _find_via_where_cmd(command, clean_vylo)
-        if found:
-            return found
+    try:
+        found_reg = _find_via_registry_path(command, clean_vylo)
+        if found_reg:
+            return found_reg
+    except Exception:
+        pass
 
-        try:
-            found_reg = _find_via_registry_path(command, clean_vylo)
-            if found_reg:
-                return found_reg
-        except Exception:
-            pass
+    return _find_in_extra_paths(extra_paths)
 
-        return _find_in_extra_paths(extra_paths)
-
-    # Non-Windows (Linux / macOS)
+def _find_via_posix_path(command: str, clean_vylo: str) -> Optional[str]:
     env_path = os.environ.get('PATH', '')
     raw_paths = [
         p for p in env_path.split(os.pathsep)
@@ -496,6 +492,16 @@ def _lookup_external_executable(
                 continue
             return cand_path
     return None
+
+def _lookup_external_executable(
+    command: str,
+    vyloserve_bin: str = "",
+    extra_paths: Optional[List[str]] = None
+) -> Optional[str]:
+    clean_vylo = os.path.normpath(vyloserve_bin).lower() if vyloserve_bin else ""
+    if sys.platform == 'win32':
+        return _find_via_windows(command, clean_vylo, extra_paths)
+    return _find_via_posix_path(command, clean_vylo)
 
 # ==========================================
 # DWM WIN32 TITLEBAR THEME CONSTANTS & PALETTES
@@ -811,6 +817,17 @@ def apply_window_titlebar_theme(window_or_hwnd: Any, theme_name: Optional[str] =
 
     return success
 
+def _dedup_env_paths(paths: List[str], seen: set, is_win: bool) -> List[str]:
+    result = []
+    for p in paths:
+        if p and isinstance(p, str):
+            clean_p = p.strip()
+            norm_key = clean_p.lower() if is_win else clean_p
+            if clean_p and norm_key not in seen:
+                seen.add(norm_key)
+                result.append(clean_p)
+    return result
+
 def set_path_in_env(env: Dict[str, str], paths_to_prepend: List[str]) -> Dict[str, str]:
     """
     Menormalkan variabel PATH secara case-insensitive lintas platform (Windows & Linux).
@@ -820,9 +837,10 @@ def set_path_in_env(env: Dict[str, str], paths_to_prepend: List[str]) -> Dict[st
     if not isinstance(env, dict):
         env = {}
 
-    path_sep = ";" if sys.platform == "win32" else os.pathsep
+    is_win = (sys.platform == "win32")
+    path_sep = ";" if is_win else os.pathsep
 
-    path_keys = [k for k in list(env.keys()) if k.upper() == "PATH"]
+    path_keys = [k for k in env if k.upper() == "PATH"]
     existing_paths_str = ""
     for k in path_keys:
         val = env.pop(k, "")
@@ -831,26 +849,12 @@ def set_path_in_env(env: Dict[str, str], paths_to_prepend: List[str]) -> Dict[st
 
     existing_parts = [p.strip() for p in existing_paths_str.split(path_sep) if p.strip()]
 
-    combined: List[str] = []
     seen: set = set()
-    for p in paths_to_prepend:
-        if p and isinstance(p, str):
-            clean_p = p.strip()
-            norm_key = clean_p.lower() if sys.platform == "win32" else clean_p
-            if clean_p and norm_key not in seen:
-                seen.add(norm_key)
-                combined.append(clean_p)
-
-    for p in existing_parts:
-        clean_p = p.strip()
-        norm_key = clean_p.lower() if sys.platform == "win32" else clean_p
-        if clean_p and norm_key not in seen:
-            seen.add(norm_key)
-            combined.append(clean_p)
+    combined = _dedup_env_paths(paths_to_prepend, seen, is_win) + _dedup_env_paths(existing_parts, seen, is_win)
 
     new_path_str = path_sep.join(combined)
     env["PATH"] = new_path_str
-    if sys.platform == "win32":
+    if is_win:
         env["Path"] = new_path_str
 
     return env

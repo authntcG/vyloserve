@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { screen } from '../../../test-utils';
+import { screen, waitFor, fireEvent } from '../../../test-utils';
 import { renderWithToast } from '../../../test-utils';
 import MarkdownViewer from '../../../../src/menu/tools/markdown-viewer/Main';
 
@@ -120,7 +120,7 @@ describe('MarkdownViewer Main', () => {
         expect(filterInput).toBeInTheDocument();
 
         // Type filter query
-        await user.type(filterInput, 'Section Heading 42');
+        fireEvent.change(filterInput, { target: { value: 'Section Heading 42' } });
         expect(screen.getAllByText('Section Heading 42').length).toBeGreaterThan(1);
         expect(screen.queryByRole('button', { name: /Section Heading 1$/ })).not.toBeInTheDocument();
 
@@ -348,5 +348,552 @@ describe('MarkdownViewer Main', () => {
 
         const contentContainer = topBar?.parentElement;
         expect(contentContainer).toHaveClass('select-text');
+    });
+
+    it('toggles fullscreen reader mode on button click and exits on Escape key', async () => {
+        const user = userEvent.setup();
+        window.pywebview.api.md_select_directory = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: 'C:\\docs',
+        });
+        window.pywebview.api.md_get_tree = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: [{ name: 'README.md', path: 'C:\\docs\\README.md', type: 'file' }],
+        });
+        window.pywebview.api.md_read_file = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: '# Fullscreen Test',
+        });
+
+        renderWithToast(<MarkdownViewer />);
+        await user.click(screen.getByRole('button', { name: 'tools.docs_reader.btn_select' }));
+
+        const fullscreenBtn = await screen.findByRole('button', { name: 'tools.docs_reader.fullscreen' });
+        expect(fullscreenBtn).toBeInTheDocument();
+
+        // Enter fullscreen
+        await user.click(fullscreenBtn);
+        expect(screen.getByRole('button', { name: 'tools.docs_reader.exit_fullscreen' })).toBeInTheDocument();
+
+        // Press Escape to exit fullscreen
+        await user.keyboard('{Escape}');
+        expect(screen.getByRole('button', { name: 'tools.docs_reader.fullscreen' })).toBeInTheDocument();
+    });
+
+    it('simplifies PageHeader to only open folder and close workspace when active', async () => {
+        const user = userEvent.setup();
+        window.pywebview.api.md_select_directory = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: 'C:\\docs',
+        });
+        window.pywebview.api.md_get_tree = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: [{ name: 'README.md', path: 'C:\\docs\\README.md', type: 'file' }],
+        });
+        window.pywebview.api.md_read_file = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: '# Header Test',
+        });
+
+        renderWithToast(<MarkdownViewer />);
+        await user.click(screen.getByRole('button', { name: 'tools.docs_reader.btn_select' }));
+
+        expect(await screen.findByRole('button', { name: 'tools.docs_reader.open_folder' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'tools.docs_reader.close_workspace' })).toBeInTheDocument();
+        // PageHeader does not contain add_folder anymore (only sidebar does)
+        const addFolderButtons = screen.getAllByRole('button', { name: 'tools.docs_reader.add_folder' });
+        expect(addFolderButtons).toHaveLength(1);
+    });
+
+    it('prompts privacy consent modal when opening AI Copilot in a new unconsented folder and toggles drawer directly once consented', async () => {
+        const user = userEvent.setup();
+        localStorage.clear();
+
+        window.pywebview.api.md_select_directory = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: 'C:\\docs',
+        });
+        window.pywebview.api.md_get_tree = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: [{ name: 'README.md', path: 'C:\\docs\\README.md', type: 'file' }],
+        });
+        window.pywebview.api.md_read_file = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: '# Consent Test Doc',
+        });
+
+        renderWithToast(<MarkdownViewer />);
+        await user.click(screen.getByRole('button', { name: 'tools.docs_reader.btn_select' }));
+
+        // AI Copilot button starts disabled/locked
+        const aiToggleBtn = await screen.findByRole('button', { name: 'tools.docs_reader.privacy_status_off' });
+        expect(aiToggleBtn).toBeInTheDocument();
+
+        // Clicking it prompts PrivacyConsentModal
+        await user.click(aiToggleBtn);
+        expect(await screen.findByText('tools.docs_reader.privacy_title')).toBeInTheDocument();
+
+        // Confirm consent
+        const confirmBtn = screen.getByRole('button', { name: 'tools.docs_reader.privacy_btn_enable' });
+        await user.click(confirmBtn);
+
+        // Now drawer is open and button state reflects AI enabled
+        expect(await screen.findByRole('button', { name: 'tools.docs_reader.ai_copilot' })).toBeInTheDocument();
+
+        // Clicking again toggles drawer closed without prompting modal again
+        const openAiBtn = screen.getByRole('button', { name: 'tools.docs_reader.ai_copilot' });
+        await user.click(openAiBtn);
+        await waitFor(() => {
+            expect(screen.queryByText('tools.docs_reader.privacy_title')).not.toBeInTheDocument();
+        });
+    });
+
+    it('supports collapsing and restoring the sidebar with adaptive grid col-span', async () => {
+        const user = userEvent.setup();
+        window.pywebview.api.md_select_directory = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: 'C:\\docs',
+        });
+        window.pywebview.api.md_get_tree = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: [{ name: 'README.md', path: 'C:\\docs\\README.md', type: 'file' }],
+        });
+        window.pywebview.api.md_read_file = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: '# Collapse Test Doc',
+        });
+
+        renderWithToast(<MarkdownViewer />);
+        await user.click(screen.getByRole('button', { name: 'tools.docs_reader.btn_select' }));
+
+        expect(await screen.findByText('Collapse Test Doc')).toBeInTheDocument();
+
+        // Collapse sidebar button
+        const hideSidebarBtn = screen.getByRole('button', { name: 'tools.docs_reader.hide_sidebar' });
+        expect(hideSidebarBtn).toBeInTheDocument();
+        await user.click(hideSidebarBtn);
+
+        // Sidebar tree should be hidden
+        expect(screen.queryByRole('button', { name: 'tools.docs_reader.hide_sidebar' })).not.toBeInTheDocument();
+        expect(screen.queryByText('tools.docs_reader.tree_title')).not.toBeInTheDocument();
+
+        // Edge Arrow Peek Handle appears on the left
+        const peekHandle = screen.getByRole('button', { name: 'tools.docs_reader.peek_handle' });
+        expect(peekHandle).toBeInTheDocument();
+
+        // Restore sidebar by clicking handle
+        await user.click(peekHandle);
+        expect(await screen.findByRole('button', { name: 'tools.docs_reader.hide_sidebar' })).toBeInTheDocument();
+        expect(screen.getByText('tools.docs_reader.tree_title')).toBeInTheDocument();
+    });
+
+    it('auto-collapses sidebar when opening AI Copilot to give document lg:col-span-8 and AI drawer lg:col-span-4', async () => {
+        const user = userEvent.setup();
+        localStorage.setItem('vylo_docs_ai_consented_paths', JSON.stringify(['C:\\docs']));
+
+        window.pywebview.api.md_select_directory = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: 'C:\\docs',
+        });
+        window.pywebview.api.md_get_tree = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: [{ name: 'README.md', path: 'C:\\docs\\README.md', type: 'file' }],
+        });
+        window.pywebview.api.md_read_file = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: '# Auto Collapse AI Doc',
+        });
+
+        renderWithToast(<MarkdownViewer />);
+        await user.click(screen.getByRole('button', { name: 'tools.docs_reader.btn_select' }));
+
+        expect(await screen.findByText('Auto Collapse AI Doc')).toBeInTheDocument();
+        // Initially sidebar is visible
+        expect(screen.getByRole('button', { name: 'tools.docs_reader.hide_sidebar' })).toBeInTheDocument();
+
+        // Open AI Copilot drawer
+        const aiToggleBtn = screen.getByRole('button', { name: 'tools.docs_reader.ai_copilot' });
+        await user.click(aiToggleBtn);
+
+        // Sidebar should now be auto-collapsed and edge peek handle is present
+        expect(screen.queryByRole('button', { name: 'tools.docs_reader.hide_sidebar' })).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'tools.docs_reader.peek_handle' })).toBeInTheDocument();
+
+        // AI drawer is open
+        expect(screen.getByLabelText('AI Document Copilot Drawer')).toBeInTheDocument();
+    });
+
+    it('applies high-contrast theme-aware styling to header buttons in light and dark reader modes', async () => {
+        const user = userEvent.setup();
+        window.pywebview.api.md_select_directory = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: 'C:\\docs',
+        });
+        window.pywebview.api.md_get_tree = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: [{ name: 'README.md', path: 'C:\\docs\\README.md', type: 'file' }],
+        });
+        window.pywebview.api.md_read_file = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: '# Contrast Test Doc',
+        });
+
+        renderWithToast(<MarkdownViewer />);
+        await user.click(screen.getByRole('button', { name: 'tools.docs_reader.btn_select' }));
+
+        const copyBtn = await screen.findByRole('button', { name: 'tools.docs_reader.copy_markdown' });
+        expect(copyBtn).toBeInTheDocument();
+
+        // In light reader mode, copy button has crisp dark slate text on white background with visible border
+        expect(copyBtn).toHaveClass('text-slate-700');
+        expect(copyBtn).toHaveClass('bg-white');
+        expect(copyBtn).toHaveClass('border-slate-300');
+
+        // Switch to dark reader mode
+        const themeBtn = screen.getByRole('button', { name: 'tools.docs_reader.switch_dark' });
+        await user.click(themeBtn);
+
+        // In dark reader mode, copy button has light slate text on dark background
+        expect(copyBtn).toHaveClass('text-slate-300');
+        expect(copyBtn).toHaveClass('bg-slate-900');
+        expect(copyBtn).toHaveClass('border-slate-800');
+    });
+
+    it('supports hover-peeking and auto-closing sidebar when selecting a file', async () => {
+        const user = userEvent.setup();
+        window.pywebview.api.md_select_directory = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: 'C:\\docs',
+        });
+        window.pywebview.api.md_get_tree = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: [
+                { name: 'README.md', path: 'C:\\docs\\README.md', type: 'file' },
+                { name: 'guide.md', path: 'C:\\docs\\guide.md', type: 'file' },
+            ],
+        });
+        window.pywebview.api.md_read_file = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: '# Peek Test Doc',
+        });
+
+        renderWithToast(<MarkdownViewer />);
+        await user.click(screen.getByRole('button', { name: 'tools.docs_reader.btn_select' }));
+
+        // Collapse sidebar
+        await user.click(screen.getByRole('button', { name: 'tools.docs_reader.hide_sidebar' }));
+
+        const peekHandle = screen.getByRole('button', { name: 'tools.docs_reader.peek_handle' });
+        expect(peekHandle).toBeInTheDocument();
+
+        // Simulate hover onto handle container
+        fireEvent.mouseEnter(peekHandle.parentElement!);
+
+        // Fast-forward for hover intent timer
+        await waitFor(() => {
+            expect(screen.getByRole('button', { name: 'tools.docs_reader.pin_sidebar' })).toBeInTheDocument();
+        });
+
+        // Pin sidebar from peek overlay
+        await user.click(screen.getByRole('button', { name: 'tools.docs_reader.pin_sidebar' }));
+        expect(screen.queryByRole('button', { name: 'tools.docs_reader.pin_sidebar' })).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'tools.docs_reader.hide_sidebar' })).toBeInTheDocument();
+    });
+
+    it('renders edge peek handle and top bar restore button when file is open with collapsed sidebar', async () => {
+        const user = userEvent.setup();
+        window.pywebview.api.md_select_directory = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: 'C:\\docs',
+        });
+        window.pywebview.api.md_get_tree = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: [{ name: 'README.md', path: 'C:\\docs\\README.md', type: 'file' }],
+        });
+        window.pywebview.api.md_read_file = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: '# Opened File Reader',
+        });
+
+        // Set sidebar collapsed initially via localStorage
+        localStorage.setItem('vylo_docs_sidebar_collapsed', 'true');
+
+        renderWithToast(<MarkdownViewer />);
+        await user.click(screen.getByRole('button', { name: 'tools.docs_reader.btn_select' }));
+
+        expect(await screen.findByText('Opened File Reader')).toBeInTheDocument();
+
+        // Edge handle should be visible
+        const peekHandle = screen.getByRole('button', { name: 'tools.docs_reader.peek_handle' });
+        expect(peekHandle).toBeInTheDocument();
+
+        // Top bar restore button should also be visible next to document title
+        const topBarRestoreBtn = screen.getByRole('button', { name: 'tools.docs_reader.pin_sidebar' });
+        expect(topBarRestoreBtn).toBeInTheDocument();
+
+        // Clicking top bar restore button restores pinned sidebar
+        await user.click(topBarRestoreBtn);
+        expect(screen.getByRole('button', { name: 'tools.docs_reader.hide_sidebar' })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'tools.docs_reader.peek_handle' })).not.toBeInTheDocument();
+    });
+
+    it('positions edge arrow vertically centered at 50% and restores pinned sidebar when clicking edge arrow during popup state', async () => {
+        const user = userEvent.setup();
+        window.pywebview.api.md_select_directory = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: 'C:\\docs',
+        });
+        window.pywebview.api.md_get_tree = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: [{ name: 'README.md', path: 'C:\\docs\\README.md', type: 'file' }],
+        });
+        window.pywebview.api.md_read_file = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: '# Centered Edge Arrow Test',
+        });
+
+        // Set sidebar collapsed initially via localStorage
+        localStorage.setItem('vylo_docs_sidebar_collapsed', 'true');
+
+        renderWithToast(<MarkdownViewer />);
+        await user.click(screen.getByRole('button', { name: 'tools.docs_reader.btn_select' }));
+
+        expect(await screen.findByText('Centered Edge Arrow Test')).toBeInTheDocument();
+
+        // Edge handle is rendered with fixed vertical center dynamic formula
+        const peekHandle = screen.getByRole('button', { name: 'tools.docs_reader.peek_handle' });
+        expect(peekHandle).toBeInTheDocument();
+        const handleContainer = peekHandle.parentElement!;
+        expect(handleContainer.style.position).toBe('fixed');
+        expect(handleContainer.style.top).toContain('--system-logs-height');
+        expect(handleContainer.style.transform).toBe('translateY(-50%)');
+        expect(handleContainer.style.zIndex).toBe('45');
+
+        // Hover onto handle to open peek drawer
+        fireEvent.mouseEnter(handleContainer);
+
+        // Wait for 120ms peekEnterTimer to trigger and render the peek drawer with close button
+        const closeBtn = await screen.findByRole('button', { name: 'common.close' });
+        expect(closeBtn).toBeInTheDocument();
+
+        // Peek drawer also uses dynamic bottom coordinating with system logs height
+        const peekDrawer = closeBtn.closest('.shadow-2xl') as HTMLElement;
+        expect(peekDrawer).toBeInTheDocument();
+        expect(peekDrawer.style.bottom).toContain('--system-logs-height');
+
+        // Click edge arrow directly while in popup state to restore docked sidebar
+        await user.click(peekHandle);
+
+        expect(screen.queryByRole('button', { name: 'tools.docs_reader.pin_sidebar' })).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'tools.docs_reader.hide_sidebar' })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'tools.docs_reader.peek_handle' })).not.toBeInTheDocument();
+    });
+
+    it('applies dynamic height coordinating with system logs on treeview card', async () => {
+        const user = userEvent.setup();
+        window.pywebview.api.md_select_directory = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: 'C:\\docs',
+        });
+        window.pywebview.api.md_get_tree = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: [{ name: 'README.md', path: 'C:\\docs\\README.md', type: 'file' }],
+        });
+        window.pywebview.api.md_read_file = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: '# Dynamic Height Test',
+        });
+
+        localStorage.removeItem('vylo_docs_sidebar_collapsed');
+
+        renderWithToast(<MarkdownViewer />);
+        await user.click(screen.getByRole('button', { name: 'tools.docs_reader.btn_select' }));
+
+        expect(await screen.findByText('Dynamic Height Test')).toBeInTheDocument();
+
+        // Check Treeview card container classes
+        const hideBtn = screen.getByRole('button', { name: 'tools.docs_reader.hide_sidebar' });
+        const treeCard = hideBtn.closest('.lg\\:col-span-3') as HTMLElement;
+        expect(treeCard).toBeInTheDocument();
+        expect(treeCard).toHaveClass('h-full', 'min-h-0');
+    });
+
+    it('fetches AI provider info on mount and stores provider info state', async () => {
+        window.pywebview.api.ai_get_doc_provider_info = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: { provider: 'ollama', model: 'llama3:latest', status: 'ready' },
+        });
+
+        renderWithToast(<MarkdownViewer />);
+        await waitFor(() => {
+            expect(window.pywebview.api.ai_get_doc_provider_info).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    it('automatically closes AI drawer when document switches to an unconsented folder', async () => {
+        const user = userEvent.setup();
+        localStorage.setItem('vylo_docs_ai_consented_paths', JSON.stringify(['C:\\docs1']));
+
+        window.pywebview.api.md_select_directory = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: 'C:\\docs1',
+        });
+        window.pywebview.api.md_get_tree = vi.fn().mockImplementation((path: string) => {
+            if (path === 'C:\\docs1') {
+                return Promise.resolve({
+                    status: 'success',
+                    data: [{ name: 'README.md', path: 'C:\\docs1\\README.md', type: 'file' }],
+                });
+            }
+            return Promise.resolve({
+                status: 'success',
+                data: [{ name: 'doc2.md', path: 'C:\\docs2\\doc2.md', type: 'file' }],
+            });
+        });
+        window.pywebview.api.md_read_file = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: '# Consent Switch Test',
+        });
+
+        renderWithToast(<MarkdownViewer />);
+        await user.click(screen.getByRole('button', { name: 'tools.docs_reader.btn_select' }));
+
+        // 1. Add unconsented folder C:\docs2 to workspace first while sidebar is open
+        window.pywebview.api.md_select_directory = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: 'C:\\docs2',
+        });
+        const addFolderBtn = await screen.findByRole('button', { name: 'tools.docs_reader.add_folder' });
+        await user.click(addFolderBtn);
+        expect(await screen.findByText('doc2.md')).toBeInTheDocument();
+
+        // 2. Open AI Copilot drawer for consented folder C:\docs1
+        const aiToggleBtn = await screen.findByRole('button', { name: 'tools.docs_reader.ai_copilot' });
+        await user.click(aiToggleBtn);
+        expect(screen.getByLabelText('AI Document Copilot Drawer')).toBeInTheDocument();
+
+        // 3. Restore sidebar from top bar pin button so we can browse files
+        const pinBtn = screen.getByRole('button', { name: 'tools.docs_reader.pin_sidebar' });
+        await user.click(pinBtn);
+
+        // 4. Click file in C:\docs2 (unconsented)
+        const doc2File = await screen.findByText('doc2.md');
+        await user.click(doc2File);
+
+        // 5. The AI drawer should automatically close due to useEffect watching isCurrentFolderAiEnabled
+        await waitFor(() => {
+            expect(screen.queryByLabelText('AI Document Copilot Drawer')).not.toBeInTheDocument();
+        });
+    });
+
+    it('manages peek enter and leave timers cancelling early when hover changes rapidly', async () => {
+        const user = userEvent.setup();
+        window.pywebview.api.md_select_directory = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: 'C:\\docs',
+        });
+        window.pywebview.api.md_get_tree = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: [{ name: 'README.md', path: 'C:\\docs\\README.md', type: 'file' }],
+        });
+        window.pywebview.api.md_read_file = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: '# Timers Test Doc',
+        });
+
+        localStorage.setItem('vylo_docs_sidebar_collapsed', 'true');
+        renderWithToast(<MarkdownViewer />);
+        await user.click(screen.getByRole('button', { name: 'tools.docs_reader.btn_select' }));
+
+        const peekHandle = await screen.findByRole('button', { name: 'tools.docs_reader.peek_handle' });
+        const handleContainer = peekHandle.parentElement!;
+
+        fireEvent.mouseEnter(handleContainer);
+        fireEvent.mouseLeave(handleContainer);
+
+        fireEvent.mouseEnter(handleContainer);
+        const closeBtn = await screen.findByRole('button', { name: 'common.close' });
+        expect(closeBtn).toBeInTheDocument();
+
+        fireEvent.mouseLeave(handleContainer);
+        fireEvent.mouseEnter(handleContainer);
+
+        expect(screen.getByRole('button', { name: 'common.close' })).toBeInTheDocument();
+
+        const pinButtons = screen.getAllByRole('button', { name: 'tools.docs_reader.pin_sidebar' });
+        await user.click(pinButtons[0]);
+        expect(screen.getByRole('button', { name: 'tools.docs_reader.hide_sidebar' })).toBeInTheDocument();
+    });
+
+    it('handles file read errors gracefully when API returns error status or throws exception', async () => {
+        const user = userEvent.setup();
+        window.pywebview.api.md_select_directory = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: 'C:\\docs',
+        });
+        window.pywebview.api.md_get_tree = vi.fn().mockResolvedValue({
+            status: 'success',
+            data: [
+                { name: 'good.md', path: 'C:\\docs\\good.md', type: 'file' },
+                { name: 'err.md', path: 'C:\\docs\\err.md', type: 'file' },
+                { name: 'fail.md', path: 'C:\\docs\\fail.md', type: 'file' },
+            ],
+        });
+        window.pywebview.api.md_read_file = vi.fn().mockImplementation((path: string) => {
+            if (path.endsWith('err.md')) {
+                return Promise.resolve({ status: 'error', message: 'Permission denied' });
+            }
+            if (path.endsWith('fail.md')) {
+                return Promise.reject(new Error('Disk read failure'));
+            }
+            return Promise.resolve({ status: 'success', data: '# Initial Content' });
+        });
+
+        renderWithToast(<MarkdownViewer />);
+        await user.click(screen.getByRole('button', { name: 'tools.docs_reader.btn_select' }));
+
+        await user.click(await screen.findByText('err.md'));
+        expect(await screen.findByText(/Permission denied/)).toBeInTheDocument();
+
+        await user.click(screen.getByText('fail.md'));
+        expect(await screen.findByText(/tools\.docs_reader\.file_load_error/)).toBeInTheDocument();
+    });
+
+    it('calculates sidebar edge position dynamically when nav element exists in DOM', async () => {
+        const user = userEvent.setup();
+        const fakeNav = document.createElement('nav');
+        fakeNav.getBoundingClientRect = vi.fn().mockReturnValue({
+            right: 320,
+            width: 320,
+            left: 0,
+            top: 0,
+            bottom: 900,
+            height: 900,
+        });
+        document.body.appendChild(fakeNav);
+
+        try {
+            window.pywebview.api.md_select_directory = vi.fn().mockResolvedValue({
+                status: 'success',
+                data: 'C:\\docs',
+            });
+            window.pywebview.api.md_get_tree = vi.fn().mockResolvedValue({
+                status: 'success',
+                data: [{ name: 'README.md', path: 'C:\\docs\\README.md', type: 'file' }],
+            });
+            window.pywebview.api.md_read_file = vi.fn().mockResolvedValue({
+                status: 'success',
+                data: '# Nav Edge Test',
+            });
+
+            localStorage.setItem('vylo_docs_sidebar_collapsed', 'true');
+            renderWithToast(<MarkdownViewer />);
+            await user.click(screen.getByRole('button', { name: 'tools.docs_reader.btn_select' }));
+
+            const peekHandle = await screen.findByRole('button', { name: 'tools.docs_reader.peek_handle' });
+            expect(peekHandle.parentElement!.style.left).toBe('320px');
+        } finally {
+            document.body.removeChild(fakeNav);
+        }
     });
 });

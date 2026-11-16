@@ -402,6 +402,7 @@ describe("Terminal Components & Main View", () => {
 
         await waitFor(() => {
             expect(screen.getByText("tools.terminal.config_title")).toBeInTheDocument();
+            expect(screen.getByRole("button", { name: /OS Native Only/i })).not.toBeDisabled();
         });
 
         // Click preset 'OS Native Only'
@@ -446,6 +447,7 @@ describe("Terminal Components & Main View", () => {
 
         await waitFor(() => {
             expect(screen.getByText("tools.terminal.config_title")).toBeInTheDocument();
+            expect(screen.getByRole("button", { name: /OS Native Only/i })).not.toBeDisabled();
         });
 
         // Click preset 'OS Native Only'
@@ -498,6 +500,7 @@ describe("Terminal Components & Main View", () => {
         fireEvent.click(screen.getByText("VyloServe Stack"));
         await waitFor(() => {
             expect(screen.getByText("tools.terminal.config_title")).toBeInTheDocument();
+            expect(screen.getByRole("button", { name: /OS Native Only/i })).not.toBeDisabled();
         });
 
         // Change profile
@@ -535,6 +538,7 @@ describe("Terminal Components & Main View", () => {
         fireEvent.click(screen.getByText("VyloServe Stack"));
         await waitFor(() => {
             expect(screen.getByText("tools.terminal.config_title")).toBeInTheDocument();
+            expect(screen.getByRole("button", { name: /OS Native Only/i })).not.toBeDisabled();
         });
 
         // Select global scope button

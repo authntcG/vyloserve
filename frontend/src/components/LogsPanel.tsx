@@ -32,11 +32,51 @@ export default function LogsPanel() {
     const [isCopied, setIsCopied] = useState(false);
     const [panelHeight, setPanelHeight] = useState(128);
 
+    const panelRef = useRef<HTMLDivElement>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
     const isDragging = useRef(false);
     const startY = useRef(0);
     const startHeight = useRef(0);
     const logCounter = useRef(1); // Counter deterministik pengganti random
+
+    // Sinkronisasi tinggi aktual DOM LogsPanel ke CSS variable :root (--system-logs-height)
+    // agar komponen yang sticky/fixed (misal: Treeview dan AI Doc Copilot di Markdown Viewer)
+    // dapat menyesuaikan tinggi dan batas bawahnya secara otomatis dan presisi tanpa magic number.
+    useEffect(() => {
+        const updateHeight = () => {
+            if (!panelRef.current) return;
+            const h = Math.round(panelRef.current.getBoundingClientRect().height);
+            if (h > 0) {
+                document.documentElement.style.setProperty('--system-logs-height', `${h}px`);
+                window.dispatchEvent(new CustomEvent('vylo_system_logs_resize', { detail: { height: h } }));
+            }
+        };
+
+        updateHeight();
+
+        let ro: ResizeObserver | null = null;
+        if (typeof ResizeObserver !== 'undefined' && panelRef.current) {
+            ro = new ResizeObserver(() => {
+                updateHeight();
+            });
+            ro.observe(panelRef.current);
+        }
+
+        window.addEventListener('resize', updateHeight);
+        return () => {
+            if (ro) ro.disconnect();
+            window.removeEventListener('resize', updateHeight);
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!panelRef.current) return;
+        const h = Math.round(panelRef.current.getBoundingClientRect().height);
+        if (h > 0) {
+            document.documentElement.style.setProperty('--system-logs-height', `${h}px`);
+            window.dispatchEvent(new CustomEvent('vylo_system_logs_resize', { detail: { height: h } }));
+        }
+    }, [isExpanded, panelHeight]);
 
     const handleMouseDown = (e: React.MouseEvent) => {
         isDragging.current = true;
@@ -180,7 +220,7 @@ export default function LogsPanel() {
     };
 
     return (
-        <div className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 p-4 flex flex-col gap-3 w-full relative">
+        <div ref={panelRef} className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 p-4 flex flex-col gap-3 w-full relative">
             {isExpanded && (
                 <button
                     type="button"

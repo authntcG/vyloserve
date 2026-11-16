@@ -626,93 +626,92 @@ export default function AiFloatingWidget({ activeScreen, onOpenFullPage }: AiFlo
                     )}
 
                     {/* CHAT MESSAGES BODY */}
-                    <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-2 min-h-0">
+                    <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-3.5 space-y-2 min-h-0 custom-scrollbar">
                         {messages.length === 0 && !isGenerating && (
-                            <div className="h-full flex flex-col justify-between py-2 text-slate-400">
-                                {/* Hero Card */}
-                                <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/70 dark:border-slate-800/70">
-                                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 via-primary/10 to-transparent border border-primary/20 text-primary flex items-center justify-center shrink-0 shadow-xs">
+                            <div className="h-full flex flex-col justify-center py-2 text-slate-400">
+                                <div className="w-full rounded-2xl p-4 border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 text-center flex flex-col items-center gap-3 shadow-2xs">
+                                    <div className="w-11 h-11 rounded-xl bg-primary/10 dark:bg-primary/20 text-primary flex items-center justify-center shadow-xs">
                                         <span className="material-symbols-outlined text-[22px]">smart_toy</span>
                                     </div>
-                                    <div className="flex flex-col min-w-0">
-                                        <div className="flex items-center gap-2">
-                                            <h4 className="font-semibold text-xs text-slate-800 dark:text-slate-100 truncate">
+                                    <div className="flex flex-col gap-0.5 max-w-[260px]">
+                                        <div className="flex items-center justify-center gap-2">
+                                            <h4 className="font-semibold text-xs text-slate-800 dark:text-slate-100">
                                                 {t('ai.floating_title', 'VyloServe Copilot')}
                                             </h4>
                                             <span className="px-1.5 py-0.5 text-[9px] font-semibold tracking-wider uppercase rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                                                 Ready
                                             </span>
                                         </div>
-                                        <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5">
+                                        <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
                                             {t('ai.subtitle', 'Your local server developer copilot')}
                                         </p>
                                     </div>
-                                </div>
 
-                                {/* Quick Action Suggestions */}
-                                <div className="flex flex-col gap-2 my-auto">
-                                    <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 px-1">
-                                        {t('ai.quick_prompts', 'Quick Questions')}
-                                    </span>
-                                    <button
-                                        type="button"
-                                        onClick={() => sendMessage(t('ai.quick_prompt_logs'), activeScreen)}
-                                        className="group text-left p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800/80 hover:border-primary/50 dark:hover:border-primary/50 bg-white/60 dark:bg-slate-800/40 hover:bg-primary/5 dark:hover:bg-primary/10 transition-colors flex items-center justify-between gap-2.5 cursor-pointer shadow-xs"
-                                    >
-                                        <div className="flex items-center gap-2.5 min-w-0">
-                                            <div className="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-500 flex items-center justify-center shrink-0">
-                                                <span className="material-symbols-outlined text-[16px]">bug_report</span>
-                                            </div>
-                                            <span className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate">
-                                                {t('ai.quick_prompt_logs')}
-                                            </span>
+                                    {/* Quick Action Suggestions */}
+                                    <div className="flex flex-col gap-1.5 w-full pt-1">
+                                        <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 text-left px-1">
+                                            {t('ai.quick_prompts', 'Quick Questions')}
                                         </div>
-                                        <span className="material-symbols-outlined text-[16px] text-slate-400 group-hover:text-primary group-hover:translate-x-0.5 transition-[transform,colors] shrink-0">
-                                            arrow_forward
-                                        </span>
-                                    </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => sendMessage(t('ai.quick_prompt_logs'), activeScreen)}
+                                            className="group text-left p-2 rounded-xl border border-slate-200 dark:border-slate-800/80 hover:border-primary/50 dark:hover:border-primary/50 bg-white dark:bg-slate-900/80 hover:bg-primary/5 dark:hover:bg-primary/10 transition-colors flex items-center justify-between gap-2 cursor-pointer shadow-2xs"
+                                        >
+                                            <div className="flex items-center gap-2 min-w-0">
+                                                <div className="w-6 h-6 rounded-md bg-amber-500/10 text-amber-500 flex items-center justify-center shrink-0">
+                                                    <span className="material-symbols-outlined text-[14px]">bug_report</span>
+                                                </div>
+                                                <span className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate">
+                                                    {t('ai.quick_prompt_logs')}
+                                                </span>
+                                            </div>
+                                            <span className="material-symbols-outlined text-[14px] text-slate-400 group-hover:text-primary group-hover:translate-x-0.5 transition-[transform,colors] shrink-0">
+                                                arrow_forward
+                                            </span>
+                                        </button>
 
-                                    <button
-                                        type="button"
-                                        onClick={() => sendMessage(t('ai.quick_prompt_vhost'), activeScreen)}
-                                        className="group text-left p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800/80 hover:border-primary/50 dark:hover:border-primary/50 bg-white/60 dark:bg-slate-800/40 hover:bg-primary/5 dark:hover:bg-primary/10 transition-colors flex items-center justify-between gap-2.5 cursor-pointer shadow-xs"
-                                    >
-                                        <div className="flex items-center gap-2.5 min-w-0">
-                                            <div className="w-7 h-7 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0">
-                                                <span className="material-symbols-outlined text-[16px]">dns</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => sendMessage(t('ai.quick_prompt_vhost'), activeScreen)}
+                                            className="group text-left p-2 rounded-xl border border-slate-200 dark:border-slate-800/80 hover:border-primary/50 dark:hover:border-primary/50 bg-white dark:bg-slate-900/80 hover:bg-primary/5 dark:hover:bg-primary/10 transition-colors flex items-center justify-between gap-2 cursor-pointer shadow-2xs"
+                                        >
+                                            <div className="flex items-center gap-2 min-w-0">
+                                                <div className="w-6 h-6 rounded-md bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0">
+                                                    <span className="material-symbols-outlined text-[14px]">dns</span>
+                                                </div>
+                                                <span className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate">
+                                                    {t('ai.quick_prompt_vhost')}
+                                                </span>
                                             </div>
-                                            <span className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate">
-                                                {t('ai.quick_prompt_vhost')}
+                                            <span className="material-symbols-outlined text-[14px] text-slate-400 group-hover:text-primary group-hover:translate-x-0.5 transition-[transform,colors] shrink-0">
+                                                arrow_forward
                                             </span>
-                                        </div>
-                                        <span className="material-symbols-outlined text-[16px] text-slate-400 group-hover:text-primary group-hover:translate-x-0.5 transition-[transform,colors] shrink-0">
-                                            arrow_forward
-                                        </span>
-                                    </button>
+                                        </button>
 
-                                    <button
-                                        type="button"
-                                        onClick={() => sendMessage(t('ai.quick_prompt_php'), activeScreen)}
-                                        className="group text-left p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800/80 hover:border-primary/50 dark:hover:border-primary/50 bg-white/60 dark:bg-slate-800/40 hover:bg-primary/5 dark:hover:bg-primary/10 transition-colors flex items-center justify-between gap-2.5 cursor-pointer shadow-xs"
-                                    >
-                                        <div className="flex items-center gap-2.5 min-w-0">
-                                            <div className="w-7 h-7 rounded-lg bg-indigo-500/10 text-indigo-500 flex items-center justify-center shrink-0">
-                                                <span className="material-symbols-outlined text-[16px]">settings_suggest</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => sendMessage(t('ai.quick_prompt_php'), activeScreen)}
+                                            className="group text-left p-2 rounded-xl border border-slate-200 dark:border-slate-800/80 hover:border-primary/50 dark:hover:border-primary/50 bg-white dark:bg-slate-900/80 hover:bg-primary/5 dark:hover:bg-primary/10 transition-colors flex items-center justify-between gap-2 cursor-pointer shadow-2xs"
+                                        >
+                                            <div className="flex items-center gap-2 min-w-0">
+                                                <div className="w-6 h-6 rounded-md bg-indigo-500/10 text-indigo-500 flex items-center justify-center shrink-0">
+                                                    <span className="material-symbols-outlined text-[14px]">settings_suggest</span>
+                                                </div>
+                                                <span className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate">
+                                                    {t('ai.quick_prompt_php')}
+                                                </span>
                                             </div>
-                                            <span className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate">
-                                                {t('ai.quick_prompt_php')}
+                                            <span className="material-symbols-outlined text-[14px] text-slate-400 group-hover:text-primary group-hover:translate-x-0.5 transition-[transform,colors] shrink-0">
+                                                arrow_forward
                                             </span>
-                                        </div>
-                                        <span className="material-symbols-outlined text-[16px] text-slate-400 group-hover:text-primary group-hover:translate-x-0.5 transition-[transform,colors] shrink-0">
-                                            arrow_forward
-                                        </span>
-                                    </button>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         )}
 
                         {messages.map((msg) => (
-                            <AiChatMessage key={msg.id} message={msg} />
+                            <AiChatMessage key={msg.id} message={msg} variant="floating" />
                         ))}
 
                         {/* LIVE STREAMING MESSAGE */}
@@ -726,6 +725,7 @@ export default function AiFloatingWidget({ activeScreen, onOpenFullPage }: AiFlo
                                     model: activeModel,
                                 }}
                                 isStreaming={true}
+                                variant="floating"
                             />
                         )}
 
@@ -749,7 +749,7 @@ export default function AiFloatingWidget({ activeScreen, onOpenFullPage }: AiFlo
                             setAttachedContext((prev) => ({ ...prev, [key]: !prev[key] }))
                         }
                         suggestions={dynamicSuggestions}
-                        className="p-3 border-t border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-slate-900"
+                        className="p-2.5 border-t border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-slate-900"
                     />
                 </div>
             )}

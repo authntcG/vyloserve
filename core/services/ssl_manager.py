@@ -5,6 +5,12 @@ from typing import Tuple
 
 from core.utils.system_utils import get_project_root, run_silent_command
 
+LINUX_OPENSSL_CNF = "/etc/ssl/openssl.cnf"
+LINUX_CA_CERT_DEST = "/usr/local/share/ca-certificates/VyloServeRootCA.crt"
+MSG_CA_TRUSTED_SUCCESS = "backend.ssl.ca_trusted_success"
+MSG_CA_UAC_DENIED = "backend.ssl.ca_uac_denied"
+MSG_CA_SETUP_ERROR = "backend.ssl.ca_setup_error"
+
 class SslManager:
     """Manager untuk menciptakan Certificate Authority (CA) dan menandatangani sertifikat HTTPS"""
     def __init__(self, api_ref):
@@ -14,6 +20,26 @@ class SslManager:
 
         self.ca_key = os.path.join(self.ssl_dir, 'VyloServeRootCA.key')
         self.ca_crt = os.path.join(self.ssl_dir, 'VyloServeRootCA.crt')
+
+    @staticmethod
+    def _resolve_system_linux_openssl() -> Tuple[str, str]:
+        import shutil
+        openssl_bin = shutil.which("openssl") or "/usr/bin/openssl"
+        openssl_cnf = LINUX_OPENSSL_CNF if os.path.exists(LINUX_OPENSSL_CNF) else ""
+        if not os.path.exists(openssl_bin) and not shutil.which("openssl"):
+            raise RuntimeError("OpenSSL tidak ditemukan di sistem Linux.")
+        return openssl_bin, openssl_cnf
+
+    @staticmethod
+    def _resolve_portable_linux_openssl(apache_path: str) -> Tuple[str, str]:
+        import shutil
+        openssl_bin = os.path.join(apache_path, 'bin', 'openssl')
+        if not os.path.exists(openssl_bin):
+            openssl_bin = shutil.which("openssl") or "/usr/bin/openssl"
+        openssl_cnf = os.path.join(apache_path, 'conf', 'openssl.cnf')
+        if not os.path.exists(openssl_cnf):
+            openssl_cnf = LINUX_OPENSSL_CNF if os.path.exists(LINUX_OPENSSL_CNF) else ""
+        return openssl_bin, openssl_cnf
 
     def _get_openssl_paths(self) -> Tuple[str, str]:
         status = self.api.apache.get_status()
@@ -26,27 +52,39 @@ class SslManager:
             and (status.get("system", False) or status.get("system_apache", {}).get("exists", False) or apache_path.startswith(('/usr', '/etc')))
         )
         if is_system:
-            import shutil
-            openssl_bin = shutil.which("openssl") or "/usr/bin/openssl"
-            openssl_cnf = "/etc/ssl/openssl.cnf" if os.path.exists("/etc/ssl/openssl.cnf") else ""
-            if not os.path.exists(openssl_bin) and not shutil.which("openssl"):
-                raise RuntimeError("OpenSSL tidak ditemukan di sistem Linux.")
-            return openssl_bin, openssl_cnf
+            return self._resolve_system_linux_openssl()
 
         if sys.platform == 'win32':
             return os.path.join(apache_path, 'bin', 'openssl.exe'), os.path.join(apache_path, 'conf', 'openssl.cnf')
 
-        openssl_bin = os.path.join(apache_path, 'bin', 'openssl')
-        if not os.path.exists(openssl_bin):
-            import shutil
-            openssl_bin = shutil.which("openssl") or "/usr/bin/openssl"
-        openssl_cnf = os.path.join(apache_path, 'conf', 'openssl.cnf')
-        if not os.path.exists(openssl_cnf):
-            openssl_cnf = "/etc/ssl/openssl.cnf" if os.path.exists("/etc/ssl/openssl.cnf") else ""
-        return openssl_bin, openssl_cnf
+        return self._resolve_portable_linux_openssl(apache_path)
+
+    def _trust_ca_in_system_store(self) -> bool:
+        from unittest.mock import MagicMock
+        is_win_or_mock = (sys.platform == 'win32') or isinstance(getattr(getattr(getattr(ctypes, 'windll', None), 'shell32', None), 'ShellExecuteW', None), MagicMock)
+        if is_win_or_mock:
+            cmd = f'certutil -addstore -f "Root" "{self.ca_crt}"'
+            result = ctypes.windll.shell32.ShellExecuteW(None, "runas", "cmd.exe", f"/c {cmd}", None, 0)
+            if result > 32:
+                self.api.emit_log(MSG_CA_TRUSTED_SUCCESS, "success")
+                return True
+            self.api.emit_log(MSG_CA_UAC_DENIED, "error")
+            return False
+
+        import shutil, subprocess
+        pkexec = shutil.which("pkexec")
+        if pkexec:
+            copy_res = subprocess.run([pkexec, "cp", self.ca_crt, LINUX_CA_CERT_DEST])
+            if copy_res.returncode == 0:
+                subprocess.run([pkexec, "update-ca-certificates"])
+                self.api.emit_log(MSG_CA_TRUSTED_SUCCESS, "success")
+                return True
+        self.api.emit_log(MSG_CA_UAC_DENIED, "error")
+        return False
 
     def setup_root_ca(self) -> bool:
-        if os.path.exists(self.ca_key) and os.path.exists(self.ca_crt): return True 
+        if os.path.exists(self.ca_key) and os.path.exists(self.ca_crt):
+            return True 
 
         openssl_exe, openssl_cnf = self._get_openssl_paths()
         self.api.emit_log("backend.ssl.creating_root_ca", "info")
@@ -63,33 +101,35 @@ class SslManager:
             run_silent_command(req_cmd)
 
             self.api.emit_log("backend.ssl.requesting_uac", "warn")
-            
-            from unittest.mock import MagicMock
-            is_win_or_mock = (sys.platform == 'win32') or isinstance(getattr(getattr(getattr(ctypes, 'windll', None), 'shell32', None), 'ShellExecuteW', None), MagicMock)
-            if is_win_or_mock:
-                cmd = f'certutil -addstore -f "Root" "{self.ca_crt}"'
-                result = ctypes.windll.shell32.ShellExecuteW(None, "runas", "cmd.exe", f"/c {cmd}", None, 0)
-                if result > 32:
-                    self.api.emit_log("backend.ssl.ca_trusted_success", "success")
-                    return True
-                else:
-                    self.api.emit_log("backend.ssl.ca_uac_denied", "error")
-                    return False
-            else:
-                import shutil, subprocess
-                pkexec = shutil.which("pkexec")
-                if pkexec:
-                    ca_dest = "/usr/local/share/ca-certificates/VyloServeRootCA.crt"
-                    copy_res = subprocess.run([pkexec, "cp", self.ca_crt, ca_dest])
-                    if copy_res.returncode == 0:
-                        subprocess.run([pkexec, "update-ca-certificates"])
-                        self.api.emit_log("backend.ssl.ca_trusted_success", "success")
-                        return True
-                self.api.emit_log("backend.ssl.ca_uac_denied", "error")
-                return False
+            return self._trust_ca_in_system_store()
         except Exception as e:
-            self.api.emit_log("backend.ssl.ca_setup_error", "error", {"e": str(e)})
+            self.api.emit_log(MSG_CA_SETUP_ERROR, "error", {"e": str(e)})
             return False
+
+    def is_ca_installed(self) -> bool:
+        """Mengecek apakah VyloServe Root CA sudah dipercaya di trust store OS"""
+        if sys.platform == 'win32':
+            try:
+                res = run_silent_command(['certutil', '-store', 'root', 'VyloServe Local Root CA'])
+                return res.returncode == 0 and 'VyloServe Local Root CA' in (res.stdout or '')
+            except Exception:
+                return False
+        else:
+            return os.path.exists(LINUX_CA_CERT_DEST)
+
+    def install_ca_cert(self) -> dict:
+        """Memasang / menginstal ulang sertifikat Root CA ke OS Root store dengan hak administrator"""
+        try:
+            if not os.path.exists(self.ca_crt) or not os.path.exists(self.ca_key):
+                if not self.setup_root_ca():
+                    return {"status": "error", "message": MSG_CA_SETUP_ERROR, "args": {"e": "Failed to generate root CA"}}
+
+            if self._trust_ca_in_system_store():
+                return {"status": "success", "message": MSG_CA_TRUSTED_SUCCESS}
+            return {"status": "error", "message": MSG_CA_UAC_DENIED}
+        except Exception as e:
+            self.api.emit_log(MSG_CA_SETUP_ERROR, "error", {"e": str(e)})
+            return {"status": "error", "message": MSG_CA_SETUP_ERROR, "args": {"e": str(e)}}
 
     def generate_domain_cert(self, domain: str) -> Tuple[str, str]:
         self.setup_root_ca()

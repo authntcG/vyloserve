@@ -18,6 +18,14 @@ import Base64Main from './menu/tools/base64-encode-decode/Main';
 import QrMain from './menu/tools/qr-generator/Main';
 import TunnelsMain from './menu/tools/tunnels/Main';
 import DocsReaderMain from './menu/tools/markdown-viewer/Main';
+import PortManagerMain from './menu/tools/port-manager/Main';
+import MailSandboxMain from './menu/tools/mail-sandbox/Main';
+import WebhookInspectorMain from './menu/tools/webhook-inspector/Main';
+import JsonStudioMain from './menu/utilities/json-studio/Main';
+import JwtDebuggerMain from './menu/utilities/jwt-debugger/Main';
+import CryptoGeneratorMain from './menu/utilities/crypto-generator/Main';
+import RegexEpochMain from './menu/utilities/regex-epoch/Main';
+import DataConverterMain from './menu/utilities/data-converter/Main';
 import AiAssistantMain from './menu/tools/ai-assistant/Main';
 import TerminalMain from './menu/tools/terminal/Main';
 import AiFloatingWidget from './menu/tools/ai-assistant/components/AiFloatingWidget';
@@ -65,12 +73,14 @@ async function handleUpdateAvailable(
   window.pywebview.api.start_download_update?.(upd.asset_url, upd.asset_name);
 }
 
-function useAppSettingsBootstrap(confirm: any, t: any) {
+function useAppSettingsBootstrap() {
   const [isApiReady, setIsApiReady] = useState(false);
   const [isSettingsLoaded, setIsSettingsLoaded] = useState(false);
+  const [healthReport, setHealthReport] = useState<any>(null);
+  const [pendingUpdate, setPendingUpdate] = useState<any>(null);
 
   useEffect(() => {
-    const applyAppSettings = (res: any) => {
+    const applyAppSettings = async (res: any) => {
       if (res?.status === 'success') {
         if (res.data?.language) {
           i18n.changeLanguage(res.data.language);
@@ -85,17 +95,35 @@ function useAppSettingsBootstrap(confirm: any, t: any) {
         window.dispatchEvent(new CustomEvent('vylo_ai_settings_changed', {
           detail: res.data || {}
         }));
+      }
 
-        if (window.pywebview.api.check_for_updates) {
-          window.pywebview.api.check_for_updates().then((upd: any) => {
-            if (upd?.status === 'success' && upd?.is_update_available) {
-              handleUpdateAvailable(upd, confirm, t);
-            }
-          }).catch((e: any) => console.error("Gagal mengecek pembaruan:", e));
+      // Ambil Laporan Startup Module Health Check dari fase Native OS Splash Bootstrapper
+      if (window.pywebview?.api?.get_startup_health_report) {
+        try {
+          const report = await window.pywebview.api.get_startup_health_report();
+          setHealthReport(report);
+        } catch (e) {
+          console.error("Gagal mengambil startup health report:", e);
+        }
+      } else if (window.pywebview?.api?.run_startup_health_check) {
+        try {
+          const report = await window.pywebview.api.run_startup_health_check();
+          setHealthReport(report);
+        } catch (e) {
+          console.error("Gagal menjalankan startup health check:", e);
         }
       }
+
       setIsSettingsLoaded(true);
       setIsApiReady(true);
+
+      if (window.pywebview?.api?.check_for_updates) {
+        window.pywebview.api.check_for_updates().then((upd: any) => {
+          if (upd?.status === 'success' && upd?.is_update_available) {
+            setPendingUpdate(upd);
+          }
+        }).catch((e: any) => console.error("Gagal mengecek pembaruan:", e));
+      }
     };
 
     const checkApi = () => {
@@ -133,7 +161,14 @@ function useAppSettingsBootstrap(confirm: any, t: any) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { isApiReady, isSettingsLoaded };
+  return {
+    isApiReady,
+    isSettingsLoaded,
+    healthReport,
+    pendingUpdate,
+    setHealthReport,
+    setPendingUpdate,
+  };
 }
 
 function useGlobalShortcutsAndNavigation(setActiveMenu: React.Dispatch<React.SetStateAction<string>>) {
@@ -164,24 +199,100 @@ function useGlobalShortcutsAndNavigation(setActiveMenu: React.Dispatch<React.Set
   }, [setActiveMenu]);
 }
 
+interface PageWrapperProps {
+  readonly menuKey: string;
+  readonly activeMenu: string;
+  readonly visitedMenus: readonly string[];
+  readonly activeClassName?: string;
+  readonly children: React.ReactNode;
+}
+
+function PageWrapper({ menuKey, activeMenu, visitedMenus, activeClassName = 'block', children }: PageWrapperProps) {
+  if (!visitedMenus.includes(menuKey)) return null;
+  const isActive = activeMenu === menuKey;
+  return (
+    <div className={isActive ? activeClassName : 'hidden'}>
+      {children}
+    </div>
+  );
+}
+
 function AppPagesView({ activeMenu }: { readonly activeMenu: string }) {
-  const isFillScreen = activeMenu === 'ai-assistant' || activeMenu === 'terminal';
+  const [visitedMenus, setVisitedMenus] = useState<string[]>(() => [activeMenu]);
+
+  useEffect(() => {
+    setVisitedMenus(prev => (prev.includes(activeMenu) ? prev : [...prev, activeMenu]));
+  }, [activeMenu]);
+
+  const isFillScreen = activeMenu === 'ai-assistant' || activeMenu === 'terminal' || activeMenu === 'docs-reader';
   return (
     <div className={`flex-1 min-h-0 px-4 py-6 md:px-8 md:py-8 relative ${isFillScreen ? 'flex flex-col h-full overflow-hidden' : 'overflow-y-auto'}`}>
-      <div className={activeMenu === 'dashboard' ? 'block' : 'hidden'}><DashboardMain /></div>
-      <div className={activeMenu === 'projects' ? 'block' : 'hidden'}><ProjectsMain /></div>
-      <div className={activeMenu === 'apache' ? 'block' : 'hidden'}><ApacheMain /></div>
-      <div className={activeMenu === 'php' ? 'block' : 'hidden'}><PhpMain /></div>
-      <div className={activeMenu === 'database' ? 'block' : 'hidden'}><DatabaseMain /></div>
-      <div className={activeMenu === 'ai-assistant' ? 'flex-1 min-h-0 flex flex-col w-full' : 'hidden'}><AiAssistantMain isActive={activeMenu === 'ai-assistant'} /></div>
-      <div className={activeMenu === 'terminal' ? 'flex-1 min-h-0 flex flex-col w-full' : 'hidden'}><TerminalMain isActive={activeMenu === 'terminal'} /></div>
-      <div className={activeMenu === 'tunnels' ? 'block' : 'hidden'}><TunnelsMain /></div>
-      <div className={activeMenu === 'runtimes' ? 'block' : 'hidden'}><RuntimesMain /></div>
-      <div className={activeMenu === 'git' ? 'block' : 'hidden'}><GitMain /></div>
-      <div className={activeMenu === 'docs-reader' ? 'block' : 'hidden'}><DocsReaderMain /></div>
-      <div className={activeMenu === 'qr' ? 'block' : 'hidden'}><QrMain /></div>
-      <div className={activeMenu === 'base64' ? 'block' : 'hidden'}><Base64Main /></div>
-      <div className={activeMenu === 'url-encode-decode' ? 'block' : 'hidden'}><UrlEncodeDecodeMain /></div>
+      <PageWrapper menuKey="dashboard" activeMenu={activeMenu} visitedMenus={visitedMenus}>
+        <DashboardMain />
+      </PageWrapper>
+      <PageWrapper menuKey="projects" activeMenu={activeMenu} visitedMenus={visitedMenus}>
+        <ProjectsMain />
+      </PageWrapper>
+      <PageWrapper menuKey="apache" activeMenu={activeMenu} visitedMenus={visitedMenus}>
+        <ApacheMain />
+      </PageWrapper>
+      <PageWrapper menuKey="php" activeMenu={activeMenu} visitedMenus={visitedMenus}>
+        <PhpMain />
+      </PageWrapper>
+      <PageWrapper menuKey="database" activeMenu={activeMenu} visitedMenus={visitedMenus}>
+        <DatabaseMain />
+      </PageWrapper>
+      <PageWrapper menuKey="ai-assistant" activeMenu={activeMenu} visitedMenus={visitedMenus} activeClassName="flex-1 min-h-0 flex flex-col w-full">
+        <AiAssistantMain isActive={activeMenu === 'ai-assistant'} />
+      </PageWrapper>
+      <PageWrapper menuKey="terminal" activeMenu={activeMenu} visitedMenus={visitedMenus} activeClassName="flex-1 min-h-0 flex flex-col w-full">
+        <TerminalMain isActive={activeMenu === 'terminal'} />
+      </PageWrapper>
+      <PageWrapper menuKey="port-manager" activeMenu={activeMenu} visitedMenus={visitedMenus}>
+        <PortManagerMain />
+      </PageWrapper>
+      <PageWrapper menuKey="mail-sandbox" activeMenu={activeMenu} visitedMenus={visitedMenus}>
+        <MailSandboxMain />
+      </PageWrapper>
+      <PageWrapper menuKey="webhook-inspector" activeMenu={activeMenu} visitedMenus={visitedMenus}>
+        <WebhookInspectorMain />
+      </PageWrapper>
+      <PageWrapper menuKey="tunnels" activeMenu={activeMenu} visitedMenus={visitedMenus}>
+        <TunnelsMain />
+      </PageWrapper>
+      <PageWrapper menuKey="runtimes" activeMenu={activeMenu} visitedMenus={visitedMenus}>
+        <RuntimesMain />
+      </PageWrapper>
+      <PageWrapper menuKey="git" activeMenu={activeMenu} visitedMenus={visitedMenus}>
+        <GitMain />
+      </PageWrapper>
+      <PageWrapper menuKey="docs-reader" activeMenu={activeMenu} visitedMenus={visitedMenus} activeClassName="flex-1 min-h-0 flex flex-col w-full h-full">
+        <DocsReaderMain />
+      </PageWrapper>
+      <PageWrapper menuKey="json-studio" activeMenu={activeMenu} visitedMenus={visitedMenus}>
+        <JsonStudioMain />
+      </PageWrapper>
+      <PageWrapper menuKey="jwt-debugger" activeMenu={activeMenu} visitedMenus={visitedMenus}>
+        <JwtDebuggerMain />
+      </PageWrapper>
+      <PageWrapper menuKey="crypto-generator" activeMenu={activeMenu} visitedMenus={visitedMenus}>
+        <CryptoGeneratorMain />
+      </PageWrapper>
+      <PageWrapper menuKey="regex-epoch" activeMenu={activeMenu} visitedMenus={visitedMenus}>
+        <RegexEpochMain />
+      </PageWrapper>
+      <PageWrapper menuKey="data-converter" activeMenu={activeMenu} visitedMenus={visitedMenus}>
+        <DataConverterMain />
+      </PageWrapper>
+      <PageWrapper menuKey="qr" activeMenu={activeMenu} visitedMenus={visitedMenus}>
+        <QrMain />
+      </PageWrapper>
+      <PageWrapper menuKey="base64" activeMenu={activeMenu} visitedMenus={visitedMenus}>
+        <Base64Main />
+      </PageWrapper>
+      <PageWrapper menuKey="url-encode-decode" activeMenu={activeMenu} visitedMenus={visitedMenus}>
+        <UrlEncodeDecodeMain />
+      </PageWrapper>
     </div>
   );
 }
@@ -193,7 +304,14 @@ function AppContent() {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isDesktopCollapsed, setIsDesktopCollapsed] = useState(false);
   const [activeMenu, setActiveMenu] = useState('dashboard');
-  const { isApiReady, isSettingsLoaded } = useAppSettingsBootstrap(confirm, t);
+  const {
+    isApiReady,
+    isSettingsLoaded,
+    healthReport,
+    pendingUpdate,
+    setHealthReport,
+    setPendingUpdate,
+  } = useAppSettingsBootstrap();
   useGlobalShortcutsAndNavigation(setActiveMenu);
 
   useEffect(() => {
@@ -201,6 +319,73 @@ function AppContent() {
       setActiveMenu('dashboard');
     }
   }, [enableAi, activeMenu]);
+
+  // Setelah jendela utama siap, tampilkan alert/laporan jika ada modul yang di-purge atau deferred
+  useEffect(() => {
+    if (!isApiReady || !isSettingsLoaded) return;
+
+    if (healthReport?.status === 'success') {
+      const recovered = healthReport.recovered || [];
+      const purged = healthReport.purged || [];
+      const deferred = healthReport.deferred_offline || [];
+
+      if (purged.length > 0 || deferred.length > 0) {
+        confirm({
+          title: t('ui.bootstrap.alert_title', 'Startup Health Check & Cleansing Report'),
+          type: 'warning',
+          confirmText: t('common.ok', 'OK'),
+          message: (
+            <div className="flex flex-col gap-3 text-xs max-h-80 overflow-y-auto">
+              {purged.length > 0 && (
+                <div className="flex flex-col gap-1.5 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-700 dark:text-red-300">
+                  <div className="flex items-center gap-1.5 font-semibold text-sm text-red-600 dark:text-red-400">
+                    <span className="material-symbols-outlined text-[18px]">delete_sweep</span>
+                    <span>{t('ui.bootstrap.alert_purged_title', 'Damaged & Cleaned Modules')}</span>
+                  </div>
+                  {purged.map((p: any, idx: number) => (
+                    <div key={`purged-${p.module || p.reason_key || idx}-${idx}`} className="flex flex-col gap-0.5">
+                      <span>• {t(p.reason_key || '', p.args || {}) as string}</span>
+                      {p.preserved_data_path && (
+                        <span className="font-mono text-[11px] text-slate-600 dark:text-slate-400 pl-3">
+                          {t('ui.bootstrap.alert_preserved_data', 'Database records were preserved at: {{path}}', { path: p.preserved_data_path }) as string}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {deferred.length > 0 && (
+                <div className="flex flex-col gap-1.5 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-300">
+                  <div className="flex items-center gap-1.5 font-semibold text-sm text-amber-600 dark:text-amber-400">
+                    <span className="material-symbols-outlined text-[18px]">wifi_off</span>
+                    <span>{t('ui.bootstrap.alert_deferred_title', 'Recovery Deferred (Offline)') as string}</span>
+                  </div>
+                  {deferred.map((d: any, idx: number) => (
+                    <span key={`deferred-${d.module || d.reason_key || idx}-${idx}`}>• {t(d.reason_key || '', d.args || {}) as string}</span>
+                  ))}
+                </div>
+              )}
+              {recovered.length > 0 && (
+                <div className="flex flex-col gap-1.5 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300">
+                  <div className="flex items-center gap-1.5 font-semibold text-sm text-emerald-600 dark:text-emerald-400">
+                    <span className="material-symbols-outlined text-[18px]">health_and_safety</span>
+                    <span>{t('ui.bootstrap.alert_recovered_title', 'Auto-Recovered Modules')}</span>
+                  </div>
+                  {recovered.map((r: any, idx: number) => (
+                    <span key={`recovered-${r.module || r.reason_key || idx}-${idx}`}>• {t(r.reason_key || '', r.args || {}) as string}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        });
+        setHealthReport(null);
+      }
+    } else if (pendingUpdate) {
+      handleUpdateAvailable(pendingUpdate, confirm, t);
+      setPendingUpdate(null);
+    }
+  }, [isApiReady, isSettingsLoaded, healthReport, pendingUpdate, confirm, t, setHealthReport, setPendingUpdate]);
 
   if (!isApiReady || !isSettingsLoaded) {
     return <AppSkeletonLayout />;
@@ -223,7 +408,7 @@ function AppContent() {
           enableAi={enableAi}
         />
 
-        <div className={`flex flex-col flex-1 min-w-0 h-full min-h-0 transition-[margin] duration-300 ${mainContentMargin}`}>
+        <div className={`flex flex-col flex-1 min-w-0 h-full min-h-0 transition-[margin] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${mainContentMargin}`}>
           <AppPagesView activeMenu={activeMenu} />
 
           <div className="flex-none min-h-0 relative">

@@ -16,12 +16,12 @@ export default function EmptyState({ icon, title, description, actionText, onAct
                 </span>
             </div>
             
-            <h3 className="text-lg font-medium text-slate-900 dark:text-slate-100 mb-2 whitespace-nowrap">
+            <h3 className="text-lg font-medium text-slate-900 dark:text-slate-100 mb-2 break-words">
                 {title}
             </h3>
             
             {description && (
-                <p className="min-w-[250px] max-w-md mx-auto text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
+                <p className="max-w-2xl mx-auto text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
                     {description}
                 </p>
             )}

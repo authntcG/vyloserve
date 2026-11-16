@@ -36,6 +36,7 @@ VyloServe terintegrasi sangat dalam dengan sistem operasi Windows (membongkar re
 - Gunakan *Fixture Mock API* (`mock_api` dalam file `tests/conftest.py`) saat menginisiasi Manager agar aplikasi tidak error mencari referensi *Pywebview bridge*.
 - **Setiap fitur atau fungsi publik baru WAJIB disertai unit test.** Tidak ada pengecualian.
 - 🚨 **Isolasi Mutlak File Konfigurasi Fisik & Binaries (Anti-Data Corruption):** Test suite DILARANG KERAS memodifikasi, menimpa, atau menghapus file konfigurasi fisik di `data/*.json` (seperti `runtimes.json`, `git.json`, `settings.json`) maupun direktori `bin/` milik lingkungan pengembangan pengembang. Gunakan `tmp_path` pytest, isolasi `base_dir`, atau mock helper `read_json`/`write_json` secara ketat agar file runtime development pengembang tidak hilang atau terhapus saat test dijalankan (Pelajaran dari bug #92).
+- 🚨 **Isolasi Mutlak Konfigurasi Host Machine (Rule #41):** Test suite DILARANG KERAS membaca atau bergantung pada konfigurasi host machine pengembang yang sebenarnya (seperti `os.environ.get('LOCALAPPDATA')`, `%APPDATA%`, socket port lokal nyata, atau instalasi biner eksternal). Seluruh fungsi yang membaca path host machine (misal `glab.exe` di `%LOCALAPPDATA%\Programs\GitLab-CLI\bin\glab.exe`) WAJIB di-mock di dalam test menggunakan `@patch.dict(os.environ, ...)` atau `patch('os.path.exists')` terisolasi, agar test tidak menghasilkan *false positive/negative* saat dijalankan di mesin developer berbeda atau runner CI/CD.
 - ⚠️ **Heuristik deteksi mock yang lolos:** kalau satu file/fungsi test tiba-tiba jauh lebih lambat dari biasanya (detik → puluhan detik), curigai ada panggilan jaringan/subprocess/file-system nyata yang lolos dari mock — **jangan** anggap itu cuma "mesin sedang lambat". Ini persis bagaimana ditemukan bahwa `test_php_install_version` diam-diam mengunduh `composer.phar` sungguhan dari internet tiap kali dijalankan (`_install_composer()` tidak di-mock) — durasi suite yang tidak wajar adalah sinyalnya, bukan assertion yang gagal (test itu tetap "lulus").
 
 ### Skenario Test yang Wajib Dicover per Fungsi
@@ -83,13 +84,20 @@ tests/
 │   ├── test_terminal.py                  # Unit test Developer Terminal session & environment scoping
 │   ├── test_terminal_persistence.py      # Unit test persistensi config, preset & workspace terminal
 │   ├── test_runtimes_manager.py          # Unit test untuk core/services/runtimes_manager.py (multi-version & PATH Hub)
+│   ├── test_gitlab_manager.py            # Unit test untuk core/services/gitlab_manager.py (glab portable, auth, VPN probing)
+│   ├── test_health_manager.py            # Unit test untuk core/services/health_manager.py (orphan cleanup, port conflict, integrity)
+│   ├── test_mail_sandbox.py              # Unit test untuk core/services/mail_sandbox.py (SMTP daemon & message parsing)
+│   ├── test_webhook_inspector.py         # Unit test untuk core/services/webhook_inspector.py (HTTP daemon & payload logging)
+│   ├── test_port_manager.py              # Unit test untuk core/services/port_manager.py (OS socket scanning & safe process kill)
+│   ├── test_crypto_tools.py              # Unit test untuk core/services/crypto_tools.py (hashing, HMAC, UUID, random tokens)
 │   ├── test_service_lifecycles.py        # Unit test orkestrasi start/stop antar service
 │   └── test_<nama_service>.py            # Pola: test_<nama_file_source>.py
 └── test_utils/
     ├── test_cancellation.py              # Unit test token pembatalan proses asinkron & rollback
     ├── test_file_utils.py                # Unit test untuk core/utils/file_utils.py
     ├── test_network_utils.py             # Unit test konektivitas internet & DNS probing
-    └── test_system_utils.py              # Unit test untuk core/utils/system_utils.py
+    ├── test_system_utils.py              # Unit test untuk core/utils/system_utils.py
+    └── test_splash_window.py             # Unit test untuk core/utils/splash_window.py (Native Splash & theme sync)
 ```
 
 **Konvensi Penamaan Fungsi Test (Wajib Deskriptif):**
@@ -214,7 +222,7 @@ Pola: `tests/<mirror-struktur-src>/<NamaKomponen>.test.tsx`.
 
 Helper bersama ada di `tests/test-utils.tsx` (re-export semua dari `@testing-library/react` ditambah `mockPywebviewApi()` dan `renderWithToast()`) — **selalu pakai helper ini, jangan tulis ulang boilerplate mock `window.pywebview.api` atau `<ToastProvider>` wrapper di tiap file test**. Untuk sekelompok komponen yang bentuknya identik (mis. empat form `InstallGo/Java/Node/Python.tsx` yang sama-sama forwardRef + `submit()` + fetch-versions-on-mount), buat SATU factory function bersama (lihat `tests/menu/runtimes/installRuntimeTestKit.tsx`) lalu panggil dari tiap file test dengan config berbeda, dan gunakan `it.each`/`describe.each` untuk variasi data (lihat `tests/menu/database/Settings.test.tsx` untuk field MySQL/PostgreSQL, atau `tests/menu/runtimes/Main.test.tsx` untuk keempat engine). Pola ini WAJIB diikuti untuk suite test baru — proyek ini menjaga *new code duplication* SonarQube di bawah 3%, dan test suite yang tidak DRY adalah kontributor terbesar untuk duplication findings.
 
-Per audit test coverage terbaru (November 2026), seluruh `src/**/*.{ts,tsx}` frontend punya coverage statement **>95%** (**975 test case di 95 file test** frontend serta **874 test item (873 passed, 1 skipped) di 27 file test** backend Python, dengan 0 Bugs, 0 Vulnerabilities, 0 Security Hotspots, dan 0 Code Smells di SonarQube — angka ini bergerak seiring fitur baru ditambahkan; jalankan `npm run test:coverage` untuk laporan terbaru per file, jangan andalkan angka statis di dokumen ini). Cakupan pengujian frontend mencakup komponen bersama tabel (`DataTable.test.tsx`, `FilterChips.test.tsx`, `ViewModeToggle.test.tsx`, `InstalledBadge.test.tsx`), pengujian orkestrasi `RuntimePathHub.test.tsx` dan `RuntimeTable.test.tsx`, pengujian Projects Hub (`projects.test.tsx`, `NewProjectModal.test.tsx`, dll.), modul Terminal (`terminal_settings.test.tsx`, `terminal_presets.test.tsx`, `terminal_config.test.tsx`), pengujian Database Schemas (`DatabaseSchemaModal.test.tsx`), serta pengujian Network Resilience (`NetworkContext.test.tsx`). Beberapa baris tetap sengaja tidak dicover karena secara nyata *unreachable* lewat UI (mis. validasi `if (!x) return` di dalam handler yang tombol pemicunya sendiri sudah `disabled` oleh kondisi yang sama — pola berulang yang ditemukan di banyak form Modal proyek ini; lihat commit history test untuk contoh).
+Per audit test coverage terbaru (November 2026), seluruh `src/**/*.{ts,tsx}` frontend punya coverage statement **>95%** (**1.243 test case di 126 file test** frontend serta **1.160 test item (1.159 passed, 1 skipped) di 34 file test** backend Python dengan coverage **89.56%**, serta 0 Bugs, 0 Vulnerabilities, 0 Security Hotspots, dan 0 Code Smells di SonarQube — angka ini bergerak seiring fitur baru ditambahkan; jalankan `npm run test:coverage` untuk laporan terbaru per file, jangan andalkan angka statis di dokumen ini). Cakupan pengujian frontend mencakup komponen bersama tabel (`DataTable.test.tsx`, `FilterChips.test.tsx`, `ViewModeToggle.test.tsx`, `InstalledBadge.test.tsx`, `Input.test.tsx`, `TableActionMenu.test.tsx`), pengujian orkestrasi `RuntimePathHub.test.tsx` dan `RuntimeTable.test.tsx`, pengujian Projects Hub (`projects.test.tsx`, `ProjectAppLogsModal.test.tsx`, `ProjectEnvModal.test.tsx`, `ProjectSslHostsModal.test.tsx`, `NewProjectModal.test.tsx`, dll.), modul Terminal (`terminal_settings.test.tsx`, `terminal_presets.test.tsx`, `terminal_config.test.tsx`), pengujian Database Schemas (`DatabaseSchemaModal.test.tsx`) & Redis Stats (`RedisStatsWidget.test.tsx`), pengujian Network Tools (`mail-sandbox`, `webhook-inspector`, `port-manager`), pengujian GitLab CLI (`GitLabIntegrationTab.test.tsx`), seluruh 5 Developer Utilities (`json-studio`, `jwt-debugger`, `crypto-generator`, `regex-epoch`, `data-converter`), serta pengujian Network Resilience (`NetworkContext.test.tsx`). Beberapa baris tetap sengaja tidak dicover karena secara nyata *unreachable* lewat UI (mis. validasi `if (!x) return` di dalam handler yang tombol pemicunya sendiri sudah `disabled` oleh kondisi yang sama — pola berulang yang ditemukan di banyak form Modal proyek ini; lihat commit history test untuk contoh).
 
 > ✅ **Sudah diperbaiki:** Test `tests/components/Sidebar.test.tsx` ("opens the Tools dropdown and shows tool items when clicked...") sempat gagal deterministik — menguji interaksi dropdown "Tools" (klik untuk expand) yang ternyata sudah dihapus dari UI (menu Tools sekarang selalu tampil flat, tidak perlu diklik untuk dibuka). Test ditulis ulang untuk mencerminkan perilaku sebenarnya, plus satu test lain dengan pola `.closest('button')` serupa yang ternyata "lulus diam-diam tanpa menguji apa-apa" (`user.click(null!)` jadi no-op) juga dibersihkan. Diverifikasi 3x run `vitest run` berturut-turut tanpa kegagalan — indikasi *flakiness* yang sempat dilaporkan tidak muncul lagi setelah fix. Detail lengkap: `docs/known_bugs.md` #33.
 
@@ -479,7 +487,7 @@ VyloServe menerapkan standar ketat Zero-Tolerance untuk kode baru (*New Code*):
 - **Vulnerabilities:** 0
 - **Security Hotspots:** 0 (100% reviewed)
 - **Code Smells:** 0
-- **Coverage on New Code:** >= 80.0% (aktual: backend ~86.2%, frontend ~80.1%, overall ~88% BE / >95% FE)
+- **Coverage on New Code:** >= 80.0% (aktual: backend 89.56%, frontend >95%, overall >91%)
 - **Duplicated Lines on New Code:** <= 3.0% (aktual: backend 0.0%, frontend ~2.55%)
 
 Setiap PR atau serah terima fitur yang menurunkan coverage di bawah 80% atau menghasilkan bug/code smell baru otomatis gagal lolos Quality Gate.
@@ -513,30 +521,49 @@ python scanner.py
    - `--no-ai`: Menggunakan mesin heuristik berbasis aturan SonarQube tanpa memanggil AI.
    - `--noreport`: Mode dry-run konsol tanpa men-generate file laporan `.md`.
 
-## 8. Proses Kompilasi Produksi (Build Project)
-Untuk membuat aplikasi mandiri (Standalone Windows Executable `.exe`) yang bisa didistribusikan ke pengguna akhir:
+## 8. Proses Kompilasi Produksi (Packaging & PyInstaller Build)
+Untuk membuat aplikasi mandiri (*Standalone Windows Executable* `.exe`) yang siap didistribusikan ke pengguna akhir:
 
 > **CATATAN DETEKSI OTOMATIS (AUTO-DETECT):**
-> Variabel `IS_PRODUCTION` pada `main.py` kini dideteksi secara otomatis melalui `IS_PRODUCTION = getattr(sys, 'frozen', False) or False`. Anda **tidak perlu lagi mengubah manual** variabel tersebut saat melakukan *build*. Saat dikompilasi oleh PyInstaller, binary otomatis berjalan dalam mode production dan membaca aset frontend bundle (`frontend/dist`), sedangkan saat dijalankan via `python main.py`, aplikasi otomatis berjalan dalam mode development (`localhost:55173`).
+> Variabel `IS_PRODUCTION` pada `main.py` dideteksi secara otomatis melalui `IS_PRODUCTION = getattr(sys, 'frozen', False) or False`. Anda **tidak perlu lagi mengubah manual** variabel tersebut saat melakukan *build*. Saat dikompilasi oleh PyInstaller, binary otomatis berjalan dalam mode production dan membaca aset frontend bundle (`frontend/dist`), sedangkan saat dijalankan via `python main.py`, aplikasi otomatis berjalan dalam mode development (`localhost:55173`).
 
-**Langkah 1: Build Frontend**
-Kompilasi kode React TypeScript menjadi JavaScript statis:
+### Langkah 1: Build Frontend (Vite)
+Kompilasi kode React TypeScript menjadi JavaScript statis yang dioptimalkan:
 ```powershell
 cd frontend
 npm run build
+cd ..
 ```
 *(File hasil kompilasi akan diletakkan di `frontend/dist`)*.
 
-**Langkah 2: Build Backend (PyInstaller)**
-Kembali ke root proyek. Gunakan `--noconsole` agar terminal CMD latar belakang disembunyikan.
+### Langkah 2: Build Executable Desktop (PyInstaller Spec File)
+Seluruh konfigurasi bundling produksi VyloServe dipusatkan secara deklaratif di dalam **`main.spec`** (*Single Source of Truth* untuk packaging).
 
-*   **Opsi A (OneDir / Standar - Lebih Cepat Dimuat):**
-    ```powershell
-    pyinstaller --noconsole --add-data "frontend/dist;frontend/dist" --add-data "frontend/src/assets;frontend/src/assets" main.py
-    ```
-*   **Opsi B (OneFile - Hanya 1 file `.exe` rapi, namun booting agak lambat):**
-    ```powershell
-    pyinstaller --noconsole --onefile --icon "frontend\src\assets\icons-nobg.ico" --add-data "frontend/dist;frontend/dist" --add-data "frontend/src/assets;frontend/src/assets" main.py
-    ```
+**Kontrak Packaging `main.spec` (Rule #42 `AGENTS.md`):**
+1. **Aset Statis Wajib (`datas`):**
+   - `'frontend/dist'` -> `'frontend/dist'` (Bundle UI React)
+   - `'frontend/src/assets'` -> `'frontend/src/assets'` (Ikon, logo frosted glass, splash screen)
+   - `'frontend/src/locales'` -> `'frontend/src/locales'` (**WAJIB** untuk translasi bilingual bootstrapper native splash saat startup mode compiled, lihat Bug #112)
+2. **Dependensi Pustaka Pihak Ketiga:**
+   - `webview_datas`: Bundling runtime PyWebView (`pywebview.lib`)
+   - `certifi_datas`: Bundling sertifikat SSL CA bundle (`certifi.where()`) untuk keamanan request HTTPS backend
+3. **Hidden Imports Eksplisit:**
+   - `engineio.async_drivers.threading`, `win11toast`, `win32timezone`, `psutil`, `pystray`.
 
-*(Catatan: pastikan fungsi `sys.frozen` telah dikelola dengan baik pada kode `system_utils.py` agar direktori Root tetap terlacak saat dalam bentuk compiled `.exe`).*
+**Perintah Kompilasi Resmi:**
+```powershell
+pyinstaller main.spec --clean
+```
+Hasil executable `.exe` mandiri beserta dependensinya akan terbit di folder `dist/VyloServe/`.
+
+### 8.1 Resolusi Path Runtime (`get_resource_path`)
+Seluruh fungsi backend Python yang membaca file statis (gambar, translasi locale JSON, template konfigurasi) **DILARANG KERAS** mengasumsikan path relatif murni atau `os.getcwd()` karena di mode compiled (`sys.frozen`), PyInstaller mengekstrak aset ke direktori sementara `sys._MEIPASS`.
+
+**Pola Wajib:**
+```python
+from core.utils.file_utils import get_resource_path
+
+# Mendeteksi sys._MEIPASS di mode frozen vs base_dir di mode development
+locale_path = get_resource_path(os.path.join("frontend", "src", "locales", lang, "translation.json"))
+```
+Pola ini menjamin bootstrapper, splash screen, dan modul server berjalan 100% konsisten baik saat dijalankan dari source code maupun setelah di-package menjadi `.exe`.

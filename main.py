@@ -231,7 +231,7 @@ def get_theme_bg_color():
 # --- KONFIGURASI ENVIRONMENT ---
 # Auto-detect mode frozen (.exe) atau fallback ke False untuk Development
 IS_PRODUCTION = getattr(sys, 'frozen', False) or False
-APP_VERSION = "0.0.7-beta"
+APP_VERSION = "0.0.8-alpha"
 
 def get_mutex_name(is_production: bool = IS_PRODUCTION) -> str:
     return "VyloServe_App_Mutex_v1" if is_production else "VyloServe_Dev_App_Mutex_v1"
@@ -461,7 +461,12 @@ class AppLifecycle:
 
         # Failsafe watchdog timer: pastikan proses benar-benar keluar maksimal dalam 3 detik
         # meskipun terjadi pemblokiran tak terduga pada library GTK/OS shutdown.
-        threading.Timer(3.0, lambda: os._exit(0)).start()
+        # Timer disimpan dan dibatalkan di blok finally agar tidak menjadi time-bomb
+        # yang membunuh proses test runner (pytest) beberapa detik setelah perform_exit dipanggil.
+        # Lihat docs/known_bugs.md #66.
+        watchdog = threading.Timer(3.0, lambda: os._exit(0))
+        watchdog.daemon = True
+        watchdog.start()
 
         try:
             # 1. Nonaktifkan emit event UI agar proses shutdown tidak pernah terblokir oleh IPC webview
@@ -483,6 +488,10 @@ class AppLifecycle:
             # 7. Bersihkan semua child processes yang tersisa untuk mencegah zombie process
             self._cleanup_child_processes()
         finally:
+            try:
+                watchdog.cancel()
+            except Exception:
+                pass
             os._exit(0)
 
     def on_closing(self):
@@ -604,47 +613,31 @@ def setup_systray(lifecycle: AppLifecycle, icon_path: str):
         print(f"[FATAL TRAY ERROR] Gagal menginisialisasi System Tray: {e}")
 
 
-# --- SIGNAL & CONSOLE CONTROL HANDLER (CLEAN EXIT ON CTRL+C) ---
-def setup_signal_handlers(lifecycle: AppLifecycle):
-    """
-    Menangani Ctrl+C (SIGINT), SIGTERM, dan event konsol Windows (CTRL_C_EVENT,
-    CTRL_CLOSE_EVENT, dll.) agar ketika user menekan Ctrl+C di terminal/CMD
-    atau menutup jendela terminal, aplikasi mematikan seluruh engine dan
-    membersihkan ikon tray secara bersih sebelum proses keluar.
-    """
-    def _clean_exit(*_):
-        lifecycle.perform_exit()
-
+def _setup_posix_signals(clean_exit_fn):
     import signal
+    for sig_name in ('SIGINT', 'SIGTERM', 'SIGBREAK'):
+        if hasattr(signal, sig_name):
+            try:
+                signal.signal(getattr(signal, sig_name), clean_exit_fn)
+            except Exception:
+                pass
+
+def _setup_windows_console_ctrl_handler(lifecycle: AppLifecycle, clean_exit_fn):
+    if sys.platform != 'win32':
+        return
     try:
-        signal.signal(signal.SIGINT, _clean_exit)
+        handler_type = getattr(ctypes, 'WINFUNCTYPE', ctypes.CFUNCTYPE)(ctypes.c_bool, ctypes.c_ulong)
+        def _console_ctrl_handler(ctrl_type: int) -> bool:
+            clean_exit_fn()
+            return True
+
+        _handler_ref = handler_type(_console_ctrl_handler)
+        ctypes.windll.kernel32.SetConsoleCtrlHandler(_handler_ref, True)
+        lifecycle._console_handler_ref = _handler_ref
     except Exception:
         pass
-    try:
-        signal.signal(signal.SIGTERM, _clean_exit)
-    except Exception:
-        pass
-    if hasattr(signal, 'SIGBREAK'):
-        try:
-            signal.signal(signal.SIGBREAK, _clean_exit)
-        except Exception:
-            pass
 
-    # Windows Console Control Handler (SetConsoleCtrlHandler)
-    if sys.platform == 'win32':
-        try:
-            handler_type = getattr(ctypes, 'WINFUNCTYPE', ctypes.CFUNCTYPE)(ctypes.c_bool, ctypes.c_ulong)
-            def _console_ctrl_handler(ctrl_type: int) -> bool:
-                _clean_exit()
-                return True
-
-            _handler_ref = handler_type(_console_ctrl_handler)
-            ctypes.windll.kernel32.SetConsoleCtrlHandler(_handler_ref, True)
-            lifecycle._console_handler_ref = _handler_ref
-        except Exception:
-            pass
-
-    # Hook PyWebView's internal winforms _sigint_handler jika tersedia
+def _hook_winforms_sigint(clean_exit_fn):
     try:
         wf = sys.modules.get(PLATFORM_WINFORMS)
         if wf is None and sys.platform == 'win32':
@@ -657,10 +650,25 @@ def setup_signal_handlers(lifecycle: AppLifecycle):
                         _orig_wf_sigint(signum, frame)
                     except Exception:
                         pass
-                _clean_exit()
+                clean_exit_fn()
             wf._sigint_handler = _hooked_wf_sigint
     except Exception:
         pass
+
+# --- SIGNAL & CONSOLE CONTROL HANDLER (CLEAN EXIT ON CTRL+C) ---
+def setup_signal_handlers(lifecycle: AppLifecycle):
+    """
+    Menangani Ctrl+C (SIGINT), SIGTERM, dan event konsol Windows (CTRL_C_EVENT,
+    CTRL_CLOSE_EVENT, dll.) agar ketika user menekan Ctrl+C di terminal/CMD
+    atau menutup jendela terminal, aplikasi mematikan seluruh engine dan
+    membersihkan ikon tray secara bersih sebelum proses keluar.
+    """
+    def _clean_exit(*_):
+        lifecycle.perform_exit()
+
+    _setup_posix_signals(_clean_exit)
+    _setup_windows_console_ctrl_handler(lifecycle, _clean_exit)
+    _hook_winforms_sigint(_clean_exit)
 
 
 _app_instance_lock = None
@@ -685,6 +693,14 @@ def main():
 
         lifecycle = AppLifecycle(api, IS_PRODUCTION, enable_tray=ENABLE_TRAY)
 
+        # Jalankan Native OS Frameless Splash Bootstrapper & Health Check
+        # persis seperti DBeaver, SEBELUM jendela utama 1200x800 dibuat atau dimunculkan.
+        try:
+            from core.utils.splash_window import run_startup_bootstrapper
+            run_startup_bootstrapper(api, app_version=APP_VERSION)
+        except Exception as e:
+            print(f"[WARNING] Gagal menjalankan splash bootstrapper ({e}), melanjutkan pembuatan jendela...")
+
         icon_filename = 'icons-nobg.ico' if sys.platform == 'win32' else 'icons-nobg.png'
         icon_path = resource_path(os.path.join('frontend', 'src', 'assets', icon_filename))
         # Notifikasi toast WinRT (win11toast) butuh PNG -- .ico (dipakai window/tray) tidak
@@ -706,7 +722,7 @@ def main():
             js_api=api,
             width=1200,
             height=800,
-            min_size=(900, 600),
+            min_size=(1024, 768),
             background_color=get_theme_bg_color(),
             maximized=is_maximized
         )

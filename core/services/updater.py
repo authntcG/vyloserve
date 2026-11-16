@@ -7,6 +7,7 @@ import tempfile
 import re
 import threading
 import traceback
+from typing import Optional
 from core.utils.file_utils import download_advanced
 from core.utils.system_utils import get_project_root
 from core.utils.network_utils import is_network_error
@@ -93,31 +94,30 @@ class UpdaterManager:
                     latest_release = release
         return latest_release
 
+    @staticmethod
+    def _find_windows_asset(assets: list) -> Optional[dict]:
+        for asset in assets:
+            name = asset.get("name", "")
+            if "Setup" in name and name.endswith(".exe"):
+                return asset
+        for asset in assets:
+            if asset.get("name", "").endswith(".exe"):
+                return asset
+        return None
+
+    @classmethod
+    def _find_linux_asset(cls, assets: list) -> Optional[dict]:
+        for ext in (".AppImage", ".deb", ".tar.gz", ".rpm"):
+            for asset in assets:
+                if asset.get("name", "").endswith(ext):
+                    return asset
+        return cls._find_windows_asset(assets)
+
     def _find_installer_asset(self, latest_release):
-        installer_asset = None
         assets = latest_release.get("assets", [])
         if sys.platform == 'win32':
-            for asset in assets:
-                name = asset.get("name", "")
-                if "Setup" in name and name.endswith(".exe"):
-                    return asset
-            for asset in assets:
-                if asset.get("name", "").endswith(".exe"):
-                    return asset
-        else:
-            for ext in (".AppImage", ".deb", ".tar.gz", ".rpm"):
-                for asset in assets:
-                    name = asset.get("name", "")
-                    if name.endswith(ext):
-                        return asset
-            for asset in assets:
-                name = asset.get("name", "")
-                if "Setup" in name and name.endswith(".exe"):
-                    return asset
-            for asset in assets:
-                if asset.get("name", "").endswith(".exe"):
-                    return asset
-        return installer_asset
+            return self._find_windows_asset(assets)
+        return self._find_linux_asset(assets)
 
     def check_for_updates(self):
         from main import APP_VERSION
@@ -277,7 +277,7 @@ class UpdaterManager:
                 subprocess.Popen(['wscript.exe', vbs_path], creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS)
             else:
                 try:
-                    os.chmod(installer_path, os.stat(installer_path).st_mode | 0o755)
+                    os.chmod(installer_path, os.stat(installer_path).st_mode | 0o700)
                 except OSError:
                     pass
                 subprocess.Popen(

@@ -25,17 +25,20 @@ interface MarkdownRendererProps {
     readonly rootPath: string; // Used to resolve relative images if needed, though we rely on backend absolute path
     readonly readerTheme: 'light' | 'dark';
     readonly onLinkClick?: (href: string) => void;
+    readonly isCompact?: boolean;
 }
 
 interface MarkdownContextValue {
     readonly rootPath: string;
     readonly readerTheme: 'light' | 'dark';
     readonly onLinkClick?: (href: string) => void;
+    readonly isCompact?: boolean;
 }
 
 const MarkdownContext = createContext<MarkdownContextValue>({
     rootPath: '',
     readerTheme: 'light',
+    isCompact: false,
 });
 
 interface AdmonitionStyle {
@@ -338,12 +341,14 @@ const MermaidBlock = memo(function MermaidBlock({ code, readerTheme }: MermaidBl
         return () => { isMounted = false; };
     }, [code, readerTheme, t]);
 
+    const isDark = readerTheme === 'dark';
+
     if (!svg) {
-        return <div className="p-4 flex items-center justify-center bg-slate-50 dark:bg-slate-900 rounded-lg">{t('tools.docs_reader.loading')}</div>;
+        return <div className={`p-4 flex items-center justify-center rounded-lg ${isDark ? 'bg-slate-900 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>{t('tools.docs_reader.loading')}</div>;
     }
 
     return (
-        <div className="relative group w-full max-w-full overflow-hidden flex justify-center my-6 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-lg border border-slate-200 dark:border-slate-700 not-prose">
+        <div className={`relative group w-full max-w-full overflow-hidden flex justify-center my-6 p-4 rounded-lg border not-prose ${isDark ? 'bg-slate-900/60 border-slate-700/80' : 'bg-slate-100/70 border-slate-200'}`}>
             <TransformWrapper
                 initialScale={1}
                 minScale={0.5}
@@ -352,7 +357,7 @@ const MermaidBlock = memo(function MermaidBlock({ code, readerTheme }: MermaidBl
             >
                 {({ zoomIn, zoomOut, resetTransform }) => (
                     <>
-                        <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10 bg-white/80 dark:bg-slate-800/80 backdrop-blur rounded shadow-sm border border-slate-200 dark:border-slate-700 p-1">
+                        <div className={`absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10 backdrop-blur rounded shadow-sm border p-1 ${isDark ? 'bg-slate-800/80 border-slate-700 text-slate-300' : 'bg-white/80 border-slate-200 text-slate-600'}`}>
                             <button type="button" title={t('tools.docs_reader.zoom_in')} onClick={() => zoomIn()} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-slate-600 dark:text-slate-300">
                                 <span className="material-symbols-outlined text-[16px]">zoom_in</span>
                             </button>
@@ -431,7 +436,7 @@ interface MarkdownPreProps {
 }
 
 const MarkdownPre = memo(function MarkdownPre({ children, ...props }: MarkdownPreProps) {
-    const { readerTheme } = useContext(MarkdownContext);
+    const { readerTheme, isCompact } = useContext(MarkdownContext);
     const { t } = useTranslation();
     const [copied, setCopied] = useState(false);
 
@@ -459,31 +464,31 @@ const MarkdownPre = memo(function MarkdownPre({ children, ...props }: MarkdownPr
     return (
         <InPreContext.Provider value={true}>
             <div
-                className={`relative group my-4 rounded-xl border overflow-hidden not-prose shadow-xs ${
+                className={`relative group ${isCompact ? 'my-2 rounded-lg' : 'my-4 rounded-xl'} border overflow-hidden not-prose shadow-xs ${
                     isDark ? 'border-slate-700/80 bg-slate-900/90' : 'border-slate-200 bg-slate-900 text-slate-100'
                 }`}
             >
-                <div className="flex items-center justify-between px-3.5 py-1.5 border-b border-slate-800 bg-slate-950/70 text-xs text-slate-400 select-none">
-                    <span className="font-mono uppercase font-semibold text-[11px] tracking-wider text-slate-300">
+                <div className={`flex items-center justify-between ${isCompact ? 'px-2.5 py-1' : 'px-3.5 py-1.5'} border-b border-slate-800 bg-slate-950/70 text-xs text-slate-400 select-none`}>
+                    <span className="font-mono uppercase font-semibold text-[10px] tracking-wider text-slate-300">
                         {lang || 'code'}
                     </span>
                     <button
                         type="button"
                         onClick={handleCopy}
-                        className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer text-xs"
+                        className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer text-xs"
                         title={copied ? t('tools.docs_reader.copied') : t('tools.docs_reader.copy_code')}
                         aria-label={copied ? t('tools.docs_reader.copied') : t('tools.docs_reader.copy_code')}
                     >
-                        <span className="material-symbols-outlined text-[15px]">
+                        <span className="material-symbols-outlined text-[14px]">
                             {copied ? 'check' : 'content_copy'}
                         </span>
-                        <span className="text-[11px] font-medium">
+                        <span className="text-[10px] font-medium">
                             {copied ? t('tools.docs_reader.copied') : t('tools.docs_reader.copy_code')}
                         </span>
                     </button>
                 </div>
                 <pre
-                    className="!m-0 p-4 overflow-x-auto text-xs font-mono text-slate-100 leading-relaxed bg-transparent"
+                    className={`!m-0 ${isCompact ? 'p-2.5 text-[11px]' : 'p-4 text-xs'} overflow-x-auto font-mono text-slate-100 leading-relaxed bg-transparent`}
                     {...props}
                 >
                     {children}
@@ -518,9 +523,15 @@ function CodeBlock({ inline, className, children, ...props }: CodeBlockProps) {
         );
     }
 
+    const isDark = readerTheme === 'dark';
+
     return (
         <code
-            className={`px-1.5 py-0.5 rounded text-xs font-mono bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200/60 dark:border-slate-700/60 ${className || ''}`}
+            className={`px-1.5 py-0.5 rounded text-xs font-mono border ${
+                isDark 
+                    ? 'bg-slate-800 text-slate-200 border-slate-700/60' 
+                    : 'bg-slate-200/60 text-slate-800 border-slate-300/60'
+            } ${className || ''}`}
             {...props}
         >
             {children}
@@ -677,7 +688,7 @@ const MARKDOWN_COMPONENTS = {
 
 const REMARK_PLUGINS = [remarkGfm];
 
-const MarkdownRenderer = memo(function MarkdownRenderer({ content, rootPath, readerTheme, onLinkClick }: MarkdownRendererProps) {
+const MarkdownRenderer = memo(function MarkdownRenderer({ content, rootPath, readerTheme, onLinkClick, isCompact }: MarkdownRendererProps) {
     // Initialize mermaid theme based on readerTheme
     useEffect(() => {
         mermaid.initialize({
@@ -693,15 +704,19 @@ const MarkdownRenderer = memo(function MarkdownRenderer({ content, rootPath, rea
     }, [readerTheme]);
 
     const contextValue = useMemo<MarkdownContextValue>(
-        () => ({ rootPath, readerTheme, onLinkClick }),
-        [rootPath, readerTheme, onLinkClick]
+        () => ({ rootPath, readerTheme, onLinkClick, isCompact }),
+        [rootPath, readerTheme, onLinkClick, isCompact]
     );
 
     const processedContent = useMemo(() => preprocessAdmonitions(content), [content]);
 
+    const compactClasses = isCompact
+        ? 'prose-sm text-xs leading-relaxed prose-p:my-1.5 prose-headings:my-2 prose-h1:text-sm prose-h2:text-xs prose-h3:text-xs prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-pre:my-1.5 prose-blockquote:my-1.5 prose-blockquote:py-1'
+        : '';
+
     return (
         <MarkdownContext.Provider value={contextValue}>
-            <div className={`prose prose-slate max-w-none break-words prose-headings:font-semibold prose-a:text-primary hover:prose-a:text-primary/80 prose-img:m-0 ${readerTheme === 'dark' ? 'prose-invert' : ''}`}>
+            <div className={`prose max-w-none break-words prose-headings:font-semibold prose-a:text-primary hover:prose-a:text-primary/80 prose-img:m-0 ${compactClasses} ${readerTheme === 'dark' ? 'prose-invert text-slate-100' : 'text-slate-800 prose-slate'}`}>
                 <ReactMarkdown
                     remarkPlugins={REMARK_PLUGINS}
                     components={MARKDOWN_COMPONENTS}

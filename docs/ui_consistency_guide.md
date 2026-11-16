@@ -288,19 +288,28 @@ Dipakai identik di `php/Main.tsx` (sumber pola asli) dan `database/Main.tsx` (me
 - Database punya langkah konfirmasi tambahan (pilihan backup sebelum update) yang PHP tidak punya — perbedaan ini genuinely fungsional (backend `update_database()` punya parameter `backup_data`, `update_php()` tidak), bukan sekadar variasi gaya.
 - Kalau modul ketiga butuh pola yang sama, pertimbangkan ekstraksi ke komponen bersama (mis. `<UpdateBadge>`) alih-alih menyalin lagi untuk ketiga kalinya — ambang yang sama seperti disebutkan untuk pola "tombol status install" di atas.
 
-### Sistem Skeleton Loading (`components/skeleton/`)
+### Sistem Skeleton Loading (`components/skeleton/`) & Taksonomi 5 Pola Loading Adaptif
 Seluruh tampilan loading placeholder di aplikasi distandarisasi melalui keluarga komponen di `frontend/src/components/skeleton/` (dengan `components/SkeletonCard.tsx` dipertahankan sebagai *re-export* kompatibilitas mundur):
 ```tsx
 import { Skeleton, SkeletonCard, SkeletonForm, SkeletonDocument, SkeletonChatMessage, AppSkeletonLayout } from '../../components/skeleton';
 ```
 | Komponen | Kegunaan Utama |
 |---|---|
-| `<Skeleton variant="text\|circular\|rectangular\|rounded" />` | Primitif dasar blok shimmer theme-aware (`role="status"`, `aria-busy="true"`). |
-| `<SkeletonCard variant="service\|project\|metric\|list-item" />` | Placeholder kartu modul (`service` untuk Apache/PHP/DB/Runtimes/Git/Tunnels, `project` untuk Virtual Host, `metric` untuk Dashboard resource card, `list-item` untuk daftar share). |
+| `<Skeleton variant="text|circular|rectangular|rounded" />` | Primitif dasar blok shimmer theme-aware (`role="status"`, `aria-busy="true"`). |
+| `<SkeletonCard variant="service|project|metric|list-item" />` | Placeholder kartu modul (`service` untuk Apache/PHP/DB/Runtimes/Git/Tunnels, `project` untuk Virtual Host, `metric` untuk Dashboard resource card, `list-item` untuk daftar share). Container kartu statis/tenang, hanya placeholder bar di dalamnya yang berdenyut lembut. |
 | `<SkeletonForm fields={...} />` | Placeholder untuk formulir di dalam Modal saat sedang mengambil konfigurasi/versi dari backend. |
 | `<SkeletonDocument />` | Placeholder untuk area baca dokumen (seperti Markdown Documentation Viewer). |
 | `<SkeletonChatMessage />` | Placeholder balon percakapan saat AI sedang memproses atau memuat riwayat. |
-| `<AppSkeletonLayout />` | Kerangka layar penuh (Sidebar + Header + Content Grid) saat aplikasi pertama kali melakukan bootstrap koneksi ke PyWebView. |
+| `<AppSkeletonLayout />` | Kerangka layar penuh 1:1 identik (Sidebar 260px + Header + Content Grid + LogsPanel 128px) saat aplikasi pertama kali melakukan bootstrap koneksi ke PyWebView. Mencegah lompatan visual (Zero Structural Jump / CLS = 0). |
+
+**Taksonomi 5 Pola Loading Resmi VyloServe (Berdasarkan IMK & Usability):**
+1. **Structural Skeleton:** Dipakai *hanya* untuk *initial mount fetch* saat belum ada data sama sekali (`data.length === 0`).
+2. **Stale-While-Revalidate:** Dipakai saat me-*refresh* data yang sudah ada di layar (`data.length > 0`). **DILARANG mereset atau menghapus data yang sedang dibaca pengguna menjadi skeleton.** Pertahankan baris data dengan redup halus (`opacity-60`) dan tampilkan bar indikator tipis `2px` di bagian atas.
+3. **Silent Background Polling:** Untuk update otomatis berkala (tiap 2–3 detik) di background, tanpa indikator visual agar antarmuka tidak berkedip.
+4. **Action Micro-Spinner:** Untuk aksi mutasi tombol pengguna (`<Button loading>`, `<ServiceToggleButton isToggling>`), spinner dirender di dalam tombol pemicu tanpa merusak kartu induknya.
+5. **Determinate Step Progress:** Untuk proses OS multi-tahap `> 2 detik` (`<ProgressBar>`, `<BackgroundProgressWidget>`), menampilkan persentase absolut `0-100%` dan teks tahapan real-time.
+
+**Transisi Konten (`.vylo-fade-in`):** Saat komponen data nyata menggantikan skeleton, konten masuk secara halus dengan utility class `vylo-fade-in` (`180ms ease-out`, otomatis dinonaktifkan pada `prefers-reduced-motion: reduce`).
 
 **Aturan:** Jangan membuat `<div className="animate-pulse bg-slate-200 ...">` manual di halaman modul — gunakan salah satu komponen di atas agar warna shimmer selalu mengikuti tema aktif secara seragam.
 
@@ -351,7 +360,39 @@ Komponen tabel data desktop modern yang dirancang untuk efisiensi inventaris dan
   - `relaxed`: `py-4 px-5 text-sm` (nyaman untuk entri berjarak longgar).
   Dilengkapi kontrol interaktif di toolbar kanan (`showDensityControl`, default `true`) yang tersimpan persisten di `localStorage` (`vyloserve_table_density`) sehingga preferensi developer berlaku konsisten di semua modul (Projects, PHP, Database, Runtimes).
 - **Dynamic Header:** Kolom header dinamis via `ColumnDef<T>` dengan dukungan perataan teks (`align: 'left' | 'center' | 'right'`), class kustom per-kolom (`className`, `headerClassName`), dan render prop kustom.
-- **Empty & Loading States:** Mendukung slot kustom `emptyState` (yang tetap mempertahankan toolbar pencarian/filter tetap terpasang saat hasil pencarian 0 baris) serta skeleton loading terintegrasi saat `isLoading=true`.
+- **Dual-Mode Loading & Stale-While-Revalidate:**
+  - Saat pemuatan awal (`isLoading && data.length === 0`): merender 5 baris `Skeleton` (`role="status"`, `aria-busy="true"`) yang mematuhi kolom dan kerapatan tabel untuk menjaga tinggi tata letak stabil.
+  - Saat pembaruan data/refresh (`isLoading && data.length > 0`): baris data yang sudah ada **TETAP DITAMPILKAN** dengan transisi `opacity-60` halus dan *Top Slim Indeterminate Progress Bar* (`2px`) di bawah header tabel, mengeliminasi layout shift (*CLS = 0*).
+- **Empty & Localized States:** Mendukung slot kustom `emptyState` (yang tetap mempertahankan toolbar pencarian/filter tetap terpasang saat hasil pencarian 0 baris) dan fallback teks terjemahan `{t('common.no_records_found')}`.
+
+### `<TableActionMenu>` (`TableActionMenu.tsx`)
+```tsx
+import TableActionMenu, {
+    tableActionItemClass,
+    tableActionItemDangerClass,
+    tableActionDividerClass,
+} from '../../components/TableActionMenu';
+
+<TableActionMenu estimatedHeight={240}>
+    <button type="button" role="menuitem" onClick={handleConfig} className={tableActionItemClass}>
+        <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">tune</span>
+        <span className="truncate">{t('mod.config')}</span>
+    </button>
+    <div className={tableActionDividerClass} />
+    <button type="button" role="menuitem" onClick={handleDelete} className={tableActionItemDangerClass}>
+        <span className="material-symbols-outlined text-[16px] text-red-500 shrink-0">delete</span>
+        <span className="truncate">{t('mod.delete')}</span>
+    </button>
+</TableActionMenu>
+```
+Menu dropdown aksi tabular terpadu yang memecahkan masalah pemotongan (*clipping*) popover di dalam kontainer tabel (`overflow-x-auto` / boundaries).
+- **Portal & Collision-Aware Positioning:** Menu dirender via React Portal ke `document.body` dengan koordinat absolut yang dihitung dari `getBoundingClientRect()` tombol trigger. Jika sisa ruang viewport di bawah trigger kurang dari `estimatedHeight` (default: `220px`), menu secara otomatis membuka ke atas (*auto-flip upwards*) sehingga tidak pernah terpotong di tepi bawah layar.
+- **Auto-Dismiss & Accessibility:** Menutup otomatis saat pengguna menekan tombol `Escape`, mengklik di luar area menu, melakukan scroll pada window/layout, atau mengklik salah satu item menu aksi. Memiliki role accessibility lengkap (`role="menu"`, `role="menuitem"`, `aria-haspopup="true"`, `aria-expanded`).
+- **Primitif CSS Terstandarisasi:** Mengekspor styling seragam `tableActionItemClass` (opsi standar), `tableActionItemDangerClass` (opsi destruktif dengan tone merah), dan `tableActionDividerClass` (garis pemisah horizontal).
+- **Paritas 1:1 Card View vs Table View:** Menyelaraskan opsi yang tampil di baris tabel dengan kartu modul (Projects, Database, PHP):
+  - **Inline Actions:** Mengakomodasi kontrol frekuensi tinggi yang sering diklik (misal: `<ServiceToggleButton iconOnly />`, *Manage Schemas*, *Config*).
+  - **Burger Menu:** Menyimpan seluruh aksi sekunder/konfigurasi/shortcut file (`my.ini`, `php.ini`, data directory, startup/native logs) serta aksi destruktif (*Uninstall/Drop*) guna mencegah klik salah sasaran dan menjaga kolom tabel tetap ramping dan rapi.
+- **Dipakai di:** `menu/projects/ProjectTable.tsx`, `menu/database/DatabaseTable.tsx`, `menu/php/PhpTable.tsx`.
 
 ### `<FilterChips>` (`FilterChips.tsx`)
 ```tsx
@@ -369,7 +410,31 @@ Komponen tabel data desktop modern yang dirancang untuk efisiensi inventaris dan
 Komponen kapsul filter interaktif serbaguna (`role="group"` dengan masing-masing tombol `aria-pressed="true|false"`):
 - **Badge Hitungan Numerik:** Menampilkan jumlah entri data per kategori secara real-time pada tiap pil filter.
 - **Aksesibilitas & Theming:** Menggunakan warna `bg-primary text-white shadow-xs` untuk state aktif dan warna netral border-subtle untuk state non-aktif, serta responsif horizontal scroll (`no-scrollbar`).
-- **Dipakai di:** Projects Hub (`menu/projects/Main.tsx`) untuk filter runtime, dan Database (`menu/database/Main.tsx`) untuk filter engine (MySQL vs PostgreSQL).
+- **Scroll Overflow Signifiers & Wheel Interactivity:** Secara otomatis mendeteksi batas kontainer sempit (`scrollWidth > clientWidth`). Menampilkan gradasi tepi lembut (*edge fade mask*) dan tombol panah mini (`chevron_left` / `chevron_right`) hanya saat konten meluber, mendukung pergeseran horizontal via roda mouse vertikal desktop (`onWheel`), serta auto-scroll chip terpilih ke area pandang (`scrollIntoView`).
+- **Dipakai di:** Projects Hub (`menu/projects/Main.tsx`), Database (`menu/database/Main.tsx`), Mail Sandbox (`menu/tools/mail-sandbox/components/MailInboxList.tsx`), dan Webhook Inspector (`menu/tools/webhook-inspector/components/WebhookHistoryList.tsx`).
+
+### `<Input>` (`Input.tsx`)
+```tsx
+import Input from '../../components/Input';
+
+<Input
+    id="search-input"
+    size="sm" // 'sm' | 'md' (default 'md')
+    leftIcon="search"
+    placeholder={t('common.search')}
+    value={query}
+    onChange={(e) => setQuery(e.target.value)}
+    onClear={() => setQuery('')}
+    clearLabel={t('common.clear')}
+    mono={false} // true untuk font monospace (angka, port, token)
+/>
+```
+Komponen kontrol input terpadu & theme-aware untuk form, search bar, dan input angka/port di seluruh modul:
+- **100% Theme-Aware:** Memastikan token `text-slate-900 dark:text-slate-100`, `bg-white dark:bg-slate-800`, dan `border-slate-300 dark:border-slate-700` selalu aktif, mencegah teks input menjadi hitam di tema gelap akibat styling default browser (`color: canvastext`).
+- **Slot Ikon & Tombol Clear:** Mendukung `leftIcon` (dengan padding otomatis), `rightIcon`, dan tombol silang `onClear` yang otomatis muncul saat input berisi teks.
+- **Font Monospace:** Prop `mono={true}` untuk input port, kode status HTTP, URL, token, atau IP address.
+- **Aksesibilitas Teruji:** Terhubung langsung dengan `<FieldLabel htmlFor="...">` via `id`, meneruskan `ref` ke `<input>` native (`forwardRef`), dan memiliki `clearLabel` untuk screen reader.
+- **Dipakai di:** Mail Sandbox (`MailServerCard.tsx`, `MailInboxList.tsx`), Webhook Inspector (`WebhookListenerCard.tsx`, `WebhookHistoryList.tsx`, `WebhookResponseConfigModal.tsx`, `ApiClientWorkspace.tsx`).
 
 ### `<CompactFileDropzone>` (`CompactFileDropzone.tsx`)
 ```tsx
@@ -454,5 +519,17 @@ Komponen zona seret-lepas berkas (*drag-and-drop*) universal dan ringkas:
   3. `Kontak & Pesan` (`contact`): Form terpadu dengan pemilih sub-pill (*vCard*, *Email*, *SMS*).
 - **Penyatuan Kartu Desain & Logo QR Code:** Menggabungkan Card 2 (*Visual Design*) dan Card 3 (*Insert Logo*) menjadi satu kartu seimbang 2 kolom (*Appearance & Logo*). Kolom kiri menangani level koreksi error (ECC), dot pattern, dan sudut; kolom kanan menangani slider resolusi, slider margin, `CompactFileDropzone` untuk logo kustom, dan slider skala logo. Mengurangi ~40% ruang gulir vertikal dan menghilangkan fatik visual.
 - **Universal Dual-Input Area pada Base64:** Menghilangkan toggle buatan antara mode `Text Input` dan `File Input`. Mengintegrasikan input teks langsung dengan `CompactFileDropzone` di kedua mode (Encode & Decode). Opsi URL-safe dan pemotongan baris (line wrap) dipindahkan langsung ke toolbar kartu input.
+
+**Standarisasi Developer Utilities Hub & Network Diagnostics (November 2026) — sudah dikerjakan:**
+- **Standardisasi Developer Utilities Hub (`src/menu/utilities/`):**
+  - Seluruh 5 utilitas pengembang mandiri (**JSON Studio**, **JWT Debugger**, **Crypto Generator**, **Regex & Epoch Studio**, **Data Converter**) mengadopsi standar tata letak responsif 12 kolom (`xl:col-span-7` konfigurasi/input vs `xl:col-span-5` inspeksi/output, atau split 50:50 code editor & collapsible tree view).
+  - **Toolbar Aksi Seragam:** Setiap kartu editor dilengkapi tombol aksi cepat: *Sample* (`auto_fix_high`), *Paste* (`content_paste`), *Clear* (`clear`), dan *Copy* (`content_copy`) dengan tooltip aksesibel.
+  - **Isolasi State Frekuensi Tinggi:** Mengikuti Golden Rule #7 `AGENTS.md`, state input teks pada editor besar diisolasi ke dalam sub-komponen terdedikasi agar ketukan keyboard tidak memicu *re-render* pohon elemen berat di sebelahnya.
+  - **Kepatuhan Aksesibilitas (Rule 6):** 100% kontrol form (input, textarea, select, toggle) wajib menggunakan relasi eksplisit `<FieldLabel htmlFor="id_unik">` dan `<Input id="id_unik">` atau `<textarea id="id_unik">`.
+- **Standardisasi Alat Diagnostik & Jaringan (`src/menu/tools/`):**
+  - **Mail Sandbox (`mail-sandbox/`):** Mengadopsi pola layout *Master-Detail Split*: sisi kiri menampilkan daftar antrean email masuk (`MailInboxList`) dengan filter search dan hitungan pesan, sisi kanan menampilkan viewer multi-tab (*HTML Sandbox iframe*, *Plain Text*, *MIME Headers*, dan *Attachments list*), dipadukan dengan kartu kontrol port server SMTP (`MailServerCard`).
+  - **Webhook Inspector (`webhook-inspector/`):** Mengadopsi pola live payload streaming: daftar riwayat request HTTP masuk real-time, panel inspeksi JSON ber-syntax highlight, konfigurasi respon HTTP status code (`200`/`400`/`500`), dan tombol generator cURL satu-klik.
+  - **Port Manager (`port-manager/`):** Memanfaatkan `<DataTable>` berdensitas tinggi (`density="compact"`) untuk menampilkan seluruh koneksi socket TCP aktif di Windows (Port, IP Bind, Status, PID, Nama Executable), filter search real-time, dan tombol terminasi proses aman (*Safe Process Kill*) menggunakan `<Button variant="danger">` dengan konfirmasi alert modal.
+  - **GitLab CLI Integration (`git/GitLabIntegrationTab.tsx`):** Menyelaraskan status akun multi-host dengan kartu info, lencana sirkuit VPN kuning (*VPN Disconnected*), dan penjelajah daftar Issues/MR dengan filter pill status.
 
 Kalau mengerjakan salah satu area ini di masa depan, perbarui dokumen ini (termasuk §1 kalau ternyata ada token warna statis baru yang seharusnya theme-aware, atau sebaliknya).

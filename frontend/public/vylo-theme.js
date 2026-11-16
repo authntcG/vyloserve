@@ -1,1 +1,1 @@
-window.__VYLO_INITIAL_THEME__ = "vyloserve-dark";
+window.__VYLO_INITIAL_THEME__ = "catppuccin-dark";

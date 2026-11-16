@@ -515,6 +515,7 @@ def test_fix_file_permissions_windows():
 
 
 def test_fix_file_permissions_linux_native(tmp_path):
+    import stat
     from core.utils.file_utils import fix_file_permissions
     proj_dir = tmp_path / "test_project"
     proj_dir.mkdir()
@@ -522,10 +523,10 @@ def test_fix_file_permissions_linux_native(tmp_path):
     sub_file.write_text("<?php echo 1;")
 
     with patch('sys.platform', 'linux'):
-        with patch('os.getuid', return_value=1000):
-            with patch('os.getgid', return_value=1000):
+        with patch('os.getuid', return_value=1000, create=True):
+            with patch('os.getgid', return_value=1000, create=True):
                 # When stats match, no pkexec needed
-                mock_stat = MagicMock(st_uid=1000, st_gid=1000)
+                mock_stat = MagicMock(st_uid=1000, st_gid=1000, st_mode=stat.S_IFDIR | 0o755)
                 with patch('os.stat', return_value=mock_stat):
                     with patch('os.lstat', return_value=mock_stat):
                         res = fix_file_permissions(str(proj_dir), recursive=True)
@@ -539,8 +540,8 @@ def test_fix_file_permissions_linux_foreign_ownership_calls_pkexec(tmp_path):
     proj_dir.mkdir()
 
     with patch('sys.platform', 'linux'):
-        with patch('os.getuid', return_value=1000):
-            with patch('os.getgid', return_value=1000):
+        with patch('os.getuid', return_value=1000, create=True):
+            with patch('os.getgid', return_value=1000, create=True):
                 mock_stat = MagicMock(st_uid=33, st_gid=33, st_mode=stat.S_IFDIR | 0o755)  # www-data
                 with patch('os.stat', return_value=mock_stat):
                     with patch('shutil.which', return_value='/usr/bin/pkexec'):

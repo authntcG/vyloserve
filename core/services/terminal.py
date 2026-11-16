@@ -6,7 +6,7 @@ import time
 import shutil
 import threading
 from typing import Dict, Any, List, Optional, Tuple
-from core.utils.system_utils import get_project_root, set_path_in_env
+from core.utils.system_utils import get_project_root, set_path_in_env, find_external_executable
 from core.utils.file_utils import read_json, write_json
 
 CMD_DIR_COMMANDS = ("cd", "chdir", "pushd", "dir", "md", "mkdir", "rd", "rmdir", "tree")
@@ -16,6 +16,7 @@ DIR_WINDOWS = "C:\\Windows"
 EXE_POWERSHELL = "powershell.exe"
 MSG_SPAWN_FAILED = "backend.terminal.spawn_failed"
 MSG_SESSION_NOT_FOUND = "backend.terminal.session_not_found"
+DEFAULT_POSIX_SH = "/bin/sh"
 
 class TerminalManager:
     """
@@ -49,7 +50,7 @@ class TerminalManager:
         zsh_path = shutil.which("zsh") or ("/bin/zsh" if os.path.exists("/bin/zsh") else "")
         is_zsh_default = bool(default_user_shell and "zsh" in default_user_shell)
 
-        sh_path = shutil.which("sh") or ("/bin/sh" if os.path.exists("/bin/sh") else "")
+        sh_path = shutil.which("sh") or (DEFAULT_POSIX_SH if os.path.exists(DEFAULT_POSIX_SH) else "")
         pwsh_path = shutil.which("pwsh")
 
         return [
@@ -197,6 +198,12 @@ class TerminalManager:
                 return s["id"]
         return "powershell" if sys.platform == "win32" else "bash"
 
+    def _resolve_linux_shell(self, shell_id: str, target: Optional[dict]) -> List[str]:
+        if target and target.get("available"):
+            return [target["path"]]
+        bin_path = shutil.which(shell_id) or (f"/bin/{shell_id}" if os.path.exists(f"/bin/{shell_id}") else None)
+        return [bin_path] if bin_path else [DEFAULT_POSIX_SH]
+
     def _resolve_shell_command(self, shell_id: str) -> Optional[List[str]]:
         """
         Menentukan command line executable berdasarkan shell_id yang diminta lintas-platform.
@@ -206,22 +213,19 @@ class TerminalManager:
 
         # Linux Shells
         if shell_id in ("bash", "zsh", "sh"):
-            if target and target["available"]:
-                return [target["path"]]
-            bin_path = shutil.which(shell_id) or (f"/bin/{shell_id}" if os.path.exists(f"/bin/{shell_id}") else None)
-            return [bin_path] if bin_path else ["/bin/sh"]
+            return self._resolve_linux_shell(shell_id, target)
 
         if shell_id == "powershell":
             return self._resolve_powershell_cmd(target)
         if shell_id == "cmd":
             return self._resolve_cmd_shell(target)
-        if shell_id == "git-bash":
-            return [target["path"], "--login", "-i"] if (target and target.get("available")) else None
-        if shell_id == "wsl":
-            return [target["path"]] if (target and target.get("available")) else None
+        if shell_id in ("git-bash", "wsl"):
+            if target and target.get("available"):
+                return [target["path"], "--login", "-i"] if shell_id == "git-bash" else [target["path"]]
+            return None
 
         if sys.platform != "win32":
-            default_sh = shutil.which("bash") or shutil.which("sh") or "/bin/sh"
+            default_sh = shutil.which("bash") or shutil.which("sh") or DEFAULT_POSIX_SH
             return [default_sh]
 
         return self._resolve_powershell_cmd(None)
@@ -239,6 +243,19 @@ class TerminalManager:
             cands.append("python3")
         return cands
 
+    @staticmethod
+    def _locate_candidate_sub_bin(sub: str, bin_subdir: str, cands: List[str]) -> str:
+        sub_bin_dir = os.path.join(sub, bin_subdir) if bin_subdir else sub
+        bin_exists_in_sub_bin = any(os.path.exists(os.path.join(sub_bin_dir, b)) for b in cands)
+        bin_exists_in_sub = any(os.path.exists(os.path.join(sub, b)) for b in cands)
+        bin_exists_in_nested_bin = any(os.path.exists(os.path.join(sub, "bin", b)) for b in cands)
+
+        if not bin_exists_in_sub_bin and bin_exists_in_sub:
+            return sub
+        if not bin_exists_in_sub_bin and bin_exists_in_nested_bin:
+            return os.path.join(sub, "bin")
+        return sub_bin_dir
+
     def _scan_hierarchical_versions(
         self,
         base: str,
@@ -255,15 +272,7 @@ class TerminalManager:
                 if not os.path.isdir(sub):
                     continue
 
-                sub_bin_dir = os.path.join(sub, bin_subdir) if bin_subdir else sub
-                bin_exists_in_sub_bin = any(os.path.exists(os.path.join(sub_bin_dir, b)) for b in cands)
-                bin_exists_in_sub = any(os.path.exists(os.path.join(sub, b)) for b in cands)
-                bin_exists_in_nested_bin = any(os.path.exists(os.path.join(sub, "bin", b)) for b in cands)
-
-                if not bin_exists_in_sub_bin and bin_exists_in_sub:
-                    sub_bin_dir = sub
-                elif not bin_exists_in_sub_bin and bin_exists_in_nested_bin:
-                    sub_bin_dir = os.path.join(sub, "bin")
+                sub_bin_dir = self._locate_candidate_sub_bin(sub, bin_subdir, cands)
 
                 if any(os.path.exists(os.path.join(sub_bin_dir, b)) for b in cands) and sub_bin_dir not in seen_paths:
                     seen_paths.add(sub_bin_dir)
@@ -374,7 +383,7 @@ class TerminalManager:
                     "display_name": "Git (VyloServe)"
                 })
                 break
-        os_git = shutil.which("git")
+        os_git = find_external_executable("git", self.bin_dir)
         return {
             "name": "Git",
             "has_vyloserve": len(git_vers) > 0,
@@ -383,6 +392,27 @@ class TerminalManager:
             "versions": git_vers,
             "path": git_vers[0]["path"] if git_vers else "",
             "default_mode": self._resolve_default_mode(git_vers, os_git)
+        }
+
+    def _detect_gitlab_entry(self) -> Dict[str, Any]:
+        glab_vers = []
+        glab_exe = "glab.exe" if sys.platform == "win32" else "glab"
+        glab_bin_dir = os.path.join(self.bin_dir, "glab")
+        if os.path.exists(os.path.join(glab_bin_dir, glab_exe)):
+            glab_vers.append({
+                "version": "VyloServe",
+                "path": glab_bin_dir,
+                "display_name": "GitLab CLI (VyloServe)"
+            })
+        os_glab = find_external_executable("glab", self.bin_dir)
+        return {
+            "name": "GitLab CLI",
+            "has_vyloserve": len(glab_vers) > 0,
+            "has_os": bool(os_glab),
+            "os_path": os_glab or "",
+            "versions": glab_vers,
+            "path": glab_vers[0]["path"] if glab_vers else "",
+            "default_mode": self._resolve_default_mode(glab_vers, os_glab)
         }
 
     def _parse_installed_db_binaries(self) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
@@ -456,6 +486,7 @@ class TerminalManager:
             ),
             "composer": self._detect_composer_entry(),
             "git": self._detect_git_entry(),
+            "gitlab": self._detect_gitlab_entry(),
         }
 
         mysql_entry, pg_entry = self._detect_db_entries()
@@ -476,21 +507,50 @@ class TerminalManager:
                 return item["path"]
         return ""
 
+    @staticmethod
+    def _apply_git_paths(target_path: str, extra_paths: List[str]) -> None:
+        git_base = os.path.dirname(target_path) if os.path.basename(target_path).lower() in ("cmd", "bin") else target_path
+        for sub in ("bin", os.path.join("usr", "bin"), os.path.join("mingw64", "bin"), os.path.join("ucrt64", "bin")):
+            sub_path = os.path.join(git_base, sub)
+            if os.path.exists(sub_path) and sub_path not in extra_paths:
+                extra_paths.append(sub_path)
+
+    @staticmethod
+    def _append_path_if_exists(dir_path: str, extra_paths: List[str]) -> None:
+        if os.path.exists(dir_path) and dir_path not in extra_paths:
+            extra_paths.append(dir_path)
+
     def _apply_engine_env_vars(self, engine_key: str, target_path: str, extra_paths: List[str], env: Dict[str, str]) -> None:
         if engine_key == "python":
-            scripts_dir = os.path.join(target_path, "Scripts")
-            bin_dir = os.path.join(target_path, "bin")
-            if os.path.exists(scripts_dir) and scripts_dir not in extra_paths:
-                extra_paths.append(scripts_dir)
-            if os.path.exists(bin_dir) and bin_dir not in extra_paths:
-                extra_paths.append(bin_dir)
+            self._append_path_if_exists(os.path.join(target_path, "Scripts"), extra_paths)
+            self._append_path_if_exists(os.path.join(target_path, "bin"), extra_paths)
         elif engine_key == "node":
-            bin_dir = os.path.join(target_path, "bin")
-            if os.path.exists(bin_dir) and bin_dir not in extra_paths:
-                extra_paths.append(bin_dir)
+            self._append_path_if_exists(os.path.join(target_path, "bin"), extra_paths)
         elif engine_key in ("java", "go"):
             base_home = os.path.dirname(target_path) if os.path.basename(target_path).lower() == "bin" else target_path
             env["JAVA_HOME" if engine_key == "java" else "GOROOT"] = base_home
+        elif engine_key == "git":
+            self._apply_git_paths(target_path, extra_paths)
+
+    @staticmethod
+    def _collect_frozen_winpty_paths(extra_paths: List[str]) -> None:
+        if not (getattr(sys, "frozen", False) and sys.platform == "win32"):
+            return
+        if hasattr(sys, "_MEIPASS"):
+            frozen_winpty = os.path.join(sys._MEIPASS, "winpty")
+            if os.path.isdir(frozen_winpty) and frozen_winpty not in extra_paths:
+                extra_paths.append(frozen_winpty)
+            if sys._MEIPASS not in extra_paths:
+                extra_paths.append(sys._MEIPASS)
+
+        winpty_dir = None
+        try:
+            import winpty
+            winpty_dir = os.path.dirname(winpty.__file__)
+        except Exception:
+            pass
+        if winpty_dir and os.path.isdir(winpty_dir) and winpty_dir not in extra_paths:
+            extra_paths.append(winpty_dir)
 
     def _build_session_env(
         self,
@@ -506,10 +566,15 @@ class TerminalManager:
         profile = env_profile or {}
         extra_paths: List[str] = []
 
+        self._collect_frozen_winpty_paths(extra_paths)
+
         matrix = self.get_runtimes_matrix()
 
         for engine_key, item in matrix.items():
             user_choice = profile.get(engine_key, item["default_mode"])
+            if user_choice == "none" and item.get("has_vyloserve"):
+                user_choice = item["default_mode"]
+
             if user_choice in ("os", "none"):
                 continue
 

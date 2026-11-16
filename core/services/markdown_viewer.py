@@ -8,6 +8,7 @@ class MarkdownViewerManager:
     def __init__(self, api_ref):
         self.api = api_ref
         self.current_root = None
+        self.current_roots = []
 
     def select_directory(self) -> dict:
         """ Buka OS Folder Picker. """
@@ -23,16 +24,42 @@ class MarkdownViewerManager:
         except Exception as e:
             return {"status": "error", "message": MSG_ERROR_UNEXPECTED, "args": {"e": str(e)}}
 
+    def register_workspace_roots(self, roots: list) -> dict:
+        """ Mendaftarkan daftar folder root aktif untuk multi-folder workspace """
+        try:
+            if not isinstance(roots, list):
+                return {"status": "error", "message": "backend.error.invalid_input"}
+            valid_roots = []
+            for r in roots:
+                if isinstance(r, str) and os.path.isdir(r):
+                    real_r = os.path.realpath(r)
+                    if real_r not in valid_roots:
+                        valid_roots.append(real_r)
+            self.current_roots = valid_roots
+            self.current_root = valid_roots[0] if valid_roots else None
+            return {"status": "success", "data": self.current_roots}
+        except Exception as e:
+            return {"status": "error", "message": MSG_ERROR_UNEXPECTED, "args": {"e": str(e)}}
+
     def _is_safe_path(self, target_path: str) -> bool:
-        """ Memvalidasi bahwa path target aman dan berada di dalam direktori root aktif jika diset """
+        """ Memvalidasi bahwa path target aman dan berada di dalam salah satu direktori root aktif jika diset """
         if not target_path or not isinstance(target_path, str):
             return False
-        if not self.current_root:
+        if self.current_roots:
+            active_roots = self.current_roots
+        elif self.current_root:
+            active_roots = [self.current_root]
+        else:
+            active_roots = []
+        if not active_roots:
             return True
         try:
             real_target = os.path.realpath(target_path)
-            real_root = os.path.realpath(self.current_root)
-            return os.path.commonpath([real_root, real_target]) == real_root
+            for root in active_roots:
+                real_root = os.path.realpath(root)
+                if os.path.commonpath([real_root, real_target]) == real_root:
+                    return True
+            return False
         except Exception:
             return False
 
@@ -75,12 +102,44 @@ class MarkdownViewerManager:
             if not os.path.exists(root_path) or not os.path.isdir(root_path):
                 return {"status": "error", "message": "backend.md.folder_not_found"}
 
-            self.current_root = os.path.realpath(root_path)
+            real_root = os.path.realpath(root_path)
+            self.current_root = real_root
+            if real_root not in self.current_roots:
+                self.current_roots.append(real_root)
+
             tree = self._build_tree(root_path)
             if not tree:
                 return {"status": "success", "data": []}
             
             return {"status": "success", "data": tree.get('children', [])}
+        except Exception as e:
+            return {"status": "error", "message": MSG_ERROR_UNEXPECTED, "args": {"e": str(e)}}
+
+    def get_multi_markdown_tree(self, root_paths: list) -> dict:
+        """ Mendapatkan struktur folder dan file markdown untuk beberapa direktori sekaligus """
+        try:
+            if not isinstance(root_paths, list):
+                return {"status": "error", "message": "backend.error.invalid_input"}
+
+            results = []
+            valid_roots = []
+            for rp in root_paths:
+                if not isinstance(rp, str) or not os.path.isdir(rp):
+                    continue
+                real_r = os.path.realpath(rp)
+                if real_r not in valid_roots:
+                    valid_roots.append(real_r)
+                tree = self._build_tree(rp)
+                children = tree.get('children', []) if tree else []
+                results.append({
+                    "root_path": real_r,
+                    "name": os.path.basename(real_r) or real_r,
+                    "children": children
+                })
+
+            self.current_roots = valid_roots
+            self.current_root = valid_roots[0] if valid_roots else None
+            return {"status": "success", "data": results}
         except Exception as e:
             return {"status": "error", "message": MSG_ERROR_UNEXPECTED, "args": {"e": str(e)}}
 

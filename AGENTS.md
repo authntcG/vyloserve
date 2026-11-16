@@ -12,22 +12,26 @@
 vyloserve/
 ├── core/                   # Logika Backend Python
 │   ├── api.py              # Router/Facade API utama yang menjembatani React & Python
-│   ├── utils/              # Helper untuk proses eksekusi OS, regex, file system
+│   ├── utils/              # Helper untuk proses eksekusi OS, regex, file system, splash window (splash_window.py)
 │   └── services/           # Modul Manager spesifik (Single Responsibility Principle)
 │       ├── apache.py, php.py, database.py, runtimes_manager.py
-│       ├── project.py, git_manager.py, ssl_manager.py, dashboard.py
+│       ├── project.py, git_manager.py, gitlab_manager.py, ssl_manager.py, dashboard.py
+│       ├── health_manager.py, mail_sandbox.py, webhook_inspector.py, port_manager.py, crypto_tools.py
 │       └── settings.py, updater.py, tunnels.py, markdown_viewer.py, ai_assistant.py, terminal.py
 ├── frontend/               # Kode React UI
 │   ├── src/
-│   │   ├── components/     # Reusable UI generik (Modal.tsx, PageHeader.tsx, StatusBadge.tsx, ProgressStatusBlock.tsx, DataTable.tsx, FilterChips.tsx, ViewModeToggle.tsx, InstalledBadge.tsx, dll)
+│   │   ├── components/     # Reusable UI generik (Modal.tsx, PageHeader.tsx, StatusBadge.tsx, ProgressStatusBlock.tsx, DataTable.tsx, FilterChips.tsx, ViewModeToggle.tsx, InstalledBadge.tsx, Input.tsx, TableActionMenu.tsx, dll)
 │   │   │   └── skeleton/   # Primitif Skeleton Loading modular (Skeleton, SkeletonCard, SkeletonForm, SkeletonDocument, dll)
-│   │   ├── context/        # React Context lintas-aplikasi & modul (Alert, Toast, Ai, Apache, Php, Database, Dashboard, Project, Runtimes, Tunnels, Git)
+│   │   ├── context/        # React Context lintas-aplikasi & modul (Alert, Toast, Ai, Apache, Php, Database, Dashboard, Project, Runtimes, Tunnels, Git, GitLab)
 │   │   ├── locales/        # File terjemahan JSON (en & id)
-│   │   ├── menu/           # Halaman/Menu utama berdasarkan modul (apache, php, database, projects, runtimes, tools/terminal, dll)
+│   │   ├── menu/           # Halaman/Menu utama berdasarkan modul (apache, php, database, projects, runtimes, tools, utilities)
+│   │   │   ├── tools/      # Developer tools (ai-assistant, git, terminal, tunnels, markdown-viewer, mail-sandbox, webhook-inspector, port-manager, qr-generator, base64, url, settings)
+│   │   │   └── utilities/  # Developer utilities (json-studio, jwt-debugger, crypto-generator, regex-epoch, data-converter)
 │   │   ├── hooks/          # Custom hooks lintas-komponen (useWindowPresence.ts, dll)
-│   │   ├── utils/          # Helper murni non-komponen (a11y.ts, progress.ts, theme.ts, version.ts)
+│   │   ├── utils/          # Helper murni non-komponen (a11y.ts, progress.ts, theme.ts, version.ts, clipboard.ts)
 │   │   └── App.tsx         # Routing & Layout Utama
 └── main.py                 # Entrypoint aplikasi (Setup window, Pywebview, & System Tray)
+└── main.spec               # Spesifikasi PyInstaller executable bundling (datas, webview, certifi, hiddenimports)
 ```
 
 ## 🏗️ Arsitektur & Komunikasi (Python ↔ React)
@@ -235,6 +239,24 @@ VyloServe punya 15 preset tema (`vyloserve-dark`/`-light`, Darcula, Solarized Da
     - Utamakan penggunaan metode string deterministik (`str.partition("=")` atau `str.split("=", 1)`) yang linear dan kebal terhadap eksploitasi ReDoS. Jika regex tetap dibutuhkan, gunakan *character class* yang eksplisit dan batasi quantifiers secara ketat.
 38. **🚨 WAJIB: Verifikasi Wajib Kompilasi Produksi Frontend (`npm run build`):**
     - Sebelum serah terima fitur atau commit yang melibatkan perubahan TypeScript/TSX di `frontend/`, jalankan `npm run build` (`tsc -b && vite build`) untuk memastikan tidak ada kesalahan kompilasi tipe atau prop mismatch yang terlewat oleh linting biasa (Pelajaran dari bug #95: `tsc -b` mengungkap kegagalan kompilasi prop mismatch pada modal dan overload type `TFunction` yang lolos dari test terisolasi).
+39. **🚨 WAJIB: DILARANG Menggunakan Nilai Hardcode Magic Number untuk Tinggi Sticky / Fixed Panel terhadap Viewport (`calc(100vh - Npx)`):**
+    - Komponen di dalam area konten halaman yang menggunakan `sticky` atau `fixed` terhadap batas vertikal layar **DILARANG** mengasumsikan tinggi panel bawah (*System Logs*) konstan (misal: `calc(100vh - 240px)`). Panel System Logs memiliki tinggi dinamis: dapat dilipat (*collapsed* ~52px), dibuka normal (*expanded* ~196px), atau di-resize interaktif oleh user (*drag* hingga 70% viewport). Asumsi statis memicu bug ganda: konten bawah terpotong (*clipped*) saat log terbuka, dan muncul gap kosong raksasa saat log dilipat (tidak memanjang otomatis).
+    - **Pola Workspace Multi-Panel Wajib `isFillScreen`:** Untuk modul multi-panel kompleks (seperti Terminal, AI Assistant, dan Markdown Viewer/Docs Reader), halaman **WAJIB** dikonfigurasi sebagai **Fill-Screen Workspace** di `App.tsx` (`isFillScreen = true` dengan `flex-1 min-h-0 flex flex-col h-full overflow-hidden`) di mana setiap panel (Treeview, Document Reader, AI Copilot) memiliki tinggi penuh `h-full min-h-0` dan area scroll internal masing-masing. Jangan mengandalkan container luar ber-`overflow-y-auto` yang memicu double scrollbar dan mengubur kontrol input bawah.
+    - **Solusi Elemen Fixed/Overlays:** Selalu gunakan CSS Custom Property `--system-logs-height` (disinkronkan real-time oleh `LogsPanel.tsx` via `ResizeObserver` ke `:root`) dan `--header-mobile-height`:
+      - Fixed Bottom Offset (mis. Peek Drawer): `bottom: calc(var(--system-logs-height, 196px) + 16px)`
+      - Dynamic Vertical Centering (mis. Edge Arrow Handle): `top: calc(var(--header-mobile-height, 0px) + (100vh - var(--header-mobile-height, 0px) - var(--system-logs-height, 196px)) / 2)`. Detail arsitektur: `docs/frontend_ui.md` §4.6 & `docs/known_bugs.md` #98.
+40. **🚨 WAJIB: Prioritas Perencanaan Bertingkat (URGENT - LOW), Mandat Komponen Reusable, & Anti-Freeze Credential Helper di Windows:**
+    - **Struktur Rencana Bertahap & Berprioritas Jelas:** Setiap rencana implementasi (`/plan`) wajib menyusun tugas ke dalam batch dengan tingkatan prioritas eksplisit (`URGENT` -> `HIGH` -> `MEDIUM` -> `LOW`), lengkap dengan inventaris file yang diubah dan detail modifikasi konkret agar eksekusi AI tidak ada yang terlewat.
+    - **Mandat Komponen Reusable Pertama:** Setiap pembuatan UI baru pada semua modul wajib mengutamakan komponen reusable yang telah ada (`<Select>`, `<Button>`, `<InfoBox>`, `<FilterChips>`, `<EmptyState>`, `<Card>`, `<Modal>`). Dilarang membuat elemen form native mentah tanpa style jika padanan reusable sudah tersedia.
+    - **Anti-Freeze Git Credential Helper di Windows:** Pemanggilan `git credential approve` atau `reject` lewat subprocess di Windows rentan memicu pembekuan tak berbatas waktu (*infinite hang*) karena Git for Windows mengaktifkan `helper-selector` interaktif. Setiap pemanggilan subprocess untuk Git credential helper **WAJIB** menyertakan `GIT_TERMINAL_PROMPT="0"` dan `GCM_INTERACTIVE="never"`, menggunakan `subprocess.Popen` dengan `stdin=PIPE, stdout=DEVNULL, stderr=DEVNULL`, serta timeout ketat (maksimal 2 detik) dengan fail-safe `proc.kill()`. Pada seluruh unit test, `_store_git_credential` dan `_delete_git_credential` **WAJIB** di-mock untuk mencegah I/O nyata membekukan test runner (lihat `docs/known_bugs.md` #102).
+41. **🚨 WAJIB: Standar Isolasi Lingkungan Pengembang & Host Machine pada Unit Test (Anti-Host Leak):**
+    - Unit test **DILARANG KERAS** membaca file konfigurasi pengguna pada host machine riil (seperti `%LOCALAPPDATA%\glab-cli\config.yml`, `%APPDATA%`, atau `~/.config`) maupun memicu *socket network reachability probe* yang bergantung pada status VPN/koneksi fisik developer.
+    - Setiap fungsi yang mencari konfigurasi eksternal atau memicu probing jaringan (mis. `_find_glab_config_file`, `check_host_reachability`) **WAJIB** di-mock pada fixture test Pytest menggunakan `yield` agar isolasi terjaga di seluruh siklus test. (Pelajaran dari insiden test suite: `test_get_recent_issues` membaca `config.yml` riil developer yang memiliki host VPN korporat, memicu probe timeout dan mengembalikan issues kosong).
+42. **🚨 WAJIB: Kontrak Packaging PyInstaller & Resolusi Path Runtime (`get_resource_path`):**
+    - Setiap kali menambahkan aset file statis baru (ikon, font, gambar) atau file data yang wajib dibaca saat aplikasi berjalan (seperti folder translasi `frontend/src/locales`), file tersebut **WAJIB**:
+      1. Didaftarkan ke dalam list `datas` di `main.spec`.
+      2. Di backend Python, diakses menggunakan `get_resource_path("path/relatif")`, BUKAN `os.path.join(get_project_root(), ...)` semata, agar dapat diekstrak dan dibaca dengan benar dari folder sementara `sys._MEIPASS` saat aplikasi berjalan sebagai biner terkompilasi (`sys.frozen = True`). Pelanggaran kontrak ini menyebabkan teks translasi pada splash screen bootstrapper hilang di mode production (lihat `docs/known_bugs.md` #112).
+    - Periksa juga modul pihak ketiga yang di-import secara dinamis atau via C-extension/interop (`clr`, `win11toast`, `pystray._win32`, plugin Pillow) — wajib didaftarkan ke `hiddenimports` di `main.spec`.
 
 ---
 *File ini adalah sumber rujukan utama lintas-vendor untuk AI Assistant (Claude Code, OpenAI Codex CLI, Cursor, Amp, Jules, Gemini, dan tool lain yang mendukung standar terbuka [agents.md](https://agents.md)) agar bisa langsung memahami ekosistem VyloServe tanpa perlu menganalisa ulang seluruh repositori secara manual dari awal setiap memulai percakapan atau sesi baru.*

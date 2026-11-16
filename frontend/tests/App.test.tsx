@@ -217,4 +217,34 @@ describe('App', () => {
             window.removeEventListener('vylo_open_settings_modal', handler);
         });
     });
+
+    it('runs startup health check and displays alert modal if damaged modules were purged', async () => {
+        window.pywebview = {
+            api: {
+                test_connection: vi.fn(),
+                get_app_settings: vi.fn().mockResolvedValue({ status: 'success', data: {} }),
+                run_startup_health_check: vi.fn().mockResolvedValue({
+                    status: 'success',
+                    healthy_count: 3,
+                    recovered: [],
+                    purged: [
+                        {
+                            module: 'PHP 7.4',
+                            reason_key: 'backend.health.purged_version_unavailable',
+                            args: { module: 'PHP 7.4' },
+                            preserved_data_path: null,
+                        }
+                    ],
+                    deferred_offline: []
+                }),
+            }
+        };
+
+        render(<App />);
+
+        await waitFor(() => {
+            expect(screen.getByText(/Startup Health Check & Cleansing Report/i)).toBeInTheDocument();
+            expect(screen.getByText(/Damaged & Cleaned Modules/i)).toBeInTheDocument();
+        });
+    });
 });
