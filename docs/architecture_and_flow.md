@@ -290,4 +290,117 @@ Untuk mencegah benturan port (*port collision*) saat pengembang menjalankan serv
 - Port-port umum seperti `3000` (Next.js/React), `5173` (Vite default), `8000` (FastAPI/Django), dan `8080` (Vue/Spring Boot) sengaja dibiarkan bebas agar proyek multi-runtime pengguna dapat berjalan lancar tanpa mengalami penolakan port (*EADDRINUSE*).
 - Backend Python di `main.py` secara otomatis mendeteksi konfigurasi port Vite dev server aktif via `get_entrypoint()` dan mengarahkan PyWebView ke alamat yang tepat saat `IS_PRODUCTION = False`.
 
+## 17. Siklus Hidup Startup OS: Native Splash Bootstrapper & 3-Tier Self-Healing
+
+Untuk memberikan pengalaman startup instan mirip IDE profesional (seperti DBeaver atau IntelliJ) sekaligus menjamin integritas modul, VyloServe mengadopsi arsitektur startup 2-tahap:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Pengguna / OS
+    participant Main as main.py
+    participant Splash as NativeSplashBootstrapper (Tkinter)
+    participant Worker as Background Health Worker
+    participant Health as HealthManager
+    participant WebView as PyWebView Window (React UI)
+
+    User->>Main: Jalankan VyloServe (.exe / python main.py)
+    Main->>Splash: Inisialisasi jendela splash frameless (640x360 px)
+    Splash->>Splash: Render hero satin frosted banner & progress bar
+    Splash->>Worker: Spawn thread pengecekan kesehatan
+    Worker->>Health: run_startup_health_check()
+    
+    rect rgb(30, 41, 59)
+        Note over Health: Tier 1: Instant Local Config Recovery (< 150ms)<br/>Pulihkan php.ini, httpd.conf, my.ini, redis.conf & bersihkan orphan
+        Health-->>Worker: Status: 5% - 40% (cleanup & configs)
+        Worker-->>Splash: Queue: status update
+        Splash->>Splash: Animasikan teks status & persentase (Tkinter Canvas)
+        
+        Note over Health: Tier 2: Online Binary Auto-Recovery<br/>Unduh biner hilang jika online & versi terdaftar
+        Health-->>Worker: Status: 60% - 90% (databases, runtimes, tools)
+        Worker-->>Splash: Queue: status update
+        
+        Note over Health: Tier 3: Safe Cleansing & Database DataDir Protection<br/>Purge modul unrecoverable, aman dataDir database, tangguhkan saat offline
+        Health-->>Worker: Status: 100% (finalizing)
+        Worker-->>Splash: Queue: done (report payload)
+    end
+
+    Worker-->>Main: Health report selesai
+    Main->>Splash: Tutup splash screen (destroy Tkinter)
+    Main->>WebView: Buat & tampilkan jendela utama PyWebView (1200x800)
+    WebView->>User: Transisi mulus zero-CLS ke AppSkeletonLayout lalu Dashboard
+```
+
+1. **Jendela Splash OS-Level Terisolasi (`NativeSplashBootstrapper`):**
+   - Menggunakan Tkinter canvas murni bawaan Python (frameless, posisi persis di tengah layar monitor pengguna).
+   - Berjalan mandiri sebelum WebView2 diinisialisasi sehingga startup terasa seketika (< 200ms) tanpa menunggu overhead engine browser.
+   - Menggunakan thread worker dan antrean thread-safe `queue.Queue` yang di-polling via `root.after(16, _poll_queue)` untuk menjamin GUI tetap responsif 60 FPS saat memproses pemulihan I/O berat.
+   - Mendukung multi-bahasa instan via `_load_locale_file()` yang disinkronkan dengan preferensi bahasa di `data/settings.json` dan membaca bundle `sys._MEIPASS` di mode production via `get_resource_path()`.
+2. **Arsitektur 3-Tier Self-Healing (`HealthManager`):**
+   - **Tier 1 (Instant Local Config Recovery):** Meregenerasi file konfigurasi kritis (`php.ini`, `httpd.conf`, `vhosts.conf`, `my.ini`, `redis.conf`) secara lokal dari template cadangan saat file rusak/terhapus, serta membersihkan direktori orphan `temp_*`.
+   - **Tier 2 (Online Binary Auto-Recovery):** Memulihkan biner executable yang hilang secara otomatis dari mirror resmi jika koneksi internet terdeteksi aktif.
+   - **Tier 3 (Safe Cleansing & Proteksi Data SQL):** Membersihkan folder modul yang rusak secara aman tanpa menghapus folder data pengguna (`dataDir` database MySQL/PostgreSQL/Redis tetap 100% aman dan jalurnya dilaporkan).
+   - **Offline Deferral:** Jika biner hilang namun pengguna sedang offline, proses purge ditangguhkan (*deferred offline*) agar tidak terjadi penghapusan modul yang salah (*false purge*).
+
+## 18. Arsitektur In-Process Async Daemons (Local Mail Sandbox & Webhook Inspector)
+
+VyloServe mengintegrasikan peralatan pengujian jaringan lokal secara *in-process* (berjalan sebagai thread internal Python backend) alih-alih mengandalkan biner eksternal pihak ketiga:
+
+1. **Mail Sandbox (`MailSandbox`):**
+   - Menjalankan asynchronous SMTP mock server lokal di port `1025` (dapat dikonfigurasi).
+   - Menerima email dari framework apa pun (Laravel Mail, Symfony Mailer, Django, Nodemailer, dsb) tanpa memerlukan koneksi internet atau kredensial SMTP nyata.
+   - Mem-parse MIME multipart, body plain-text & HTML, lampiran berkas, dan header email.
+   - Menyimpan histori pesan di in-memory ring-buffer terisolasi dengan batas kapasitas aman, serta menyediakan fungsi ekspor berkas `.eml` standar untuk pengujian di email client desktop.
+2. **Webhook Inspector (`WebhookInspector`):**
+   - Menjalankan HTTP server lokal non-blocking untuk menangkap request webhook masuk dari layanan pihak ketiga (Stripe, GitHub, Midtrans, Slack, dll) atau testing internal.
+   - Merekam metode HTTP (POST/GET/PUT/PATCH), path endpoint, query params, headers lengkap, dan payload JSON/Form.
+   - Menyediakan generator perintah cURL otomatis dari setiap request yang tertangkap untuk mempermudah developer melakukan replay testing via terminal atau Postman.
+
+## 19. Arsitektur Integrasi GitLab Multi-Host & VPN Circuit Breaker (`GitLabManager`)
+
+Integrasi GitLab CLI (`glab`) dirancang dengan fokus pada keamanan perusahaan dan kenyamanan kerja multi-host:
+
+```mermaid
+flowchart TD
+    UI["Frontend UI / AI Assistant"] --> API["Api.get_recent_issues() / comment_mr()"]
+    API --> Mgr["GitLabManager"]
+    Mgr --> ReadCfg["_read_config() (data/gitlab.json)"]
+    ReadCfg --> CheckAcc{"Memerlukan VPN?"}
+    
+    CheckAcc -- "Ya (requires_vpn = True)" --> ProbeHost["check_host_reachability(host)"]
+    ProbeHost --> Reachable{"Host Terjangkau?"}
+    Reachable -- "Tidak (VPN Putus)" --> Blocked["Short-Circuit: vpn_blocked: True"]
+    Blocked --> UIState["UI: Tampilkan Banner VPN & Cache Proyek Lokal"]
+    
+    CheckAcc -- "Tidak" --> ExecGlab["Eksekusi Subprocess glab Portable/PATH"]
+    Reachable -- "Ya (VPN Aktif)" --> ExecGlab
+    ExecGlab --> Result["Output JSON / Hasil Perintah"]
+    Result --> UI
+```
+
+1. **Portable Binary Lifecycle:**
+   - Menyediakan opsi unduh biner resmi portable glab (Windows 64-bit / Linux) ke direktori `bin/glab/` atau menggunakan biner eksternal di PATH OS.
+   - Isolasi direktori kerja: folder `bin/glab` hanya dibuat on-demand saat pengguna menekan tombol instalasi.
+2. **Multi-Host & Multi-Account Store:**
+   - Mendukung multiple account di berbagai host berbeda (`gitlab.com`, `git.company.com`, dsb).
+   - Token PAT disimpan secara aman (didukung OS Keyring atau isolasi `data/gitlab.json` dengan izin terbatas).
+3. **VPN Reachability Circuit Breaker (`_is_vpn_unreachable`):**
+   - Mencegah freeze atau timeout lama pada subprocess `glab` saat developer sedang tidak tersambung ke VPN korporat.
+   - Melakukan probe socket instan (timeout 1.5 detik) sebelum perintah dieksekusi. Jika VPN terputus, sistem langsung mengembalikan status `vpn_blocked: True` yang ditangani secara visual di React UI tanpa memblokir tab.
+4. **Human-in-the-Loop AI Collaboration:**
+   - AI Assistant dapat membaca issue context dan perubahan Merge Request, lalu menyusun proposal komentar atau review yang **wajib dikonfirmasi** oleh pengguna sebelum di-post ke remote GitLab.
+
+## 20. Arsitektur IPC Single-Instance & Hide-to-Tray Desktop Integration (`main.py`)
+
+1. **Isolasi Mutex Single-Instance:**
+   - Memisahkan mode production (`VyloServe_App_Mutex_v1`) dan development (`VyloServe_Dev_App_Mutex_v1`) sehingga pengembang dapat membuka aplikasi mode dev dan production secara bersamaan tanpa bentrok.
+2. **Windows Named Pipe IPC:**
+   - Instans kedua yang dibuka pengguna tidak melakukan hijack Win32 cross-process melainkan mengirimkan sinyal `SHOW` melalui Named Pipe OS (`\\.\pipe\VyloServe_IPC_v1`).
+   - Instans utama yang mendengarkan di background akan memulihkan window dari status minimized/tray dan membawanya ke foreground.
+3. **Hide-to-Tray & Native Notifications:**
+   - Menekan tombol close (X) menyembunyikan window ke System Tray (`pystray`).
+   - Notifikasi native Windows 11 (`win11toast`) hanya ditembakkan saat window sedang backgrounded atau minimized, dipantau lewat window presence hook (`useWindowPresence.ts`).
+   - Titlebar caption dan teks disinkronkan secara real-time dengan DWM Windows berdasarkan 15 preset tema warna yang dipilih.
+
+
 

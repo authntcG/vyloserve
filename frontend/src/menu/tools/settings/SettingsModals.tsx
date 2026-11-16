@@ -31,6 +31,9 @@ const LOG_SOURCE_GROUPS = [
     { icon: 'grid_view', labelKey: 'settings.log_source_dashboard', systemKey: 'DashboardManager' },
     { icon: 'settings', labelKey: 'settings.log_source_settings', systemKey: 'SettingsManager' },
     { icon: 'router', labelKey: 'settings.log_source_tunnels', systemKey: 'TunnelsManager' },
+    { icon: 'radar', labelKey: 'settings.log_source_port_manager', systemKey: 'PortManager' },
+    { icon: 'mail', labelKey: 'settings.log_source_mail_sandbox', systemKey: 'MailSandboxManager' },
+    { icon: 'webhook', labelKey: 'settings.log_source_webhook_inspector', systemKey: 'WebhookInspectorManager' },
 ];
 
 const ALL_LOG_LEVEL_KEYS = LOG_LEVELS.map(l => l.key);
@@ -704,6 +707,7 @@ export default function SettingsModals({ activeModal, defaultTab = 'general', on
                 onApply={() => {
                     const api = (window as any).pywebview?.api;
                     if (api) api.close_app();
+                    onClose();
                 }}
                 applyText={t('common.yes')}
                 isDestructive={true}

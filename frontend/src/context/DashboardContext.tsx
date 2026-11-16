@@ -197,13 +197,29 @@ interface DashboardContextType {
     handleToggleDbIncluded: (checked: boolean) => void;
     setIncludedServices: React.Dispatch<React.SetStateAction<IncludedServices>>;
     handleToggleAll: (action: 'start' | 'stop') => Promise<void>;
-    handleOpenBrowser: (domain: string) => void;
+    handleOpenBrowser: (domain: string, protocol?: 'http' | 'https') => void | Promise<void>;
     handleOpenDir: (path: string) => void;
-    fetchServicesStatus: () => Promise<void>;
-    fetchRecentProjects: () => Promise<void>;
+    fetchServicesStatus: (silent?: boolean) => Promise<void>;
+    fetchRecentProjects: (silent?: boolean) => Promise<void>;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
+
+async function resolveApacheProtocol(api: any): Promise<'http' | 'https'> {
+    if (!api?.get_apache_ports_status) return 'https';
+    try {
+        const portsRes = await api.get_apache_ports_status();
+        if (portsRes?.status === 'success' && portsRes.data?.https?.status === 'listening') {
+            return 'https';
+        }
+        if (portsRes?.status === 'success' && portsRes.data?.http?.status === 'listening') {
+            return 'http';
+        }
+        return 'https';
+    } catch {
+        return 'https';
+    }
+}
 
 export function DashboardProvider({ children }: { readonly children: ReactNode }) {
     const { t } = useTranslation();
@@ -285,8 +301,8 @@ export function DashboardProvider({ children }: { readonly children: ReactNode }
         saveConfig();
     }, [includedServices, selectedPhp, selectedDb]);
 
-    const fetchRecentProjects = async () => {
-        setIsLoadingProjects(true);
+    const fetchRecentProjects = async (silent = false) => {
+        if (!silent) setIsLoadingProjects(true);
         try {
             const api = window.pywebview?.api;
             if (api && typeof api.get_projects === 'function') {
@@ -299,11 +315,12 @@ export function DashboardProvider({ children }: { readonly children: ReactNode }
         } catch (error) {
             console.error(error);
         } finally {
-            setIsLoadingProjects(false);
+            if (!silent) setIsLoadingProjects(false);
         }
     };
 
-    const fetchServicesStatus = async () => {
+    const fetchServicesStatus = async (silent = false) => {
+        if (!silent) setIsGlobalLoading(true);
         try {
             const api = window.pywebview?.api;
             if (!api) return;
@@ -320,7 +337,7 @@ export function DashboardProvider({ children }: { readonly children: ReactNode }
         } catch (error) {
             console.error(error);
         } finally {
-            setIsGlobalLoading(false);
+            if (!silent) setIsGlobalLoading(false);
         }
     };
 
@@ -331,18 +348,30 @@ export function DashboardProvider({ children }: { readonly children: ReactNode }
     fetchRecentProjectsRef.current = fetchRecentProjects;
 
     useEffect(() => {
-        loadDashboardConfig();
-        fetchRecentProjectsRef.current();
-        fetchServicesStatusRef.current();
+        const initialBootstrap = async () => {
+            try {
+                await Promise.allSettled([
+                    loadDashboardConfig(),
+                    fetchRecentProjectsRef.current(true),
+                    fetchServicesStatusRef.current(true)
+                ]);
+            } finally {
+                setIsGlobalLoading(false);
+                setIsLoadingProjects(false);
+            }
+        };
+
+        initialBootstrap();
+
         const interval = setInterval(() => {
-            fetchServicesStatusRef.current();
+            fetchServicesStatusRef.current(true);
         }, 3000);
 
         const handleStatusSync = () => {
-            fetchServicesStatusRef.current();
+            fetchServicesStatusRef.current(true);
         };
         const handleProjectSync = () => {
-            fetchRecentProjectsRef.current();
+            fetchRecentProjectsRef.current(true);
         };
 
         window.addEventListener('service_status_changed', handleStatusSync);
@@ -424,11 +453,16 @@ export function DashboardProvider({ children }: { readonly children: ReactNode }
         setIncludedServices(p => ({ ...p, database: checked }));
     };
 
-    const handleOpenBrowser = (domain: string) => {
-        const url = `https://${domain}`;
+    const handleOpenBrowser = async (domain: string, protocol?: 'http' | 'https') => {
+        const api = (window as any).pywebview?.api;
+        const proto = protocol || await resolveApacheProtocol(api);
+        const url = `${proto}://${domain}`;
         try {
-            if (window.pywebview?.api?.open_browser) window.pywebview.api.open_browser(url);
-            else window.open(url, '_blank');
+            if (api?.open_browser) {
+                api.open_browser(url);
+            } else {
+                window.open(url, '_blank');
+            }
         } catch (e) {
             console.error(e);
         }

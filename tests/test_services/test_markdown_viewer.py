@@ -186,3 +186,71 @@ def test_get_local_media_path_traversal_blocked(manager, tmp_path):
     assert result['status'] == 'error'
     assert result['message'] == 'backend.error.path_traversal'
 
+def test_register_workspace_roots_invalid(manager):
+    result = manager.register_workspace_roots("not_a_list")
+    assert result['status'] == 'error'
+    assert result['message'] == 'backend.error.invalid_input'
+
+def test_register_workspace_roots_success(manager, tmp_path):
+    d1 = tmp_path / "docs"
+    d1.mkdir()
+    d2 = tmp_path / "spec"
+    d2.mkdir()
+    result = manager.register_workspace_roots([str(d1), str(d2), "nonexistent_dir"])
+    assert result['status'] == 'success'
+    assert len(result['data']) == 2
+    assert str(d1.resolve()) in result['data']
+    assert str(d2.resolve()) in result['data']
+
+def test_get_multi_markdown_tree_invalid(manager):
+    result = manager.get_multi_markdown_tree("invalid")
+    assert result['status'] == 'error'
+    assert result['message'] == 'backend.error.invalid_input'
+
+def test_get_multi_markdown_tree_success(manager, tmp_path):
+    d1 = tmp_path / "docs"
+    d1.mkdir()
+    (d1 / "guide.md").write_text("# Guide", encoding="utf-8")
+    d2 = tmp_path / "spec"
+    d2.mkdir()
+    (d2 / "api.md").write_text("# API", encoding="utf-8")
+
+    result = manager.get_multi_markdown_tree([str(d1), str(d2)])
+    assert result['status'] == 'success'
+    assert len(result['data']) == 2
+    assert result['data'][0]['name'] == 'docs'
+    assert result['data'][1]['name'] == 'spec'
+    assert len(result['data'][0]['children']) == 1
+    assert len(result['data'][1]['children']) == 1
+
+def test_read_markdown_file_multi_root_security(manager, tmp_path):
+    d1 = tmp_path / "docs"
+    d1.mkdir()
+    f1 = d1 / "doc1.md"
+    f1.write_text("# Doc 1", encoding="utf-8")
+
+    d2 = tmp_path / "spec"
+    d2.mkdir()
+    f2 = d2 / "spec1.md"
+    f2.write_text("# Spec 1", encoding="utf-8")
+
+    secret = tmp_path / "secret.md"
+    secret.write_text("# Secret", encoding="utf-8")
+
+    manager.register_workspace_roots([str(d1), str(d2)])
+
+    # Both roots are allowed
+    r1 = manager.read_markdown_file(str(f1))
+    assert r1['status'] == 'success'
+    assert r1['data'] == '# Doc 1'
+
+    r2 = manager.read_markdown_file(str(f2))
+    assert r2['status'] == 'success'
+    assert r2['data'] == '# Spec 1'
+
+    # Outside both roots is blocked
+    r_secret = manager.read_markdown_file(str(secret))
+    assert r_secret['status'] == 'error'
+    assert r_secret['message'] == 'backend.error.path_traversal'
+
+

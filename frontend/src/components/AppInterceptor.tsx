@@ -29,7 +29,14 @@ export default function GlobalAppInterceptor() {
             e.preventDefault();
 
             const target = e.target as HTMLElement;
-            const logArea = target.closest('.vylo-log-area');
+
+            // Abaikan jika klik kanan terjadi di dalam area terminal xterm atau kontainer dengan context menu kustom
+            if (target?.closest?.('.xterm') || target?.closest?.('[data-custom-context-menu]')) {
+                setMenuState(prev => (prev.visible ? { ...prev, visible: false } : prev));
+                return;
+            }
+
+            const logArea = target?.closest?.('.vylo-log-area');
 
             let selectedText = window.getSelection()?.toString().trim() || '';
             if (!selectedText && (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) {

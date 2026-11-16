@@ -93,6 +93,9 @@ export default function RuntimePathHub({
         if (externalLocked) {
             return t('runtimes.external_install_locked');
         }
+        if (versionOptions.length === 0) {
+            return t('runtimes.no_version_for_path_hint');
+        }
         if (data.in_path) {
             return t('runtimes.active_path_hint', { engine: engineTitle, version: activeVersion });
         }

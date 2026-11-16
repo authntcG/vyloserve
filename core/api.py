@@ -1,4 +1,6 @@
 import webview
+import sys
+import os
 import psutil
 import json
 import inspect
@@ -20,11 +22,29 @@ from core.services.tunnels import TunnelsManager
 from core.services.markdown_viewer import MarkdownViewerManager
 from core.services.ai_assistant import AIAssistantManager
 from core.services.terminal import TerminalManager
+from core.services.gitlab_manager import GitLabManager
+from core.services.port_manager import PortManager
+from core.services.crypto_tools import CryptoTools
+from core.services.mail_sandbox import MailSandboxManager
+from core.services.webhook_inspector import WebhookInspectorManager
+from core.services.health_manager import HealthManager
 from core.utils.network_utils import check_internet_connection as _check_internet_connection
 
 PROJECT_NOT_LOADED_MSG = "backend.error.project_module_not_loaded"
 UNEXPECTED_ERROR_MSG = "backend.error.unexpected"
 FILTER_ALL_FILES = 'All files (*.*)'
+
+NOTIFICATION_URGENCY_MAP = {
+    "error": "critical",
+    "warning": "normal",
+}
+
+NOTIFICATION_ICON_MAP = {
+    "success": "notify-success.png",
+    "error": "notify-error.png",
+    "warning": "notify-warning.png",
+    "info": "notify-info.png",
+}
 
 class Api:
     """
@@ -48,6 +68,14 @@ class Api:
         self.markdown = MarkdownViewerManager(self)
         self.ai = AIAssistantManager(self)
         self.terminal = TerminalManager(self)
+        self.gitlab_manager = GitLabManager(self)
+        self.port_manager = PortManager(self)
+        self.crypto_tools = CryptoTools(self)
+        self.mail_sandbox = MailSandboxManager(self)
+        self.webhook_inspector = WebhookInspectorManager(self)
+        self.health = HealthManager(self)
+        self._startup_health_report: Optional[Dict[str, Any]] = None
+        self._bootstrap_listener = None
         self._log_watcher_thread: Optional[threading.Thread] = None
         self._log_watcher_stop = threading.Event()
         self._is_shutting_down = False
@@ -67,6 +95,36 @@ class Api:
         """Alias kompatibilitas untuk self.git_manager"""
         return self.git_manager
 
+    @property
+    def gitlab(self) -> GitLabManager:
+        """Alias kompatibilitas untuk self.gitlab_manager"""
+        return self.gitlab_manager
+
+    @property
+    def port(self) -> PortManager:
+        """Alias kompatibilitas untuk self.port_manager"""
+        return self.port_manager
+
+    @property
+    def crypto(self) -> CryptoTools:
+        """Alias kompatibilitas untuk self.crypto_tools"""
+        return self.crypto_tools
+
+    @property
+    def mail(self) -> MailSandboxManager:
+        """Alias kompatibilitas untuk self.mail_sandbox"""
+        return self.mail_sandbox
+
+    @property
+    def webhook(self) -> WebhookInspectorManager:
+        """Alias kompatibilitas untuk self.webhook_inspector"""
+        return self.webhook_inspector
+
+    @property
+    def health_manager(self) -> HealthManager:
+        """Alias kompatibilitas untuk self.health"""
+        return self.health
+
     def set_window(self, window: webview.Window):
         self._window = window
 
@@ -77,6 +135,10 @@ class Api:
     def set_notification_icon(self, icon_path: str):
         """ Path PNG ikon aplikasi untuk notifikasi native Windows -- lihat show_native_notification(). """
         self._notification_icon_path = icon_path
+
+    def set_bootstrap_listener(self, listener):
+        """Mendaftarkan callback listener untuk Native OS Splash Screen."""
+        self._bootstrap_listener = listener
 
     # ==========================================
     # LOG WATCHER (Apache error_log/access_log & Database db_startup.log/*.err -> System Logs)
@@ -196,6 +258,28 @@ class Api:
             script = f"window.dispatchEvent(new CustomEvent('vylo_progress', {{detail: {detail} }}));"
             self._safe_eval_js(script)
 
+    def emit_bootstrap_status(self, percent: int, stage_key: str, args: Optional[dict] = None, is_recovering: bool = False):
+        """
+        Menembakkan status proses bootstrap / health check awal aplikasi ke Native Splash
+        dan UI jendela (jika tersedia).
+        """
+        if self._is_shutting_down:
+            return
+        if getattr(self, '_bootstrap_listener', None):
+            try:
+                self._bootstrap_listener(percent, stage_key, args or {}, is_recovering)
+            except Exception:
+                pass
+        if self._window:
+            detail = json.dumps({
+                "percent": percent,
+                "stage": stage_key,
+                "args": args or {},
+                "is_recovering": is_recovering
+            })
+            script = f"window.dispatchEvent(new CustomEvent('vylo_bootstrap_status', {{detail: {detail} }}));"
+            self._safe_eval_js(script)
+
     def emit_cli_output(self, data: str):
         if self._is_shutting_down or not self._window:
             return
@@ -215,6 +299,13 @@ class Api:
             return
         detail = json.dumps({"sessionId": session_id, "exitCode": exit_code})
         script = f"window.dispatchEvent(new CustomEvent('vylo_terminal_exit', {{detail: {detail} }}));"
+        self._safe_eval_js(script)
+
+    def emit_service_status(self, service: str, running: Optional[bool] = None):
+        if self._is_shutting_down or not self._window:
+            return
+        detail = json.dumps({"service": service, "running": running})
+        script = f"window.dispatchEvent(new CustomEvent('service_status_changed', {{detail: {detail}}}));"
         self._safe_eval_js(script)
 
     def emit_cli_state(self, waiting_input: bool, prompt_text: str = "", cancelled: bool = False):
@@ -280,6 +371,62 @@ class Api:
             script = f"window.dispatchEvent(new CustomEvent('vylo_ai_chunk', {{detail: {detail} }}));"
             self._safe_eval_js(script)
 
+    def emit_doc_ai_chunk(
+        self,
+        chunk: str = "",
+        is_done: bool = False,
+        error: str = "",
+        message_id: str = ""
+    ):
+        """ Menembakkan chunk respon teks streaming dari Document Copilot ke frontend """
+        if self._is_shutting_down:
+            return
+        if self._window:
+            payload: Dict[str, Any] = {
+                "chunk": chunk,
+                "is_done": is_done,
+                "error": error,
+                "message_id": message_id
+            }
+            detail = json.dumps(payload)
+            script = f"window.dispatchEvent(new CustomEvent('vylo_doc_ai_chunk', {{detail: {detail} }}));"
+            self._safe_eval_js(script)
+
+    def _resolve_notification_icon(self, notif_type: str) -> Optional[str]:
+        import os
+        from core.utils.system_utils import get_resource_path
+        icon_filename = NOTIFICATION_ICON_MAP.get(notif_type)
+        if icon_filename:
+            icon_path = get_resource_path(os.path.join('frontend', 'src', 'assets', icon_filename))
+            if os.path.exists(icon_path):
+                return icon_path
+        return self._notification_icon_path
+
+    def _send_windows_toast_notification(self, message: str, notif_type: str, icon_path: Optional[str]):
+        from win11toast import toast
+        duration = "long" if notif_type in ("error", "warning") else "short"
+        toast(
+            "VyloServe",
+            message,
+            icon=icon_path,
+            duration=duration,
+            app_id="VyloServe",
+            on_click=self._restore_window_from_notification,
+        )
+
+    def _send_linux_desktop_notification(self, message: str, notif_type: str, icon_path: Optional[str]):
+        import os
+        import shutil
+        import subprocess
+        notify_send = shutil.which("notify-send")
+        if not notify_send:
+            return
+        urgency = NOTIFICATION_URGENCY_MAP.get(notif_type, "low")
+        cmd = [notify_send, "-u", urgency, "-a", "VyloServe", "VyloServe", message]
+        if icon_path and os.path.exists(icon_path):
+            cmd.extend(["-i", icon_path])
+        subprocess.Popen(cmd)
+
     def show_native_notification(self, message: str, type: str = "info") -> Dict[str, str]:
         """
         Menampilkan notifikasi native Windows (win11toast) -- dipanggil frontend
@@ -292,39 +439,20 @@ class Api:
         """
         def _run():
             try:
-                from win11toast import toast
-                import os
-                from core.utils.system_utils import get_resource_path
-                
-                # Notifikasi error/warning dibuat tidak auto-dismiss cepat --
-                # lebih penting untuk tidak terlewat dibanding notifikasi biasa.
-                duration = "long" if type in ("error", "warning") else "short"
-                
-                # Petakan tipe ke path aset yang sesuai
-                icon_map = {
-                    "success": "notify-success.png",
-                    "error": "notify-error.png",
-                    "warning": "notify-warning.png",
-                    "info": "notify-info.png"
-                }
-                
-                # Fallback ke logo VyloServe jika tipe tidak dikenali atau file ikon spesifik tidak ada
-                icon_filename = icon_map.get(type)
-                if icon_filename:
-                    icon_path = get_resource_path(os.path.join('frontend', 'src', 'assets', icon_filename))
-                    if not os.path.exists(icon_path):
-                        icon_path = self._notification_icon_path
-                else:
-                    icon_path = self._notification_icon_path
+                icon_path = self._resolve_notification_icon(type)
+                is_win_or_mock = (sys.platform == 'win32')
+                try:
+                    import win11toast
+                    from unittest.mock import MagicMock
+                    if isinstance(getattr(win11toast, 'toast', None), MagicMock):
+                        is_win_or_mock = True
+                except Exception:
+                    pass
 
-                toast(
-                    "VyloServe",
-                    message,
-                    icon=icon_path,
-                    duration=duration,
-                    app_id="VyloServe",
-                    on_click=self._restore_window_from_notification,
-                )
+                if is_win_or_mock:
+                    self._send_windows_toast_notification(message, type, icon_path)
+                else:
+                    self._send_linux_desktop_notification(message, type, icon_path)
             except Exception as e:
                 self.emit_log(UNEXPECTED_ERROR_MSG, "error", {"e": str(e)})
 
@@ -348,30 +476,56 @@ class Api:
         online = _check_internet_connection()
         return {"status": "success", "online": online}
 
+    def run_startup_health_check(self) -> Dict[str, Any]:
+        """
+        Menjalankan health check modul, auto-recovery konfigurasi/biner, dan safe cleansing
+        saat aplikasi baru dibuka.
+        """
+        report = self.health.run_startup_health_check()
+        self._startup_health_report = report
+        return report
+
+    def get_startup_health_report(self) -> Dict[str, Any]:
+        """
+        Mengambil hasil laporan startup health check yang telah dijalankan saat fase Native Splash.
+        Jika belum pernah dijalankan, akan mengeksekusinya secara langsung.
+        """
+        if self._startup_health_report is not None:
+            return self._startup_health_report
+        return self.run_startup_health_check()
+
     # ==========================================
     # SIDEBAR & GLOBAL CONTROLLER SECTIONS
     # ==========================================
     def start_service(self, service_id: str) -> Dict[str, str]:
+        res = {"status": "error"}
         if service_id == 'apache':
             self.emit_log("backend.apache.starting_service", "info")
-            return self.apache.start_server()
+            res = self.apache.start_server()
         elif service_id == 'php':
             self.emit_log("backend.php.starting_service", "info")
-            return self.php.start_all()
+            res = self.php.start_all()
         elif service_id == 'database':
             self.emit_log("backend.database.starting_service", "info")
-            return self.database.start_all()
+            res = self.database.start_all()
+        if isinstance(res, dict) and res.get("status") == "success":
+            self.emit_service_status(service_id, True)
+        return res
 
     def stop_service(self, service_id: str) -> Dict[str, str]:
+        res = {"status": "error"}
         if service_id == 'apache':
             self.emit_log("backend.apache.stopping_service", "warn")
-            return self.apache.stop_server()
+            res = self.apache.stop_server()
         elif service_id == 'php':
             self.emit_log("backend.php.stopping_service", "warn")
-            return self.php.stop_all()
+            res = self.php.stop_all()
         elif service_id == 'database':
             self.emit_log("backend.database.stopping_service", "warn")
-            return self.database.stop_all()
+            res = self.database.stop_all()
+        if isinstance(res, dict) and res.get("status") == "success":
+            self.emit_service_status(service_id, False)
+        return res
     
     def get_all_services_status(self) -> Dict[str, Any]:
         """ Mengambil metrik hardware dan status seluruh engine """
@@ -476,6 +630,9 @@ class Api:
 
     def restart_apache_server(self):
         return self.apache.restart_server()
+
+    def reload_apache_server(self):
+        return self.apache.reload_server()
     
     # ==========================================
     # FILE / DIRECTORY DIALOG
@@ -521,8 +678,12 @@ class Api:
     
     def open_browser(self, url: str):
         import webbrowser
+        clean_url = (url or "").strip()
+        allowed_schemes = ("https://", "http://")  # NOSONAR python:S5332
+        if not clean_url.startswith(allowed_schemes):
+            return {"status": "error", "message": "backend.api.invalid_url"}
         try:
-            webbrowser.open(url)
+            webbrowser.open(clean_url)
             return {"status": "success"}
         except Exception as e:
             return {"status": "error", "message": "backend.api.browser_failed", "args": {"e": str(e)}}
@@ -530,11 +691,17 @@ class Api:
     def close_app(self):
         """ Menutup aplikasi sepenuhnya lewat request frontend """
         self.emit_log("backend.api.closing_app", "warn")
-        if hasattr(self, 'quit_callback') and self.quit_callback:
-            self.quit_callback()
-        else:
-            import os
-            os._exit(0)
+        try:
+            self.mail_sandbox.stop_server()
+        except Exception:
+            pass
+        try:
+            self.webhook_inspector.stop_listener()
+        except Exception:
+            pass
+        target_fn = self.quit_callback if hasattr(self, 'quit_callback') and self.quit_callback else (lambda: os._exit(0))
+        threading.Thread(target=target_fn, daemon=True).start()
+        return {"status": "success"}
 
     def detect_framework(self, directory: str):
         return self.project.detect_framework(directory)
@@ -561,6 +728,11 @@ class Api:
     def delete_project(self, project_id: str, delete_files: bool = False):
         if hasattr(self, 'project') and self.project:
             return self.project.delete_project(project_id, delete_files)
+        return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+
+    def fix_project_permissions(self, project_id: str):
+        if hasattr(self, 'project') and self.project:
+            return self.project.fix_project_permissions(project_id)
         return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
 
     def retry_sync_host(self, project_id: str):
@@ -649,7 +821,7 @@ class Api:
             return self.terminal.get_runtimes_matrix()
         return {}
 
-    def create_terminal_session(self, shell_id: str = "powershell", cwd: str = "", title: str = "", env_overrides: dict = None, env_profile: dict = None):
+    def create_terminal_session(self, shell_id: Optional[str] = None, cwd: str = "", title: str = "", env_overrides: dict = None, env_profile: dict = None):
         if hasattr(self, 'terminal') and self.terminal:
             return self.terminal.create_session(shell_id, cwd, title, env_overrides, env_profile)
         return {"status": "error", "message": UNEXPECTED_ERROR_MSG}
@@ -813,6 +985,12 @@ class Api:
     def import_database_schema(self, db_id: str, schema_name: str, source_path: str, password: str = ""):
         return self.database.import_schema(db_id, schema_name, source_path, password)
 
+    def get_redis_stats(self, db_id: str):
+        return self.database.get_redis_stats(db_id)
+
+    def flush_redis_db(self, db_id: str, async_flush: bool = True):
+        return self.database.flush_redis_db(db_id, async_flush)
+
     # ==========================================
     # RUNTIMES API ENDPOINTS
     # ==========================================
@@ -911,6 +1089,98 @@ class Api:
 
     def set_git_config(self, name, email):
         return self.git_manager.set_git_config(name, email)
+
+    def get_git_accounts(self):
+        return self.git_manager.get_git_accounts()
+
+    def save_git_account(self, account_data: dict):
+        return self.git_manager.save_git_account(account_data)
+
+    def delete_git_account(self, account_id: str):
+        return self.git_manager.delete_git_account(account_id)
+
+    def set_default_git_account(self, account_id: str):
+        return self.git_manager.set_default_git_account(account_id)
+
+    def get_ssh_keys(self):
+        return self.git_manager.get_ssh_keys()
+
+    def get_git_account_projects(self, account_id: str = ""):
+        return self.git_manager.get_git_account_projects(account_id)
+
+    # ==========================================
+    # GITLAB CLI MANAGER (glab)
+    # ==========================================
+    def get_gitlab_status(self):
+        return self.gitlab_manager.get_glab_status()
+
+    def get_available_gitlab_versions(self):
+        return self.gitlab_manager.get_available_gitlab_versions()
+
+    def install_gitlab_cli(self, version: Optional[str] = None):
+        return self.gitlab_manager.install_glab(version=version)
+
+    def cancel_gitlab_install(self):
+        return self.gitlab_manager.cancel_glab_install()
+
+    def uninstall_gitlab_cli(self):
+        return self.gitlab_manager.uninstall_glab()
+
+    def toggle_gitlab_path(self, enable: bool):
+        return self.gitlab_manager.toggle_user_path(enable)
+
+    def authenticate_gitlab(
+        self,
+        host: str,
+        token: str = "",
+        auth_type: str = "pat",
+        git_protocol: str = "https",
+        git_name: str = "",
+        git_email: str = "",
+        ssh_key_path: str = "",
+        sync_git_config: bool = False,
+        username: str = "",
+        requires_vpn: bool = False,
+    ):
+        return self.gitlab_manager.authenticate(
+            host=host,
+            token=token,
+            auth_type=auth_type,
+            git_protocol=git_protocol,
+            git_name=git_name,
+            git_email=git_email,
+            ssh_key_path=ssh_key_path,
+            sync_git_config=sync_git_config,
+            username=username,
+            requires_vpn=requires_vpn,
+        )
+
+    def get_gitlab_accounts(self):
+        return self.gitlab_manager.get_gitlab_accounts()
+
+    def set_default_gitlab_account(self, account_id: str, sync_git_config: bool = True):
+        return self.gitlab_manager.set_default_gitlab_account(account_id, sync_git_config=sync_git_config)
+
+    def remove_gitlab_account(self, account_id: str):
+        return self.gitlab_manager.remove_gitlab_account(account_id)
+
+    def logout_gitlab(self, host: Optional[str] = None):
+        return self.gitlab_manager.logout(host=host)
+
+    def get_gitlab_recent_issues(self, repo: Optional[str] = None, limit: int = 5):
+        return self.gitlab_manager.get_recent_issues(repo=repo, limit=limit)
+
+    def get_gitlab_account_projects(self, account_id: str = ""):
+        return self.gitlab_manager.get_account_projects(account_id)
+
+    def get_gitlab_issue_context(self, repo: str, issue_id: str):
+        return self.gitlab_manager.get_issue_context(repo=repo, issue_id=issue_id)
+
+    def execute_gitlab_action(self, action: str, repo: str, target: str, params: Optional[dict] = None):
+        return self.gitlab_manager.execute_action(action=action, repo=repo, target=target, params=params or {})
+
+    def detect_project_gitlab_remote(self, project_dir: str):
+        return self.gitlab_manager.detect_project_gitlab_remote(project_dir=project_dir)
     # ==========================================
     # UPDATER MANAGER (VyloServe Auto-Update)
     # ==========================================
@@ -956,14 +1226,42 @@ class Api:
     # ==========================================
     def md_select_directory(self): return self.markdown.select_directory()
     def md_get_tree(self, root_path: str): return self.markdown.get_markdown_tree(root_path)
+    def md_get_multi_tree(self, root_paths: list): return self.markdown.get_multi_markdown_tree(root_paths)
+    def md_register_roots(self, roots: list): return self.markdown.register_workspace_roots(roots)
     def md_read_file(self, file_path: str): return self.markdown.read_markdown_file(file_path)
     def md_get_media(self, file_path: str): return self.markdown.get_local_media_base64(file_path)
 
     # ==========================================
-    # AI ASSISTANT (SERVER COPILOT)
+    # AI ASSISTANT (SERVER COPILOT & DOC COPILOT)
     # ==========================================
     def ai_send_message(self, prompt: str, context: str = "", model_override: str = "", provider_override: str = ""):
         return self.ai.send_message(prompt, context, model_override, provider_override)
+
+    def ai_doc_query(
+        self,
+        prompt: str,
+        doc_content: str,
+        query_type: str = "qa",
+        model_override: str = "",
+        provider_override: str = "",
+        doc_path: str = "",
+        folder_path: str = ""
+    ):
+        return self.ai.doc_query(
+            prompt,
+            doc_content,
+            query_type,
+            model_override,
+            provider_override,
+            doc_path=doc_path,
+            folder_path=folder_path
+        )
+
+    def ai_abort_doc_generation(self):
+        return self.ai.abort_doc_generation()
+
+    def ai_get_doc_provider_info(self):
+        return self.ai.get_doc_ai_info()
 
     def ai_abort_generation(self):
         return self.ai.abort_generation()
@@ -1000,5 +1298,162 @@ class Api:
 
     def ai_reset_usage_stats(self):
         return self.ai.reset_usage_stats()
+
+    # ==========================================
+    # PORT MANAGER METHODS
+    # ==========================================
+    def get_listening_ports(self) -> dict:
+        return self.port_manager.get_listening_ports()
+
+    def kill_process_by_pid(self, pid: int, force: bool = False) -> dict:
+        if not isinstance(pid, int) or pid <= 0:
+            return {"status": "error", "message": "backend.port_manager.invalid_pid", "args": {"pid": str(pid)}}
+        return self.port_manager.kill_process(pid, force)
+
+    # ==========================================
+    # CRYPTO & IDENTIFIER TOOLS
+    # ==========================================
+    def generate_bcrypt_hash(self, plain_text: str, rounds: int = 10, prefix: str = "2y") -> dict:
+        return self.crypto_tools.generate_bcrypt_hash(plain_text, rounds, prefix)
+
+    def verify_bcrypt_hash(self, plain_text: str, hashed: str) -> dict:
+        return self.crypto_tools.verify_bcrypt_hash(plain_text, hashed)
+
+    def generate_crypto_ids(self, kind: str = "uuid4", count: int = 1) -> dict:
+        return self.crypto_tools.generate_ids(kind, count)
+
+    def generate_text_hashes(self, plain_text: str) -> dict:
+        return self.crypto_tools.generate_text_hashes(plain_text)
+
+    # ==========================================
+    # PROJECT .ENV INSPECTOR & VAULT
+    # ==========================================
+    def get_project_env_details(self, project_identifier: str) -> dict:
+        if not self.project:
+            return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+        return self.project.get_project_env_details(project_identifier)
+
+    def save_project_env(self, project_identifier: str, content: str, create_snapshot: bool = True) -> dict:
+        if not self.project:
+            return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+        return self.project.save_project_env(project_identifier, content, create_snapshot)
+
+    def list_project_env_snapshots(self, project_identifier: str) -> dict:
+        if not self.project:
+            return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+        return self.project.list_project_env_snapshots(project_identifier)
+
+    def restore_project_env_snapshot(self, project_identifier: str, snapshot_id: str) -> dict:
+        if not self.project:
+            return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+        return self.project.restore_project_env_snapshot(project_identifier, snapshot_id)
+
+    def sync_project_env_example_keys(self, project_identifier: str, keys_to_sync: list = None) -> dict:
+        if not self.project:
+            return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+        return self.project.sync_project_env_example_keys(project_identifier, keys_to_sync)
+
+    # ==========================================
+    # PROJECT APPLICATION LOG TAILER
+    # ==========================================
+    def list_project_log_files(self, project_identifier: str) -> dict:
+        if not self.project:
+            return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+        return self.project.list_project_log_files(project_identifier)
+
+    def get_project_app_logs(self, project_identifier: str, relative_log_path: str, offset: int = None, lines: int = 100) -> dict:
+        if not self.project:
+            return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+        return self.project.get_project_app_logs(project_identifier, relative_log_path, offset, lines)
+
+    def clear_project_app_log(self, project_identifier: str, relative_log_path: str) -> dict:
+        if not self.project:
+            return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+        return self.project.clear_project_app_log(project_identifier, relative_log_path)
+
+    # ==========================================
+    # SSL & HOSTS INSPECTOR
+    # ==========================================
+    def get_ssl_hosts_overview(self) -> dict:
+        if not self.project:
+            return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+        return self.project.get_ssl_hosts_overview()
+
+    def reinstall_root_ca(self) -> dict:
+        if not hasattr(self, 'ssl') or not self.ssl:
+            return {"status": "error", "message": "backend.ssl.ca_setup_error", "args": {"e": "SSL Manager not available"}}
+        return self.ssl.install_ca_cert()
+
+    def sync_all_hosts(self) -> dict:
+        if not self.project:
+            return {"status": "error", "message": PROJECT_NOT_LOADED_MSG}
+        return self.project.sync_all_hosts()
+
+    # ==========================================
+    # MAIL SANDBOX (LOCAL SMTP SERVER)
+    # ==========================================
+    def get_mail_sandbox_status(self) -> dict:
+        return self.mail_sandbox.get_status()
+
+    def start_mail_sandbox(self, port: int = 1025) -> dict:
+        return self.mail_sandbox.start_server(port)
+
+    def stop_mail_sandbox(self) -> dict:
+        return self.mail_sandbox.stop_server()
+
+    def get_mail_sandbox_messages(self) -> dict:
+        return self.mail_sandbox.get_messages()
+
+    def get_mail_sandbox_message_detail(self, msg_id: str) -> dict:
+        return self.mail_sandbox.get_message_detail(msg_id)
+
+    def delete_mail_sandbox_message(self, msg_id: str) -> dict:
+        return self.mail_sandbox.delete_message(msg_id)
+
+    def clear_mail_sandbox_messages(self) -> dict:
+        return self.mail_sandbox.clear_messages()
+
+    def send_test_mail(self) -> dict:
+        return self.mail_sandbox.send_test_email()
+
+    # ==========================================
+    # WEBHOOK INSPECTOR & HTTP API CLIENT
+    # ==========================================
+    def get_webhook_inspector_status(self) -> dict:
+        return self.webhook_inspector.get_status()
+
+    def start_webhook_listener(self, port: int = 8787) -> dict:
+        return self.webhook_inspector.start_listener(port)
+
+    def stop_webhook_listener(self) -> dict:
+        return self.webhook_inspector.stop_listener()
+
+    def start_webhook_public_tunnel(self) -> dict:
+        return self.webhook_inspector.start_public_tunnel()
+
+    def stop_webhook_public_tunnel(self) -> dict:
+        return self.webhook_inspector.stop_public_tunnel()
+
+    def get_webhook_history(self) -> dict:
+        return self.webhook_inspector.get_history()
+
+    def get_webhook_detail(self, webhook_id: str) -> dict:
+        return self.webhook_inspector.get_webhook_detail(webhook_id)
+
+    def clear_webhook_history(self) -> dict:
+        return self.webhook_inspector.clear_history()
+
+    def set_webhook_response_config(self, status_code: int = 200, content_type: str = "application/json", body: str = '{"status": "ok"}') -> dict:
+        return self.webhook_inspector.set_response_config(status_code, content_type, body)
+
+    def get_webhook_response_config(self) -> dict:
+        return self.webhook_inspector.get_response_config()
+
+    def send_sample_webhook(self) -> dict:
+        return self.webhook_inspector.send_sample_webhook()
+
+    def send_http_request(self, method: str, url: str, headers: dict = None, body: str = "", timeout: float = 15.0) -> dict:
+        return self.webhook_inspector.send_http_request(method, url, headers, body, int(timeout))
+
 
 

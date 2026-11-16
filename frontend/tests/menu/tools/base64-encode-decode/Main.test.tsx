@@ -145,7 +145,9 @@ describe('Base64Main', () => {
         renderWithToast(<Base64Main />);
 
         const longText = 'The quick brown fox jumps over the lazy dog. A longer text to exceed 64 chars.';
-        await user.type(screen.getByPlaceholderText('tools.base64.type_text_here'), longText);
+        fireEvent.change(screen.getByPlaceholderText('tools.base64.type_text_here'), {
+            target: { value: longText },
+        });
 
         const wrap64Btn = screen.getByRole('button', { name: /tools\.base64\.wrap_64/i });
         await user.click(wrap64Btn);
@@ -178,9 +180,11 @@ describe('Base64Main', () => {
         renderWithToast(<Base64Main />);
         await user.click(screen.getByText('tools.base64.tab_decode'));
 
-        await user.type(screen.getByPlaceholderText('tools.base64.paste_base64_here'), 'aGVsbG8=');
+        fireEvent.change(screen.getByPlaceholderText('tools.base64.paste_base64_here'), {
+            target: { value: 'aGVsbG8=' },
+        });
 
-        const downloadBtn = screen.getByRole('button', { name: /tools\.base64\.download_file/i });
+        const downloadBtn = await screen.findByRole('button', { name: /tools\.base64\.download_file/i });
         await user.click(downloadBtn);
 
         expect(saveMock).toHaveBeenCalled();
@@ -191,7 +195,9 @@ describe('Base64Main', () => {
         renderWithToast(<Base64Main />);
 
         const longText = 'The quick brown fox jumps over the lazy dog. A longer text to exceed 76 chars and more.';
-        await user.type(screen.getByPlaceholderText('tools.base64.type_text_here'), longText);
+        fireEvent.change(screen.getByPlaceholderText('tools.base64.type_text_here'), {
+            target: { value: longText },
+        });
 
         const wrap76Btn = screen.getByRole('button', { name: /tools\.base64\.wrap_76/i });
         await user.click(wrap76Btn);
@@ -209,27 +215,29 @@ describe('Base64Main', () => {
     it('falls back to browser blob download when save_base64_file is unavailable', async () => {
         const user = userEvent.setup();
         const originalPywebview = (window as any).pywebview;
-        delete (window as any).pywebview;
+        try {
+            delete (window as any).pywebview;
 
-        const createObjectURLMock = vi.fn().mockReturnValue('blob:http://localhost/test');
-        const revokeObjectURLMock = vi.fn();
-        window.URL.createObjectURL = createObjectURLMock;
-        window.URL.revokeObjectURL = revokeObjectURLMock;
+            const createObjectURLMock = vi.fn().mockReturnValue('blob:http://localhost/test');
+            const revokeObjectURLMock = vi.fn();
+            window.URL.createObjectURL = createObjectURLMock;
+            window.URL.revokeObjectURL = revokeObjectURLMock;
 
-        renderWithToast(<Base64Main />);
-        await user.click(screen.getByRole('button', { name: 'tools.base64.tab_decode' }));
+            renderWithToast(<Base64Main />);
+            await user.click(screen.getByRole('button', { name: 'tools.base64.tab_decode' }));
 
-        const textareas = screen.getAllByRole('textbox');
-        await user.type(textareas[0], 'SGVsbG8gV29ybGQ=');
+            const textareas = screen.getAllByRole('textbox');
+            fireEvent.change(textareas[0], { target: { value: 'SGVsbG8gV29ybGQ=' } });
 
-        // Click download file
-        const downloadBtn = screen.getByRole('button', { name: /tools\.base64\.download_file/i });
-        await user.click(downloadBtn);
+            // Click download file
+            const downloadBtn = await screen.findByRole('button', { name: /tools\.base64\.download_file/i });
+            await user.click(downloadBtn);
 
-        expect(createObjectURLMock).toHaveBeenCalled();
-        expect(revokeObjectURLMock).toHaveBeenCalled();
-        expect(await screen.findByText('tools.base64.download_success')).toBeInTheDocument();
-
-        (window as any).pywebview = originalPywebview;
+            expect(createObjectURLMock).toHaveBeenCalled();
+            expect(revokeObjectURLMock).toHaveBeenCalled();
+            expect(await screen.findByText('tools.base64.download_success')).toBeInTheDocument();
+        } finally {
+            (window as any).pywebview = originalPywebview;
+        }
     });
 });

@@ -15,6 +15,9 @@ import ProjectSettingsModal from './ProjectSettingsModal';
 import ProjectDeleteModal from './ProjectDeleteModal';
 import ProjectCliInstallModal from './ProjectCliInstallModal';
 import ProjectServerLogsModal from './ProjectServerLogsModal';
+import ProjectEnvModal from './ProjectEnvModal';
+import ProjectAppLogsModal from './ProjectAppLogsModal';
+import ProjectSslHostsModal from './ProjectSslHostsModal';
 import { ProjectProvider, useProject } from '../../context/ProjectContext';
 
 type RuntimeFilter = 'all' | 'php' | 'node' | 'python' | 'go' | 'java';
@@ -23,10 +26,18 @@ function ProjectsView() {
     const { t } = useTranslation();
     const {
         projects,
+        selectedProject,
         isFetchingProjects,
         openNewProjectModal,
         openProjectSettingsModal,
         openDeleteConfirmModal,
+        openEnvModal,
+        isEnvModalOpen,
+        closeEnvModal,
+        isAppLogsModalOpen,
+        appLogsProject,
+        openAppLogsModal,
+        closeAppLogsModal,
         handleSyncHost,
         handleOpenBrowser,
         handleOpenDocumentRoot,
@@ -44,6 +55,7 @@ function ProjectsView() {
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedRuntime, setSelectedRuntime] = useState<RuntimeFilter>('all');
     const [viewMode, setViewMode] = usePersistedViewMode('projects', 'table');
+    const [isSslHostsModalOpen, setIsSslHostsModalOpen] = useState(false);
 
     // Counts per runtime
     const runtimeCounts = useMemo(() => {
@@ -162,6 +174,8 @@ function ProjectsView() {
                     onViewLogs={handleViewServerLogs}
                     onOpenDocumentRoot={handleOpenDocumentRoot}
                     onOpenSettings={openProjectSettingsModal}
+                    onOpenEnv={openEnvModal}
+                    onViewAppLogs={openAppLogsModal}
                     onSyncHost={handleSyncHost}
                     onDeleteClick={openDeleteConfirmModal}
                     onOpenBrowser={handleOpenBrowser}
@@ -212,6 +226,8 @@ function ProjectsView() {
                                 onViewLogs={handleViewServerLogs}
                                 onOpenDocumentRoot={handleOpenDocumentRoot}
                                 onOpenSettings={openProjectSettingsModal}
+                                onOpenEnv={openEnvModal}
+                                onViewAppLogs={openAppLogsModal}
                                 onSyncHost={handleSyncHost}
                                 onDeleteClick={openDeleteConfirmModal}
                                 onOpenBrowser={handleOpenBrowser}
@@ -236,6 +252,14 @@ function ProjectsView() {
                 }
                 actions={
                     <div className="flex items-center gap-2">
+                        <Button
+                            variant="secondary"
+                            icon="verified_user"
+                            onClick={() => setIsSslHostsModalOpen(true)}
+                            className="shadow-sm"
+                        >
+                            {t('projects.ssl_hosts_inspector', 'SSL & Hosts')}
+                        </Button>
                         <ViewModeToggle mode={viewMode} onChange={setViewMode} />
                         <Button
                             variant="primary"
@@ -266,6 +290,20 @@ function ProjectsView() {
             <ProjectDeleteModal />
             <ProjectCliInstallModal />
             <ProjectServerLogsModal />
+            <ProjectEnvModal
+                isOpen={isEnvModalOpen}
+                onClose={closeEnvModal}
+                project={selectedProject || null}
+            />
+            <ProjectAppLogsModal
+                isOpen={isAppLogsModalOpen}
+                onClose={closeAppLogsModal}
+                project={appLogsProject || null}
+            />
+            <ProjectSslHostsModal
+                isOpen={isSslHostsModalOpen}
+                onClose={() => setIsSslHostsModalOpen(false)}
+            />
         </div>
     );
 }

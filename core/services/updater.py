@@ -1,11 +1,13 @@
 import urllib.request
 import json
 import os
+import sys
 import subprocess
 import tempfile
 import re
 import threading
 import traceback
+from typing import Optional
 from core.utils.file_utils import download_advanced
 from core.utils.system_utils import get_project_root
 from core.utils.network_utils import is_network_error
@@ -39,7 +41,7 @@ class UpdaterManager:
         temp_dir = os.path.join(self.base_dir, 'temp')
         if os.path.exists(temp_dir):
             for f in os.listdir(temp_dir):
-                if f.endswith(('.exe', '.bat', '.tmp')):
+                if f.endswith(('.exe', '.bat', '.tmp', '.AppImage', '.deb', '.tar.gz', '.sh', '.vbs')):
                     try:
                         os.remove(os.path.join(temp_dir, f))
                     except Exception:
@@ -92,20 +94,30 @@ class UpdaterManager:
                     latest_release = release
         return latest_release
 
-    def _find_installer_asset(self, latest_release):
-        installer_asset = None
-        for asset in latest_release.get("assets", []):
+    @staticmethod
+    def _find_windows_asset(assets: list) -> Optional[dict]:
+        for asset in assets:
             name = asset.get("name", "")
             if "Setup" in name and name.endswith(".exe"):
-                installer_asset = asset
-                break
-        
-        if not installer_asset:
-            for asset in latest_release.get("assets", []):
-                if asset.get("name", "").endswith(".exe"):
-                    installer_asset = asset
-                    break
-        return installer_asset
+                return asset
+        for asset in assets:
+            if asset.get("name", "").endswith(".exe"):
+                return asset
+        return None
+
+    @classmethod
+    def _find_linux_asset(cls, assets: list) -> Optional[dict]:
+        for ext in (".AppImage", ".deb", ".tar.gz", ".rpm"):
+            for asset in assets:
+                if asset.get("name", "").endswith(ext):
+                    return asset
+        return cls._find_windows_asset(assets)
+
+    def _find_installer_asset(self, latest_release):
+        assets = latest_release.get("assets", [])
+        if sys.platform == 'win32':
+            return self._find_windows_asset(assets)
+        return self._find_linux_asset(assets)
 
     def check_for_updates(self):
         from main import APP_VERSION
@@ -252,17 +264,29 @@ class UpdaterManager:
             return {"status": "error", "message": "backend.updater.not_ready"}
             
         try:
-            # Buat script .vbs temporer untuk memberikan jeda waktu dan 
-            # mengeksekusi installer dengan izin UAC (ShellExecute "runas").
-            # Hal ini mencegah kegagalan eksekusi jika CreateProcess biasa ditolak oleh Windows.
-            vbs_path = os.path.join(temp_dir, 'launcher.vbs')
-            with open(vbs_path, 'w') as f:
-                f.write('WScript.Sleep 2000\n')
-                f.write('Set UAC = CreateObject("Shell.Application")\n')
-                f.write(f'UAC.ShellExecute "{installer_path}", "/SILENT /SUPPRESSMSGBOXES", "", "runas", 1\n')
-            
-            subprocess.Popen(['wscript.exe', vbs_path], creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS)
-            
+            if sys.platform == 'win32':
+                # Buat script .vbs temporer untuk memberikan jeda waktu dan 
+                # mengeksekusi installer dengan izin UAC (ShellExecute "runas").
+                # Hal ini mencegah kegagalan eksekusi jika CreateProcess biasa ditolak oleh Windows.
+                vbs_path = os.path.join(temp_dir, 'launcher.vbs')
+                with open(vbs_path, 'w') as f:
+                    f.write('WScript.Sleep 2000\n')
+                    f.write('Set UAC = CreateObject("Shell.Application")\n')
+                    f.write(f'UAC.ShellExecute "{installer_path}", "/SILENT /SUPPRESSMSGBOXES", "", "runas", 1\n')
+
+                subprocess.Popen(['wscript.exe', vbs_path], creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS)
+            else:
+                try:
+                    os.chmod(installer_path, os.stat(installer_path).st_mode | 0o700)
+                except OSError:
+                    pass
+                subprocess.Popen(
+                    ['/bin/sh', '-c', f'sleep 2 && "{installer_path}"'],
+                    start_new_session=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+
             # Matikan VyloServe setelah jeda kecil agar response ke frontend terkirim
             import threading
             threading.Timer(0.5, self.api.close_app).start()

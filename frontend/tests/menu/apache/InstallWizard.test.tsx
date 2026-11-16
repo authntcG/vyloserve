@@ -41,9 +41,17 @@ describe('ApacheInstallWizard', () => {
         expect(screen.getByText('apache.retrieving_releases')).toBeInTheDocument();
     });
 
-    it('shows "server up to date" when there are no available versions', () => {
+    it('shows "server up to date" when there are no available versions on Windows', () => {
+        vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' });
         setup({ versions: [] });
         expect(screen.getByText('apache.server_up_to_date')).toBeInTheDocument();
+    });
+
+    it('shows linux install guide when there are no available versions on Linux', () => {
+        vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (X11; Linux x86_64)' });
+        setup({ versions: [] });
+        expect(screen.getByText('apache.linux_install_guide_title')).toBeInTheDocument();
+        expect(screen.getByText('sudo apt update && sudo apt install -y apache2')).toBeInTheDocument();
     });
 
     it('lists available versions and marks the first one as latest stable', async () => {

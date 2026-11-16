@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import FilterChips, { type FilterChipItem } from '../../src/components/FilterChips';
 
@@ -73,5 +73,115 @@ describe('FilterChips', () => {
         );
 
         expect(screen.getByText('code')).toBeInTheDocument();
+    });
+
+    it('does not render scroll buttons when container has no overflow', () => {
+        render(
+            <FilterChips
+                items={testItems}
+                selectedId="all"
+                onChange={vi.fn()}
+            />
+        );
+
+        expect(screen.queryByRole('button', { name: /scroll left/i })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /scroll right/i })).not.toBeInTheDocument();
+    });
+
+    it('shows scroll indicators when overflow occurs and allows clicking to scroll', async () => {
+        const user = userEvent.setup();
+        const { container } = render(
+            <FilterChips
+                items={testItems}
+                selectedId="all"
+                onChange={vi.fn()}
+            />
+        );
+
+        const scrollContainer = container.querySelector('fieldset') as HTMLFieldSetElement;
+        expect(scrollContainer).toBeInTheDocument();
+
+        // Simulate overflow on right: clientWidth 200, scrollWidth 500, scrollLeft 0
+        Object.defineProperty(scrollContainer, 'clientWidth', { configurable: true, value: 200 });
+        Object.defineProperty(scrollContainer, 'scrollWidth', { configurable: true, value: 500 });
+        Object.defineProperty(scrollContainer, 'scrollLeft', { configurable: true, writable: true, value: 0 });
+
+        const scrollByMock = vi.fn();
+        scrollContainer.scrollBy = scrollByMock;
+
+        // Trigger scroll event to recalculate state
+        act(() => {
+            scrollContainer.dispatchEvent(new Event('scroll'));
+        });
+
+        // Right button should appear
+        const rightBtn = await screen.findByRole('button', { name: /scroll right/i });
+        expect(rightBtn).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /scroll left/i })).not.toBeInTheDocument();
+
+        // Click right button
+        await user.click(rightBtn);
+        expect(scrollByMock).toHaveBeenCalledWith({ left: 120, behavior: 'smooth' });
+
+        // Simulate scrolled state: scrollLeft 100
+        act(() => {
+            scrollContainer.scrollLeft = 100;
+            scrollContainer.dispatchEvent(new Event('scroll'));
+        });
+
+        const leftBtn = await screen.findByRole('button', { name: /scroll left/i });
+        expect(leftBtn).toBeInTheDocument();
+
+        await user.click(leftBtn);
+        expect(scrollByMock).toHaveBeenCalledWith({ left: -120, behavior: 'smooth' });
+    });
+
+    it('translates vertical wheel delta to horizontal scrollLeft when overflow is active', () => {
+        const { container } = render(
+            <FilterChips
+                items={testItems}
+                selectedId="all"
+                onChange={vi.fn()}
+            />
+        );
+
+        const scrollContainer = container.querySelector('fieldset') as HTMLFieldSetElement;
+
+        // Set overflow
+        Object.defineProperty(scrollContainer, 'clientWidth', { configurable: true, value: 200 });
+        Object.defineProperty(scrollContainer, 'scrollWidth', { configurable: true, value: 500 });
+        Object.defineProperty(scrollContainer, 'scrollLeft', { configurable: true, writable: true, value: 0 });
+
+        act(() => {
+            scrollContainer.dispatchEvent(new Event('scroll'));
+        });
+
+        // Fire wheel event
+        act(() => {
+            scrollContainer.dispatchEvent(new WheelEvent('wheel', { deltaY: 50, bubbles: true }));
+        });
+
+        expect(scrollContainer.scrollLeft).toBe(50);
+    });
+
+    it('calls scrollIntoView when a chip is clicked', async () => {
+        const scrollIntoViewMock = vi.fn();
+        window.HTMLElement.prototype.scrollIntoView = scrollIntoViewMock;
+
+        const user = userEvent.setup();
+        render(
+            <FilterChips
+                items={testItems}
+                selectedId="all"
+                onChange={vi.fn()}
+            />
+        );
+
+        await user.click(screen.getByRole('button', { name: /php/i }));
+        expect(scrollIntoViewMock).toHaveBeenCalledWith({
+            behavior: 'smooth',
+            block: 'nearest',
+            inline: 'nearest',
+        });
     });
 });

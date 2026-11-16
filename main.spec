@@ -1,13 +1,45 @@
 # -*- mode: python ; coding: utf-8 -*-
+import sys
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 
+winpty_datas = collect_data_files('winpty') if sys.platform == 'win32' else []
+winpty_binaries = collect_dynamic_libs('winpty') if sys.platform == 'win32' else []
+
+webview_datas = collect_data_files('webview')
+webview_binaries = collect_dynamic_libs('webview')
+
+certifi_datas = collect_data_files('certifi')
+
+hidden_imports = [
+    'win11toast',
+    'pystray',
+    'pystray._win32' if sys.platform == 'win32' else 'pystray._dummy',
+    'bcrypt',
+    'yaml',
+    'certifi',
+    'PIL.Image',
+    'PIL.ImageDraw',
+    'PIL.ImageFont',
+    'PIL.IcoImagePlugin',
+    'PIL.BmpImagePlugin',
+    'PIL.PngImagePlugin',
+    'PIL.JpegImagePlugin',
+]
+if sys.platform == 'win32':
+    hidden_imports.extend(['winpty', 'winpty.ptyprocess', 'winpty.enums', 'clr'])
 
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=[],
-    datas=[('frontend/dist', 'frontend/dist'), ('frontend/src/assets', 'frontend/src/assets'), ('docs/user_guide.md', 'docs')],
-    hiddenimports=[],
-    hookspath=[],
+    binaries=winpty_binaries + webview_binaries,
+    datas=[
+        ('frontend/dist', 'frontend/dist'),
+        ('frontend/src/assets', 'frontend/src/assets'),
+        ('frontend/src/locales', 'frontend/src/locales'),
+        ('docs/user_guide.md', 'docs'),
+    ] + winpty_datas + webview_datas + certifi_datas,
+    hiddenimports=hidden_imports,
+    hookspath=['hooks'],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],

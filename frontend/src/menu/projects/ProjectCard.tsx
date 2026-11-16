@@ -11,6 +11,8 @@ export interface ProjectCardProps {
     readonly onViewLogs?: (id: string) => void;
     readonly onOpenDocumentRoot: (path: string) => void;
     readonly onOpenSettings: (id: string) => void;
+    readonly onOpenEnv?: (id: string) => void;
+    readonly onViewAppLogs?: (project: ProjectData) => void;
     readonly onSyncHost: (id: string) => void;
     readonly onDeleteClick: (id: string) => void;
     readonly onOpenBrowser: (domain: string) => void;
@@ -21,12 +23,14 @@ interface ProjectCardDropdownProps {
     readonly t: (key: string, args?: any) => string;
     readonly onOpenDocumentRoot: (path: string) => void;
     readonly onOpenSettings: (id: string) => void;
+    readonly onOpenEnv?: (id: string) => void;
+    readonly onViewAppLogs?: (project: ProjectData) => void;
     readonly onViewLogs?: (id: string) => void;
     readonly onSyncHost: (id: string) => void;
     readonly onDeleteClick: (id: string) => void;
 }
 
-function ProjectCardDropdown({ project, t, onOpenDocumentRoot, onOpenSettings, onViewLogs, onSyncHost, onDeleteClick }: ProjectCardDropdownProps) {
+function ProjectCardDropdown({ project, t, onOpenDocumentRoot, onOpenSettings, onOpenEnv, onViewAppLogs, onViewLogs, onSyncHost, onDeleteClick }: ProjectCardDropdownProps) {
     const isNonPhp = Boolean(project.project_type && project.project_type !== 'php');
     return (
         <>
@@ -52,6 +56,22 @@ function ProjectCardDropdown({ project, t, onOpenDocumentRoot, onOpenSettings, o
             >
                 <span className="material-symbols-outlined text-[16px] text-primary shrink-0">terminal</span>
                 <span className="truncate">{t('apache.open_in_terminal')}</span>
+            </button>
+            <button
+                type="button"
+                onClick={() => onOpenEnv?.(project.id)}
+                className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/70 transition-colors"
+            >
+                <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">tune</span>
+                <span className="truncate">{t('projects.btn_manage_env', 'Manage .env')}</span>
+            </button>
+            <button
+                type="button"
+                onClick={() => onViewAppLogs?.(project)}
+                className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/70 transition-colors"
+            >
+                <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">receipt_long</span>
+                <span className="truncate">{t('projects.btn_view_app_logs', 'Application Logs')}</span>
             </button>
             <button
                 type="button"
@@ -217,6 +237,8 @@ export default function ProjectCard({
     onViewLogs,
     onOpenDocumentRoot,
     onOpenSettings,
+    onOpenEnv,
+    onViewAppLogs,
     onSyncHost,
     onDeleteClick,
     onOpenBrowser,
@@ -276,6 +298,8 @@ export default function ProjectCard({
                     t={t}
                     onOpenDocumentRoot={onOpenDocumentRoot}
                     onOpenSettings={onOpenSettings}
+                    onOpenEnv={onOpenEnv}
+                    onViewAppLogs={onViewAppLogs}
                     onViewLogs={onViewLogs}
                     onSyncHost={onSyncHost}
                     onDeleteClick={onDeleteClick}

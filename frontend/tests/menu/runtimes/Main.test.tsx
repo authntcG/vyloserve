@@ -23,13 +23,13 @@ function runtimesApi(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
 }
 
 const ENGINES = [
-    { key: 'node', tab: 'Node.js', card: 'Node.js (VyloServe)', uninstallLabel: 'runtimes.uninstall_node', statusApi: 'get_node_status', uninstallApi: 'uninstall_node' },
-    { key: 'python', tab: 'Python', card: 'Python (VyloServe)', uninstallLabel: 'runtimes.uninstall_python', statusApi: 'get_python_status', uninstallApi: 'uninstall_python' },
-    { key: 'java', tab: 'Java JDK', card: 'Java JDK (VyloServe)', uninstallLabel: 'runtimes.uninstall_java', statusApi: 'get_java_status', uninstallApi: 'uninstall_java' },
-    { key: 'go', tab: 'Go Compiler', card: 'Go Compiler (VyloServe)', uninstallLabel: 'runtimes.uninstall_go', statusApi: 'get_go_status', uninstallApi: 'uninstall_go' },
+    { key: 'node', tab: 'Node.js', card: 'Node.js (VyloServe)', uninstallLabel: 'runtimes.uninstall_node', statusApi: 'get_node_status', uninstallApi: 'uninstall_node', emptyAction: 'runtimes.install_node_now' },
+    { key: 'python', tab: 'Python', card: 'Python (VyloServe)', uninstallLabel: 'runtimes.uninstall_python', statusApi: 'get_python_status', uninstallApi: 'uninstall_python', emptyAction: 'runtimes.install_python_now' },
+    { key: 'java', tab: 'Java JDK', card: 'Java JDK (VyloServe)', uninstallLabel: 'runtimes.uninstall_java', statusApi: 'get_java_status', uninstallApi: 'uninstall_java', emptyAction: 'runtimes.install_java_now' },
+    { key: 'go', tab: 'Go Compiler', card: 'Go Compiler (VyloServe)', uninstallLabel: 'runtimes.uninstall_go', statusApi: 'get_go_status', uninstallApi: 'uninstall_go', emptyAction: 'runtimes.install_go_now' },
 ] as const;
 
-describe.each(ENGINES)('RuntimesMain — $key engine', ({ tab, card, uninstallLabel, statusApi, uninstallApi }) => {
+describe.each(ENGINES)('RuntimesMain — $key engine', ({ key, tab, card, uninstallLabel, statusApi, uninstallApi, emptyAction }) => {
     it(`shows the installed ${card} once fetched`, async () => {
         mockPywebviewApi(runtimesApi({ [statusApi]: vi.fn().mockResolvedValue(nodeInstalled) }));
         const user = userEvent.setup();
@@ -55,6 +55,65 @@ describe.each(ENGINES)('RuntimesMain — $key engine', ({ tab, card, uninstallLa
 
         expect(uninstall).toHaveBeenCalledTimes(1);
         await waitFor(() => expect(getStatus).toHaveBeenCalledTimes(2));
+    });
+
+    it(`opens install modal from empty state button for ${key}`, async () => {
+        mockPywebviewApi(runtimesApi());
+        const user = userEvent.setup();
+        renderWithToast(<RuntimesMain />);
+        await user.click(screen.getByText(tab));
+
+        const installBtn = await screen.findByRole('button', { name: emptyAction });
+        await user.click(installBtn);
+        expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    });
+
+    it(`triggers folder, terminal, path toggle, and version management callbacks for ${key}`, async () => {
+        const user = userEvent.setup();
+        const openDir = vi.fn().mockResolvedValue({ status: 'success' });
+        const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+        const deactivate = vi.fn().mockResolvedValue({ status: 'success' });
+        const togglePath = vi.fn().mockResolvedValue({ status: 'success' });
+
+        const installedData = {
+            installed: true,
+            version: '1.0.0',
+            in_path: true,
+            installed_versions: [
+                { version: '1.0.0', path: `C:/bin/${key}/1.0.0`, is_active: true, in_path: true },
+            ],
+            external: { exists: false, path: '', version: '' },
+        };
+
+        mockPywebviewApi(runtimesApi({
+            [statusApi]: vi.fn().mockResolvedValue(installedData),
+            open_runtime_dir: openDir,
+            deactivate_runtime_version: deactivate,
+            toggle_global_path: togglePath,
+        }));
+
+        renderWithToast(<RuntimesMain />);
+        await user.click(screen.getByText(tab));
+
+        expect((await screen.findAllByText(`${tab} 1.0.0`)).length).toBeGreaterThanOrEqual(1);
+
+        const openFolderBtn = screen.getAllByRole('button', { name: 'runtimes.open_folder' })[0];
+        await user.click(openFolderBtn);
+        expect(openDir).toHaveBeenCalledWith(key, '1.0.0');
+
+        const openTermBtn = screen.getAllByRole('button', { name: 'runtimes.open_in_terminal' })[0];
+        await user.click(openTermBtn);
+        expect(dispatchSpy).toHaveBeenCalledWith(expect.objectContaining({
+            type: 'vylo_open_terminal_project',
+        }));
+
+        const pathToggle = screen.getByLabelText('runtimes.register_path');
+        await user.click(pathToggle);
+        expect(togglePath).toHaveBeenCalledWith(key, false);
+
+        const deactivateBtn = screen.getByRole('button', { name: /runtimes\.deactivate_version/i });
+        await user.click(deactivateBtn);
+        expect(deactivate).toHaveBeenCalledWith(key);
     });
 });
 

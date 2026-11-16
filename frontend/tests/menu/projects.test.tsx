@@ -159,6 +159,9 @@ describe('ProjectsMain & ProjectContext', () => {
 
         await screen.findByText('Laravel App');
 
+        const actionButtons = screen.getAllByRole('button', { name: /actions/i });
+        await user.click(actionButtons[0]);
+
         const docRootButtons = screen.getAllByText(/open_document_root|open document root/i);
         await user.click(docRootButtons[0]);
 
@@ -188,6 +191,9 @@ describe('ProjectsMain & ProjectContext', () => {
         renderWithToast(<ProjectsMain />);
 
         await screen.findByText('Laravel App');
+
+        const actionButtons = screen.getAllByRole('button', { name: /actions/i });
+        await user.click(actionButtons[0]);
 
         const terminalButtons = screen.getAllByText(/open_in_terminal|open in terminal/i);
         await user.click(terminalButtons[0]);
@@ -221,6 +227,9 @@ describe('ProjectsMain & ProjectContext', () => {
         renderWithToast(<ProjectsMain />);
 
         await screen.findByText('Laravel App');
+
+        const actionButtons = screen.getAllByRole('button', { name: /actions/i });
+        await user.click(actionButtons[0]);
 
         const deleteButtons = screen.getAllByText('apache.delete_project');
         await user.click(deleteButtons[0]);
@@ -315,6 +324,9 @@ describe('ProjectsMain & ProjectContext', () => {
         renderWithToast(<ProjectsMain />);
 
         await screen.findByText('NextJS Portal');
+
+        const actionButtons = screen.getAllByRole('button', { name: /actions/i });
+        await user.click(actionButtons[1]);
 
         const viewLogsButtons = screen.getAllByText(/view_server_logs/i);
         await user.click(viewLogsButtons[0]);

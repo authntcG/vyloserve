@@ -44,6 +44,9 @@ export interface ProjectContextValue {
     isNewProjectModalOpen: boolean;
     isProjectSettingsOpen: boolean;
     isDeleteConfirmOpen: boolean;
+    isEnvModalOpen: boolean;
+    isAppLogsModalOpen: boolean;
+    appLogsProject: ProjectData | null;
     isCliModalOpen: boolean;
     cliPromptText: string;
 
@@ -65,6 +68,10 @@ export interface ProjectContextValue {
     closeProjectSettingsModal: () => void;
     openDeleteConfirmModal: (projectId: string) => void;
     closeDeleteConfirmModal: () => void;
+    openEnvModal: (projectId: string) => void;
+    closeEnvModal: () => void;
+    openAppLogsModal: (project: ProjectData) => void;
+    closeAppLogsModal: () => void;
     restoreProgressWidget: () => void;
 
     // Refs
@@ -77,7 +84,7 @@ export interface ProjectContextValue {
     handleUpdateProjectSubmit: () => Promise<void>;
     handleDeleteProjectSubmit: () => Promise<void>;
     handleSyncHost: (projectId: string) => Promise<void>;
-    handleOpenBrowser: (domain: string) => Promise<void>;
+    handleOpenBrowser: (domain: string, protocol?: 'http' | 'https') => Promise<void>;
     handleOpenDocumentRoot: (path: string) => Promise<void>;
     confirmCancelProjectInstall: () => Promise<void>;
 
@@ -90,6 +97,22 @@ export interface ProjectContextValue {
 }
 
 const ProjectContext = createContext<ProjectContextValue | undefined>(undefined);
+
+async function resolveApacheProtocol(api: any): Promise<'http' | 'https'> {
+    if (!api?.get_apache_ports_status) return 'https';
+    try {
+        const portsRes = await api.get_apache_ports_status();
+        if (portsRes?.status === 'success' && portsRes.data?.https?.status === 'listening') {
+            return 'https';
+        }
+        if (portsRes?.status === 'success' && portsRes.data?.http?.status === 'listening') {
+            return 'http';
+        }
+        return 'https';
+    } catch {
+        return 'https';
+    }
+}
 
 export function ProjectProvider({ children }: { readonly children: React.ReactNode }) {
     const { t } = useTranslation();
@@ -108,6 +131,9 @@ export function ProjectProvider({ children }: { readonly children: React.ReactNo
     const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
     const [isProjectSettingsOpen, setIsProjectSettingsOpen] = useState(false);
     const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+    const [isEnvModalOpen, setIsEnvModalOpen] = useState(false);
+    const [isAppLogsModalOpen, setIsAppLogsModalOpen] = useState(false);
+    const [appLogsProject, setAppLogsProject] = useState<ProjectData | null>(null);
     const [isDeletingProject, setIsDeletingProject] = useState(false);
     const [isDeleteFiles, setIsDeleteFiles] = useState(false);
     const [isUpdatingProject, setIsUpdatingProject] = useState(false);
@@ -310,8 +336,10 @@ export function ProjectProvider({ children }: { readonly children: React.ReactNo
         }
     }, [showToast]);
 
-    const handleOpenBrowser = useCallback(async (domain: string) => {
-        const url = `https://${domain}`;
+    const handleOpenBrowser = useCallback(async (domain: string, protocol?: 'http' | 'https') => {
+        const api = (window as any).pywebview?.api;
+        const proto = protocol || await resolveApacheProtocol(api);
+        const url = `${proto}://${domain}`;
         try {
             const project = projects.find(p => p.domain === domain);
             if (project?.project_type && project.project_type !== 'php') {
@@ -323,8 +351,8 @@ export function ProjectProvider({ children }: { readonly children: React.ReactNo
                 }
             }
 
-            if (window.pywebview?.api?.open_browser) {
-                window.pywebview.api.open_browser(url);
+            if (api?.open_browser) {
+                api.open_browser(url);
             } else {
                 window.open(url, '_blank');
             }
@@ -488,6 +516,24 @@ export function ProjectProvider({ children }: { readonly children: React.ReactNo
         if (!isDeletingProject) setIsDeleteConfirmOpen(false);
     }, [isDeletingProject]);
 
+    const openEnvModal = useCallback((projectId: string) => {
+        setSelectedProjectId(projectId);
+        setIsEnvModalOpen(true);
+    }, []);
+
+    const closeEnvModal = useCallback(() => {
+        setIsEnvModalOpen(false);
+    }, []);
+
+    const openAppLogsModal = useCallback((project: ProjectData) => {
+        setAppLogsProject(project);
+        setIsAppLogsModalOpen(true);
+    }, []);
+
+    const closeAppLogsModal = useCallback(() => {
+        setIsAppLogsModalOpen(false);
+    }, []);
+
     const restoreProgressWidget = useCallback(() => {
         if (isCreatingProject) setIsNewProjectModalOpen(true);
     }, [isCreatingProject]);
@@ -505,6 +551,9 @@ export function ProjectProvider({ children }: { readonly children: React.ReactNo
         isNewProjectModalOpen,
         isProjectSettingsOpen,
         isDeleteConfirmOpen,
+        isEnvModalOpen,
+        isAppLogsModalOpen,
+        appLogsProject,
         isCliModalOpen,
         cliPromptText,
         progress,
@@ -515,6 +564,10 @@ export function ProjectProvider({ children }: { readonly children: React.ReactNo
         closeProjectSettingsModal,
         openDeleteConfirmModal,
         closeDeleteConfirmModal,
+        openEnvModal,
+        closeEnvModal,
+        openAppLogsModal,
+        closeAppLogsModal,
         restoreProgressWidget,
         projectFormRef,
         projectSettingsRef,
@@ -548,6 +601,9 @@ export function ProjectProvider({ children }: { readonly children: React.ReactNo
         isNewProjectModalOpen,
         isProjectSettingsOpen,
         isDeleteConfirmOpen,
+        isEnvModalOpen,
+        isAppLogsModalOpen,
+        appLogsProject,
         isCliModalOpen,
         cliPromptText,
         progress,
@@ -558,6 +614,10 @@ export function ProjectProvider({ children }: { readonly children: React.ReactNo
         closeProjectSettingsModal,
         openDeleteConfirmModal,
         closeDeleteConfirmModal,
+        openEnvModal,
+        closeEnvModal,
+        openAppLogsModal,
+        closeAppLogsModal,
         restoreProgressWidget,
         fetchProjects,
         handleCreateSubmit,

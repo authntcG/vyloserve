@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useRef, useEffect, useMemo, type ReactNode } from 'react';
+import React, { createContext, useContext, useState, useRef, useEffect, useMemo, useCallback, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useToast } from './ToastContext';
 import { useAlert } from './AlertContext';
@@ -32,6 +32,48 @@ export interface GitUpdateInfo {
     [key: string]: unknown;
 }
 
+export interface GitAccountItem {
+    id: string;
+    label: string;
+    endpoint: string;
+    username: string;
+    email: string;
+    protocol: 'https' | 'ssh';
+    auth_mode: 'pat' | 'oauth' | 'ssh' | 'gcm';
+    has_token: boolean;
+    masked_token: string;
+    ssh_key_path: string;
+    is_default: boolean;
+    is_push_active: boolean;
+    requires_vpn?: boolean;
+    vpn_reachable?: boolean;
+    created_at?: number;
+    updated_at?: number;
+}
+
+export interface SshKeyItem {
+    filename: string;
+    path: string;
+    type: string;
+    comment: string;
+    public_key: string;
+}
+
+export interface GitProjectItem {
+    id: string;
+    name: string;
+    full_name: string;
+    visibility: 'private' | 'public' | 'internal';
+    web_url: string;
+    ssh_url: string;
+    http_url: string;
+    default_branch: string;
+    last_activity_at: string;
+    account_id: string;
+    host: string;
+    source: 'remote' | 'local';
+}
+
 export const INITIAL_GIT_DATA: GitData = {
     installed: false,
     version: '',
@@ -51,18 +93,39 @@ interface GitContextType {
     setIsInstallModalOpen: (v: boolean) => void;
     isUninstallModalOpen: boolean;
     setIsUninstallModalOpen: (v: boolean) => void;
+    isAccountModalOpen: boolean;
+    setIsAccountModalOpen: (v: boolean) => void;
+    editingAccount: GitAccountItem | null;
+    setEditingAccount: (v: GitAccountItem | null) => void;
+    accounts: GitAccountItem[];
+    sshKeys: SshKeyItem[];
+    isLoadingAccounts: boolean;
+    projects: GitProjectItem[];
+    isLoadingProjects: boolean;
+    projectsAuthWarning: boolean;
+    projectsVpnBlocked: boolean;
+    projectsVpnHost: string;
+    selectedAccountId: string;
+    setSelectedAccountId: (id: string) => void;
+    fetchProjects: (accountId?: string) => Promise<void>;
+    handleOpenProjectInBrowser: (url: string) => Promise<void>;
     progress: number;
     progressText: string;
     isMinimized: boolean;
     setIsMinimized: (v: boolean) => void;
     gitRef: React.RefObject<InstallGitRef | null>;
     fetchStatus: () => Promise<void>;
+    fetchAccounts: () => Promise<void>;
+    fetchSshKeys: () => Promise<void>;
     handleUpdateClick: (update: GitUpdateInfo) => Promise<void>;
     handleTogglePath: (enable: boolean) => Promise<void>;
     handleSaveConfig: () => Promise<void>;
     handleInstallSubmit: () => Promise<void>;
     handleCancelInstall: () => Promise<void>;
     executeUninstall: () => Promise<void>;
+    handleSaveAccount: (accountData: any) => Promise<boolean>;
+    handleDeleteAccount: (accountId: string) => Promise<boolean>;
+    handleSetDefaultAccount: (accountId: string) => Promise<boolean>;
 }
 
 const GitContext = createContext<GitContextType | undefined>(undefined);
@@ -81,6 +144,17 @@ export function GitProvider({ children }: { readonly children: ReactNode }) {
     const [isCancelling, setIsCancelling] = useState(false);
     const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
     const [isUninstallModalOpen, setIsUninstallModalOpen] = useState(false);
+    const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
+    const [editingAccount, setEditingAccount] = useState<GitAccountItem | null>(null);
+    const [accounts, setAccounts] = useState<GitAccountItem[]>([]);
+    const [sshKeys, setSshKeys] = useState<SshKeyItem[]>([]);
+    const [isLoadingAccounts, setIsLoadingAccounts] = useState<boolean>(false);
+    const [projects, setProjects] = useState<GitProjectItem[]>([]);
+    const [isLoadingProjects, setIsLoadingProjects] = useState<boolean>(false);
+    const [projectsAuthWarning, setProjectsAuthWarning] = useState<boolean>(false);
+    const [projectsVpnBlocked, setProjectsVpnBlocked] = useState<boolean>(false);
+    const [projectsVpnHost, setProjectsVpnHost] = useState<string>('');
+    const [selectedAccountId, setSelectedAccountId] = useState<string>('');
     const [progress, setProgress] = useState(0);
     const [progressText, setProgressText] = useState('');
     const [isMinimized, setIsMinimized] = useState(false);
@@ -97,6 +171,86 @@ export function GitProvider({ children }: { readonly children: ReactNode }) {
         window.addEventListener('vylo_progress', handleProgress);
         return () => window.removeEventListener('vylo_progress', handleProgress);
     }, [t]);
+
+    const fetchAccounts = async () => {
+        setIsLoadingAccounts(true);
+        try {
+            const api = (window as any).pywebview?.api;
+            if (api?.get_git_accounts) {
+                const res = await api.get_git_accounts();
+                if (res?.status === 'success' && Array.isArray(res.accounts)) {
+                    setAccounts(res.accounts);
+                }
+            }
+        } catch (error) {
+            console.error('Failed to fetch Git accounts', error);
+        } finally {
+            setIsLoadingAccounts(false);
+        }
+    };
+
+    const fetchSshKeys = async () => {
+        try {
+            const api = (window as any).pywebview?.api;
+            if (api?.get_ssh_keys) {
+                const res = await api.get_ssh_keys();
+                if (res?.status === 'success' && Array.isArray(res.data)) {
+                    setSshKeys(res.data);
+                }
+            }
+        } catch (error) {
+            console.error('Failed to fetch SSH keys', error);
+        }
+    };
+
+    const fetchProjects = useCallback(async (accId?: string) => {
+        setIsLoadingProjects(true);
+        try {
+            const api = (window as any).pywebview?.api;
+            if (api?.get_git_account_projects) {
+                const targetId = accId ?? selectedAccountId;
+                const res = await api.get_git_account_projects(targetId);
+                if (res?.status === 'success' && res.data) {
+                    setProjects(Array.isArray(res.data.projects) ? res.data.projects : []);
+                    setProjectsAuthWarning(Boolean(res.data.auth_warning));
+                    setProjectsVpnBlocked(Boolean(res.data.vpn_blocked));
+                    setProjectsVpnHost(res.data.vpn_host || '');
+                    if (res.data.account_id && (!selectedAccountId || accId !== undefined)) {
+                        setSelectedAccountId(res.data.account_id);
+                    }
+                } else {
+                    setProjects([]);
+                    setProjectsAuthWarning(false);
+                    setProjectsVpnBlocked(false);
+                    setProjectsVpnHost('');
+                }
+            }
+        } catch {
+            setProjects([]);
+            setProjectsAuthWarning(false);
+            setProjectsVpnBlocked(false);
+            setProjectsVpnHost('');
+        } finally {
+            setIsLoadingProjects(false);
+        }
+    }, [selectedAccountId]);
+
+    const handleOpenProjectInBrowser = useCallback(async (url: string) => {
+        if (!url) return;
+        try {
+            const api = (window as any).pywebview?.api;
+            if (api?.open_browser) {
+                const res = await api.open_browser(url);
+                if (res?.status === 'error') {
+                    showToast(t(res.message || 'tools.git.sys_error', res.args || {}) as string, 'error');
+                }
+            } else {
+                window.open(url, '_blank');
+            }
+        } catch {
+            window.open(url, '_blank');
+        }
+    }, [showToast, t]);
 
     const fetchStatus = async () => {
         setIsLoading(true);
@@ -126,6 +280,9 @@ export function GitProvider({ children }: { readonly children: ReactNode }) {
                     setUpdateAvailable(null);
                 }
             }
+            await fetchAccounts();
+            await fetchSshKeys();
+            await fetchProjects();
         } catch (error) {
             console.error(t('tools.git.load_error'), error);
         } finally {
@@ -265,6 +422,98 @@ export function GitProvider({ children }: { readonly children: ReactNode }) {
         }
     };
 
+    const handleSaveAccount = async (accountData: any) => {
+        setIsProcessing(true);
+        try {
+            const api = (window as any).pywebview?.api;
+            const res = await api?.save_git_account(accountData);
+            if (res?.status === 'success') {
+                showToast(t(res.message || 'tools.git.account_saved', res.args || {}) as string, 'success');
+                setIsAccountModalOpen(false);
+                setEditingAccount(null);
+                await fetchAccounts();
+                const newAccId = res.account_id || '';
+                if (newAccId) {
+                    setSelectedAccountId(newAccId);
+                }
+                await fetchProjects(newAccId);
+                const conf = await api?.get_git_config();
+                if (conf?.status === 'success') {
+                    setConfigData({ userName: conf.data.name || '', userEmail: conf.data.email || '' });
+                }
+                return true;
+            }
+            showToast(t(res?.message || 'tools.git.sys_error', res?.args || {}) as string, 'error');
+            return false;
+        } catch (error: any) {
+            showToast(error?.message || t('tools.git.sys_error'), 'error');
+            return false;
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    const handleDeleteAccount = async (accountId: string) => {
+        if (!await confirm({
+            title: t('tools.git.delete_account'),
+            message: t('tools.git.delete_account_confirm'),
+            type: 'danger',
+            confirmText: t('common.delete', 'Delete'),
+            cancelText: t('common.cancel', 'Cancel')
+        })) {
+            return false;
+        }
+        setIsProcessing(true);
+        try {
+            const api = (window as any).pywebview?.api;
+            const res = await api?.delete_git_account(accountId);
+            if (res?.status === 'success') {
+                showToast(t(res.message || 'backend.git.account_deleted', res.args || {}) as string, 'success');
+                await fetchAccounts();
+                setSelectedAccountId('');
+                await fetchProjects('');
+                const conf = await api?.get_git_config();
+                if (conf?.status === 'success') {
+                    setConfigData({ userName: conf.data.name || '', userEmail: conf.data.email || '' });
+                }
+                return true;
+            }
+            showToast(t(res?.message || 'tools.git.sys_error', res?.args || {}) as string, 'error');
+            return false;
+        } catch (error: any) {
+            showToast(error?.message || t('tools.git.sys_error'), 'error');
+            return false;
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    const handleSetDefaultAccount = async (accountId: string) => {
+        setIsProcessing(true);
+        try {
+            const api = (window as any).pywebview?.api;
+            const res = await api?.set_default_git_account(accountId);
+            if (res?.status === 'success') {
+                showToast(t(res.message || 'backend.git.account_default_set', res.args || {}) as string, 'success');
+                await fetchAccounts();
+                setSelectedAccountId(accountId);
+                await fetchProjects(accountId);
+                const conf = await api?.get_git_config();
+                if (conf?.status === 'success') {
+                    setConfigData({ userName: conf.data.name || '', userEmail: conf.data.email || '' });
+                }
+                return true;
+            }
+            showToast(t(res?.message || 'tools.git.sys_error', res?.args || {}) as string, 'error');
+            return false;
+        } catch (error: any) {
+            showToast(error?.message || t('tools.git.sys_error'), 'error');
+            return false;
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
     const value = useMemo<GitContextType>(() => ({
         gitData,
         configData,
@@ -277,18 +526,39 @@ export function GitProvider({ children }: { readonly children: ReactNode }) {
         setIsInstallModalOpen,
         isUninstallModalOpen,
         setIsUninstallModalOpen,
+        isAccountModalOpen,
+        setIsAccountModalOpen,
+        editingAccount,
+        setEditingAccount,
+        accounts,
+        sshKeys,
+        isLoadingAccounts,
+        projects,
+        isLoadingProjects,
+        projectsAuthWarning,
+        projectsVpnBlocked,
+        projectsVpnHost,
+        selectedAccountId,
+        setSelectedAccountId,
+        fetchProjects,
+        handleOpenProjectInBrowser,
         progress,
         progressText,
         isMinimized,
         setIsMinimized,
         gitRef,
         fetchStatus,
+        fetchAccounts,
+        fetchSshKeys,
         handleUpdateClick,
         handleTogglePath,
         handleSaveConfig,
         handleInstallSubmit,
         handleCancelInstall,
-        executeUninstall
+        executeUninstall,
+        handleSaveAccount,
+        handleDeleteAccount,
+        handleSetDefaultAccount
     }), [
         gitData,
         configData,
@@ -298,6 +568,19 @@ export function GitProvider({ children }: { readonly children: ReactNode }) {
         isCancelling,
         isInstallModalOpen,
         isUninstallModalOpen,
+        isAccountModalOpen,
+        editingAccount,
+        accounts,
+        sshKeys,
+        isLoadingAccounts,
+        projects,
+        isLoadingProjects,
+        projectsAuthWarning,
+        projectsVpnBlocked,
+        projectsVpnHost,
+        selectedAccountId,
+        fetchProjects,
+        handleOpenProjectInBrowser,
         progress,
         progressText,
         isMinimized

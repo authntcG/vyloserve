@@ -204,12 +204,22 @@ def test_db_graceful_shutdown(db_mgr):
                 mock_run.assert_called_once()
 
 def test_db_resolve_mariadb_url(db_mgr):
-    with patch('core.services.database.urllib.request.urlopen') as mock_urlopen:
-        mock_resp = MagicMock()
-        mock_resp.read.return_value.decode.return_value = '<a href="mariadb-10.6.5-winx64.zip">mariadb-10.6.5-winx64.zip</a>'
-        mock_urlopen.return_value = mock_resp
-        url = db_mgr._resolve_mariadb_url("10.6")
-        assert "mariadb-10.6.5-winx64.zip" in url
+    with patch('sys.platform', 'win32'):
+        with patch('core.services.database.urllib.request.urlopen') as mock_urlopen:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value.decode.return_value = '<a href="mariadb-10.6.5-winx64.zip">mariadb-10.6.5-winx64.zip</a>'
+            mock_urlopen.return_value = mock_resp
+            url = db_mgr._resolve_mariadb_url("10.6")
+            assert "mariadb-10.6.5-winx64.zip" in url
+
+def test_db_resolve_mariadb_url_linux(db_mgr):
+    with patch('sys.platform', 'linux'):
+        with patch('core.services.database.urllib.request.urlopen') as mock_urlopen:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value.decode.return_value = '<a href="mariadb-10.6.5-linux-x86_64.tar.gz">mariadb-10.6.5-linux-x86_64.tar.gz</a>'
+            mock_urlopen.return_value = mock_resp
+            url = db_mgr._resolve_mariadb_url("10.6")
+            assert "mariadb-10.6.5-linux-x86_64.tar.gz" in url
 
 def test_db_fetch_mariadb_versions(db_mgr):
     with patch('core.services.database.urllib.request.urlopen') as mock_urlopen:
@@ -427,7 +437,7 @@ def test_db_unwrap_single_subdir(db_mgr):
 def test_db_cleanup_install_failure(db_mgr):
     with patch('core.services.database.os.path.exists', side_effect=[True, True, True]):
         with patch('core.services.database.os.remove') as mock_rm:
-            with patch('core.services.database.shutil.rmtree') as mock_rmtree:
+            with patch('core.services.database.safe_rmtree') as mock_rmtree:
                 db_mgr._cleanup_install_failure("zip", "install", False, "data")
                 mock_rm.assert_called_once_with("zip")
                 assert mock_rmtree.call_count == 2
@@ -859,7 +869,7 @@ def test_db_get_log_content_startup_log_success(db_mgr):
             res = db_mgr.get_log_content("db_1", "startup")
 
     assert res == {"status": "success", "data": "startup ok"}
-    mock_tail.assert_called_once_with("C:\\data\\db_startup.log")
+    mock_tail.assert_called_once_with(os.path.join("C:\\data", "db_startup.log"))
 
 def test_db_get_log_content_native_mysql_picks_most_recent_err_file(db_mgr):
     with patch('core.services.database.read_json', return_value=[{"id": "db_1", "engine": "mysql", "dataDir": "C:\\data"}]):
@@ -1089,10 +1099,10 @@ def test_check_is_running_cleans_up_dead_processes(db_mgr):
 @patch('core.services.database.DatabaseManager.stop_database')
 @patch('core.services.database.os.path.exists')
 @patch('core.services.database.os.makedirs')
-@patch('core.utils.file_utils.download_advanced')
-@patch('core.utils.file_utils.extract_archive')
+@patch('core.services.database.download_advanced')
+@patch('core.services.database.extract_archive')
 @patch('core.services.database.os.remove')
-@patch('core.utils.file_utils.write_json')
+@patch('core.services.database.write_json')
 @patch('core.services.database.read_json')
 @patch('core.services.database.shutil')
 def test_update_database_success(mock_shutil, mock_read_json, mock_write_json, mock_remove, mock_extract, mock_download, mock_makedirs, mock_exists, mock_stop, db_mgr):
@@ -1120,8 +1130,9 @@ def test_update_database_success(mock_shutil, mock_read_json, mock_write_json, m
 @patch('core.services.database.read_json')
 @patch('core.services.database.os.path.exists')
 @patch('core.services.database.shutil')
+@patch('core.services.database.safe_rmtree')
 @patch('core.utils.file_utils.download_advanced')
-def test_update_database_rollback_on_failure(mock_download, mock_shutil, mock_exists, mock_read_json, db_mgr):
+def test_update_database_rollback_on_failure(mock_download, mock_safe_rmtree, mock_shutil, mock_exists, mock_read_json, db_mgr):
     from unittest.mock import MagicMock
     mock_read_json.return_value = [{"id": "mysql_10", "engine": "mysql", "version": "10.0", "installDir": "/bin/mysql_10", "dataDir": "/data/mysql_10"}]
     mock_exists.return_value = True
@@ -1136,7 +1147,7 @@ def test_update_database_rollback_on_failure(mock_download, mock_shutil, mock_ex
     assert res['message'] == 'backend.database.update_failed_rollback'
     
     assert mock_shutil.move.called
-    assert mock_shutil.rmtree.called
+    assert mock_safe_rmtree.called
 
 def test_update_database_cancelled_rolls_back(db_mgr):
     from core.utils.cancellation import OperationCancelledError
@@ -1145,14 +1156,15 @@ def test_update_database_cancelled_rolls_back(db_mgr):
          patch('core.services.database.os.makedirs'), \
          patch('core.services.database.os.remove'), \
          patch('core.services.database.shutil') as mock_shutil, \
+         patch('core.services.database.safe_rmtree') as mock_safe_rmtree, \
          patch.object(db_mgr, 'stop_database'), \
-         patch('core.utils.file_utils.download_advanced', side_effect=OperationCancelledError("Cancelled")):
+         patch('core.services.database.download_advanced', side_effect=OperationCancelledError("Cancelled")):
         res = db_mgr.update_database("mysql_10", "10.1", "http://url", backup_data=False)
 
     assert res['status'] == 'cancelled'
     assert res['message'] == 'backend.database.update_cancelled'
     assert mock_shutil.move.called
-    assert mock_shutil.rmtree.called
+    assert mock_safe_rmtree.called
 
 def test_install_database_cancelled(db_mgr):
     from core.utils.cancellation import OperationCancelledError
@@ -1419,3 +1431,104 @@ def test_import_schema_mysql_success(tmp_path, db_mgr):
         res = db_mgr.import_schema("mysql_1", "my_app", source_sql)
         assert res['status'] == 'success'
         assert res['message'] == 'backend.database.schema_import_success'
+
+# ==========================================
+# PostgreSQL Linux Maven Binaries & JAR Extraction
+# ==========================================
+
+def test_fetch_postgres_versions_linux_success(db_mgr):
+    sample_xml = b"""<metadata>
+        <versioning>
+            <versions>
+                <version>15.2.0</version>
+                <version>15.4.0</version>
+                <version>16.1.0</version>
+                <version>16.8.0</version>
+            </versions>
+        </versioning>
+    </metadata>"""
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = sample_xml
+    with patch('core.services.database.urllib.request.urlopen', return_value=mock_resp):
+        res = db_mgr._fetch_postgres_versions_linux()
+    assert res['status'] == 'success'
+    versions = [item['version'] for item in res['data']]
+    assert '16.8.0' in versions
+    assert '15.4.0' in versions
+    assert '16.8.0' in res['data'][0]['url']
+    assert res['data'][0]['url'].endswith('.jar')
+
+def test_fetch_postgres_versions_linux_error(db_mgr):
+    with patch('core.services.database.urllib.request.urlopen', side_effect=OSError("network down")):
+        res = db_mgr._fetch_postgres_versions_linux()
+    assert res['status'] == 'error'
+    assert res['message'] == 'backend.error.unexpected'
+
+def test_extract_db_archive_jar_success(db_mgr, tmp_path):
+    import zipfile
+    jar_file = tmp_path / "test_postgres.jar"
+    with zipfile.ZipFile(str(jar_file), 'w') as zf:
+        zf.writestr("postgres-linux-x86_64.txz", b"fake txz payload")
+
+    install_dir = tmp_path / "install_target"
+    install_dir.mkdir()
+
+    with patch('core.services.database.extract_archive') as mock_extract:
+        db_mgr._extract_db_archive(str(jar_file), str(install_dir))
+    mock_extract.assert_called_once()
+    assert not jar_file.exists()
+
+def test_extract_db_archive_jar_missing_txz(db_mgr, tmp_path):
+    import zipfile
+    jar_file = tmp_path / "empty.jar"
+    with zipfile.ZipFile(str(jar_file), 'w') as zf:
+        zf.writestr("META-INF/MANIFEST.MF", b"Manifest-Version: 1.0\n")
+
+    install_dir = tmp_path / "install_target"
+    install_dir.mkdir()
+
+    with pytest.raises(RuntimeError, match="Biner PostgreSQL Linux"):
+        db_mgr._extract_db_archive(str(jar_file), str(install_dir))
+
+
+def test_init_mariadb_linux_auth_normal(db_mgr, tmp_path):
+    install_dir = tmp_path / "mariadb_inst"
+    bin_dir = install_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    installer = bin_dir / "mysql_install_db"
+    installer.write_text("#!/bin/sh\n")
+
+    mysqld = bin_dir / "mysqld"
+    mysqld.write_text("#!/bin/sh\n")
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+
+    with patch('sys.platform', 'linux'), \
+         patch('core.services.database.run_silent_command', return_value=MagicMock(returncode=0)) as mock_run, \
+         patch('core.services.database.subprocess.run', return_value=MagicMock(returncode=0)) as mock_boot:
+        db_mgr._init_mariadb(str(install_dir), str(data_dir), root_pass="mysecret")
+
+        # Assert cmd installer memiliki flag --auth-root-authentication-method=normal
+        called_cmd = mock_run.call_args[0][0]
+        assert "--auth-root-authentication-method=normal" in called_cmd
+        assert f"--datadir={data_dir}" in called_cmd
+
+        # Assert bootstrap dipanggil
+        assert mock_boot.called
+        boot_cmd = mock_boot.call_args[0][0]
+        assert "--bootstrap" in boot_cmd
+        boot_input = mock_boot.call_args[1].get("input", "")
+        assert "mysecret" in boot_input
+
+
+def test_run_mysql_cli_includes_ssl_zero(db_mgr):
+    db_obj = {"id": "mysql_1", "engine": "mysql", "port": 3306, "installDir": "/bin/mysql"}
+    with patch.object(db_mgr, '_resolve_db_cli', return_value="/bin/mysql/bin/mysql"), \
+         patch('core.services.database.run_silent_command', return_value=MagicMock(returncode=0)) as mock_run:
+        res, err = db_mgr._run_mysql_cli(db_obj, "secret", "SHOW DATABASES;", [])
+        assert err is None
+        called_cmd = mock_run.call_args[0][0]
+        assert "--ssl=0" in called_cmd
+        assert "-psecret" in called_cmd
+

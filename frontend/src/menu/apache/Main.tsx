@@ -33,6 +33,7 @@ interface ApacheStatusSectionProps {
     readonly onUninstallClick: () => void;
     readonly onInstallClick: () => void;
     readonly onUpdateClick: () => void;
+    readonly systemApache?: any;
     readonly t: any;
 }
 
@@ -57,6 +58,7 @@ function ApacheStatusSection({
     onUninstallClick,
     onInstallClick,
     onUpdateClick,
+    systemApache,
     t,
 }: ApacheStatusSectionProps) {
     if (isFetching) {
@@ -64,7 +66,31 @@ function ApacheStatusSection({
     }
     if (!isInstalled) {
         return (
-            <div className="mb-8">
+            <div className="mb-8 flex flex-col gap-6">
+                {systemApache?.exists && (
+                    <Card
+                        title={`Apache ${systemApache.version} (${t('runtimes.native')})`}
+                        status={systemApache.running ? t('apache.running') : t('runtimes.native_os')}
+                        gridCols="grid-cols-1"
+                    >
+                        <div className="flex flex-col gap-1 w-full min-w-0">
+                            <span className="text-xs font-medium text-slate-500 uppercase">{t('runtimes.installed_version')}</span>
+                            <span className="font-mono text-sm font-semibold text-slate-900 dark:text-slate-200 truncate">{systemApache.version}</span>
+                        </div>
+                        <div className="flex flex-col gap-1 mt-3 w-full min-w-0">
+                            <span className="text-xs font-medium text-slate-500 uppercase">{t('runtimes.system_path_binary')}</span>
+                            <span className="font-mono text-[11px] text-slate-600 dark:text-slate-400 break-all bg-slate-100 dark:bg-slate-800/50 p-2 rounded border border-slate-200 dark:border-slate-700/50 leading-relaxed">
+                                {systemApache.path}
+                            </span>
+                        </div>
+                        <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 w-full min-w-0">
+                            <div className="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+                                <span className="material-symbols-outlined text-[16px] text-primary shrink-0">verified</span>
+                                <span className="leading-relaxed break-words">{t('apache.system_managed_daemon')}</span>
+                            </div>
+                        </div>
+                    </Card>
+                )}
                 <EmptyState
                     icon="dns"
                     title={t('apache.not_installed_title')}
@@ -93,16 +119,19 @@ function ApacheStatusSection({
         );
     };
 
+    const isLinux = typeof window !== 'undefined' && window.navigator.userAgent.toLowerCase().includes('linux');
+    const archLabel = isLinux ? 'Linux x64' : 'Win64';
+
     return (
         <div className="mb-6">
             <Card
-                title={`Apache ${installedVersion || t('common.unknown')} (Win64)`}
+                title={`Apache ${installedVersion || t('common.unknown')} (${archLabel})`}
                 status={isRunning ? 'running' : 'stopped'}
                 updateVersion={updateAvailable || null}
                 gridCols="grid-cols-2 md:grid-cols-3"
                 dropdownActions={
                     <>
-                        <button type="button" onClick={onOpenLocalhost} className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/70 transition-colors">
+                        <button type="button" onClick={onOpenLocalhost} disabled={!isRunning} className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/70 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                             <span className="material-symbols-outlined text-[16px] text-primary shrink-0">language</span>
                             <span className="truncate">{t('apache.quick_open_localhost')}</span>
                         </button>
@@ -229,6 +258,7 @@ function ApacheMainView() {
         handleUninstall,
         openInstallModal,
         handleUpdateApacheClick,
+        systemApache,
         isInstalling,
         isCancelling,
         handleCancelInstall,
@@ -287,6 +317,7 @@ function ApacheMainView() {
                     onUninstallClick={handleUninstall}
                     onInstallClick={openInstallModal}
                     onUpdateClick={handleUpdateApacheClick}
+                    systemApache={systemApache}
                     t={t}
                 />
             </div>

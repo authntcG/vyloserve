@@ -19,6 +19,8 @@ gitleaks.json
 coverage.xml
 vyloserve_scan_report_*.md
 /temp
+.venv/
+venv/
 
 # AI / LLM Tools
 .windsurfrules

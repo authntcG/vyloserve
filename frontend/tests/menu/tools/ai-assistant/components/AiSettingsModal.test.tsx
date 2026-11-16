@@ -264,4 +264,111 @@ describe('AiSettingsModal', () => {
         const floatingRow = floatingToggle.closest('.flex.items-center.justify-between');
         expect(floatingRow).toHaveClass('opacity-50', 'pointer-events-none');
     });
+
+    it('toggles floating AI, auto-context, and adjusts temperature slider', async () => {
+        const user = userEvent.setup();
+        renderAiSettingsModal();
+
+        // 1. Toggle Floating AI
+        const floatingToggle = await screen.findByRole('checkbox', { name: /settings\.enable_floating|enable floating/i });
+        expect(floatingToggle).toBeChecked();
+        await user.click(floatingToggle);
+        expect(window.pywebview.api.save_app_settings).toHaveBeenCalledWith({
+            enable_floating_ai: false,
+        });
+
+        // 2. Toggle Auto-Context
+        const autoContextToggle = screen.getByRole('checkbox', { name: /settings\.ai_auto_context|auto-attach/i });
+        await user.click(autoContextToggle);
+        expect(window.pywebview.api.save_app_settings).toHaveBeenCalledWith({
+            ai_auto_context: false,
+        });
+
+        // 3. Adjust Temperature range slider
+        const tempSlider = screen.getByLabelText(/temperature/i);
+        fireEvent.change(tempSlider, { target: { value: '0.4' } });
+        expect(window.pywebview.api.save_app_settings).toHaveBeenCalledWith({
+            ai_temperature: 0.4,
+        });
+    });
+
+    it('saves base URL on blur and selects custom model when provider is ollama', async () => {
+        mockPywebviewApi({
+            get_app_settings: vi.fn().mockResolvedValue({
+                status: 'success',
+                data: {
+                    ai_provider: 'ollama',
+                    ai_model: 'llama3.2',
+                    ai_base_url: 'http://localhost:11434/v1',
+                },
+            }),
+            save_app_settings: vi.fn().mockResolvedValue({ status: 'success' }),
+            ai_get_chat_history: vi.fn().mockResolvedValue({ status: 'success', data: [] }),
+            ai_get_available_models: vi.fn().mockResolvedValue({ status: 'success', data: [] }),
+        });
+
+        const user = userEvent.setup();
+        renderAiSettingsModal();
+
+        // Edit Base URL on blur
+        await waitFor(() => {
+            expect(screen.getByLabelText(/API Base URL/i)).toBeInTheDocument();
+        });
+        const baseUrlInput = screen.getByLabelText(/API Base URL/i);
+        fireEvent.change(baseUrlInput, { target: { value: 'http://127.0.0.1:11434/v1' } });
+        fireEvent.blur(baseUrlInput);
+        expect(window.pywebview.api.save_app_settings).toHaveBeenCalledWith({
+            ai_base_url: 'http://127.0.0.1:11434/v1',
+        });
+
+        // Select Custom Model
+        const modelTrigger = screen.getByLabelText(/active model/i);
+        await user.click(modelTrigger);
+        const customModelOption = await screen.findByRole('option', { name: /custom model name/i });
+        fireEvent.click(customModelOption);
+
+        const customInput = await screen.findByPlaceholderText(/gpt-4o, claude-3-5-sonnet/i);
+        fireEvent.change(customInput, { target: { value: 'llama3:8b' } });
+        fireEvent.blur(customInput);
+        expect(window.pywebview.api.save_app_settings).toHaveBeenCalledWith({
+            ai_model: 'llama3:8b',
+        });
+
+        // Cancel custom model
+        const cancelBtn = screen.getByRole('button', { name: /cancel/i });
+        await user.click(cancelBtn);
+        expect(screen.queryByPlaceholderText(/gpt-4o, claude-3-5-sonnet/i)).not.toBeInTheDocument();
+    });
+
+    it('tests connection and clears chat history with confirmation', async () => {
+        const user = userEvent.setup();
+        renderAiSettingsModal();
+
+        // Wait for initial load
+        await waitFor(() => {
+            expect(window.pywebview.api.get_app_settings).toHaveBeenCalled();
+        });
+
+        // Type an API key so Test Connection button becomes enabled
+        const keyInput = await screen.findByPlaceholderText('sk-...');
+        await user.type(keyInput, 'AIzaSyTestKey');
+
+        // Test connection
+        const testBtn = await screen.findByRole('button', { name: /test connection/i });
+        expect(testBtn).toBeEnabled();
+        await user.click(testBtn);
+        expect(window.pywebview.api.ai_test_connection).toHaveBeenCalled();
+        expect((await screen.findAllByText(/connection_success/i)).length).toBeGreaterThanOrEqual(1);
+
+        // Clear chat history
+        const deleteHistoryBtn = screen.getByRole('button', { name: /delete/i });
+        await user.click(deleteHistoryBtn);
+
+        // Confirmation modal opens
+        expect(screen.getAllByText('Clear Chat History?')).toHaveLength(2);
+        const allDeleteBtns = screen.getAllByRole('button', { name: /delete/i });
+        await user.click(allDeleteBtns[allDeleteBtns.length - 1]);
+
+        expect(window.pywebview.api.ai_clear_chat_history).toHaveBeenCalled();
+    });
 });

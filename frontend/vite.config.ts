@@ -3,6 +3,13 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
+const nodeMajor = Number.parseInt(process.versions.node.split('.')[0], 10);
+const vitestExecArgv = [
+  ...(nodeMajor < 22 ? ['--harmony-iterator-helpers'] : []),
+  '--require',
+  './tests/polyfill.cjs',
+];
+
 // https://vite.dev/config/
 export default defineConfig({
   server: {
@@ -46,6 +53,8 @@ export default defineConfig({
     setupFiles: ['./tests/setup.ts'],
     include: ['tests/**/*.test.{ts,tsx}'],
     css: false,
+    testTimeout: 15000,
+    execArgv: vitestExecArgv,
     coverage: {
       provider: 'v8',
       // 'lcov' menghasilkan coverage/lcov.info, dibaca SonarQube lewat

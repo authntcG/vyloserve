@@ -8,7 +8,10 @@ import json
 import zipfile
 import shutil
 import subprocess
-import winreg
+try:
+    import winreg
+except ImportError:
+    winreg = None
 import ctypes
 import concurrent.futures
 
@@ -18,6 +21,7 @@ from core.utils.system_utils import (
     get_silent_flags,
     is_in_user_path,
     broadcast_environment_change,
+    open_path_in_file_manager,
 )
 from core.utils.file_utils import download_advanced, extract_archive, read_json, write_json
 from core.utils.network_utils import is_network_error
@@ -30,7 +34,19 @@ MSG_INSTALL_FAILED = "backend.runtimes.install_failed"
 MSG_STARTING_BINARY_DOWNLOAD = "backend.runtimes.starting_binary_download"
 EXE_PYTHON = 'python.exe'
 NAME_NODEJS = "Node.js"
+MSG_UNEXPECTED_ERROR = "backend.error.unexpected"
+MSG_PATH_ERROR_LOG = "backend.runtimes.path_error_log"
+MSG_REGISTRY_ERROR = "backend.runtimes.registry_error"
+EXT_TAR_GZ = ".tar.gz"
+LATEST_STABLE_SUFFIX = " (Latest Stable)"
 
+
+LINUX_PYTHON_BUILDS = {
+    "3.14.10": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.14.10%2B20261026-x86_64-unknown-linux-gnu-install_only.tar.gz",
+    "3.13.18": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.13.18%2B20261026-x86_64-unknown-linux-gnu-install_only.tar.gz",
+    "3.12.16": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.12.16%2B20261026-x86_64-unknown-linux-gnu-install_only.tar.gz",
+    "3.11.18": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.11.18%2B20261026-x86_64-unknown-linux-gnu-install_only.tar.gz",
+}
 
 class RuntimesManager:
     """
@@ -73,7 +89,7 @@ class RuntimesManager:
             except OSError: pass
         self._emit_progress(-1, MSG_INSTALL_FAILED, {"e": str(e)})
         self._emit_log("backend.runtimes.install_error_named", "error", {"name": name, "e": str(e)})
-        return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+        return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
     def _cleanup_cancelled_install(self, zip_path: str, target_dir: str, name: str):
         import os, shutil
@@ -104,8 +120,15 @@ class RuntimesManager:
     def _get_paths_for_engine_dir(self, engine: str, engine_dir: str) -> list:
         paths = []
         if engine_dir:
-            if engine == 'node': paths.extend([engine_dir])
-            elif engine == 'python': paths.extend([engine_dir, os.path.join(engine_dir, 'Scripts')])
+            if engine == 'node':
+                bin_dir = os.path.join(engine_dir, 'bin')
+                paths.extend([bin_dir] if sys.platform != 'win32' and os.path.exists(bin_dir) else [engine_dir])
+            elif engine == 'python':
+                bin_dir = os.path.join(engine_dir, 'bin')
+                if sys.platform != 'win32' and os.path.exists(bin_dir):
+                    paths.extend([bin_dir, engine_dir])
+                else:
+                    paths.extend([engine_dir, os.path.join(engine_dir, 'Scripts')])
             elif engine == 'java': paths.extend([os.path.join(engine_dir, 'bin')])
             elif engine == 'go': paths.extend([os.path.join(engine_dir, 'bin')])
         return paths
@@ -131,7 +154,10 @@ class RuntimesManager:
 
         # Check which directory is in user path
         if os.path.exists(parent):
-            subdirs = [os.path.join(parent, item) for item in os.listdir(parent) if os.path.isdir(os.path.join(parent, item))]
+            subdirs = sorted(
+                [os.path.join(parent, item) for item in os.listdir(parent) if os.path.isdir(os.path.join(parent, item))],
+                reverse=True
+            )
             for s in subdirs:
                 paths_to_check = self._get_paths_for_engine_dir(engine, s)
                 if any(self._is_in_user_path(p) for p in paths_to_check):
@@ -149,15 +175,11 @@ class RuntimesManager:
             if not target or not os.path.exists(target):
                 parent = self._get_engine_parent_dir(engine)
                 target = parent if os.path.exists(parent) else self.bin_dir
-            if sys.platform == 'win32':
-                os.startfile(target)
-            elif sys.platform == 'darwin':
-                subprocess.Popen(['open', target])
-            else:
-                subprocess.Popen(['xdg-open', target])
-            return {"status": "success"}
+            if open_path_in_file_manager(target):
+                return {"status": "success"}
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR}
         except Exception as e:
-            return {"status": "error", "message": "backend.error.unexpected", "args": {"e": str(e)}}
+            return {"status": "error", "message": MSG_UNEXPECTED_ERROR, "args": {"e": str(e)}}
 
     def _clear_engine(self, engine: str):
         for path in [self._get_engine_parent_dir(engine), os.path.join(self.bin_dir, engine)]:
@@ -188,7 +210,6 @@ class RuntimesManager:
         Log Terminal telah dibersihkan dan dialihkan ke UI System Logs secara efisien.
         """
         import os
-        import winreg
         import subprocess
         import sys
         import shutil
@@ -240,8 +261,79 @@ class RuntimesManager:
         return {"exists": True, "path": found_path, "version": "Unknown Version"}
 
     def _is_in_user_path(self, target_path: str) -> bool:
-        """ Mengecek apakah path sudah ada di System PATH Windows """
+        """ Mengecek apakah path sudah ada di System PATH Windows atau symlink Linux """
         return is_in_user_path(target_path)
+
+    def _get_linux_user_bin_dir(self) -> str:
+        """ Mengembalikan direktori biner user standar POSIX (~/.local/bin) """
+        path = os.path.expanduser('~/.local/bin')
+        os.makedirs(path, exist_ok=True)
+        return path
+
+    def _get_linux_engine_binaries(self, engine: str, engine_dir: str) -> list:
+        """
+        Mengembalikan list tuple (source_bin_abs_path, symlink_name) untuk engine_dir di Linux.
+        """
+        bin_dir = os.path.join(engine_dir, 'bin')
+        search_dir = bin_dir if os.path.isdir(bin_dir) else engine_dir
+
+        candidates = {
+            'node': ['node', 'npm', 'npx', 'corepack'],
+            'python': ['python3', 'python', 'pip3', 'pip'],
+            'java': ['java', 'javac', 'jar', 'jshell'],
+            'go': ['go', 'gofmt']
+        }.get(engine, [])
+
+        results = []
+        for name in candidates:
+            src = os.path.join(search_dir, name)
+            if os.path.exists(src):
+                results.append((src, name))
+        return results
+
+    def _enable_linux_user_path(self, engine: str, user_bin: str, version: str = None) -> bool:
+        engine_dir = self._get_engine_dir(engine, version=version)
+        if not engine_dir:
+            return False
+        binaries = self._get_linux_engine_binaries(engine, engine_dir)
+        if not binaries:
+            return False
+        for src, name in binaries:
+            link_path = os.path.join(user_bin, name)
+            try:
+                if os.path.islink(link_path) or os.path.exists(link_path):
+                    os.unlink(link_path)
+                os.symlink(src, link_path)
+            except Exception as e:
+                self._emit_log(MSG_PATH_ERROR_LOG, "error", {"engine": engine, "e": str(e)})
+                return False
+        return True
+
+    def _disable_linux_user_path(self, engine: str, user_bin: str) -> bool:
+        vyloserve_prefix = os.path.realpath(self._get_engine_parent_dir(engine))
+        candidates = {
+            'node': ['node', 'npm', 'npx', 'corepack'],
+            'python': ['python3', 'python', 'pip3', 'pip'],
+            'java': ['java', 'javac', 'jar', 'jshell'],
+            'go': ['go', 'gofmt']
+        }.get(engine, [])
+
+        for name in candidates:
+            link_path = os.path.join(user_bin, name)
+            try:
+                if os.path.islink(link_path):
+                    target = os.path.realpath(link_path)
+                    if target.startswith(vyloserve_prefix) or target.startswith(os.path.realpath(self.bin_dir)):
+                        os.unlink(link_path)
+            except Exception:
+                pass
+        return True
+
+    def _toggle_linux_user_path(self, engine: str, enable: bool, version: str = None) -> bool:
+        user_bin = self._get_linux_user_bin_dir()
+        if enable:
+            return self._enable_linux_user_path(engine, user_bin, version=version)
+        return self._disable_linux_user_path(engine, user_bin)
 
     def _get_paths_to_toggle(self, engine: str, version: str = None, for_enable: bool = True) -> list:
         paths = []
@@ -315,6 +407,26 @@ class RuntimesManager:
         return modified
 
     def toggle_user_path(self, engine: str, enable: bool):
+        if sys.platform != 'win32':
+            try:
+                success = self._toggle_linux_user_path(engine, enable)
+                if not success and enable:
+                    return {"status": "error", "message": "backend.runtimes.engine_unsupported"}
+
+                config = self._get_config()
+                config.setdefault("path_enabled", {})[engine] = enable
+                if enable:
+                    engine_dir = self._get_engine_dir(engine)
+                    if engine_dir:
+                        config.setdefault("active_versions", {})[engine] = os.path.basename(engine_dir)
+                self._save_config(config)
+
+                self._emit_log("backend.runtimes.path_updated", "success", {"engine": engine.upper()})
+                return {"status": "success"}
+            except Exception as e:
+                self._emit_log(MSG_PATH_ERROR_LOG, "error", {"engine": engine, "e": str(e)})
+                return {"status": "error", "message": MSG_REGISTRY_ERROR, "args": {"e": str(e)}}
+
         paths_to_toggle = self._get_paths_to_toggle(engine, for_enable=enable)
         if not paths_to_toggle: return {"status": "error", "message": "backend.runtimes.engine_unsupported"}
         try:
@@ -332,25 +444,47 @@ class RuntimesManager:
             self._emit_log("backend.runtimes.path_updated", "success", {"engine": engine.upper()})
             return {"status": "success"}
         except Exception as e:
-            self._emit_log("backend.runtimes.path_error_log", "error", {"engine": engine, "e": str(e)})
-            return {"status": "error", "message": "backend.runtimes.registry_error", "args": {"e": str(e)}}
+            self._emit_log(MSG_PATH_ERROR_LOG, "error", {"engine": engine, "e": str(e)})
+            return {"status": "error", "message": MSG_REGISTRY_ERROR, "args": {"e": str(e)}}
 
     # ==========================================
     # MULTI-VERSION RUNTIMES LOGIC
     # ==========================================
     def _check_node_binary_and_subtool(self, item_path: str) -> Tuple[bool, str]:
-        binary_name = 'node.exe' if sys.platform == 'win32' else 'node'
-        npm_name = 'npm.cmd' if sys.platform == 'win32' else 'npm'
-        has_binary = os.path.exists(os.path.join(item_path, binary_name))
-        has_npm = os.path.exists(os.path.join(item_path, npm_name))
+        if sys.platform == 'win32':
+            has_binary = os.path.exists(os.path.join(item_path, 'node.exe'))
+            has_npm = os.path.exists(os.path.join(item_path, 'npm.cmd'))
+        else:
+            has_binary = (
+                os.path.exists(os.path.join(item_path, 'bin', 'node'))
+                or os.path.exists(os.path.join(item_path, 'node'))
+            )
+            has_npm = (
+                os.path.exists(os.path.join(item_path, 'bin', 'npm'))
+                or os.path.exists(os.path.join(item_path, 'npm'))
+            )
         return has_binary, ("npm" if has_npm else "")
 
     def _check_python_binary_and_subtool(self, item_path: str) -> Tuple[bool, str]:
-        binary_name = EXE_PYTHON if sys.platform == 'win32' else 'python'
-        has_binary = os.path.exists(os.path.join(item_path, binary_name))
-        has_pip = os.path.exists(os.path.join(item_path, 'Scripts', 'pip.exe'))
-        has_site_packages = os.path.exists(os.path.join(item_path, 'Lib', 'site-packages'))
-        return has_binary, ("pip" if (has_pip or has_site_packages) else "")
+        if sys.platform == 'win32':
+            has_binary = os.path.exists(os.path.join(item_path, EXE_PYTHON))
+            has_pip = (
+                os.path.exists(os.path.join(item_path, 'Scripts', 'pip.exe'))
+                or os.path.exists(os.path.join(item_path, 'Lib', 'site-packages'))
+            )
+            return has_binary, ("pip" if has_pip else "")
+        py_candidates = [
+            os.path.join(item_path, 'bin', 'python3'),
+            os.path.join(item_path, 'bin', 'python'),
+            os.path.join(item_path, 'python3'),
+            os.path.join(item_path, 'python'),
+        ]
+        has_binary = any(os.path.exists(c) for c in py_candidates)
+        has_pip = (
+            os.path.exists(os.path.join(item_path, 'bin', 'pip3'))
+            or os.path.exists(os.path.join(item_path, 'bin', 'pip'))
+        )
+        return has_binary, ("pip" if has_pip else "")
 
     def _check_engine_binary_and_subtool(self, engine: str, item_path: str) -> Tuple[bool, str]:
         if engine == 'node':
@@ -438,6 +572,34 @@ class RuntimesManager:
             "external": external_info,
         }
 
+    def _update_windows_active_version_path(self, engine: str, target_dir: str):
+        paths_to_remove = self._get_paths_to_toggle(engine, for_enable=False)
+        paths_to_add = self._get_paths_for_engine_dir(engine, target_dir)
+
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Environment', 0, winreg.KEY_ALL_ACCESS)
+        try:
+            path_val, _ = winreg.QueryValueEx(key, 'Path')
+        except FileNotFoundError:
+            path_val = ""
+        current_paths = [p for p in path_val.split(';') if p]
+        norm_remove = [os.path.normpath(x).lower() for x in paths_to_remove]
+        filtered_paths = [p for p in current_paths if os.path.normpath(p).lower() not in norm_remove]
+        for p in paths_to_add:
+            norm = os.path.normpath(p)
+            if norm.lower() not in [x.lower() for x in filtered_paths]:
+                filtered_paths.append(norm)
+
+        winreg.SetValueEx(key, 'Path', 0, winreg.REG_EXPAND_SZ, ';'.join(filtered_paths))
+
+        if engine == 'java':
+            winreg.SetValueEx(key, 'JAVA_HOME', 0, winreg.REG_SZ, os.path.normpath(target_dir))
+        elif engine == 'go':
+            winreg.SetValueEx(key, 'GOROOT', 0, winreg.REG_SZ, os.path.normpath(target_dir))
+
+        winreg.CloseKey(key)
+        broadcast_environment_change()
+
     def set_active_version(self, engine: str, version: str) -> dict:
         target_dir = os.path.join(self._get_engine_parent_dir(engine), version)
         if not os.path.exists(target_dir):
@@ -449,36 +611,15 @@ class RuntimesManager:
 
         if not ext.get("exists"):
             try:
-                paths_to_remove = self._get_paths_to_toggle(engine, for_enable=False)
-                paths_to_add = self._get_paths_for_engine_dir(engine, target_dir)
-
-                import winreg
-                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Environment', 0, winreg.KEY_ALL_ACCESS)
-                try:
-                    path_val, _ = winreg.QueryValueEx(key, 'Path')
-                except FileNotFoundError:
-                    path_val = ""
-                current_paths = [p for p in path_val.split(';') if p]
-                norm_remove = [os.path.normpath(x).lower() for x in paths_to_remove]
-                filtered_paths = [p for p in current_paths if os.path.normpath(p).lower() not in norm_remove]
-                for p in paths_to_add:
-                    norm = os.path.normpath(p)
-                    if norm.lower() not in [x.lower() for x in filtered_paths]:
-                        filtered_paths.append(norm)
-
-                winreg.SetValueEx(key, 'Path', 0, winreg.REG_EXPAND_SZ, ';'.join(filtered_paths))
-
-                if engine == 'java':
-                    winreg.SetValueEx(key, 'JAVA_HOME', 0, winreg.REG_SZ, os.path.normpath(target_dir))
-                elif engine == 'go':
-                    winreg.SetValueEx(key, 'GOROOT', 0, winreg.REG_SZ, os.path.normpath(target_dir))
-
-                winreg.CloseKey(key)
-                broadcast_environment_change()
-                config.setdefault("path_enabled", {})[engine] = True
+                if sys.platform == 'win32':
+                    self._update_windows_active_version_path(engine, target_dir)
+                    config.setdefault("path_enabled", {})[engine] = True
+                else:
+                    self._toggle_linux_user_path(engine, enable=True, version=version)
+                    config.setdefault("path_enabled", {})[engine] = True
             except Exception as e:
-                self._emit_log("backend.runtimes.path_error_log", "error", {"engine": engine, "e": str(e)})
-                return {"status": "error", "message": "backend.runtimes.registry_error", "args": {"e": str(e)}}
+                self._emit_log(MSG_PATH_ERROR_LOG, "error", {"engine": engine, "e": str(e)})
+                return {"status": "error", "message": MSG_REGISTRY_ERROR, "args": {"e": str(e)}}
 
         self._save_config(config)
         self._emit_log("backend.runtimes.version_activated", "success", {"engine": engine.upper(), "version": version})
@@ -490,9 +631,7 @@ class RuntimesManager:
         config.setdefault("path_enabled", {})[engine] = False
         self._save_config(config)
 
-        ext = self._check_external_installation(engine, silent=True)
-        if not ext.get("exists"):
-            self.toggle_user_path(engine, False)
+        self.toggle_user_path(engine, False)
 
         self._emit_log("backend.runtimes.version_deactivated", "info", {"engine": engine.upper()})
         return {"status": "success", "message": "backend.runtimes.version_deactivated", "args": {"engine": engine.upper()}}
@@ -532,7 +671,11 @@ class RuntimesManager:
     def _get_node_subtool(self, node_dir: Optional[str]) -> str:
         if not node_dir:
             return ""
-        npm_cmd = os.path.join(node_dir, 'npm.cmd' if sys.platform == 'win32' else 'npm')
+        if sys.platform == 'win32':
+            npm_cmd = os.path.join(node_dir, 'npm.cmd')
+        else:
+            bin_npm = os.path.join(node_dir, 'bin', 'npm')
+            npm_cmd = bin_npm if os.path.exists(bin_npm) else os.path.join(node_dir, 'npm')
         if os.path.exists(npm_cmd):
             try:
                 result_npm = subprocess.run([npm_cmd, '-v'], capture_output=True, text=True, creationflags=get_silent_flags(), timeout=5)
@@ -547,7 +690,10 @@ class RuntimesManager:
         node_dir = self._get_engine_dir('node')
         node_exe = None
         if node_dir:
-            node_exe = os.path.join(node_dir, 'node.exe' if sys.platform == 'win32' else 'node')
+            if sys.platform == 'win32':
+                node_exe = os.path.join(node_dir, 'node.exe')
+            else:
+                node_exe = os.path.join(node_dir, 'bin', 'node') if os.path.exists(os.path.join(node_dir, 'bin', 'node')) else os.path.join(node_dir, 'node')
         
         internal_installed = node_exe is not None and os.path.exists(node_exe)
         internal_version = ""
@@ -627,11 +773,14 @@ class RuntimesManager:
 
     def _finalize_node_install(self, node_dir: str, enable_corepack: bool, version: str, zip_filename: str):
         self._emit_progress(85, "backend.runtimes.reorganizing_dir")
-        extracted_folder = os.path.join(self.bin_dir, zip_filename.replace('.zip', ''))
+        extracted_folder = os.path.join(self.bin_dir, zip_filename.replace(EXT_TAR_GZ, '').replace('.zip', ''))
         self._robust_rename(extracted_folder, node_dir)
         if enable_corepack:
             self._emit_progress(90, "backend.runtimes.node_enable_corepack")
-            corepack_cmd = os.path.join(node_dir, 'corepack.cmd' if sys.platform == 'win32' else 'corepack')
+            if sys.platform == 'win32':
+                corepack_cmd = os.path.join(node_dir, 'corepack.cmd')
+            else:
+                corepack_cmd = os.path.join(node_dir, 'bin', 'corepack') if os.path.exists(os.path.join(node_dir, 'bin', 'corepack')) else os.path.join(node_dir, 'corepack')
             if os.path.exists(corepack_cmd):
                 run_silent_command([corepack_cmd, 'enable'], cwd=node_dir)
         self._emit_progress(100, "backend.runtimes.node_install_complete")
@@ -640,7 +789,9 @@ class RuntimesManager:
     def install_node(self, version: str, enable_corepack: bool, set_as_active: bool = True):
         was_in_path = self._prepare_install('node', version)
         node_dir = os.path.join(self._get_engine_parent_dir('node'), version)
-        zip_path = os.path.join(self.bin_dir, f"node_{version}.zip")
+        is_win = (sys.platform == 'win32')
+        ext = ".zip" if is_win else EXT_TAR_GZ
+        zip_path = os.path.join(self.bin_dir, f"node_{version}{ext}")
         token = InstallationManager.get_token("runtimes")
 
         try:
@@ -648,7 +799,7 @@ class RuntimesManager:
             self._emit_log("backend.runtimes.node_install_start", "info", {"version": version})
             self._emit_progress(5, MSG_PREPARE_DL)
 
-            zip_filename = f"node-v{version}-win-x64.zip"
+            zip_filename = f"node-v{version}-win-x64.zip" if is_win else f"node-v{version}-linux-x64{EXT_TAR_GZ}"
             download_url = f"https://nodejs.org/dist/v{version}/{zip_filename}"
 
             # 2. FASE UNDUHAN (5% - 60%)
@@ -714,7 +865,16 @@ class RuntimesManager:
         python_dir = self._get_engine_dir('python')
         python_exe = None
         if python_dir:
-            python_exe = os.path.join(python_dir, EXE_PYTHON if sys.platform == 'win32' else 'python')
+            if sys.platform == 'win32':
+                python_exe = os.path.join(python_dir, EXE_PYTHON)
+            else:
+                py_candidates = [
+                    os.path.join(python_dir, 'bin', 'python3'),
+                    os.path.join(python_dir, 'bin', 'python'),
+                    os.path.join(python_dir, 'python3'),
+                    os.path.join(python_dir, 'python'),
+                ]
+                python_exe = next((c for c in py_candidates if os.path.exists(c)), None)
         
         internal_installed = python_exe is not None and os.path.exists(python_exe)
         internal_version = ""
@@ -775,11 +935,53 @@ class RuntimesManager:
                     break
         return valid_versions
 
+    def _get_linux_python_download_url(self, version: str) -> str:
+        if version in LINUX_PYTHON_BUILDS:
+            return LINUX_PYTHON_BUILDS[version]
+        for v_key, url in LINUX_PYTHON_BUILDS.items():
+            if v_key.startswith(version) or version.startswith(v_key):
+                return url
+        return f"https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-{version}%2B20261026-x86_64-unknown-linux-gnu-install_only.tar.gz"
+
+    def _fetch_linux_python_versions(self) -> list:
+        import re
+        import urllib.request
+        try:
+            req = urllib.request.Request(
+                "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest",
+                headers={'User-Agent': USER_AGENT}
+            )
+            with urllib.request.urlopen(req, timeout=5) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                assets = [a['name'] for a in data.get('assets', []) if f'x86_64-unknown-linux-gnu-install_only{EXT_TAR_GZ}' in a['name']]
+                parsed = []
+                for name in assets:
+                    m = re.search(r'cpython-(\d+\.\d+\.\d+)\+', name)
+                    if m:
+                        parsed.append(m.group(1))
+                if parsed:
+                    unique_sorted = sorted(set(parsed), key=lambda v: [int(x) for x in v.split('.')], reverse=True)
+                    results = []
+                    for i, v in enumerate(unique_sorted):
+                        label = f"Python {v}" + (LATEST_STABLE_SUFFIX if i == 0 else "")
+                        results.append({'value': v, 'label': label})
+                    return results
+        except Exception:
+            pass
+        results = []
+        for i, v in enumerate(LINUX_PYTHON_BUILDS.keys()):
+            label = f"Python {v}" + (LATEST_STABLE_SUFFIX if i == 0 else "")
+            results.append({'value': v, 'label': label})
+        return results
+
     def get_available_python_versions(self):
-        """ Web Scraper Pintar: Memindai & memvalidasi ketersediaan biner Windows """
+        """ Web Scraper Pintar: Memindai & memvalidasi ketersediaan biner Windows / Linux """
         import re
         import urllib.request
         import urllib.error
+
+        if sys.platform != 'win32':
+            return {'status': 'success', 'data': self._fetch_linux_python_versions()}
 
         try:
             # 1. Ambil daftar direktori utama dari FTP Python
@@ -794,9 +996,7 @@ class RuntimesManager:
             # 5. Format JSON untuk Dropdown Antarmuka React
             results = []
             for i, v in enumerate(valid_versions):
-                label = f"Python {v}"
-                if i == 0:
-                    label += " (Latest Stable)"
+                label = f"Python {v}" + (LATEST_STABLE_SUFFIX if i == 0 else "")
                 results.append({'value': v, 'label': label})
                 
             return {'status': 'success', 'data': results}
@@ -804,50 +1004,80 @@ class RuntimesManager:
         except Exception as e:
             return self._format_fetch_error("backend.runtimes.py_fetch_failed", e)
 
+    def _setup_windows_pip(self, python_dir: str, version: str):
+        self._emit_log("backend.runtimes.py_unlock_site", "info")
+        self._emit_progress(80, "backend.runtimes.configuring_environment")
+        pth_file = next((f for f in os.listdir(python_dir) if f.endswith('._pth')), None)
+        if pth_file:
+            pth_path = os.path.join(python_dir, pth_file)
+            with open(pth_path, 'r') as f: content = f.read()
+            content = content.replace('#import site', 'import site')
+            if 'Lib\\site-packages' not in content:
+                content += '\nLib\\site-packages\n'
+            with open(pth_path, 'w') as f: f.write(content)
+        os.makedirs(os.path.join(python_dir, 'Lib', 'site-packages'), exist_ok=True)
+        self._emit_log("backend.runtimes.py_install_pip", "info")
+        self._emit_progress(85, "backend.runtimes.py_setup_pkg_manager")
+        version_parts = version.split('.')
+        major, minor = int(version_parts[0]), int(version_parts[1])
+        import urllib.request
+        if (major, minor) < (3, 10):
+            get_pip_url = f"https://bootstrap.pypa.io/pip/{major}.{minor}/get-pip.py"
+        else:
+            get_pip_url = "https://bootstrap.pypa.io/get-pip.py"
+        get_pip_path = os.path.join(python_dir, 'get-pip.py')
+        urllib.request.urlretrieve(get_pip_url, get_pip_path)
+        python_exe = os.path.join(python_dir, EXE_PYTHON)
+        import certifi
+        custom_env = os.environ.copy()
+        custom_env['SSL_CERT_FILE'] = certifi.where()
+        custom_env['REQUESTS_CA_BUNDLE'] = certifi.where()
+        cflags = get_silent_flags()
+        res = subprocess.run([python_exe, get_pip_path, '--no-warn-script-location'], cwd=python_dir, creationflags=cflags, env=custom_env, capture_output=True, text=True)
+        if res.returncode != 0:
+            raise RuntimeError(f"Gagal mengeksekusi get-pip.py: {res.stderr.strip() or res.stdout.strip()}")
+        os.remove(get_pip_path)
+
+    @staticmethod
+    def _create_posix_py_symlinks(bin_dir: str):
+        if not os.path.exists(bin_dir):
+            return
+        py3, py = os.path.join(bin_dir, 'python3'), os.path.join(bin_dir, 'python')
+        pip3, pip = os.path.join(bin_dir, 'pip3'), os.path.join(bin_dir, 'pip')
+        for src, dst in [(py3, py), (pip3, pip)]:
+            if os.path.exists(src) and not os.path.exists(dst):
+                try:
+                    os.symlink(os.path.basename(src), dst)
+                except OSError:
+                    shutil.copy2(src, dst)
 
     def _finalize_python_install(self, python_dir: str, install_pip: bool, version: str):
-        import subprocess
-        if install_pip:
-            self._emit_log("backend.runtimes.py_unlock_site", "info")
-            self._emit_progress(80, "backend.runtimes.configuring_environment")
-            pth_file = next((f for f in os.listdir(python_dir) if f.endswith('._pth')), None)
-            if pth_file:
-                pth_path = os.path.join(python_dir, pth_file)
-                with open(pth_path, 'r') as f: content = f.read()
-                content = content.replace('#import site', 'import site')
-                if 'Lib\\site-packages' not in content:
-                    content += '\nLib\\site-packages\n'
-                with open(pth_path, 'w') as f: f.write(content)
-            os.makedirs(os.path.join(python_dir, 'Lib', 'site-packages'), exist_ok=True)
-            self._emit_log("backend.runtimes.py_install_pip", "info")
-            self._emit_progress(85, "backend.runtimes.py_setup_pkg_manager")
-            version_parts = version.split('.')
-            major = int(version_parts[0])
-            minor = int(version_parts[1])
-            import urllib.request
-            if (major, minor) < (3, 10):
-                get_pip_url = "https://bootstrap.pypa.io/pip/{0}.{1}/get-pip.py".format(major, minor)
-            else:
-                get_pip_url = "https://bootstrap.pypa.io/get-pip.py"
-            get_pip_path = os.path.join(python_dir, 'get-pip.py')
-            urllib.request.urlretrieve(get_pip_url, get_pip_path)
-            python_exe = os.path.join(python_dir, EXE_PYTHON)
-            import certifi
-            custom_env = os.environ.copy()
-            custom_env['SSL_CERT_FILE'] = certifi.where()
-            custom_env['REQUESTS_CA_BUNDLE'] = certifi.where()
-            cflags = get_silent_flags()
-            res = subprocess.run([python_exe, get_pip_path, '--no-warn-script-location'], cwd=python_dir, creationflags=cflags, env=custom_env, capture_output=True, text=True)
-            if res.returncode != 0:
-                raise RuntimeError("Gagal mengeksekusi get-pip.py: {0}".format(res.stderr.strip() or res.stdout.strip()))
-            os.remove(get_pip_path)
+        if sys.platform != 'win32':
+            bin_dir = os.path.join(python_dir, 'bin')
+            self._create_posix_py_symlinks(bin_dir)
+        elif install_pip:
+            self._setup_windows_pip(python_dir, version)
+
         self._emit_progress(100, "backend.runtimes.py_install_complete")
         self._emit_log("backend.runtimes.py_ready", "success", {"version": version})
+
+    def _extract_linux_python_archive(self, archive_path: str, python_dir: str, version: str, extract_prog_cb, cancel_check):
+        extract_temp = os.path.join(self.bin_dir, f"temp_py_{version}")
+        if os.path.exists(extract_temp):
+            shutil.rmtree(extract_temp, ignore_errors=True)
+        os.makedirs(extract_temp, exist_ok=True)
+        extract_archive(archive_path, extract_temp, progress_cb=extract_prog_cb, cancel_check=cancel_check)
+        extracted_root = os.path.join(extract_temp, 'python') if os.path.exists(os.path.join(extract_temp, 'python')) else extract_temp
+        self._robust_rename(extracted_root, python_dir)
+        if os.path.exists(extract_temp):
+            shutil.rmtree(extract_temp, ignore_errors=True)
 
     def install_python(self, version: str, install_pip: bool, set_as_active: bool = True):
         was_in_path = self._prepare_install('python', version)
         python_dir = os.path.join(self._get_engine_parent_dir('python'), version)
-        zip_path = os.path.join(self.bin_dir, f"python_{version}.zip")
+        is_win = (sys.platform == 'win32')
+        ext = ".zip" if is_win else EXT_TAR_GZ
+        archive_path = os.path.join(self.bin_dir, f"python_{version}{ext}")
         token = InstallationManager.get_token("runtimes")
 
         try:
@@ -855,8 +1085,11 @@ class RuntimesManager:
             self._emit_log("backend.runtimes.py_install_start", "info", {"version": version})
             self._emit_progress(5, MSG_PREPARE_DL)
 
-            zip_filename = f"python-{version}-embed-amd64.zip"
-            download_url = f"https://www.python.org/ftp/python/{version}/{zip_filename}"
+            if is_win:
+                zip_filename = f"python-{version}-embed-amd64.zip"
+                download_url = f"https://www.python.org/ftp/python/{version}/{zip_filename}"
+            else:
+                download_url = self._get_linux_python_download_url(version)
 
             # 2. FASE UNDUHAN (5% - 50%)
             log_cb, download_prog_cb = self._get_cbs(10, 60)
@@ -864,7 +1097,7 @@ class RuntimesManager:
             os.makedirs(python_dir, exist_ok=True)
 
             log_cb(MSG_STARTING_BINARY_DOWNLOAD, "info", {"engine": "Python"})
-            download_advanced(download_url, zip_path, log_cb=log_cb, progress_cb=download_prog_cb, cancel_check=token.is_cancelled)
+            download_advanced(download_url, archive_path, log_cb=log_cb, progress_cb=download_prog_cb, cancel_check=token.is_cancelled)
 
             # 3. FASE EKSTRAKSI (50% - 75%)
             self._emit_log(MSG_DL_DONE, "info")
@@ -872,10 +1105,13 @@ class RuntimesManager:
             
             _, extract_prog_cb = self._get_cbs(65, 80)
 
-            extract_archive(zip_path, python_dir, progress_cb=extract_prog_cb, cancel_check=token.is_cancelled)
+            if is_win:
+                extract_archive(archive_path, python_dir, progress_cb=extract_prog_cb, cancel_check=token.is_cancelled)
+            else:
+                self._extract_linux_python_archive(archive_path, python_dir, version, extract_prog_cb, token.is_cancelled)
             
-            if os.path.exists(zip_path):
-                os.remove(zip_path)
+            if os.path.exists(archive_path):
+                os.remove(archive_path)
 
             self._finalize_python_install(python_dir, install_pip, version)
             if set_as_active:
@@ -885,9 +1121,9 @@ class RuntimesManager:
             return {"status": "success"}
 
         except OperationCancelledError:
-            return self._cleanup_cancelled_install(zip_path, python_dir, "Python")
+            return self._cleanup_cancelled_install(archive_path, python_dir, "Python")
         except Exception as e:
-            return self._cleanup_failed_install(zip_path, e, "Python")
+            return self._cleanup_failed_install(archive_path, e, "Python")
         finally:
             InstallationManager.reset("runtimes")
 
@@ -1009,7 +1245,9 @@ class RuntimesManager:
     def install_java(self, version: str, set_as_active: bool = True):
         was_in_path = self._prepare_install('java', version)
         java_dir = os.path.join(self._get_engine_parent_dir('java'), version)
-        zip_path = os.path.join(self.bin_dir, f"java_{version}.zip")
+        is_win = (sys.platform == 'win32')
+        ext = ".zip" if is_win else EXT_TAR_GZ
+        zip_path = os.path.join(self.bin_dir, f"java_{version}{ext}")
         token = InstallationManager.get_token("runtimes")
 
         try:
@@ -1018,7 +1256,8 @@ class RuntimesManager:
             self._emit_progress(5, "backend.runtimes.java_init_adoptium")
 
             # URL API Adoptium
-            download_url = f"https://api.adoptium.net/v3/binary/latest/{version}/ga/windows/x64/jdk/hotspot/normal/eclipse"
+            os_platform = 'windows' if is_win else 'linux'
+            download_url = f"https://api.adoptium.net/v3/binary/latest/{version}/ga/{os_platform}/x64/jdk/hotspot/normal/eclipse"
 
             # 2. FASE UNDUHAN (5% - 60%)
             log_cb, download_prog_cb = self._get_cbs(10, 60)
@@ -1122,7 +1361,7 @@ class RuntimesManager:
                     label = f"Go {clean_ver}"
                     
                     if len(versions) == 0:
-                        label += " (Latest Stable)"
+                        label += LATEST_STABLE_SUFFIX
                         
                     versions.append({
                         'value': clean_ver,
@@ -1133,7 +1372,9 @@ class RuntimesManager:
             return self._format_fetch_error("backend.runtimes.go_fetch_failed", e)
 
     def install_go(self, version: str, set_as_active: bool = True):
-        zip_path = os.path.join(self.bin_dir, "go.zip")
+        is_win = (sys.platform == 'win32')
+        ext = ".zip" if is_win else EXT_TAR_GZ
+        zip_path = os.path.join(self.bin_dir, f"go{ext}")
         token = InstallationManager.get_token("runtimes")
         go_dir = None
 
@@ -1154,7 +1395,7 @@ class RuntimesManager:
             was_in_path = self._prepare_install('go', version)
             go_dir = os.path.join(self._get_engine_parent_dir('go'), version)
 
-            zip_filename = f"go{version}.windows-amd64.zip"
+            zip_filename = f"go{version}.windows-amd64.zip" if is_win else f"go{version}.linux-amd64{EXT_TAR_GZ}"
             download_url = f"https://go.dev/dl/{zip_filename}"
 
             # 2. FASE UNDUHAN (10% - 60%)
@@ -1254,10 +1495,50 @@ class RuntimesManager:
                     clean_paths.append(p_expanded)
         return shutil.which(command, path=os.pathsep.join(clean_paths))
 
+    def _search_candidate_binary_in_dir(self, p_dir: str, candidates: list, vyloserve_bin_norm: str) -> Optional[str]:
+        if not os.path.isdir(p_dir) or os.path.normpath(p_dir).lower().startswith(vyloserve_bin_norm):
+            return None
+        for cand in candidates:
+            cand_path = os.path.join(p_dir, cand)
+            if os.path.isfile(cand_path) and os.access(cand_path, os.X_OK):
+                real_target = os.path.realpath(cand_path)
+                if not os.path.normpath(real_target).lower().startswith(vyloserve_bin_norm):
+                    return cand_path
+        return None
+
+    @staticmethod
+    def _get_posix_env_search_paths() -> list[str]:
+        raw_paths = [p for p in os.environ.get('PATH', '').split(os.pathsep) if p]
+        for std_dir in ['/usr/bin', '/usr/local/bin', '/bin', '/usr/sbin', '/sbin']:
+            if std_dir not in raw_paths and os.path.isdir(std_dir):
+                raw_paths.append(std_dir)
+        return raw_paths
+
+    @staticmethod
+    def _get_engine_command_candidates(command: str) -> list[str]:
+        if command == 'python':
+            return ['python', 'python3']
+        if command == 'node':
+            return ['node', 'nodejs']
+        return [command]
+
     def _check_via_env(self, command: str, vyloserve_bin: str) -> str | None:
-        import os, sys, shutil
-        if sys.platform == 'win32': return None
-        env = os.environ.copy()
-        clean_paths = [p for p in env.get('PATH', '').split(os.pathsep) if vyloserve_bin not in p.lower()]
-        return shutil.which(command, path=os.pathsep.join(clean_paths))
+        if sys.platform == 'win32':
+            return None
+        raw_paths = self._get_posix_env_search_paths()
+        vyloserve_bin_norm = os.path.normpath(vyloserve_bin).lower()
+        candidates = self._get_engine_command_candidates(command)
+
+        for p_dir in raw_paths:
+            found = self._search_candidate_binary_in_dir(p_dir, candidates, vyloserve_bin_norm)
+            if found:
+                return found
+
+        for cand in candidates:
+            found = shutil.which(cand, path=os.pathsep.join(raw_paths))
+            if found:
+                real_target = os.path.realpath(found)
+                if not os.path.normpath(real_target).lower().startswith(vyloserve_bin_norm):
+                    return found
+        return None
 

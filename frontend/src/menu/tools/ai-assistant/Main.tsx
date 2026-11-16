@@ -220,75 +220,85 @@ export default function AiAssistantMain({ isActive = true }: AiAssistantMainProp
             {/* MAIN CHAT CONTAINER */}
             <div className="flex-1 flex flex-col min-h-0 p-0 overflow-hidden border border-slate-200 dark:border-slate-800 shadow-sm rounded-xl bg-white dark:bg-slate-900/90">
                 {/* MESSAGES SCROLL AREA */}
-                <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 md:p-6 space-y-2 min-h-0">
+                <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 md:p-6 space-y-2 min-h-0 custom-scrollbar">
                     {messages.length === 0 && !isGenerating ? (
                         /* EMPTY STATE WITH QUICK PROMPTS */
-                        <div className="h-full flex flex-col items-center justify-center text-center py-10 px-4">
-                            <div className="w-16 h-16 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mb-4 ring-8 ring-primary/5">
-                                <span className="material-symbols-outlined text-[36px]">smart_toy</span>
-                            </div>
-                            <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-2">
-                                {t('ai.title', 'AI Assistant')}
-                            </h3>
-                            <p className="text-sm text-slate-500 dark:text-slate-400 max-w-2xl mx-auto mb-8">
-                                {t('ai.subtitle', 'Your local server developer copilot')} &mdash;{' '}
-                                {t(
-                                    'settings.ai_auto_context_desc',
-                                    'Automatically provide active module info to AI'
-                                )}
-                            </p>
-
-                            {/* QUICK PROMPT SUGGESTIONS */}
-                            <div className="w-full max-w-5xl mx-auto flex flex-col gap-3">
-                                <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1 text-left">
-                                    {t('ai.quick_prompts', 'Quick Questions')}
+                        <div className="h-full flex flex-col items-center justify-center p-4 md:p-8">
+                            <div className="w-full max-w-3xl rounded-2xl p-6 md:p-8 border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 text-center flex flex-col items-center gap-4 shadow-2xs">
+                                <div className="w-14 h-14 rounded-2xl bg-primary/10 dark:bg-primary/20 text-primary flex items-center justify-center shadow-xs">
+                                    <span className="material-symbols-outlined text-[28px]">smart_toy</span>
                                 </div>
-                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full">
-                                    <button
-                                        type="button"
-                                        onClick={() => handleQuickPrompt(t('ai.quick_prompt_logs', 'Analyze recent error logs'))}
-                                        className="p-4 text-left rounded-xl border border-slate-200 dark:border-slate-800 hover:border-primary/50 dark:hover:border-primary/50 bg-slate-50/50 dark:bg-slate-800/40 hover:bg-primary/5 dark:hover:bg-primary/10 transition-colors flex flex-col justify-between gap-3 group cursor-pointer shadow-xs"
-                                    >
-                                        <div className="flex items-center gap-2.5">
-                                            <span className="material-symbols-outlined text-[20px] text-amber-500">bug_report</span>
-                                            <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                                                {t('ai.quick_prompt_logs', 'Analyze recent error logs')}
+                                <div className="flex flex-col gap-1.5 max-w-lg">
+                                    <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">
+                                        {t('ai.title', 'AI Assistant')}
+                                    </h3>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                                        {t('ai.subtitle', 'Your local server developer copilot')} &mdash;{' '}
+                                        {t(
+                                            'settings.ai_auto_context_desc',
+                                            'Automatically provide active module info to AI'
+                                        )}
+                                    </p>
+                                </div>
+
+                                {/* QUICK PROMPT SUGGESTIONS */}
+                                <div className="w-full flex flex-col gap-2.5 pt-2">
+                                    <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 text-left px-0.5">
+                                        {t('ai.quick_prompts', 'Quick Questions')}
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 w-full">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleQuickPrompt(t('ai.quick_prompt_logs', 'Analyze recent error logs'))}
+                                            className="p-3.5 text-left rounded-xl border border-slate-200 dark:border-slate-800/80 bg-white dark:bg-slate-900/80 hover:border-primary/50 dark:hover:border-primary/50 hover:bg-primary/5 dark:hover:bg-primary/10 transition-colors flex flex-col justify-between gap-3 group cursor-pointer shadow-2xs"
+                                        >
+                                            <div className="flex items-center gap-2.5 min-w-0">
+                                                <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-500 flex items-center justify-center shrink-0">
+                                                    <span className="material-symbols-outlined text-[18px]">bug_report</span>
+                                                </div>
+                                                <span className="text-xs font-medium text-slate-700 dark:text-slate-300 leading-snug">
+                                                    {t('ai.quick_prompt_logs', 'Analyze recent error logs')}
+                                                </span>
+                                            </div>
+                                            <span className="material-symbols-outlined text-[15px] text-slate-400 group-hover:text-primary group-hover:translate-x-0.5 transition-[transform,colors] self-end">
+                                                arrow_forward
                                             </span>
-                                        </div>
-                                        <span className="material-symbols-outlined text-[16px] text-slate-400 group-hover:text-primary transition-colors self-end">
-                                            arrow_forward
-                                        </span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleQuickPrompt(t('ai.quick_prompt_vhost', 'How to create an Apache VirtualHost?'))}
-                                        className="p-4 text-left rounded-xl border border-slate-200 dark:border-slate-800 hover:border-primary/50 dark:hover:border-primary/50 bg-slate-50/50 dark:bg-slate-800/40 hover:bg-primary/5 dark:hover:bg-primary/10 transition-colors flex flex-col justify-between gap-3 group cursor-pointer shadow-xs"
-                                    >
-                                        <div className="flex items-center gap-2.5">
-                                            <span className="material-symbols-outlined text-[20px] text-blue-500">dns</span>
-                                            <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                                                {t('ai.quick_prompt_vhost', 'How to create an Apache VirtualHost?')}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleQuickPrompt(t('ai.quick_prompt_vhost', 'How to create an Apache VirtualHost?'))}
+                                            className="p-3.5 text-left rounded-xl border border-slate-200 dark:border-slate-800/80 bg-white dark:bg-slate-900/80 hover:border-primary/50 dark:hover:border-primary/50 hover:bg-primary/5 dark:hover:bg-primary/10 transition-colors flex flex-col justify-between gap-3 group cursor-pointer shadow-2xs"
+                                        >
+                                            <div className="flex items-center gap-2.5 min-w-0">
+                                                <div className="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0">
+                                                    <span className="material-symbols-outlined text-[18px]">dns</span>
+                                                </div>
+                                                <span className="text-xs font-medium text-slate-700 dark:text-slate-300 leading-snug">
+                                                    {t('ai.quick_prompt_vhost', 'How to create an Apache VirtualHost?')}
+                                                </span>
+                                            </div>
+                                            <span className="material-symbols-outlined text-[15px] text-slate-400 group-hover:text-primary group-hover:translate-x-0.5 transition-[transform,colors] self-end">
+                                                arrow_forward
                                             </span>
-                                        </div>
-                                        <span className="material-symbols-outlined text-[16px] text-slate-400 group-hover:text-primary transition-colors self-end">
-                                            arrow_forward
-                                        </span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleQuickPrompt(t('ai.quick_prompt_php', 'Recommended php.ini settings for development'))}
-                                        className="p-4 text-left rounded-xl border border-slate-200 dark:border-slate-800 hover:border-primary/50 dark:hover:border-primary/50 bg-slate-50/50 dark:bg-slate-800/40 hover:bg-primary/5 dark:hover:bg-primary/10 transition-colors flex flex-col justify-between gap-3 group cursor-pointer shadow-xs"
-                                    >
-                                        <div className="flex items-center gap-2.5">
-                                            <span className="material-symbols-outlined text-[20px] text-indigo-500">settings_suggest</span>
-                                            <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                                                {t('ai.quick_prompt_php', 'Recommended php.ini settings for development')}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleQuickPrompt(t('ai.quick_prompt_php', 'Recommended php.ini settings for development'))}
+                                            className="p-3.5 text-left rounded-xl border border-slate-200 dark:border-slate-800/80 bg-white dark:bg-slate-900/80 hover:border-primary/50 dark:hover:border-primary/50 hover:bg-primary/5 dark:hover:bg-primary/10 transition-colors flex flex-col justify-between gap-3 group cursor-pointer shadow-2xs"
+                                        >
+                                            <div className="flex items-center gap-2.5 min-w-0">
+                                                <div className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-500 flex items-center justify-center shrink-0">
+                                                    <span className="material-symbols-outlined text-[18px]">settings_suggest</span>
+                                                </div>
+                                                <span className="text-xs font-medium text-slate-700 dark:text-slate-300 leading-snug">
+                                                    {t('ai.quick_prompt_php', 'Recommended php.ini settings for development')}
+                                                </span>
+                                            </div>
+                                            <span className="material-symbols-outlined text-[15px] text-slate-400 group-hover:text-primary group-hover:translate-x-0.5 transition-[transform,colors] self-end">
+                                                arrow_forward
                                             </span>
-                                        </div>
-                                        <span className="material-symbols-outlined text-[16px] text-slate-400 group-hover:text-primary transition-colors self-end">
-                                            arrow_forward
-                                        </span>
-                                    </button>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>

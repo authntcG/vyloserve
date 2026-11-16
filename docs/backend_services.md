@@ -26,6 +26,12 @@
 16. [`TerminalManager` (`terminal.py`) — Developer Terminal & Environment Scoping](#16-terminalmanager-terminalpy--developer-terminal--environment-scoping)
 17. [`main.py` — App Bootstrap & `AppLifecycle`](#17-mainpy--app-bootstrap--applifecycle)
 18. [Known Issues — Temuan Audit Backend](#18-known-issues--temuan-audit-backend)
+19. [`GitLabManager` (`gitlab_manager.py`) — Integrasi GitLab CLI (`glab`)](#19-gitlabmanager-gitlab_managerpy--integrasi-gitlab-cli-glab)
+20. [`HealthManager` (`health_manager.py`) — Startup 3-Tier Self-Healing & Orphan Cleanup](#20-healthmanager-health_managerpy--startup-3-tier-self-healing--orphan-cleanup)
+21. [`MailSandbox` (`mail_sandbox.py`) — In-Process Async SMTP Mock Server](#21-mailsandbox-mail_sandboxpy--in-process-async-smtp-mock-server)
+22. [`WebhookInspector` (`webhook_inspector.py`) — In-Process HTTP Webhook Receiver](#22-webhookinspector-webhook_inspectorpy--in-process-http-webhook-receiver)
+23. [`PortManager` (`port_manager.py`) — Active Port Scanner & Process Killer](#23-portmanager-port_managerpy--active-port-scanner--process-killer)
+24. [`CryptoTools` (`crypto_tools.py`) — Hashing, HMAC & Token Generator](#24-cryptotools-crypto_toolspy--hashing-hmac--token-generator)
 
 ---
 
@@ -155,17 +161,21 @@ def emit_log(self, message: str, level: str = "info", args: dict = None, source_
 
 | Fungsi | Perilaku |
 |---|---|
-| `get_project_root()` | Resolusi path aman baik mode `.py` (dev) maupun `.exe` (`sys.frozen`, PyInstaller). |
+| `get_project_root()` | Resolusi path aman baik mode `.py` (dev) maupun `.exe` (`sys.frozen`, PyInstaller lintas platform). |
 | `get_resource_path(rel)` | Resolusi path aset statis (`sys._MEIPASS` pada executable PyInstaller vs direktori root source). |
-| `run_silent_command(cmd)` | Eksekusi sinkron tersembunyi (`CREATE_NO_WINDOW`). |
+| `run_silent_command(cmd)` | Eksekusi sinkron tersembunyi (`CREATE_NO_WINDOW` di Windows, standar di Linux). |
 | `start_silent_process(cmd)` | Eksekusi asinkron tersembunyi (untuk daemon Apache/PHP/DB). |
 | `check_port_in_use(port, host)` | Cek `socket.create_connection((host, port))` (IPv4) dulu; jika gagal **dan** host adalah `127.0.0.1`/`localhost`, fallback ke `AF_INET6` (`::1`). |
+| `open_path_in_file_manager(target)` | Membuka berkas/folder pada File Manager default OS (`os.startfile` di Windows, `xdg-open` di Linux, `open` di macOS). |
+| `kill_process_tree(pid, timeout)` | Mematikan proses beserta pohon anak secara rekursif dan aman via `psutil`, dengan pengaman defensif terhadap PID `<= 1` dan `os.getpid()`. |
+| `acquire_single_instance_lock(lock_name)` | Mengunci instance tunggal pada OS non-Windows menggunakan `fcntl.flock` pada direktori `~/.vyloserve/`. |
+| `get_ipc_endpoint(is_production)` | Menghasilkan tuple `(address, family)` untuk koneksi IPC (`AF_PIPE` Named Pipe di Windows, `AF_UNIX` Domain Socket di Linux). |
 | `hex_to_colorref(hex_str)` | Mengonversi warna hex `#RRGGBB` ke integer Windows `COLORREF` (`0x00BBGGRR`). |
 | `get_theme_titlebar_palette(theme)` | Mengembalikan mapping warna caption & text titlebar untuk 15 tema bawaan. |
-| `apply_window_titlebar_theme(hwnd, theme, dark_mode)` | Mengatur atribut DWM window (`DWMWA_CAPTION_COLOR = 35`, `DWMWA_TEXT_COLOR = 36`, `DWMWA_USE_IMMERSIVE_DARK_MODE = 20`) via `dwmapi.dll`. |
-| `send_show_command_to_pipe(pipe_name)` | Menghubungkan client ke Named Pipe Windows dan mengirim string `"SHOW"` untuk aktivasi instance utama. |
-| `start_ipc_server(pipe_name, on_show_callback)` | Membuka server Windows Named Pipe di thread daemon untuk mendengarkan sinyal aktivasi dari instance sekunder. |
-| `bring_existing_instance_to_front()` | Mencoba aktivasi lewat Named Pipe IPC terlebih dahulu; fallback ke Win32 `FindWindowW` + `ShowWindow` jika IPC tidak merespon. |
+| `apply_window_titlebar_theme(hwnd, theme, dark_mode)` | Mengatur atribut DWM window (`DWMWA_CAPTION_COLOR = 35`, `DWMWA_TEXT_COLOR = 36`, `DWMWA_USE_IMMERSIVE_DARK_MODE = 20`) via `dwmapi.dll` di Windows. |
+| `send_show_command_to_pipe(pipe_name)` | Menghubungkan client ke Named Pipe Windows / Unix Domain Socket Linux dan mengirim string `"SHOW"` untuk aktivasi instance utama. |
+| `start_ipc_server(pipe_name, on_show_callback)` | Membuka server IPC di thread daemon untuk mendengarkan sinyal aktivasi dari instance sekunder. |
+| `bring_existing_instance_to_front()` | Mencoba aktivasi lewat IPC terlebih dahulu; fallback ke Win32 `FindWindowW` + `ShowWindow` jika di Windows dan IPC tidak merespon. |
 
 ### 3.3 `cancellation.py` — Pengelolaan Token Pembatalan Asinkron
 
@@ -188,6 +198,16 @@ Menyediakan utilitas proaktif untuk mendeteksi ketersediaan akses internet dan m
 | `check_internet_connection(timeout=2.0)` | Menguji konektivitas fisik ke server DNS publik terpercaya (`1.1.1.1:53`, `8.8.8.8:53`, `208.67.222.222:53`) menggunakan socket connection bertempo cepat (timeout 2 detik). Mengembalikan `True` jika salah satu probe berhasil. |
 | `is_network_error(exc)` | Memeriksa apakah sebuah eksepsi (`socket.gaierror`, `socket.timeout`, `urllib.error.URLError`, atau koneksi ditolak) tergolong masalah koneksi jaringan fisik pengguna, bukan kesalahan server HTTP (seperti 404/500). |
 | `build_offline_error_response(message_key)` | Membangun payload respons standar `{"status": "error", "message": message_key, "is_offline": True}` untuk dikonsumsi frontend secara deklaratif. |
+
+### 3.5 `splash_window.py` — Native Splash Bootstrapper OS-Level
+
+Menyediakan jendela *splash screen* mandiri berbasis Tkinter murni tanpa dekorasi window OS (frameless, 640x360 px) yang muncul di tengah layar monitor sebelum runtime WebView2 dan jendela utama diinisialisasi:
+
+| Kelas / Fungsi | Perilaku & Tanggung Jawab |
+|---|---|
+| `NativeSplashBootstrapper(api, app_version)` | Kelas pengelola jendela Tkinter splash. Memuat gambar hero satin frosted & logo aplikasi, membaca preferensi bahasa dari `data/settings.json`, serta memuat file translasi JSON via `get_resource_path("frontend/src/locales")` untuk menjamin dukungan teks multi-bahasa di mode production terkompilasi (`sys.frozen = True`). |
+| `NativeSplashBootstrapper._poll_queue()` | Polling interval 16ms (`root.after`) terhadap antrean thread-safe `queue.Queue()`. Menerima event progress `{"type": "status", "percent": N, "stage": "key"}` dari background worker dan menggerakkan progress bar secara halus (60 FPS) tanpa membekukan antarmuka. |
+| `run_startup_bootstrapper(api, app_version)` | Fungsi pembungkus utama yang dipanggil oleh `main.py`. Menjalankan Tkinter splash di main thread, men-spawn daemon thread untuk mengeksekusi `HealthManager.run_startup_health_check()`, menutup splash saat health check selesai (100%), dan mengembalikan payload laporan kesehatan ke jendela utama. |
 
 ---
 
@@ -441,6 +461,14 @@ Pola identik dengan §5.5 ditemukan di `_fetch_mariadb_versions()` dan `open_pat
 | `get_installed()` | Enrich status tiap instance secara paralel (`ThreadPoolExecutor`, 10 worker) — cek proses in-memory dulu, fallback ke `check_port_in_use()`. |
 | `change_db_credentials(id, user, old, new)` | MySQL: `mysql.exe -e "ALTER USER..."`. Postgres: `psql.exe` + env `PGPASSWORD`. Non-zero exit → `RuntimeError` diparse jadi `{status: error, args: {err}}`. |
 | `save_db_config(id, config)` | Patch `my.ini`/`postgresql.conf` baris-per-baris → **jika sedang jalan, stop lalu start ulang** agar config baru diterapkan. |
+| `get_redis_stats(db_id)` | Mengirim perintah `INFO` ke instans Redis aktif via socket TCP, mem-parsing metrik penggunaan memori (`used_memory_human`), jumlah koneksi klien (`connected_clients`), uptime, total keys, dan rasio hit/miss keyspace. |
+| `ping_redis_instance(db_id)` | Mengirim perintah `PING` ke port Redis dan mengembalikan status konektivitas instan serta latency respon dalam milidetik. |
+
+### 6.7 Integrasi & Pemantauan Redis Engine
+VyloServe mendukung **Redis Portable** sebagai database NoSQL in-memory mandiri:
+- Instalasi mengekstrak biner `redis-server.exe` dan `redis-cli.exe` ke direktori `bin/database/<id>/`.
+- Konfigurasi `redis.conf` di-generate otomatis dengan binding port yang aman (default `6379`), direktori penyimpanan dump `dump.rdb`, dan pengaturan batas memori (*maxmemory*).
+- Frontend menampilkan widget metrik real-time (`RedisStatsWidget.tsx`) yang memanfaatkan API `get_redis_stats` untuk visualisasi pemanfaatan RAM dan kesehatan cache.
 
 ---
 
@@ -600,7 +628,21 @@ flowchart TD
     K --> L
 ```
 
-### 7.5 Ketergantungan Lintas-Service
+### 7.6 Real-Time App Logs Streaming, .Env Editor, & SSL Hosts Inspector
+
+`ProjectManager` kini mengintegrasikan kemampuan diagnostik mendalam per-proyek:
+1. **App Logs Reader (`get_project_app_logs(project_id, lines=200)`):**
+   - Mendeteksi dan membaca log runtime proyek secara cerdas: log error/access Apache (`logs/{domain}.error.log`), log framework Laravel (`storage/logs/laravel.log`), atau stdout buffer development server aktif.
+   - Menyediakan fungsi pembersihan log (`clear_project_app_logs`) dengan proteksi penghapusan aman.
+2. **Visual .Env Editor & Diffing (`get_project_env`, `save_project_env`):**
+   - Membaca file `.env` di root proyek pengguna dan mem-parsing pasangan *key-value* dengan penanganan kutip dan komentar yang aman dari ReDoS.
+   - Menyediakan perbandingan otomatis (*diff*) terhadap `.env.example` untuk membantu pengembang melihat key baru yang belum dikonfigurasi saat clone repositori.
+   - `save_project_env(project_id, content)` membuat file cadangan otomatis (`.env.backup`) sebelum menyimpan perubahan untuk mencegah kehilangan konfigurasi penting.
+3. **SSL & Hosts Overview Inspector (`get_project_ssl_hosts(project_id)`):**
+   - Memeriksa pemetaan domain proyek di `C:\Windows\System32\drivers\etc\hosts`.
+   - Menginspeksi validitas sertifikat TLS lokal (`.crt`) di `data/ssl/`, masa berlaku sertifikat, dan menyajikan status binding vhost Apache.
+
+### 7.7 Ketergantungan Lintas-Service
 `ProjectManager` adalah **konsumen terbesar** service lain: `ApacheManager` (sync vhost + restart), `SslManager` (cert per-domain), dan `Api.get_installed_php()` (resolusi port PHP aktif). Ia juga satu-satunya modul yang menyentuh file sistem Windows di luar direktori aplikasi (`C:\Windows\System32\drivers\etc\hosts`), sehingga satu-satunya sumber UAC prompt di aplikasi ini.
 
 **Dependency terbalik (konsumen `ProjectManager`):** `TunnelsManager.start_zrok_share()`/`stop_zrok_share()` (§13) memanggil `_read_projects()`/`update_project({tunnel_url})` untuk menyuntikkan (atau menghapus) field `tunnel_url` pada sebuah project — `update_project()` otomatis memicu `sync_apache_vhosts()` sehingga `_generate_vhost_block()` bisa menambahkan `ServerAlias` untuk hostname publik zrok begitu `tunnel_url` terisi (lihat `project.py` baris sekitar `tunnel_url = p.get('tunnel_url')`).
@@ -1132,6 +1174,7 @@ Tabel ini adalah hasil audit langsung terhadap kode per tanggal dokumen ini ditu
 | 11 | `uninstall_go()` tidak punya `return` sama sekali (implisit `None`) — frontend salah menampilkan error walau sukses | `runtimes_manager.py.uninstall_go()` | 🟡 Sedang — bug fungsional UX | ✅ **Sudah diperbaiki** — ditambahkan `return {"status": "success"}` |
 | 12 | `install_java()`/`install_go()` hanya menangkap `except OSError`, melewatkan `RuntimeError` yang dilempar sendiri di dalam try-nya → crash tidak tertangkap | `runtimes_manager.py` | 🔴 Bisa crash saat folder JDK tidak ditemukan setelah ekstrak | ✅ **Sudah diperbaiki** — diubah jadi `except Exception as e:`, konsisten dengan `install_node`/`install_python` |
 | 13 | Menu Tray "Exit Engine" punya jalur exit terpisah yang melewatkan cleanup engine (Apache/PHP/Database) — bug #2 sebenarnya masih bisa terjadi lewat jalur ini | `main.py` (`setup_systray.on_exit_clicked`, sebelum refactor) | 🔴 Kritis — bug fungsional (zombie process via jalur lain) | ✅ **Sudah diperbaiki** — kini memanggil `lifecycle.perform_exit()` yang sama dengan tombol Quit UI, sekaligus bagian dari refactor `main.py` → `AppLifecycle` (§15) |
+| 14 | Crash / Auto-Logout OS User di Linux saat `stop_server()` Apache (`pkill - httpd`) | `apache.py.stop_server()`, `system_utils.py.kill_process_tree()` | 🔴 Kritis — OS Desktop Session Crash | ✅ **Sudah diperbaiki** — diubah ke `pkill -f httpd`, proteksi `int_pid <= 1` & `os.getpid()`, autouse fixture `guard_process_termination` di conftest |
 | 14 | `_get_cbs()`'s `download_cb` memperlakukan `pct` (absolut 0-100 dari `file_utils.py`) seolah fraksi `0.0-1.0`, mengalikannya dengan `span` → progress meluber ribuan persen saat unduhan/ekstraksi, lalu "melompat mundur" saat tahap berikutnya mengirim nilai tetap | `runtimes_manager.py._get_cbs()`, `git_manager.py.install_git()` (multiplier lebih kecil, gejala tersamar) | 🔴 Kritis — bug UX nyata, dilaporkan pengguna | ✅ **Sudah diperbaiki** — `download_cb` sekarang meng-*clamp* `pct` ke `[start_pct, end_pct]`, bukan mengalikan. Lihat §8.2 & `docs/known_bugs.md` #16 |
 | 15 | `read_json(path, dict).get(...)` dipanggil langsung tanpa `isinstance` check di 2 tempat — crash `AttributeError: 'str' object has no attribute 'get'` jika file JSON valid tapi bukan objek | `php.py._get_preferred_versions()`, `database.py._get_preferred_dbs()` | 🔴 Kritis — crash tidak konsisten (tergantung isi file saat itu) | ✅ **Sudah diperbaiki** — root cause di `read_json()` sendiri (§3.1, sekarang menjamin tipe), plus `isinstance` guard eksplisit di kedua caller. Lihat `docs/known_bugs.md` #17 |
 | 16 | Tahap "configuring" pada `install_version()` PHP melapor progress **100%** padahal Composer (tahap berikutnya) belum dipasang → melanggar kontrak `percent>=100 = selesai` (§2.2) → widget progress frontend menghilang mid-instalasi | `php.py.install_version()` | 🔴 Kritis — bug UX nyata, dilaporkan pengguna | ✅ **Sudah diperbaiki** — diganti jadi 92%; 100% dicadangkan khusus untuk `"backend.php.installation_complete"`. Lihat `docs/known_bugs.md` #18 |
@@ -1141,5 +1184,128 @@ Tabel ini adalah hasil audit langsung terhadap kode per tanggal dokumen ini ditu
 | 20 | Instalasi PostgreSQL gagal dengan `[WinError 2] The system cannot find the file specified` tanpa menyebutkan file apa yang hilang — root cause SESUNGGUHNYA ternyata di frontend (`NewInstance.tsx`'s fetch versi online tidak punya guard anti-stale-response, race antara fetch MySQL yang lambat vs fetch PostgreSQL yang cepat membuat `engine='postgres'` terkirim bersama `version`/`url` milik MariaDB) | `core/services/database.py` (`_init_database`), root cause di `frontend/src/menu/database/NewInstance.tsx` | 🔴 Kritis — instalasi gagal total, pesan error tidak actionable | ✅ **Sudah diperbaiki** — `_assert_installer_present()` ditambahkan di backend (lihat catatan §6.2 di atas) untuk membuat kegagalan serupa jadi actionable bagaimanapun pemicunya; root cause asli diperbaiki di frontend dengan guard `ignore` standar pola React di `useEffect` pengambil versi online. Lihat `docs/known_bugs.md` #52 untuk kronologi investigasi lengkap (termasuk reproduksi end-to-end terhadap binary EnterpriseDB asli yang sempat menyangkal teori root-cause yang salah). |
 | 21 | Tabrakan (Collision) Instance Development dan Production pada Single-Instance Mutex & crash aplikasi saat restore dari tray via raw Win32 cross-process hijack | `main.py`, `core/utils/system_utils.py` | 🔴 Kritis — dev run menimpa/meng-crash aplikasi prod yang sedang jalan | ✅ **Sudah diperbaiki** — pemisahan Mutex (`VyloServe_App_Mutex_v1` vs `VyloServe_Dev_App_Mutex_v1`), pemisahan Window Title & AppUserModelID, serta penggantian mekanisme aktivasi window menggunakan Windows Named Pipe IPC. Lihat `docs/known_bugs.md` #56. |
 | 22 | Ketidakselarasan alur update Apache dari burger menu: langsung trigger tanpa modal konfirmasi pertanyaan, tidak terminimalisasi, dan tidak merestore form wizard lengkap dengan pre-selected target version | `frontend/src/menu/apache/Main.tsx` | 🟡 Sedang — UX tidak konsisten dengan spesifikasi flow update | ✅ **Sudah diperbaiki** — penambahan `useAlert().confirm` modal pertanyaan, progress minimized di `BackgroundProgressWidget`, dan tombol restore membuka `InstallWizard` dengan target version pre-selected. Lihat `docs/known_bugs.md` #55. |
+| 23 | Translasi Bootstrapper Hilang pada Mode Production (`sys.frozen`), False-Positive Corrupted Report pada GitLab CLI, dan Kelengkapan Dependensi PyInstaller `main.spec` | `splash_window.py`, `gitlab_manager.py`, `health_manager.py`, `main.spec` | 🔴 Kritis — UX rusak di production bundle | ✅ **Sudah diperbaiki** — resolusi `get_resource_path("frontend/src/locales")`, penghapusan eager dir `bin/glab` pada init, empty-dir cleanup guard di health check, dan penambahan webview/certifi/locales/hiddenimports di `main.spec`. Lihat `docs/known_bugs.md` #112. |
 
 > Lihat `docs/known_bugs.md` untuk detail lengkap tiap perbaikan (#3, #6–#18 di dokumen tersebut berkorespondensi dengan tabel di atas; #17–18 di tabel ini BARU ditemukan saat audit dokumentasi ini dan **belum** punya entri terpisah di `docs/known_bugs.md` — pertimbangkan menambahkannya di sana juga kalau/ketika benar-benar diperbaiki).
+
+---
+
+## 19. `GitLabManager` (`gitlab_manager.py`) — Integrasi GitLab CLI (`glab`)
+
+`GitLabManager` bertindak sebagai sentral siklus hidup biner portable `glab`, autentikasi token PAT multi-host, deteksi remote proyek, serta orkestrasi kolaborasi AI Assistant untuk issue dan Merge Request.
+
+### 19.1 Dependency & State
+- **State File**: `data/gitlab.json` menyimpan preferensi host aktif (`default_host`), daftar akun multi-host (`accounts`), ID akun default (`default_account_id`), dan status migrasi legacy (`legacy_glab_migrated`).
+- **Binary Directory**: `bin/glab/` menampung biner `glab.exe` portable. Direktori ini dibuat *on-demand* saat instalasi (tidak dibuat otomatis saat `__init__` untuk mencegah false-positive health check).
+- **Dependency**: `git_manager.py` (untuk menyimpan kredensial Git via credential helper dan konfigurasi `git config`), `network_utils.py` (untuk socket check reachability VPN).
+
+### 19.2 Ringkasan API Publik
+| Method | Fungsi |
+|---|---|
+| `get_glab_status()` | Memeriksa apakah GitLab CLI terpasang (portable atau sistem PATH), versinya, dan status autentikasi host default. |
+| `install_glab(version)` | Mengunduh biner resmi portable GitLab CLI (Windows/Linux), mengekstrak ke `bin/glab/`, dan memperbarui PATH lokal. |
+| `uninstall_glab()` | Menghapus instalasi portable `bin/glab/` secara bersih. |
+| `authenticate(host, token, auth_type, ...)` | Mengautentikasi pengguna ke instance GitLab (gitlab.com atau self-hosted), memverifikasi profil via GitLab REST API `/api/v4/user`, dan menyimpan akun ke `data/gitlab.json`. |
+| `get_gitlab_accounts()` | Mengembalikan daftar seluruh akun tersimpan dengan token tersamar (`_mask_token`). |
+| `set_default_gitlab_account(account_id)` | Mengubah akun dan host default yang aktif. |
+| `remove_gitlab_account(account_id)` | Menghapus akun dari penyimpanan lokal dan mencabut kredensial terkait. |
+| `get_recent_issues(repo, limit)` | Mengambil daftar issue terbuka terbaru pada repository proyek. Dilengkapi sirkuit pencegah hang VPN (`_is_vpn_unreachable`). |
+| `comment_issue(repo, issue_id, comment)` | Memposting komentar pada issue GitLab yang ditentukan. |
+| `comment_mr(repo, mr_id, comment)` | Memposting catatan/review pada Merge Request GitLab yang ditentukan. |
+| `detect_project_gitlab_remote(project_dir)` | Membaca `.git/config` proyek lokal untuk mengekstrak hostname GitLab dan nama namespace/proyek repositori. |
+| `toggle_user_path(enable)` | Mendaftarkan atau mencabut direktori `bin/glab` dari `PATH` Environment Variable pengguna di Windows Registry. |
+
+---
+
+## 20. `HealthManager` (`health_manager.py`) — Startup 3-Tier Self-Healing & Orphan Cleanup
+
+Menjalankan alur diagnostik menyeluruh saat startup untuk menjamin seluruh modul server dan peralatan dalam kondisi prima sebelum antarmuka utama dibuka.
+
+### 20.1 Dependency & State
+- **Dependency**: Membutuhkan referensi ke seluruh manager (`api.apache`, `api.php`, `api.database`, `api.runtimes_manager`, `api.project`).
+- **State File**: Tidak memiliki state file persisten sendiri; membaca state dari `data/*.json` modul masing-masing.
+
+### 20.2 Alur Diagnostik & Pemulihan (3-Tier)
+1. **Pembersihan Orphan (`_cleanup_orphan_temp_files`):**
+   - Memindai direktori `bin/` untuk menghapus folder sisa unduhan/ekstraksi yang terhenti (`temp_*`) dan file sementara (`download.tmp`, `*.tmp`).
+2. **Pemeriksaan & Pemulihan Konfigurasi (Tier 1):**
+   - Memvalidasi keberadaan `httpd.conf` dan `vhosts.conf` Apache, `php.ini` PHP, `my.ini` MySQL/MariaDB, dan `redis.conf` Redis. Jika terhapus, konfigurasi langsung diregenerasi otomatis dalam < 150ms.
+3. **Pemeriksaan Biner & Pemulihan Online (Tier 2):**
+   - Memvalidasi keberadaan file biner executable utama (`httpd.exe`, `php-cgi.exe`, `mysqld.exe`, `postgres.exe`, `redis-server.exe`).
+   - Jika biner hilang dan internet aktif, mengunduh ulang biner secara transparan.
+4. **Pembersihan Aman & Proteksi Database (Tier 3):**
+   - Jika biner tidak dapat dipulihkan, modul yang rusak dibersihkan dari daftar instalasi, namun **folder data fisik database (`dataDir`) dijamin 100% aman dan tidak pernah dihapus**.
+   - Jika pengguna sedang offline, pembersihan modul ditangguhkan (*deferred offline*) untuk mencegah *false purge*.
+5. **Pemeriksaan Peralatan (`_check_and_heal_tools`):**
+   - Memeriksa direktori `bin/glab` dan `bin/git`. Jika folder ada tapi kosong, folder dibersihkan diam-diam tanpa mencatatnya sebagai modul rusak.
+
+---
+
+## 21. `MailSandbox` (`mail_sandbox.py`) — In-Process Async SMTP Mock Server
+
+Menyediakan server penerima email lokal untuk menangkap seluruh lalu lintas email dari aplikasi web selama tahap pengujian tanpa menyebarkannya ke internet nyata.
+
+### 21.1 Dependency & State
+- **Arsitektur**: Menggunakan asynchronous custom SMTP daemon yang berjalan di thread internal Python berlatar belakang (`threading.Thread`), mendengarkan secara default pada port `1025`.
+- **In-Memory Storage**: Menyimpan pesan dalam koleksi antrean melingkar (*ring-buffer*) berkapasitas terkendali (default 500 pesan) dengan pengidentifikasi UUID unik.
+
+### 21.2 Ringkasan API Publik
+| Method | Fungsi |
+|---|---|
+| `start_server(port=1025)` | Menyalakan daemon server SMTP lokal pada port yang ditentukan. |
+| `stop_server()` | Menghentikan daemon server SMTP secara anggun. |
+| `get_messages(limit=100)` | Mengembalikan daftar email yang tertangkap (pengirim, penerima, subjek, tanggal, cuplikan body, lampiran). |
+| `get_message_detail(message_id)` | Mengembalikan konten lengkap email (HTML ter-render, plain-text alternatif, raw headers, daftar berkas lampiran). |
+| `clear_messages()` | Mengosongkan seluruh antrean email yang tertangkap. |
+| `export_eml(message_id)` | Mengekspor pesan email ke format standar `.eml` (RFC 822) untuk diunduh pengguna. |
+| `get_status()` | Mengembalikan status aktif server SMTP, port listening, dan jumlah pesan tersimpan. |
+
+---
+
+## 22. `WebhookInspector` (`webhook_inspector.py`) — In-Process HTTP Webhook Receiver
+
+Menyediakan server endpoint HTTP lokal untuk menangkap, mencatat, dan menginspeksi payload webhook dari pihak ketiga atau internal microservice.
+
+### 22.1 Dependency & State
+- **Arsitektur**: Menggunakan `http.server.HTTPServer` non-blocking di thread daemon terpisah, mendengarkan secara default pada port `9000` (atau port dinamis yang dikonfigurasi pengguna).
+
+### 22.2 Ringkasan API Publik
+| Method | Fungsi |
+|---|---|
+| `start_inspector(port=9000, path="/webhook")` | Menyalakan server penerima webhook pada port dan path endpoint tertentu. |
+| `stop_inspector()` | Mematikan server penerima webhook. |
+| `get_requests(limit=50)` | Mengembalikan riwayat request webhook yang tertangkap (waktu, method, path, query params, headers, body payload JSON/Form, dan ukuran). |
+| `clear_requests()` | Menghapus seluruh riwayat rekaman webhook. |
+| `get_status()` | Mengembalikan status aktif server, URL endpoint lokal (`http://127.0.0.1:9000/webhook`), dan statistik total request. |
+
+---
+
+## 23. `PortManager` (`port_manager.py`) — Active Port Scanner & Process Killer
+
+Menyediakan alat diagnostik sistem untuk memindai port jaringan yang sedang aktif dan mengatasi bentrokan port yang sering dialami pengembang lokal.
+
+### 23.1 Dependency & State
+- **Dependency**: Memanfaatkan modul `psutil` untuk inspeksi koneksi soket OS dan pohon proses, dengan fallback ke perintah `netstat -ano` bawaan Windows CMD bila privilege terbatas.
+
+### 23.2 Ringkasan API Publik
+| Method | Fungsi |
+|---|---|
+| `get_active_ports(filter_text=None)` | Memindai seluruh port listening TCP/UDP di OS. Mengembalikan daftar terstruktur berisi port, protokol, IP binding, PID, nama proses eksekutif, dan path binary. |
+| `kill_process(pid)` | Menghentikan proses yang mengunci port menggunakan `system_utils.kill_process_tree()` secara aman, dilengkapi proteksi anti-bunuh diri proses sistem kritis (PID <= 4 atau PID VyloServe sendiri). |
+
+---
+
+## 24. `CryptoTools` (`crypto_tools.py`) — Hashing, HMAC & Token Generator
+
+Menyediakan generator kriptografis lokal untuk mempercepat alur kerja pengembang saat membuat hash password, token API, secret key, atau memvalidasi signature HMAC.
+
+### 24.1 Dependency & State
+- **Dependency**: Menggunakan pustaka standar Python `hashlib`, `hmac`, `secrets`, dan `uuid` murni tanpa dependensi eksternal berat.
+
+### 24.2 Ringkasan API Publik
+| Method | Fungsi |
+|---|---|
+| `generate_hash(text, algorithm="sha256")` | Menghasilkan hash heksadesimal dari teks input menggunakan algoritma `md5`, `sha1`, `sha256`, `sha384`, atau `sha512`. |
+| `generate_hmac(key, message, algorithm="sha256")` | Menghasilkan signature HMAC berbasis kunci rahasia untuk pengujian otentikasi webhook atau API. |
+| `generate_token(token_type="uuid", length=32)` | Menghasilkan token acak yang aman secara kriptografi: UUID v4, hex token, URL-safe base64 token, atau alphanumeric API key. |
+

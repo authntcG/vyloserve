@@ -63,8 +63,9 @@ describe('AiChatMessage', () => {
         });
 
         const copyBtns = screen.getAllByRole('button', { name: /copy/i });
-        expect(copyBtns.length).toBeGreaterThanOrEqual(1);
-        fireEvent.click(copyBtns[0]);
+        expect(copyBtns.length).toBeGreaterThanOrEqual(2);
+        // copyBtns[0] is the message copy button at the top-right of the card; copyBtns[1] is the code block copy button
+        fireEvent.click(copyBtns[1]);
 
         expect(navigator.clipboard.writeText).toHaveBeenCalledWith('Listen 8080');
     });
@@ -230,5 +231,27 @@ describe('AiChatMessage', () => {
 
         expect(screen.getByText('Hello! How can I help?')).toBeInTheDocument();
         expect(screen.queryByText(/vylo_suggestions/i)).not.toBeInTheDocument();
+    });
+
+    it('applies compact styling when variant is floating', () => {
+        render(
+            <ToastProvider>
+                <AlertProvider>
+                    <AiChatMessage
+                        message={{
+                            id: 'u_float',
+                            role: 'user',
+                            content: 'Floating test message',
+                            timestamp: Date.now(),
+                        }}
+                        variant="floating"
+                    />
+                </AlertProvider>
+            </ToastProvider>
+        );
+
+        const bubble = screen.getByText('Floating test message').closest('div');
+        expect(bubble?.className).toContain('text-xs');
+        expect(bubble?.className).toContain('px-3.5');
     });
 });

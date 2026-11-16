@@ -325,4 +325,20 @@ y = 20
         expect(screen.getByText('Kutipan blockquote standar biasa.')).toBeInTheDocument();
         expect(screen.getByText(/Ini di dalam blok kode/)).toBeInTheDocument();
     });
+
+    it('applies compact styling classes when isCompact is true', () => {
+        const content = '# Heading 1\n\nSome paragraph text.\n\n```js\nconsole.log(1);\n```';
+        const { container } = render(
+            <MarkdownRenderer
+                content={content}
+                rootPath="/test/root"
+                readerTheme="light"
+                isCompact={true}
+            />
+        );
+
+        const proseDiv = container.querySelector('.prose');
+        expect(proseDiv).toHaveClass('prose-sm');
+        expect(proseDiv).toHaveClass('text-xs');
+    });
 });

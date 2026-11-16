@@ -17,14 +17,16 @@
 7. [Anatomi Halaman "Golden Standard"](#7-anatomi-halaman-golden-standard)
 8. [Sequence Diagram: Alur Install Service](#8-sequence-diagram-alur-install-service)
 9. [Sequence Diagram: Alur Toggle Start/Stop](#9-sequence-diagram-alur-toggle-startstop)
-10. [Modul: Apache](#10-modul-apache)
-11. [Modul: PHP](#11-modul-php)
-12. [Modul: Database](#12-modul-database)
-13. [Modul: Dashboard](#13-modul-dashboard)
-14. [Modul: Runtimes & Tools](#14-modul-runtimes--tools)
-15. [Sistem i18n (Terjemahan)](#15-sistem-i18n-terjemahan)
-16. [Known Issues — Ketidaksesuaian dengan Dokumentasi Lama](#16-known-issues--ketidaksesuaian-dengan-dokumentasi-lama)
-17. [Styling: Tailwind CSS v4, Cascade Layers & Ikon Material Symbols](#17-styling-tailwind-css-v4-cascade-layers--ikon-material-symbols)
+10. [Modul: Projects Hub (`menu/projects/`)](#10-modul-projects-hub-menuprojects)
+11. [Modul: Apache Web Server (`menu/apache/`)](#11-modul-apache-web-server-menuapache)
+12. [Modul: PHP](#12-modul-php)
+13. [Modul: Database](#13-modul-database)
+14. [Modul: Dashboard](#14-modul-dashboard)
+15. [Modul: Runtimes & Developer Tools](#15-modul-runtimes--developer-tools)
+16. [Developer Utilities Hub (`src/menu/utilities/`)](#16-developer-utilities-hub-srcmenuutilities)
+17. [Sistem i18n (Terjemahan)](#17-sistem-i18n-terjemahan)
+18. [Known Issues — Ketidaksesuaian dengan Dokumentasi Lama](#18-known-issues--ketidaksesuaian-dengan-dokumentasi-lama)
+19. [Styling: Tailwind CSS v4, Cascade Layers & Ikon Material Symbols](#19-styling-tailwind-css-v4-cascade-layers--ikon-material-symbols)
 
 ---
 ## 1. Struktur Direktori Aktual
@@ -47,6 +49,8 @@ frontend/src/
 │   ├── FieldLabel.tsx           # Komponen bersama — lihat docs/ui_consistency_guide.md §2
 │   ├── HeaderMobile.tsx
 │   ├── InfoBox.tsx              # Komponen bersama — lihat docs/ui_consistency_guide.md §2
+│   ├── Input.tsx                # Komponen input dasar theme-aware dengan id/htmlFor binding — lihat docs/ui_consistency_guide.md §2
+│   ├── InstalledBadge.tsx       # Badge indikator status terinstal serbaguna
 │   ├── LogFileViewerModal.tsx   # Lihat §6.3.1
 │   ├── LogsPanel.tsx
 │   ├── Modal.tsx
@@ -60,8 +64,8 @@ frontend/src/
 │   ├── ServiceToggleButton.tsx  # Komponen bersama — lihat docs/ui_consistency_guide.md §2
 │   ├── DataTable.tsx            # Komponen tabel generik berdensitas tinggi (compact/normal/relaxed)
 │   ├── FilterChips.tsx          # Komponen filter kategori/pill serbaguna
+│   ├── TableActionMenu.tsx      # Komponen menu aksi dropdown serbaguna untuk baris tabel
 │   ├── ViewModeToggle.tsx       # Tombol pengalih mode tampilan Card vs Table
-│   ├── InstalledBadge.tsx       # Badge indikator status terinstal serbaguna
 │   ├── Sidebar.tsx
 │   ├── SkeletonCard.tsx         # Re-export kompatibilitas mundur dari components/skeleton/SkeletonCard.tsx
 │   ├── StatusBadge.tsx          # Lencana status auto-theming bersama
@@ -86,16 +90,25 @@ frontend/src/
 │   └── usePersistedViewMode.ts  # Persistensi mode tampilan Card vs Table ke localStorage per modul
 ├── menu/
 │   ├── dashboard/  Main.tsx, components/ (DashboardControlPanel.tsx, RecentProjectsSection.tsx, SystemResourcesCard.tsx, OptimizationSuggestions.tsx)
-│   ├── projects/   Main.tsx, ProjectsTable.tsx, ProjectCards.tsx, NewProjectModal.tsx, ProjectSettingsModal.tsx, ProjectCliInstallModal.tsx, ProjectServerLogsModal.tsx # Projects Hub — lihat §10
+│   ├── projects/   Main.tsx, ProjectTable.tsx, ProjectCard.tsx, NewProject.tsx, ProjectSettings.tsx, ProjectAppLogsModal.tsx, ProjectEnvModal.tsx, ProjectSslHostsModal.tsx, ProjectCliInstallModal.tsx, ProjectServerLogsModal.tsx, ProjectNewModal.tsx, ProjectDeleteModal.tsx, ProjectSettingsModal.tsx # Projects Hub — lihat §10
 │   ├── apache/     Main.tsx, Settings.tsx, InstallWizard.tsx, ApacheInstallModal.tsx # Apache Web Server Management — lihat §11
 │   ├── php/        Main.tsx, PhpTable.tsx, NewInstance.tsx, Settings.tsx, PhpNewInstanceModal.tsx, PhpSettingsModal.tsx
-│   ├── database/   Main.tsx, DatabaseTable.tsx, NewInstance.tsx, Settings.tsx, ChangePassword.tsx, DatabaseSchemaModal.tsx, DatabaseNewInstanceModal.tsx, DatabasePasswordModal.tsx, DatabaseSettingsModal.tsx
+│   ├── database/   Main.tsx, DatabaseTable.tsx, NewInstance.tsx, Settings.tsx, ChangePassword.tsx, DatabaseSchemaModal.tsx, DatabaseNewInstanceModal.tsx, DatabasePasswordModal.tsx, DatabaseSettingsModal.tsx, RedisStatsWidget.tsx
 │   ├── runtimes/   Main.tsx, RuntimeEnginePanel.tsx, RuntimePathHub.tsx, RuntimeTable.tsx, InstallNode.tsx, InstallPython.tsx, InstallJava.tsx, InstallGo.tsx, RuntimeVersionSelect.tsx, RuntimeInstallModal.tsx
+│   ├── utilities/  # Developer Utilities Hub (100% Client-Side)
+│   │   ├── crypto-generator/Main.tsx
+│   │   ├── data-converter/Main.tsx
+│   │   ├── json-studio/Main.tsx
+│   │   ├── jwt-debugger/Main.tsx
+│   │   └── regex-epoch/Main.tsx
 │   └── tools/
 │       ├── terminal/Main.tsx, types.ts, components/ (TerminalInstance.tsx, TerminalTabBar.tsx, TerminalToolbar.tsx, TerminalEnvModal.tsx, TerminalSettingsModal.tsx, TerminalPresetsMenu.tsx, TerminalSavePresetModal.tsx, TerminalConfigModal.tsx) # Developer Terminal — lihat §14
 │       ├── ai-assistant/Main.tsx, components/ (AiActionCard.tsx, AiChatInput.tsx, AiChatMessage.tsx, AiFloatingWidget.tsx, AiSuggestionChips.tsx, AiUsageBadge.tsx, AiSettingsModal.tsx)
-│       ├── git/Main.tsx, GitComponents.tsx, InstallGitModal.tsx, GitUninstallModal.tsx
+│       ├── git/Main.tsx, GitComponents.tsx, GitLabIntegrationTab.tsx, GitLabAccountModal.tsx, InstallGitLabModal.tsx, InstallGitModal.tsx, GitUninstallModal.tsx
 │       ├── tunnels/Main.tsx, InstallTunnel.tsx, TunnelsComponents.tsx, TunnelsInstallModal.tsx, TunnelsUninstallModal.tsx
+│       ├── mail-sandbox/Main.tsx, types.ts # Server Pengujian Catch-All SMTP — lihat §14
+│       ├── webhook-inspector/Main.tsx, types.ts # Pemeriksa Webhook & Logger HTTP — lihat §14
+│       ├── port-manager/Main.tsx # Pemeriksa Port & Safe Process Killer — lihat §14
 │       ├── markdown-viewer/Main.tsx, FolderTreeView.tsx, MarkdownRenderer.tsx # Penampil Markdown lokal — lihat §14
 │       ├── base64-encode-decode/Main.tsx
 │       ├── url-encode-decode/Main.tsx
@@ -164,9 +177,10 @@ Elemen antarmuka terkecil dan paling dasar, yang tidak dapat dipecah lagi. Sejak
 - **`<ServiceToggleButton>`** (`components/ServiceToggleButton.tsx`): khusus tombol Start/Stop service (warna+ikon+label berganti berdasar `isRunning`), sengaja terpisah dari `Button` karena sifatnya state-driven, bukan intent statis.
 - **`<ToggleSwitch>`** (`components/ToggleSwitch.tsx`): sakelar on/off (`checked`, `onChange`, `tone: 'primary'|'status'`). Dipakai di `Sidebar.tsx` (toggle service, `tone="status"`), Dashboard (3 kartu service, `tone="primary"`), `tools/git/Main.tsx` & `runtimes/Main.tsx` (registrasi PATH). **Pengecualian yang SENGAJA tidak dimigrasikan**: toggle ekstensi di `php/Settings.tsx` (murni dekoratif, klik ditangani parent `<button>` lewat `pointer-events-none`, pola interaksi berbeda) dan toggle pre-release di tab Updates `SettingsModals.tsx` (`role="switch"` native, bukan checkbox) — keduanya kandidat Fase 2 kalau mau diselaraskan lebih lanjut.
 - **`<Select>`** (`components/Select.tsx`): dropdown generik, `searchable` bisa dimatikan (`searchable={false}`). Menggantikan 3 combobox custom yang dulu diduplikasi (`database/NewInstance.tsx`, `tools/tunnels/Main.tsx`, `tools/tunnels/InstallZrok.tsx`). 17 `<select>` native lain (PHP/Apache version picker, theme picker, dsb) **belum** dimigrasikan — direncanakan Fase 2.
+- **`<Input>`** (`components/Input.tsx`): Komponen input form dasar theme-aware yang menyatukan styling *focus ring*, radius, border, background, dan penanganan status disabled/error di satu pintu. Menjamin pemenuhan aturan a11y (`id` berpasangan dengan `<FieldLabel htmlFor="...">`) di seluruh form baru.
+- **`<TableActionMenu>`** (`components/TableActionMenu.tsx`): Menu popover aksi dropdown serbaguna untuk baris tabel (`<DataTable>`), mengisolasi trigger menu elipsis (`...`), navigasi keyboard, dan daftar aksi (View, Edit, Logs, Delete).
 - **`<StatusBadge>`** (`components/StatusBadge.tsx`): Lencana visual penanda status (`running`, `stopped`, `installed`, `not_installed`, `syncing`, `warning`, `error`, `neutral`), mengekstrak fungsi `getStatusTheme()` yang dipakai bersama oleh `Card.tsx` untuk menghapus duplikasi styling status.
 - **Ikon**: `<span className="material-symbols-outlined">...</span>`.
-- **Elemen Form Dasar lain**: `<input>`, `<select>` polos yang telah dibumbui class Tailwind (*ring*, *outline-none*) — belum diekstrak jadi komponen (lihat `docs/ui_consistency_guide.md` §"Fase 2").
 
 ### 2. Molecules (Molekul)
 Kumpulan Atom yang disatukan menjadi komponen UI sederhana dengan 1 fungsi spesifik.
@@ -209,23 +223,28 @@ Dialog modal inline dan blok kontrol kompleks yang awalnya menumpuk di file `Mai
 
 ### 4.1 Routing Manual (Bukan React Router)
 
-`activeMenu` adalah `useState<string>` (default `'dashboard'`) yang menentukan halaman aktif. Nilai valid (14 modul): `dashboard, projects, apache, php, database, ai-assistant, terminal, tunnels, runtimes, git, docs-reader, qr, base64, url-encode-decode`.
+`activeMenu` adalah `useState<string>` (default `'dashboard'`) yang menentukan halaman aktif. Nilai valid (22 modul terdaftar):
+- **Core Server & Runtimes (6)**: `dashboard`, `projects`, `apache`, `php`, `database`, `runtimes`
+- **Developer Workspace & Collaboration (4)**: `ai-assistant`, `terminal`, `git`, `tunnels`
+- **Network & System Diagnostics (3)**: `mail-sandbox`, `webhook-inspector`, `port-manager`
+- **Developer Utilities Hub (5)**: `json-studio`, `jwt-debugger`, `crypto-generator`, `regex-epoch`, `data-converter`
+- **Dokumentasi & Konversi Ringan (4)**: `docs-reader`, `qr`, `base64`, `url-encode-decode`
 
 **Implikasi penting:** Navigasi `Sidebar.tsx` hanyalah `onSelectMenu(id) → setActiveMenu(id)` — tidak ada URL/history, tidak bisa back/forward browser (memang sengaja diblokir juga oleh `AppInterceptor`, lihat §4.2).
 
-### 4.2 ⚠️ Semua Halaman Selalu Ter-mount Sekaligus
+### 4.2 Siklus Mount Halaman: Lazy-Mount on First Visit + Keep-Alive After Visited (`visitedMenus`)
 
 ```mermaid
 flowchart TD
-    App[App.tsx: activeMenu state] --> Dash["DashboardMain<br/>class: activeMenu==='dashboard' ? block : hidden"]
-    App --> Proj["ProjectsMain<br/>class: activeMenu==='projects' ? block : hidden"]
-    App --> Apache["ApacheMain<br/>class: activeMenu==='apache' ? block : hidden"]
-    App --> Php["PhpMain<br/>hidden/block"]
-    App --> Db["DatabaseMain<br/>hidden/block"]
-    App --> Ai["AiAssistantMain<br/>hidden/flex"]
-    App --> Term["TerminalMain<br/>hidden/flex"]
-    App --> Rt["RuntimesMain<br/>hidden/block"]
-    App --> Tools["... modul tools & utilitas lain<br/>hidden/block"]
+    App[App.tsx: activeMenu + visitedMenus state] --> Dash["DashboardMain (Initial)<br/>Mount on startup, class: activeMenu==='dashboard' ? block : hidden"]
+    App -.->|visitedMenus.includes('projects')| Proj["ProjectsMain<br/>Mount on first visit, Keep-Alive"]
+    App -.->|visitedMenus.includes('apache')| Apache["ApacheMain<br/>Mount on first visit, Keep-Alive"]
+    App -.->|visitedMenus.includes('php')| Php["PhpMain<br/>Mount on first visit, Keep-Alive"]
+    App -.->|visitedMenus.includes('database')| Db["DatabaseMain<br/>Mount on first visit, Keep-Alive"]
+    App -.->|visitedMenus.includes('ai-assistant')| Ai["AiAssistantMain<br/>Mount on first visit, Keep-Alive"]
+    App -.->|visitedMenus.includes('terminal')| Term["TerminalMain<br/>Mount on first visit, Keep-Alive"]
+    App -.->|visitedMenus.includes('runtimes')| Rt["RuntimesMain<br/>Mount on first visit, Keep-Alive"]
+    App -.->|visitedMenus.includes(toolId)| Tools["... modul tools & utilitas lain<br/>Mount on first visit, Keep-Alive"]
 
     style Dash fill:#264,color:#fff
     style Proj fill:#264,color:#fff
@@ -238,12 +257,12 @@ flowchart TD
     style Tools fill:#264,color:#fff
 ```
 
-Semua modul di-render **sekaligus** dan disembunyikan lewat CSS class kondisional (`hidden`/`block`), **bukan** conditional render (`{cond && <X/>}`). Konsekuensi:
-- **State internal setiap halaman tetap hidup** walau tidak sedang dilihat user.
-- `setInterval` polling (mis. status PHP/Database tiap beberapa detik) **tetap berjalan di background** meski user sedang berada di tab lain — berdampak ke pemakaian resource kecil tapi konstan.
-- Event listener tiap halaman (`vylo_progress`, dll) tetap aktif walau halaman tidak terlihat — ini adalah akar penyebab bug event-bleed yang dijelaskan di §3.3.
+Untuk mengeliminasi fenomena *Thundering Herd* (di mana dulunya ke-22 modul halaman di-*mount* serentak di satu frame saat startup dan membanjiri komunikasi IPC Python–JS), VyloServe menerapkan pola **Lazy-Mount on First Visit + Keep-Alive After Visited**:
+- Saat aplikasi baru dibuka, `visitedMenus` hanya berisi `['dashboard']`. Hanya `DashboardMain` yang di-*mount* ke DOM dan mengeksekusi `useEffect` inisialisasinya.
+- Ketika pengguna pertama kali berpindah ke menu lain (misal Apache, Projects, atau Terminal), modul tersebut didaftarkan ke `visitedMenus` dan di-*mount* untuk pertama kalinya.
+- **Keep-Alive (State Persisten):** Setelah pernah dikunjungi, komponen halaman **TIDAK PERNAH di-unmount** saat pengguna berpindah ke tab lain, melainkan disembunyikan menggunakan class `hidden`. State form, terminal shell aktif, tab terpilih, dan konfigurasi tampilan tetap terjaga seutuhnya.
 
-### 4.3 Sequence Diagram: Bootstrap Aplikasi
+### 4.3 Sequence Diagram: Bootstrap Aplikasi & Geometry-Matched App Shell
 
 ```mermaid
 sequenceDiagram
@@ -252,19 +271,23 @@ sequenceDiagram
     participant PyWV as window.pywebview.api
     participant I18n as i18n.ts
     participant Settings as SettingsManager (backend)
+    participant Dash as DashboardContext
 
     Main->>App: render <App/>
     App->>App: useState isApiReady = false
+    Note over App: Selama belum ready:<br/>render AppSkeletonLayout (Geometri 1:1 identik:<br/>Sidebar 260px + Dashboard Wireframe + LogsPanel 128px)
     loop polling setiap 100ms (atau event 'pywebviewready')
         App->>PyWV: cek window.pywebview?.api?.test_connection tersedia?
     end
-    Note over App: Selama belum ready:<br/>render splash screen "Connecting to VyloServe Engine..."
     PyWV-->>App: API siap
     App->>App: setIsApiReady(true)
     App->>Settings: api.get_app_settings()
     Settings-->>App: {language: "id", ...}
     App->>I18n: lazy import + i18n.changeLanguage(language)
-    App->>App: render layout penuh:<br/>HeaderMobile (mobile) + Sidebar + semua menu (hidden/block) + LogsPanel
+    App->>App: render Shell Asli (Sidebar + DashboardMain + LogsPanel)
+    Note over Dash: Atomic Initial Bootstrap via Promise.allSettled:<br/>loadDashboardConfig + fetchRecentProjects + fetchServicesStatus
+    Dash->>Dash: isGlobalLoading & isLoadingProjects selesai bersamaan
+    Note over App: Zero CLS: Konten asli masuk dengan efek halus .vylo-fade-in
 ```
 
 ### 4.4 `Sidebar.tsx`
@@ -280,8 +303,15 @@ sequenceDiagram
 - **Toggle switch di tiap Service card** memanggil endpoint generik `api.start_service(id)`/`api.stop_service(id)` (bukan `start_apache_server()` spesifik) → sukses → `dispatchEvent('service_status_changed', {detail: {service, running}})` agar Dashboard & halaman modul lain ikut sinkron tanpa saling mengimpor state.
 - Polling mandiri tiap 2 detik: `api.get_all_services_status()` → isi badge status tiap service + CPU% di footer sidebar.
 - Search bar filter live berdasarkan nama menu ter-translate; label section (`sidebar.services`/`sidebar.tools`/`sidebar.utilities`) otomatis ikut hilang kalau filter menyisakan 0 item di grup tersebut (`{filteredX.length > 0 && (...)}`).
+- **Transisi Normal <-> Collapsed Zero-Bleed & Easing Spring Sinkron:**
+  Kontainer root `<nav>` dikunci dengan `overflow-hidden` dan kurva spring responsif `ease-[cubic-bezier(0.22,1,0.36,1)] duration-300`, yang diselaraskan secara frame-by-frame dengan `transition-[margin]` area konten utama di `App.tsx`. Seluruh elemen anak (Search Bar, baris nav, ToggleSwitch, footer) berada di dalam clipping mask sehingga tidak pernah ada bagian UI yang meluber atau mendahului lebar sidebar saat interpolasi. Khusus Search Bar, input dibungkus kontainer dalam `w-[260px]` di dalam wrapper `overflow-hidden`, mencegah distorsi horizontal (*horizontal squishing*) saat sidebar menyempit.
 - **Mode collapsed (`isDesktopCollapsed`, ikon-rail 80px)** — konvensi yang harus diikuti kalau menambah item nav baru:
-  - Elemen yang cuma perlu "disembunyikan visual saat collapsed" (label teks, dsb) boleh pakai class Tailwind (`max-w-0 opacity-0`/`hidden`) karena animasinya butuh transisi width/opacity.
+  - Elemen yang cuma perlu "disembunyikan visual saat collapsed" (label teks, dsb) boleh pakai class Tailwind (`max-w-0 opacity-0`/`hidden`) karena animasinya butuh transisi width/opacity. Namun, untuk screen reader dan tes a11y, label tetap dirender via `<span className="sr-only">{label}</span>` di dalam squircle button.
+  - **Presisi Sumbu Simetri & Ergonomi Squircle (Centering):** Di dalam rail 80px, tombol navigasi tidak menggunakan `w-full text-left gap-3 px-3` (yang memicu off-center ~8px ke kiri), melainkan tombol squircle terpusat `w-11 h-11 shrink-0 mx-auto flex items-center justify-center rounded-xl transition-colors` dengan target sentuh 44x44px (Fitts's Law). Ikon berukuran statis `text-[24px] shrink-0` seragam di seluruh mode sehingga tidak pernah mengecil atau terdistorsi saat jendela dikompresi.
+  - **Mikro-Interaksi Hover ala macOS Dock (Expanding Rightward Pill):** Menghilangkan ketergantungan pada tooltip native `title` OS yang lambat (~800ms) dengan menghadirkan `CollapsedHoverPill` instan (<16ms, mematuhi Doherty Threshold). Karena kontainer navigasi memiliki `overflow-y-auto overflow-x-hidden` (yang secara spesifikasi W3C CSS Overflow akan selalu memotong elemen `absolute` di batas 80px), label melayang ini dirender melalui **React Portal (`createPortal(..., document.body)`)** di layer `z-[60]` berbasis koordinat `getBoundingClientRect()`. Kapsul beranimasi melebar ke kanan (`origin-left`, `.animate-vylo-pill-expand`), berlatar frosted glass, menampilkan nama menu dan status layanan (`Running` / `Stopped`), sementara ikon di dalam squircle membesar halus (`group-hover:scale-110`).
+  - **Ambient Status Dot pada Layanan Aktif:** Untuk item `SERVICES` (`ServiceNavItem`), status running ditandai oleh ambient green dot `absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-900` dengan `aria-label` informatif (`Apache (Running)` / `Apache (Stopped)`).
+  - **Pemisah Antar-Seksi (Dividers):** Header seksi teks disubstitusi dengan divider halus horizontal `w-8 h-px bg-slate-200 dark:bg-slate-800 mx-auto my-1.5 shrink-0` dengan `role="separator"`.
+  - **Scrollability & Footer Pinning pada Resolusi Kecil:** Container navigasi tengah menggunakan `flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar`. Scrollbar distilisasi seragam dengan Scrollbar Global Mulus aplikasi (track transparan, rounded pill thumb dengan hover dan border clip padding). `SidebarFooter` dikunci dengan `shrink-0 mt-auto bg-surface dark:bg-slate-900 z-10`, menjamin ikon System Load dan Notification Bell selalu terlihat di bagian bawah layar tanpa pernah terpotong atau terdorong ke luar viewport pada jendela berukuran vertikal kecil (lihat `docs/known_bugs.md` #99).
   - Elemen indikator interaktif **WAJIB** di-conditional-render (`{!isDesktopCollapsed && (...)}`), **BUKAN** cuma diberi class `hidden` — pernah ada bug nyata di mana class `hidden` tampak benar di kode tapi elemennya masih terlihat karena tertimpa bug CSS lain (lihat `docs/known_bugs.md` #20) sehingga sulit dibedakan mana yang benar-benar bug dan mana efek samping; conditional-render menghapus elemen dari DOM sepenuhnya, jadi tidak ambigu.
   - Item `TOOLS`/`UTILITIES` (`PlainNavItem`) saat collapsed **tidak punya indikator visual tambahan apa pun** (tidak ada flyout submenu, tidak ada ikon kedua) — cukup ikon tunggal + native `title` tooltip, identik dengan perlakuan item `SERVICES` tanpa toggle-nya. Ini bukan keterbatasan, melainkan sengaja: tidak ada lagi nested/dropdown menu di `Sidebar.tsx` sejak Tools diratakan jadi flat list.
   - Header collapsed **hanya menampilkan tombol toggle** (`menu_open`, di-mirror `scale-x-[-1]` supaya panahnya mengarah ke kanan/"expand"), logo aplikasi **disembunyikan total** saat collapsed (bukan diganti versi icon-only). Keputusan desain (lihat diskusi UI/UX terkait): logo tidak clickable/tidak fungsional saat collapsed, sementara tombol toggle adalah satu-satunya kontrol untuk kembali ke expanded — di ruang rail 80px yang sempit, prioritaskan elemen fungsional (Fitts's Law) daripada elemen dekoratif; efek sampingnya, dengan cuma 1 elemen tersisa, ikon toggle otomatis center tanpa perlu extra layout trick.
@@ -291,6 +321,46 @@ sequenceDiagram
 
 ### 4.5 `HeaderMobile.tsx`
 Header untuk layar mobile (`md:hidden`) — tombol hamburger memicu `onMenuClick` dari `App.tsx` untuk membuka overlay sidebar.
+
+### 4.6 Sistem Layout Dinamis & Koordinasi Tinggi System Logs (CSS Variable: `--system-logs-height`)
+
+`LogsPanel.tsx` berada di bagian bawah jendela dan bersifat fleksibel:
+- **Expanded:** Default ~196px (dan dapat di-resize interaktif oleh pengguna via drag handle dari 100px hingga 70% viewport).
+- **Collapsed:** Hanya merender header bar dengan tinggi ~52px.
+
+Komponen yang berada di dalam area halaman (`<AppPagesView>`) dan menggunakan `position: sticky` atau `position: fixed` (seperti Treeview, AI Doc Copilot, Peek Drawer, dan Edge Arrow pada module Markdown Viewer) **DILARANG** mengasumsikan tinggi panel bawah konstan (misalnya `calc(100vh - 240px)`).
+
+#### Mekanisme Sinkronisasi Real-Time:
+1. `LogsPanel.tsx` memasang `ResizeObserver` pada kontainer root-nya.
+2. Setiap kali terjadi perubahan ukuran (mount, toggle expand/collapse, drag resize, atau resize jendela OS), `LogsPanel` otomatis memperbarui CSS Custom Property global:
+   ```css
+   document.documentElement.style.setProperty('--system-logs-height', `${height}px`);
+   ```
+   serta membroadcast event:
+   ```javascript
+   window.dispatchEvent(new CustomEvent('vylo_system_logs_resize', { detail: { height } }));
+   ```
+3. Fallback didefinisikan secara statis di `frontend/src/index.css`:
+   ```css
+   :root {
+     --system-logs-height: 196px;
+     --header-mobile-height: 0px;
+   }
+   @media (max-width: 767px) {
+     :root {
+       --header-mobile-height: 64px;
+     }
+   }
+   ```
+4. **Pola Layout Workspace Penuh (Fill-Screen Workspace) vs Sticky Formula:**
+   - Untuk modul multi-panel workspace (seperti Terminal, AI Assistant, dan Markdown Viewer / Docs Reader), modul **WAJIB** dipromosikan ke mode `isFillScreen = true` di `App.tsx` (`flex-1 min-h-0 flex flex-col h-full overflow-hidden`).
+   - Setiap panel di dalam workspace (Treeview, Document Reader, dan AI Copilot) menggunakan `h-full min-h-0 flex flex-col` dengan area scroll internal masing-masing (`flex-1 min-h-0 overflow-y-auto`). Ini menghilangkan sindrom scrollbar ganda (*double scrollbar*), mencegah clipping kontrol bawah (seperti composer chat AI), dan membuat tinggi panel menyesuaikan secara instan saat System Logs di-resize tanpa perlu kalkulasi tinggi viewport manual.
+   - **Fixed Bounds Overlays (Peek Drawer & Edge Arrow Handle):**
+     Variabel `--system-logs-height` tetap menjadi standar utama untuk elemen yang melayang di atas kanvas (`position: fixed`):
+     - **Peek Drawer Overlay:** `top: calc(var(--header-mobile-height, 0px) + 24px); bottom: calc(var(--system-logs-height, 196px) + 16px);`
+     - **Edge Arrow Centering:** `top: calc(var(--header-mobile-height, 0px) + (100vh - var(--header-mobile-height, 0px) - var(--system-logs-height, 196px)) / 2);`
+   - **Dynamic Vertical Centering (Edge Arrow Handle):**
+     `top: calc(var(--header-mobile-height, 0px) + (100vh - var(--header-mobile-height, 0px) - var(--system-logs-height, 196px)) / 2)`
 
 ---
 
@@ -664,6 +734,9 @@ Projects Hub adalah pusat manajemen terpadu seluruh aplikasi dan workspace lokal
 | `ProjectCard.tsx` | Kartu proyek kaya fitur (*Card View*) — memuat informasi domain, document root, target port/runtime, dan **kontrol siklus hidup Dev Server** (`Play`/`Stop`/`Restart` dev server background process). Dilengkapi burger menu untuk buka di browser, buka direktori, buka di Terminal terdedikasi, setup vhost, dan dialog live logs server. |
 | `NewProject.tsx` (forwardRef) | Form proyek komprehensif 2-mode: "Fresh Install" (scaffold Laravel, Next.js, Express, FastAPI, Gin, Spring Boot, dll.) vs "Link Existing" (deteksi otomatis framework & port dari struktur direktori). Berfungsi sebagai Single Source of Truth aplikasi. |
 | `ProjectSettings.tsx` (forwardRef) | Form konfigurasi Virtual Host & Reverse Proxy — mengubah nama proyek, port proxy dev server, atau rebind versi PHP. |
+| `ProjectAppLogsModal.tsx` | Dialog inspeksi log aplikasi multi-runtime (file log framework seperti `laravel.log`, console logs) dengan auto-tailing, filter level log (Info, Warning, Error), pencarian teks bebas, dan tombol ekspor. |
+| `ProjectEnvModal.tsx` | Dialog editor berkas `.env` dengan fitur keamanan masking kunci/password sensitif, perbandingan visual baris per baris (*visual diffing*) sebelum menyimpan perubahan, dan auto-backup berkas `.env.bak`. |
+| `ProjectSslHostsModal.tsx` | Dialog pengaturan domain sekunder dan Subject Alternative Names (SAN) untuk Virtual Host proyek, otomatis memperbarui sertifikat SSL dan file hosts Windows. |
 | `ProjectServerLogsModal.tsx` | Dialog live stream log output server proses background (`get_dev_server_logs()`) dengan fitur auto-refresh dan salin log. |
 | `ProjectCliInstallModal.tsx` | Modal terminal interaktif berbasis xterm.js untuk instalasi framework CLI yang membutuhkan input interaktif pengguna. |
 | `ProjectNewModal.tsx`, `ProjectSettingsModal.tsx`, `ProjectDeleteModal.tsx` | Wrapper dialog modal khusus untuk pembuatan, pengaturan vhost, dan penghapusan virtual host/proyek. |
@@ -698,9 +771,11 @@ Fokus murni pada pengelolaan daemon web server Apache, konfigurasi server, direk
 
 | File | Peran |
 |---|---|
-| `Main.tsx` | Dual-engine (MySQL/MariaDB & PostgreSQL), tab filter client-side. Listener progress unik: `percent < 0` = reset/cancel, `percent >= 100` = auto-close modal + refetch (timer auto-hide sekarang cancelable — lihat §3.4). Dropdown aksi per-instance juga punya shortcut lihat `db_startup.log`/native `.err` (MySQL saja) via `LogFileViewerModal` (`api.get_database_log_content`) — lihat §6.3.1. **Cek update versi engine**: `checkForUpdates()` memanggil `get_available_databases(engine)` sekali per engine UNIK yang terinstal (bukan per-instance), dibandingkan via `compareVersions()` (`utils/version.ts`, BUKAN `!==` string mentah — versi terpasang yang sudah lebih baru dari hasil cek tidak boleh keliru ditandai "ada update"). Badge+dropdown mengikuti pola PHP persis (§12) via `handleUpdateDatabase()`, DITAMBAH satu langkah konfirmasi backup opsional sebelum update dijalankan (`update_database(..., backup_data)`) — beda fungsional nyata dari PHP, karena `update_php()` backend tidak punya kemampuan backup. Lihat `docs/ui_consistency_guide.md` §2 dan `docs/known_bugs.md` #51/#52. |
+| `Main.tsx` | Triple-engine (MySQL/MariaDB, PostgreSQL, dan **Redis** portable), tab filter client-side. Listener progress unik: `percent < 0` = reset/cancel, `percent >= 100` = auto-close modal + refetch (timer auto-hide sekarang cancelable — lihat §3.4). Dropdown aksi per-instance juga punya shortcut lihat `db_startup.log`/native `.err` (MySQL saja) via `LogFileViewerModal` (`api.get_database_log_content`) — lihat §6.3.1. **Cek update versi engine**: `checkForUpdates()` memanggil `get_available_databases(engine)` sekali per engine UNIK yang terinstal (bukan per-instance), dibandingkan via `compareVersions()` (`utils/version.ts`, BUKAN `!==` string mentah — versi terpasang yang sudah lebih baru dari hasil cek tidak boleh keliru ditandai "ada update"). Badge+dropdown mengikuti pola PHP persis (§12) via `handleUpdateDatabase()`, DITAMBAH satu langkah konfirmasi backup opsional sebelum update dijalankan (`update_database(..., backup_data)`) — beda fungsional nyata dari PHP, karena `update_php()` backend tidak punya kemampuan backup. Lihat `docs/ui_consistency_guide.md` §2 dan `docs/known_bugs.md` #51/#52. |
+| `DatabaseSchemaModal.tsx` | Dialog manajemen skema database visual terpadu untuk MySQL/MariaDB dan PostgreSQL: melihat daftar skema aktif, membuat skema baru, dan menghapus skema dengan validasi pencegahan penghapusan skema sistem (`information_schema`, `mysql`, `postgres`). |
+| `RedisStatsWidget.tsx` | Widget pemantauan real-time khusus instance Redis: visualisasi penggunaan memori RAM (`used_memory_human` / `maxmemory`), jumlah koneksi klien aktif, rasio keyspace hit/miss, uptime, dan tombol *Ping Latency Test* interaktif. |
 | `NewInstance.tsx` (forwardRef, expose `getFormData()` — **beda pola** dari modul lain yang expose `submit()`; parent yang panggil `api.install_database()` langsung) | Custom dropdown searchable untuk versi, deteksi OS, password wajib untuk PostgreSQL. Dropdown pencarian versi (bagian JSX paling kompleks) diekstrak ke `VersionDropdown` — lihat §5.1. `role="option"` pada item dropdown **sengaja dipertahankan** (bukan native `<option>`) karena butuh render checkmark/styling custom — lihat §5.2. |
-| `Settings.tsx` | Form config berbeda total per engine: MySQL (`innodb_buffer_pool_size`, `character_set_server`) vs PostgreSQL (`shared_buffers`, `work_mem`). |
+| `Settings.tsx` | Form config berbeda total per engine: MySQL (`innodb_buffer_pool_size`, `character_set_server`), PostgreSQL (`shared_buffers`, `work_mem`), vs Redis (`maxmemory`, `maxmemory_policy`, `appendonly`). |
 | `ChangePassword.tsx` (forwardRef, expose `submit()`) | Mengharuskan instance `status === 'running'`. Panggil `api.change_db_credentials(id, user, old, new)`. |
 
 ---
@@ -742,34 +817,77 @@ Terminal pengembang lokal terintegrasi multi-tab berbasis `xterm.js` dengan webs
 - **Runtime Environment Switcher**: Pilihan injeksi PATH runtime dinamis per-sesi (Default OS PATH vs Stack Terisolasi VyloServe).
 - **Aksi Cepat & Konteks Proyek**: Mendukung navigasi otomatis ke direktori proyek (`vylo_open_terminal_project`), copy/paste keyboard shortcut, dan clear terminal.
 
-### AI Assistant (`menu/tools/ai-assistant/`)
-Asisten AI pengembang lokal server (`Main.tsx`, `AiChatInput.tsx`, `AiChatMessage.tsx`, `AiFloatingWidget.tsx`) dengan token usage badge, multi-provider switcher (OpenAI, Anthropic, Gemini, Ollama), Markdown rendering aman, dan suggestion chips aksi server.
-
-### Tunnels (`menu/tools/tunnels/`)
-Ekspos proyek lokal ke publik lewat integrasi zrok & Cloudflare Named Tunnels dengan pemilih target proyek otomatis (`ProjectDropdown.tsx`).
-
-### Git (`tools/git/Main.tsx`)
-Struktur sama seperti Runtimes (deteksi eksternal/native, PATH toggle terkunci jika ada Git native) + form Global Config (`user.name`/`user.email` via `get_git_config`/`set_git_config`). Menggunakan `<InstalledBadge>`.
-
-### Base64 & URL Encode/Decode
-**100% client-side** — tidak ada pemanggilan `window.pywebview.api` sama sekali kecuali clipboard/toast. Base64: `TextEncoder`/`TextDecoder` + `btoa`/`atob` (UTF-8 safe), mendukung mode file (drag-drop → `FileReader.readAsDataURL`, deteksi otomatis preview image dari data-URI).
-
-### QR Code Generator (`tools/qr-generator/`)
-Generator QR code responsif (7:5 grid) untuk URL, teks biasa, email, dan konfigurasi WiFi.
-
-### Markdown Documentation Viewer (`tools/markdown-viewer/`)
-Penampil berkas dokumentasi Markdown interaktif (`Main.tsx`, `FolderTreeView.tsx`, `MarkdownRenderer.tsx`) yang terintegrasi dengan backend bridge (`md_select_directory`, `md_get_tree`, `md_read_file`, `md_get_media`).
-
-### AI Assistant Workspace (`tools/ai-assistant/Main.tsx`)
+### AI Assistant Workspace (`menu/tools/ai-assistant/Main.tsx`)
 Halaman kerja penuh terdedikasi untuk berinteraksi dengan AI Server Copilot:
 - **Layout & Navigasi**: Area percakapan luas dengan auto-scroll ke pesan terbaru, daftar prompt saran (*prompt chips*) di kondisi awal, indikator status model aktif di header, dan tombol "New Chat" untuk mereset sesi percakapan.
 - **Side Drawer Konfigurasi Cepat**: Panel samping yang dapat dibuka/tutup untuk beralih provider (OpenRouter, Ollama, Gemini, Groq), memilih model aktif dari dropdown dinamis hasil probing, dan mengakses pengaturan API key tanpa harus berpindah ke modal Settings.
 - **Konsumsi Hook `useAi()`**: Memanfaatkan context global yang sama dengan widget floating — percakapan yang dimulai di floating widget langsung terlihat di workspace ini, dan status kartu aksi tetap sinkron.
 
-### Tunnels (`tools/tunnels/Main.tsx`, `InstallTunnel.tsx`)
+### Tunnels (`menu/tools/tunnels/Main.tsx`, `InstallTunnel.tsx`)
 Integrasi DUA provider tunneling pihak ketiga untuk expose project lokal (domain `.local` Apache) ke internet publik sementara: **[zrok](https://zrok.io)** (butuh akun+token, lihat `ZrokEnableForm`/`ZrokAccountCard`) dan **Cloudflare Tunnel** (`cloudflared`, mode *quick tunnel*, tanpa akun/token — langsung share). Dipilih lewat tab internal `ActiveTab = 'all' | 'zrok' | 'cloudflare'` di dalam `Main.tsx` (bukan dua entri menu Sidebar terpisah). Mengikuti pola "Golden Standard" (`PageHeader + SkeletonCard + EmptyState + Card + Modal`, lihat §7) seperti modul lain. `ProjectDropdown` (combobox searchable, pola sama seperti `VersionDropdown` di `database/NewInstance.tsx`, lihat §7.1) untuk memilih project Apache yang akan di-tunnel. `InstallTunnel.tsx` adalah wizard instalasi environment yang **provider-agnostic** — menerima `fetchVersionsApi`/`installApi` sebagai props berupa fungsi yang sudah terikat ke provider tertentu (`Main.tsx` me-render dua instance terpisah, satu per provider; lihat `docs/known_bugs.md` #49 soal kenapa isolasi lewat callback ini dipilih, bukan argumen string `engine`). Didaftarkan di `Sidebar.tsx` grup `TOOLS` (`id: 'tunnels'`, ikon `router`) dan di-render `App.tsx` (`activeMenu === 'tunnels'`). `tunnels/Main.tsx` (1023 baris) adalah file frontend TERBESAR di repo ini.
 
 JSX diekstrak ke beberapa sub-komponen module-scope (pola sama §7.1): `ZrokSections` (pembungkus status+daftar share aktif+tombol uninstall, khusus zrok), `ShareTargetField` (pemilih target: project Apache via `ProjectDropdown` ATAU custom URL manual, dipakai kedua provider), dan `ShareModeButton` (satu tombol pill individual di dalam segmented control pemilih mode). **Segmented Control Switch** dipakai untuk memilih mode "Project" vs "Custom URL" — alih-alih `<select>`/`<Tabs>` standar, karena cuma 2 opsi mutually-exclusive yang lebih natural sebagai pill penuh (lihat `docs/ui_consistency_guide.md` §2 "BUKAN domain `<Tabs>`"): flex container berlatar gelap (`bg-slate-900/50`), tiap opsi `flex-1` supaya terbagi rata, opsi aktif mendapat background menonjol (`bg-slate-700`).
+
+### Git & GitLab CLI Integration (`menu/tools/git/`)
+Struktur pengelolaan Git komprehensif yang memadukan kontrol lokal dan integrasi cloud:
+- **Git Lokal**: Deteksi eksternal/native, toggle PATH terproteksi jika Git native terpasang, konfigurasi global (`user.name`/`user.email`), kloning remote, status working tree, staging, dan commit visual.
+- **GitLab Integration Tab (`GitLabIntegrationTab.tsx`)**:
+  - *Multi-Host Account Manager (`GitLabAccountModal.tsx`)*: Form penambahan akun GitLab.com dan server self-hosted privat dengan token PAT dan pemilihan protokol kloning default SSH/HTTPS.
+  - *VPN Probing Guard*: Toggle `requires_vpn` yang menampilkan peringatan visual kuning bila host remote tidak terjangkau.
+  - *Issues & MR Viewer*: Penjelajah daftar issue dan Merge Request aktif dengan filter status dan label.
+  - *One-Click glab Installer (`InstallGitLabModal.tsx`)*: Wizard pengunduhan biner `glab.exe` portable ke folder `bin/glab/`.
+
+### Mail Sandbox (`menu/tools/mail-sandbox/`)
+Antarmuka server catch-all SMTP pengujian email lokal (`Main.tsx`, `types.ts`):
+- **Layout Split View**: Sisi kiri menyajikan daftar email masuk real-time (waktu kedatangan, subjek, pengirim, penerima), sisi kanan menyajikan pratinjau pesan terpilih.
+- **Multi-Tab Preview**: Tab *HTML Preview* (dirender aman di dalam iframe terisolasi), tab *Text* polos, tab *MIME Headers* untuk audit header SMTP lengkap, dan tab *Attachments* berkas lampiran dengan tombol unduh langsung.
+- **Tombol Ekspor & Manajemen**: Ekspor email ke format standar `.eml` satu klik dan tombol pengosongan kotak masuk (*Clear Inbox*).
+
+### Webhook Inspector (`menu/tools/webhook-inspector/`)
+Antarmuka pengujian webhook dan logging request HTTP (`Main.tsx`, `types.ts`):
+- **Riwayat Request Real-Time**: Menampilkan metode HTTP (`POST`, `GET`, dll.), path URL, dan status code respons yang dihasilkan.
+- **Inspeksi Payload & Headers**: Penampil payload body JSON/form data dengan pewarnaan sintaks, tabel headers HTTP lengkap, dan parameter query URL.
+- **Konfigurasi Respons Kustom**: Pengaturan status code balasan daemon lokal (`200 OK`, `400 Bad Request`, `500 Internal Server Error`).
+- **Generator cURL Replay**: Tombol satu klik untuk menyalin perintah cURL terminal yang mereplikasi request yang sama secara identik.
+
+### Port Manager (`menu/tools/port-manager/`)
+Antarmuka pemindaian dan penertiban port sistem operasi Windows (`Main.tsx`):
+- **High-Density Data Table**: Menggunakan komponen `<DataTable>` untuk menyajikan daftar seluruh socket TCP aktif: Nomor Port Lokal, Bind IP, Status Koneksi (`LISTENING`/`ESTABLISHED`), PID, Nama File Executable (`.exe`), dan Jalur Direktori Aplikasi.
+- **Filter Pencarian Cepat**: Menyaring port instan berdasarkan angka port (misal `:80`) atau nama proses (misal `node`, `python`).
+- **Safe Process Killer**: Tombol pematian proses yang menyandera port dengan konfirmasi dialog peringatan, dipagari proteksi terhadap proses sistem penting Windows dan proses inti VyloServe.
+
+### Markdown Documentation Viewer (`menu/tools/markdown-viewer/`)
+Penampil berkas dokumentasi Markdown interaktif (`Main.tsx`, `FolderTreeView.tsx`, `MarkdownRenderer.tsx`) yang terintegrasi dengan backend bridge (`md_select_directory`, `md_get_tree`, `md_read_file`, `md_get_media`).
+
+### Base64 & URL Encode/Decode (`menu/tools/base64-encode-decode/`, `url-encode-decode/`)
+**100% client-side** — tidak ada pemanggilan `window.pywebview.api` sama sekali kecuali clipboard/toast. Base64: `TextEncoder`/`TextDecoder` + `btoa`/`atob` (UTF-8 safe), mendukung mode file (drag-drop → `FileReader.readAsDataURL`, deteksi otomatis preview image dari data-URI). URL: decoding/encoding komponen atau URI penuh dengan editor tabel query parameters dua arah.
+
+### Custom QR Generator (`menu/tools/qr-generator/`)
+Generator QR code responsif (7:5 grid) untuk URL, teks biasa, email, vCard kontak digital, SMS, dan konfigurasi WiFi dengan kustomisasi logo dan error correction.
+
+---
+
+## 16. Developer Utilities Hub (`src/menu/utilities/`)
+
+Hub utilitas pengembang mandiri yang beroperasi 100% di sisi klien browser (*offline-first*) dengan performa instan tanpa jeda komunikasi IPC:
+- **JSON Studio (`menu/utilities/json-studio/Main.tsx`)**:
+  - *Split Editor & Tree View*: Menampilkan input JSON teks dan tampilan hierarki pohon interaktif yang dapat dilipat/dibuka berdampingan.
+  - *Validasi Sintaks Real-Time*: Deteksi error sintaks dengan penunjuk baris dan kolom yang presisi.
+  - *Formatter & Minifier*: Tombol format rapi (indentasi 2 atau 4 spasi) dan tombol pemadatan data (*minify*).
+  - *Evaluasi Kueri JSONPath*: Menyaring data menggunakan sintaks kueri JSONPath interaktif (misal `$.data[*].id`).
+- **JWT Debugger (`menu/utilities/jwt-debugger/Main.tsx`)**:
+  - *Dekoder Segmen Tiga Warna*: Segmentasi visual kontras untuk Header (merah), Payload (ungu), dan Signature (biru).
+  - *Kalkulator Kedaluwarsa Real-Time*: Membaca klaim waktu `exp`, `nbf`, dan `iat` dengan hitung mundur waktu relatif yang diperbarui tiap detik.
+  - *Verifikasi Tanda Tangan Kunci Rahasia*: Memvalidasi keaslian tanda tangan token HMAC-SHA256 menggunakan secret key lokal secara offline.
+- **Crypto Generator & Hasher (`menu/utilities/crypto-generator/Main.tsx`)**:
+  - *Kalkulator Hashing Multi-Algoritma*: Menghasilkan hash MD5, SHA-1, SHA-256, dan SHA-512 secara instan dengan pilihan format huruf kapital/kecil.
+  - *Komputasi Kriptografi HMAC*: Perhitungan HMAC-SHA256 dan HMAC-SHA512 dengan input kunci rahasia (*Secret Key*).
+  - *Pembangkit Token & Password Berentropi Tinggi*: Pembangkit UUID v4 (tunggal maupun massal) dan generator password acak yang fleksibel (panjang, alfabet, angka, simbol).
+- **Regex & Epoch Studio (`menu/utilities/regex-epoch/Main.tsx`)**:
+  - *Interactive Regex Tester*: Editor ekspresi reguler interaktif dengan penyorotan kecocokan visual secara langsung saat mengetik, dukungan bendera regex (`g`, `i`, `m`, `s`, `u`), dan tabel grup tangkapan (*capture groups*).
+  - *Unix Epoch Time Converter*: Konverter dua arah instan antara milidetik/detik Unix epoch dan tanggal lokal/UTC yang mudah dibaca manusia, dilengkapi tombol pintas *Current Time*.
+- **Data Converter (`menu/utilities/data-converter/Main.tsx`)**:
+  - Transformasi dua arah tanpa kehilangan data (*lossless conversion*) antara struktur format **JSON**, **YAML**, **XML**, dan **CSV** dengan penanganan indentasi dan validasi format.
 
 ### `SettingsModals.tsx`
 **Direstrukturisasi total** (fitur *Unified Settings System with Theme Support*) dari beberapa modal terpisah menjadi **SATU modal tab** + 1 modal terpisah untuk konfirmasi keluar aplikasi. `SettingsModalType` sekarang hanya `'settings' | 'quit' | null` (versi dokumentasi lama menyebut 5 modal terpisah `language/about/quit/logs/updates` — ini **sudah tidak akurat**).
@@ -814,7 +932,7 @@ Komponen konfigurasi AI terpusat yang mencakup:
 
 ---
 
-## 15. Sistem i18n (Terjemahan)
+## 17. Sistem i18n (Terjemahan)
 
 - Konfigurasi murni di `src/i18n.ts` via `react-i18next` + `i18next-browser-languagedetector` (fallback `en`).
 - **Kontrak universal:** backend selalu return `{status, message: "translation.key", args?}` → frontend selalu `t(res.message, res.args || {})` sebelum `showToast(...)`.
@@ -824,7 +942,7 @@ Komponen konfigurasi AI terpusat yang mencakup:
 
 ---
 
-## 16. Known Issues — Ketidaksesuaian dengan Dokumentasi Lama
+## 18. Known Issues — Ketidaksesuaian dengan Dokumentasi Lama
 
 | # | Klaim dokumentasi lama | Realita di kode | Dampak |
 |---|---|---|---|
@@ -843,9 +961,9 @@ Komponen konfigurasi AI terpusat yang mencakup:
 
 ---
 
-## 17. Styling: Tailwind CSS v4, Cascade Layers & Ikon Material Symbols
+## 19. Styling: Tailwind CSS v4, Cascade Layers & Ikon Material Symbols
 
-### 17.1 🚨 WAJIB: Import CSS Pihak Ketiga Global Harus Pakai `layer()`
+### 19.1 🚨 WAJIB: Import CSS Pihak Ketiga Global Harus Pakai `layer()`
 
 Proyek ini pakai Tailwind v4 (`@import "tailwindcss";` di `src/index.css`), yang membungkus seluruh utility class-nya (termasuk `text-[Npx]`, `bg-[...]`, dsb) di dalam **CSS Cascade Layer** (`@layer theme, base, components, utilities;`). Menurut spesifikasi CSS Cascade Layers, **rule yang TIDAK berada di dalam layer manapun selalu menang atas rule yang berada di dalam layer manapun** — berapa pun urutan importnya secara fisik di kode, dan meskipun spesifisitas selector-nya sama. Ini bertentangan dengan asumsi umum "yang diimport belakangan yang menang".
 
@@ -862,7 +980,7 @@ Proyek ini pakai Tailwind v4 (`@import "tailwindcss";` di `src/index.css`), yang
 3. **WAJIB** posisikan `@import` baru itu **paling atas file**, tepat setelah `@import "tailwindcss";` dan **sebelum** rule non-`@import` apa pun (termasuk `@plugin "@tailwindcss/typography";`, `@tailwind base/components/utilities;` yang lama, `@theme`, dsb) — spesifikasi CSS mewajibkan semua `@import` berada di awal stylesheet (kecuali `@charset`); `@import` yang ditaruh setelah rule lain (seperti setelah `@plugin`) dianggap invalid dan **diabaikan browser** (linter SonarQube: `css:S8778`). Ini bukan teori — pernah kejadian nyata saat menambahkan `@import ... layer(base)` di atas, ditaruh setelah `@plugin` / `@tailwind`, dan baru ketahuan lewat SonarQube (lihat `docs/known_bugs.md` #20).
 4. Kalau butuh override inline satu elemen saja (bukan aturan global), **inline style `style={{ fontSize: 'Npx' }}` tetap aman dipakai** — inline style selalu menang atas layer manapun tanpa perlu utak-atik cascade, jadi valid sebagai override lokal per-elemen. (Catatan: tidak ada lagi pemakaian nyata teknik ini di `frontend/src` saat ini — semua ukuran ikon sekarang konsisten lewat utility `text-[Npx]` langsung, seperti ikon footer `Sidebar.tsx`'s `text-[18px]`, berkat fix cascade layer di poin 1-3 di atas. Teknik inline style ini tetap didokumentasikan sebagai *fallback* valid kalau suatu saat butuh override super-lokal yang tidak mau diseragamkan lewat class.)
 
-### 17.2 Cara Verifikasi Cepat (Sebelum Menyalahkan "Class Tidak Jalan")
+### 19.2 Cara Verifikasi Cepat (Sebelum Menyalahkan "Class Tidak Jalan")
 
 Kalau sebuah utility Tailwind (apa pun, bukan cuma ikon) sepertinya "tidak berpengaruh" padahal class-nya sudah benar di JSX, JANGAN langsung asumsikan class-nya salah atau typo. Cek dulu apakah ini masalah cascade layer:
 ```js

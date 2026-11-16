@@ -62,7 +62,7 @@ function AiChatContextBar({
         return (
             <div className="flex flex-wrap items-center justify-between gap-2 px-1">
                 <div className="flex flex-wrap items-center gap-2 text-xs">
-                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-slate-200/60 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono text-[11px]">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-slate-200/60 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono text-[11px] border border-slate-200/80 dark:border-slate-700/60 shadow-2xs">
                         <span className="material-symbols-outlined text-[13px] text-emerald-500">check_circle</span>
                         {t('ai.context_include_status', 'Server Status Attached')}
                     </span>
@@ -70,7 +70,7 @@ function AiChatContextBar({
                     <button
                         type="button"
                         onClick={() => onToggleContext('includeLogs')}
-                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md border text-[11px] font-medium transition-colors cursor-pointer ${
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md border text-[11px] font-medium transition-colors cursor-pointer shadow-2xs ${
                             attachedContext.includeLogs
                                 ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30'
                                 : 'bg-transparent text-slate-400 border-dashed border-slate-300 dark:border-slate-700 hover:text-slate-600 dark:hover:text-slate-300'
@@ -84,8 +84,9 @@ function AiChatContextBar({
                 </div>
 
                 {activeProvider && activeModel && (
-                    <div className="text-[11px] text-slate-400 font-mono">
-                        {activeProvider} &bull; {activeModel}
+                    <div className="text-[11px] text-slate-400 font-mono flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                        <span>{activeProvider} &bull; {activeModel}</span>
                     </div>
                 )}
             </div>
@@ -93,14 +94,14 @@ function AiChatContextBar({
     }
 
     return (
-        <div className="px-1 py-1 flex items-center gap-1.5 overflow-x-auto text-[11px]">
+        <div className="px-0.5 py-0.5 flex items-center gap-1.5 overflow-x-auto text-[11px]">
             <button
                 type="button"
                 onClick={() => onToggleContext('includeScreen')}
-                className={`px-2 py-0.5 rounded-md border text-[10px] flex items-center gap-1 shrink-0 transition-colors ${
+                className={`px-2 py-0.5 rounded-md border text-[10px] flex items-center gap-1 shrink-0 transition-colors shadow-2xs cursor-pointer ${
                     attachedContext.includeScreen
                         ? 'bg-primary/10 border-primary/30 text-primary font-medium'
-                        : 'border-slate-300 dark:border-slate-700 text-slate-500'
+                        : 'border-slate-300 dark:border-slate-700/70 text-slate-500 bg-transparent'
                 }`}
             >
                 <span className="material-symbols-outlined text-[12px]">
@@ -116,10 +117,10 @@ function AiChatContextBar({
             <button
                 type="button"
                 onClick={() => onToggleContext('includeLogs')}
-                className={`px-2 py-0.5 rounded-md border text-[10px] flex items-center gap-1 shrink-0 transition-colors ${
+                className={`px-2 py-0.5 rounded-md border text-[10px] flex items-center gap-1 shrink-0 transition-colors shadow-2xs cursor-pointer ${
                     attachedContext.includeLogs
-                        ? 'bg-primary/10 border-primary/30 text-primary font-medium'
-                        : 'border-slate-300 dark:border-slate-700 text-slate-500'
+                        ? 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400 font-medium'
+                        : 'border-slate-300 dark:border-slate-700/70 text-slate-500 bg-transparent'
                 }`}
             >
                 <span className="material-symbols-outlined text-[12px]">
@@ -234,8 +235,8 @@ const AiChatInput = forwardRef<AiChatInputHandle, AiChatInputProps>(function AiC
             <div
                 className={
                     variant === 'full'
-                        ? 'relative flex items-center gap-2 bg-white dark:bg-slate-800/90 rounded-xl border border-slate-200 dark:border-slate-700/80 p-2 shadow-inner focus-within:border-primary focus-within:ring-1 focus-within:ring-primary transition-colors'
-                        : 'flex items-center gap-2 bg-slate-50 dark:bg-slate-800/80 rounded-xl p-1.5 border border-slate-200 dark:border-slate-700/80 focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20 transition-colors'
+                        ? 'relative flex items-center gap-2 bg-white dark:bg-slate-800/90 rounded-xl border border-slate-200 dark:border-slate-700/80 p-2 shadow-2xs focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/20 transition-all'
+                        : 'relative flex items-center gap-1.5 bg-slate-50/80 dark:bg-slate-950/60 rounded-xl p-1.5 border border-slate-200 dark:border-slate-800 focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/20 transition-all'
                 }
             >
                 <label htmlFor={inputId} className="sr-only">
@@ -252,8 +253,8 @@ const AiChatInput = forwardRef<AiChatInputHandle, AiChatInputProps>(function AiC
                     placeholder={t('ai.input_placeholder', 'Ask anything about server configs, errors, or code...')}
                     className={
                         variant === 'full'
-                            ? 'flex-1 bg-transparent border-none outline-none resize-none text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 max-h-44 py-1.5 px-2 leading-normal m-0 disabled:opacity-50'
-                            : 'flex-1 bg-transparent border-none outline-none text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 resize-none max-h-24 px-2 py-1 leading-normal m-0 disabled:opacity-50'
+                            ? 'flex-1 bg-transparent border-none outline-none resize-none text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 max-h-44 py-1.5 px-2 leading-relaxed m-0 disabled:opacity-50'
+                            : 'flex-1 bg-transparent border-none outline-none text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 resize-none max-h-24 px-2 py-1 leading-relaxed m-0 disabled:opacity-50'
                     }
                 />
 
@@ -265,7 +266,7 @@ const AiChatInput = forwardRef<AiChatInputHandle, AiChatInputProps>(function AiC
                         onClick={onStop}
                         title={t('ai.stop', 'Stop')}
                         aria-label={t('ai.stop', 'Stop')}
-                        className={variant === 'full' ? 'h-9 px-3 shrink-0 shadow-xs' : 'p-1.5 rounded-lg shrink-0'}
+                        className={variant === 'full' ? 'h-9 px-3 shrink-0 shadow-xs' : 'h-8 w-8 rounded-lg shrink-0 flex items-center justify-center'}
                     >
                         {variant === 'full' && <span>{t('ai.stop', 'Stop')}</span>}
                     </Button>
@@ -278,7 +279,7 @@ const AiChatInput = forwardRef<AiChatInputHandle, AiChatInputProps>(function AiC
                         disabled={!prompt.trim() || disabled}
                         title={t('ai.send', 'Send')}
                         aria-label={t('ai.send', 'Send')}
-                        className={variant === 'full' ? 'h-9 w-9 shrink-0 shadow-xs' : 'p-1.5 rounded-lg shrink-0'}
+                        className={variant === 'full' ? 'h-9 w-9 shrink-0 shadow-xs' : 'h-8 w-8 rounded-lg shrink-0 flex items-center justify-center'}
                     />
                 )}
             </div>

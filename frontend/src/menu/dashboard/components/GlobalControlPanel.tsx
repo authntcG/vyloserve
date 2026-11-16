@@ -84,7 +84,7 @@ export function ApacheServiceCard({
         <div
             className={`flex flex-col gap-3 p-4 bg-slate-50 dark:bg-slate-950 border ${
                 included ? 'border-primary/30 shadow-sm' : 'border-slate-200 dark:border-slate-800/60 opacity-60'
-            } rounded-lg transition-[border-color,box-shadow,opacity]`}
+            } rounded-lg transition-[border-color,box-shadow,opacity] vylo-fade-in`}
         >
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
@@ -147,7 +147,7 @@ export function PhpServiceCard({
         <div
             className={`flex flex-col gap-3 p-4 bg-slate-50 dark:bg-slate-950 border ${
                 included ? 'border-primary/30 shadow-sm' : 'border-slate-200 dark:border-slate-800/60 opacity-60'
-            } rounded-lg transition-[border-color,box-shadow,opacity]`}
+            } rounded-lg transition-[border-color,box-shadow,opacity] vylo-fade-in`}
         >
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
@@ -207,7 +207,7 @@ export function DatabaseServiceCard({
         <div
             className={`flex flex-col gap-3 p-4 bg-slate-50 dark:bg-slate-950 border ${
                 included ? 'border-primary/30 shadow-sm' : 'border-slate-200 dark:border-slate-800/60 opacity-60'
-            } rounded-lg transition-[border-color,box-shadow,opacity]`}
+            } rounded-lg transition-[border-color,box-shadow,opacity] vylo-fade-in`}
         >
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">

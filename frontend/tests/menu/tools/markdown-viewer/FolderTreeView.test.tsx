@@ -47,4 +47,49 @@ describe('FolderTreeView', () => {
         fireEvent.click(dirBtn);
         expect(screen.getByText('advanced.md')).toBeInTheDocument();
     });
+
+    it('renders multiple workspace folders with separate headers and actions', () => {
+        const onSelect = vi.fn();
+        const onRemove = vi.fn();
+        const onRefresh = vi.fn();
+
+        const workspaceFolders = [
+            {
+                rootPath: '/project/docs',
+                name: 'docs',
+                children: [{ name: 'guide.md', path: '/project/docs/guide.md', type: 'file' as const }],
+            },
+            {
+                rootPath: '/project/spec',
+                name: 'spec',
+                children: [{ name: 'api.md', path: '/project/spec/api.md', type: 'file' as const }],
+            },
+        ];
+
+        render(
+            <FolderTreeView
+                workspaceFolders={workspaceFolders}
+                onSelectFile={onSelect}
+                onRemoveFolder={onRemove}
+                onRefreshFolder={onRefresh}
+            />
+        );
+
+        expect(screen.getByText('docs')).toBeInTheDocument();
+        expect(screen.getByText('spec')).toBeInTheDocument();
+        expect(screen.getByText('guide.md')).toBeInTheDocument();
+        expect(screen.getByText('api.md')).toBeInTheDocument();
+
+        // Remove folder button
+        const removeButtons = screen.getAllByRole('button', { name: 'tools.docs_reader.remove_folder' });
+        expect(removeButtons).toHaveLength(2);
+        fireEvent.click(removeButtons[0]);
+        expect(onRemove).toHaveBeenCalledWith('/project/docs');
+
+        // Refresh folder button
+        const refreshButtons = screen.getAllByRole('button', { name: 'tools.docs_reader.refresh_folder' });
+        expect(refreshButtons).toHaveLength(2);
+        fireEvent.click(refreshButtons[1]);
+        expect(onRefresh).toHaveBeenCalledWith('/project/spec');
+    });
 });

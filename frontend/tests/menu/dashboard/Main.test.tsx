@@ -340,4 +340,19 @@ describe('DashboardMain', () => {
 
         expect(await screen.findByText('dashboard.no_version_installed')).toBeInTheDocument();
     });
+
+    it('renders a skeleton suggestion banner while dashboard is loading initially', () => {
+        mockPywebviewApi({
+            get_all_services_status: vi.fn().mockReturnValue(new Promise(() => {})),
+            get_apache_installed_versions: vi.fn().mockReturnValue(new Promise(() => {})),
+            get_installed_php: vi.fn().mockReturnValue(new Promise(() => {})),
+            get_installed_databases: vi.fn().mockReturnValue(new Promise(() => {})),
+            get_projects: vi.fn().mockReturnValue(new Promise(() => {})),
+            get_dashboard_config: vi.fn().mockReturnValue(new Promise(() => {})),
+        });
+        renderWithToast(<DashboardMain />);
+
+        const loadingStatuses = screen.getAllByRole('status');
+        expect(loadingStatuses.some(el => el.getAttribute('aria-busy') === 'true')).toBe(true);
+    });
 });

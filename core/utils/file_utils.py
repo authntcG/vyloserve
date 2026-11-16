@@ -1,6 +1,10 @@
 import os
+import sys
 import json
 import time
+import stat
+import shutil
+import subprocess
 import zipfile
 import tarfile
 import urllib.request
@@ -247,8 +251,27 @@ def _extract_zip(file_path: str, extract_to: str, progress_cb: Optional[Callable
                     progress_cb(extract_percent, "backend.common.extracting_files", {"index": index, "total": total_files})
                     last_percent = extract_percent
 
+def _ensure_executable_permissions(target_dir: str):
+    """
+    Memastikan berkas di folder bin/ atau berkas executable mendapatkan izin 0o755
+    pada platform Linux / macOS.
+    """
+    if sys.platform == 'win32' or not os.path.exists(target_dir):
+        return
+    for root, _, files in os.walk(target_dir):
+        is_bin_folder = os.path.basename(root) == 'bin' or 'bin' in root.split(os.sep)
+        for f in files:
+            file_path = os.path.join(root, f)
+            try:
+                if is_bin_folder or '.' not in f or f.endswith(('.sh', '.bin', '.so')):
+                    current_mode = os.stat(file_path).st_mode
+                    os.chmod(file_path, current_mode | 0o755)  # NOSONAR python:S2612
+            except Exception:
+                pass
+
 def _extract_tar_gz(file_path: str, extract_to: str, progress_cb: Optional[Callable[[int, str], None]], cancel_check: Optional[Callable[[], bool]] = None):
-    with tarfile.open(file_path, 'r:gz') as tar_ref:
+    tar_mode = 'r:gz' if file_path.endswith(('.tar.gz', '.tgz')) else 'r:*'
+    with tarfile.open(file_path, tar_mode) as tar_ref:
         members = tar_ref.getmembers()
 
         for member in members:
@@ -265,11 +288,34 @@ def _extract_tar_gz(file_path: str, extract_to: str, progress_cb: Optional[Calla
 
         if progress_cb: progress_cb(80, "backend.common.extract_complete")
 
+def _dispatch_extraction(file_path: str, extract_to: str, progress_cb, cancel_check):
+    lower_path = file_path.lower()
+
+    if lower_path.endswith('.zip'):
+        try:
+            _extract_zip(file_path, extract_to, progress_cb, cancel_check=cancel_check)
+            return
+        except zipfile.BadZipFile:
+            if os.path.exists(file_path) and tarfile.is_tarfile(file_path):
+                _extract_tar_gz(file_path, extract_to, progress_cb, cancel_check=cancel_check)
+                return
+            raise
+
+    if lower_path.endswith(('.tar.gz', '.tgz', '.tar.xz', '.tar.bz2', '.tar')):
+        _extract_tar_gz(file_path, extract_to, progress_cb, cancel_check=cancel_check)
+        return
+
+    if os.path.exists(file_path):
+        if zipfile.is_zipfile(file_path):
+            _extract_zip(file_path, extract_to, progress_cb, cancel_check=cancel_check)
+        elif tarfile.is_tarfile(file_path):
+            _extract_tar_gz(file_path, extract_to, progress_cb, cancel_check=cancel_check)
+
 def extract_archive(file_path: str, extract_to: str, 
                     progress_cb: Optional[Callable[[int, str], None]] = None,
                     cancel_check: Optional[Callable[[], bool]] = None) -> bool:
     """
-    Mengekstrak file Arsip (.zip atau .tar.gz) secara universal dengan aman.
+    Mengekstrak file Arsip (.zip, .tar.gz, .tgz, .tar.xz) secara universal dengan aman.
     Mendukung pelaporan progress persentase jika callback disertakan dan pembatalan operasi.
     
     Args:
@@ -285,11 +331,8 @@ def extract_archive(file_path: str, extract_to: str,
         raise OperationCancelledError(MSG_EXTRACTION_CANCELLED)
 
     try:
-        if file_path.endswith('.zip'):
-            _extract_zip(file_path, extract_to, progress_cb, cancel_check=cancel_check)
-        elif file_path.endswith('.tar.gz'):
-            _extract_tar_gz(file_path, extract_to, progress_cb, cancel_check=cancel_check)
-                
+        _dispatch_extraction(file_path, extract_to, progress_cb, cancel_check)
+        _ensure_executable_permissions(extract_to)
         return True
     except OperationCancelledError:
         raise
@@ -416,3 +459,145 @@ def download_advanced(url: str, dest_path: str,
         _download_single_stream(url, dest_path, total_size, progress_cb, log_cb, cancel_check=cancel_check)
         
     return True
+
+def _on_rm_error(func: Callable, path: str, _exc_info: Any) -> None:
+    """
+    Error handler untuk shutil.rmtree.
+    Menghapus atribut read-only dan memberikan write permission pada file/folder
+    sebelum mencoba menghapus kembali (menangani Windows WinError 5 dan Linux EACCES).
+    """
+    try:
+        os.chmod(path, stat.S_IWRITE | stat.S_IREAD | stat.S_IEXEC)
+        func(path)
+    except Exception:
+        pass
+
+def safe_rmtree(target_path: str, force: bool = True) -> bool:
+    """
+    Menghapus direktori secara rekursif dan aman lintas platform.
+    Menangani atribut read-only (Windows/POSIX), serta melakukan fallback eskalasi
+    terkendali (pkexec di Linux) jika penghapusan terhalang kepemilikan asing (root/www-data).
+    
+    Args:
+        target_path: Path absolut direktori yang akan dihapus.
+        force: Jika True, mencoba eskalasi via pkexec di Linux jika normal removal gagal.
+        
+    Returns:
+        bool: True jika target_path berhasil dihapus (atau memang tidak ada), False jika gagal.
+    """
+    if not target_path or not os.path.exists(target_path):
+        return True
+    
+    try:
+        shutil.rmtree(target_path, onerror=_on_rm_error)
+    except Exception:
+        pass
+
+    if not os.path.exists(target_path):
+        return True
+
+    # Jika masih ada sisa file/direktori dan berjalan di Linux dengan flag force=True
+    if sys.platform != 'win32' and force:
+        pkexec = shutil.which("pkexec")
+        if pkexec:
+            try:
+                res = subprocess.run([pkexec, "rm", "-rf", target_path], capture_output=True)
+                if res.returncode == 0 and not os.path.exists(target_path):
+                    return True
+            except Exception:
+                pass
+
+    return not os.path.exists(target_path)
+
+def _is_foreign_stat(st, target_uid: int, target_gid: int) -> bool:
+    return st.st_uid != target_uid or st.st_gid != target_gid
+
+def _check_walk_foreign_ownership(path: str, target_uid: int, target_gid: int) -> bool:
+    for root, dirs, files in os.walk(path):
+        st_root = os.stat(root)
+        if _is_foreign_stat(st_root, target_uid, target_gid):
+            return True
+        for item in files + dirs:
+            p = os.path.join(root, item)
+            try:
+                st = os.lstat(p)
+                if _is_foreign_stat(st, target_uid, target_gid):
+                    return True
+            except OSError:
+                pass
+    return False
+
+def _check_foreign_ownership(path: str, recursive: bool, target_uid: int, target_gid: int) -> bool:
+    try:
+        if not (os.path.isdir(path) and recursive):
+            st = os.stat(path)
+            return _is_foreign_stat(st, target_uid, target_gid)
+        return _check_walk_foreign_ownership(path, target_uid, target_gid)
+    except Exception:
+        return True
+
+def _chown_with_pkexec(path: str, recursive: bool, target_uid: int, target_gid: int) -> bool:
+    pkexec = shutil.which("pkexec")
+    if not pkexec:
+        return False
+    try:
+        chown_cmd = (
+            [pkexec, "chown", "-R", f"{target_uid}:{target_gid}", path]
+            if recursive and os.path.isdir(path)
+            else [pkexec, "chown", f"{target_uid}:{target_gid}", path]
+        )
+        res = subprocess.run(chown_cmd, capture_output=True)
+        return res.returncode == 0
+    except Exception:
+        return False
+
+def _try_chmod(path: str, mode: int) -> None:
+    try:
+        os.chmod(path, mode)  # NOSONAR python:S2612
+    except OSError:
+        pass
+
+def _apply_recursive_chmod(path: str) -> None:
+    for root, _, files in os.walk(path):
+        _try_chmod(root, 0o775)
+        for f in files:
+            _try_chmod(os.path.join(root, f), 0o664)
+
+def _apply_chmod_permissions(path: str, recursive: bool) -> bool:
+    try:
+        if os.path.isdir(path) and recursive:
+            _apply_recursive_chmod(path)
+        elif os.path.isdir(path):
+            os.chmod(path, 0o775)  # NOSONAR python:S2612
+        else:
+            os.chmod(path, 0o664)  # NOSONAR python:S2612
+        return True
+    except Exception:
+        return False
+
+def fix_file_permissions(path: str, recursive: bool = True) -> bool:
+    """
+    Menormalkan kepemilikan dan hak akses file/direktori agar 100% dimiliki oleh
+    user yang sedang aktif di Linux. Di Windows, fungsi ini mengembalikan True (no-op).
+    
+    Args:
+        path: Path ke file atau direktori.
+        recursive: Apakah penyesuaian hak akses dilakukan secara rekursif jika berupa direktori.
+        
+    Returns:
+        bool: True jika berhasil atau di Windows, False jika gagal.
+    """
+    if sys.platform == 'win32' or not os.path.exists(path):
+        return True
+
+    try:
+        target_uid = os.getuid()
+        target_gid = os.getgid()
+    except AttributeError:
+        return True
+
+    if _check_foreign_ownership(path, recursive, target_uid, target_gid):
+        if not _chown_with_pkexec(path, recursive, target_uid, target_gid):
+            return False
+
+    return _apply_chmod_permissions(path, recursive)

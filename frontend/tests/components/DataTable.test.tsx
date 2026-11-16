@@ -76,7 +76,7 @@ describe('DataTable', () => {
     });
 
     it('renders loading indicator when isLoading is true', () => {
-        render(
+        const { container } = render(
             <DataTable
                 data={[]}
                 columns={testColumns}
@@ -85,7 +85,32 @@ describe('DataTable', () => {
             />
         );
 
-        expect(screen.getByText('Loading...')).toBeInTheDocument();
+        expect(screen.getAllByText('Loading...').length).toBeGreaterThan(0);
+        const skeletonRows = container.querySelectorAll('tbody tr[aria-busy="true"]');
+        expect(skeletonRows).toHaveLength(5);
+    });
+
+    it('implements Stale-While-Revalidate by retaining existing rows and showing top progress indicator during refresh', () => {
+        const { container } = render(
+            <DataTable
+                data={testData}
+                columns={testColumns}
+                keyExtractor={(item) => item.id}
+                isLoading
+            />
+        );
+
+        // Existing data rows must remain in the document
+        expect(screen.getByText('Apache HTTP')).toBeInTheDocument();
+        expect(screen.getByText('PHP-FPM')).toBeInTheDocument();
+
+        // Top progress bar indicator must be visible via output element
+        const progressBar = container.querySelector('output');
+        expect(progressBar).toBeInTheDocument();
+
+        // Table body should have reduced opacity class for refresh
+        const tbody = container.querySelector('tbody');
+        expect(tbody).toHaveClass('opacity-60');
     });
 
     it('applies density styles (compact, normal, relaxed)', () => {

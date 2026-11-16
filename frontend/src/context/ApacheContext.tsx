@@ -20,6 +20,7 @@ export interface ApacheContextValue {
     isApacheRunning: boolean;
     isTogglingServer: boolean;
     portsStatus: PortsStatusData | null;
+    systemApache: { exists: boolean; version: string; path: string; running: boolean } | null;
 
     // Installation
     isInstallServerOpen: boolean;
@@ -85,6 +86,7 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
     const [isTogglingServer, setIsTogglingServer] = useState(false);
     const [updateAvailable, setUpdateAvailable] = useState<string | null>(null);
     const [portsStatus, setPortsStatus] = useState<PortsStatusData | null>(null);
+    const [systemApache, setSystemApache] = useState<{ exists: boolean; version: string; path: string; running: boolean } | null>(null);
 
     const [isInstallServerOpen, setIsInstallServerOpen] = useState(false);
     const [availableVersions, setAvailableVersions] = useState<ApacheVersionData[]>([]);
@@ -110,8 +112,10 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
     }, []);
 
     const openLocalhost = useCallback(() => {
-        window.pywebview?.api?.open_browser?.('http://localhost');
-    }, []);
+        const port = portsStatus?.http?.port || httpPort || 80;
+        const url = port === 80 ? 'http://localhost' : `http://localhost:${port}`;
+        window.pywebview?.api?.open_browser?.(url);
+    }, [portsStatus, httpPort]);
 
     const openHtdocs = useCallback(() => {
         window.pywebview?.api?.open_apache_htdocs?.();
@@ -182,6 +186,11 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
                 setIsApacheInstalled(res.installed);
                 setApachePath(res.path || tRef.current('apache.not_installed'));
                 setIsApacheRunning(res.running || false);
+                setSystemApache(res.system_apache || null);
+                if (res.system_apache?.exists && isInstallServerOpen) {
+                    showToast(tRef.current('apache.system_installed_success'), 'success');
+                    setIsInstallServerOpen(false);
+                }
             }
             await fetchPortsStatus();
             await syncApacheVersions(isInstalled);
@@ -463,6 +472,7 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
         handleUpdateApacheClick,
         handleUninstall,
         portsStatus,
+        systemApache,
         openConfigFile,
         openDirectory,
         openLocalhost,
@@ -504,6 +514,7 @@ export function ApacheProvider({ children }: { readonly children: React.ReactNod
         handleCancelInstall,
         handleUpdateApacheClick,
         handleUninstall,
+        systemApache,
         openConfigFile,
         openDirectory,
         openLocalhost,

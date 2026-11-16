@@ -481,4 +481,189 @@ def test_sync_theme_bootstrap_file_fallback_on_invalid_theme(tmp_path):
         assert 'window.__VYLO_INITIAL_THEME__ = "vyloserve-dark";' in pub_file.read_text(encoding="utf-8")
 
 
+def test_open_path_in_file_manager_invalid_path():
+    from core.utils.system_utils import open_path_in_file_manager
+    assert open_path_in_file_manager("") is False
+    with patch('sys.platform', 'linux'):
+        assert open_path_in_file_manager("/path/does/not/exist/anywhere") is False
+
+
+def test_open_path_in_file_manager_windows(tmp_path):
+    from core.utils.system_utils import open_path_in_file_manager
+    test_dir = str(tmp_path)
+    with patch('sys.platform', 'win32'), patch('os.startfile', create=True) as mock_start:
+        assert open_path_in_file_manager(test_dir) is True
+        mock_start.assert_called_once_with(test_dir)
+
+
+def test_open_path_in_file_manager_linux(tmp_path):
+    from core.utils.system_utils import open_path_in_file_manager
+    test_dir = str(tmp_path)
+    with patch('sys.platform', 'linux'), patch('subprocess.Popen') as mock_popen:
+        assert open_path_in_file_manager(test_dir) is True
+        mock_popen.assert_called_once_with(['xdg-open', test_dir])
+
+
+def test_open_path_in_file_manager_darwin(tmp_path):
+    from core.utils.system_utils import open_path_in_file_manager
+    test_dir = str(tmp_path)
+    with patch('sys.platform', 'darwin'), patch('subprocess.Popen') as mock_popen:
+        assert open_path_in_file_manager(test_dir) is True
+        mock_popen.assert_called_once_with(['open', test_dir])
+
+
+def test_kill_process_tree_invalid_pid():
+    from core.utils.system_utils import kill_process_tree
+    assert kill_process_tree(0) is False
+    assert kill_process_tree(-1) is False
+
+
+def test_kill_process_tree_success():
+    from core.utils.system_utils import kill_process_tree
+    mock_parent = MagicMock()
+    mock_child = MagicMock()
+    mock_parent.children.return_value = [mock_child]
+
+    with patch('psutil.Process', return_value=mock_parent), \
+         patch('psutil.wait_procs', return_value=([mock_child, mock_parent], [])):
+        assert kill_process_tree(1234) is True
+        mock_child.terminate.assert_called_once()
+        mock_parent.terminate.assert_called_once()
+
+
+def test_get_ipc_endpoint_windows():
+    from core.utils.system_utils import get_ipc_endpoint
+    with patch('sys.platform', 'win32'):
+        endpoint_prod, family_prod = get_ipc_endpoint(is_production=True)
+        assert endpoint_prod == r'\\.\pipe\VyloServe_IPC_v1'
+        assert family_prod == 'AF_PIPE'
+
+        endpoint_dev, family_dev = get_ipc_endpoint(is_production=False)
+        assert endpoint_dev == r'\\.\pipe\VyloServe_Dev_IPC_v1'
+        assert family_dev == 'AF_PIPE'
+
+
+def test_get_ipc_endpoint_linux():
+    from core.utils.system_utils import get_ipc_endpoint
+    with patch('sys.platform', 'linux'):
+        endpoint_prod, family_prod = get_ipc_endpoint(is_production=True)
+        assert 'vyloserve_ipc.sock' in endpoint_prod
+        assert family_prod == 'AF_UNIX'
+
+        endpoint_dev, family_dev = get_ipc_endpoint(is_production=False)
+        assert 'vyloserve_dev_ipc.sock' in endpoint_dev
+        assert family_dev == 'AF_UNIX'
+
+
+def test_acquire_single_instance_lock_windows():
+    from core.utils.system_utils import acquire_single_instance_lock
+    with patch('sys.platform', 'win32'):
+        is_first, handle = acquire_single_instance_lock("test_lock")
+        assert is_first is True
+        assert handle is None
+
+
+def test_acquire_single_instance_lock_linux(tmp_path):
+    from core.utils.system_utils import acquire_single_instance_lock
+    mock_fcntl = MagicMock()
+    with patch('sys.platform', 'linux'), patch('os.path.expanduser', return_value=str(tmp_path)), patch.dict('sys.modules', {'fcntl': mock_fcntl}):
+        is_first, handle = acquire_single_instance_lock("test_lock")
+        assert is_first is True
+        assert handle is not None
+        handle.close()
+
+
+def test_set_path_in_env_windows():
+    from core.utils.system_utils import set_path_in_env
+    with patch('sys.platform', 'win32'):
+        env = {"Path": r"C:\Windows\System32;C:\Windows", "OTHER": "val"}
+        result = set_path_in_env(env, [r"C:\VyloServe\bin\node", r"C:\VyloServe\bin\python"])
+        # Di Windows, key 'PATH' dan 'Path' harus disinkronkan dan tidak ada duplikasi
+        assert "PATH" in result
+        assert "Path" in result
+        assert result["PATH"] == result["Path"]
+        parts = result["PATH"].split(";")
+        assert parts[0] == r"C:\VyloServe\bin\node"
+        assert parts[1] == r"C:\VyloServe\bin\python"
+        assert r"C:\Windows\System32" in parts
+
+
+def test_set_path_in_env_linux():
+    from core.utils.system_utils import set_path_in_env
+    with patch('sys.platform', 'linux'), patch('os.pathsep', ':'):
+        env = {"PATH": "/usr/bin:/bin"}
+        result = set_path_in_env(env, ["/opt/vyloserve/bin/node", "/opt/vyloserve/bin/python"])
+        assert "PATH" in result
+        parts = result["PATH"].split(os.pathsep)
+        assert parts[0] == "/opt/vyloserve/bin/node"
+        assert parts[1] == "/opt/vyloserve/bin/python"
+        assert "/usr/bin" in parts
+
+
+def test_set_path_in_env_deduplication():
+    from core.utils.system_utils import set_path_in_env
+    with patch('sys.platform', 'linux'), patch('os.pathsep', ':'):
+        env = {"PATH": "/bin:/usr/bin"}
+        result = set_path_in_env(env, ["/opt/vyloserve/bin", "/bin"])
+        parts = result["PATH"].split(os.pathsep)
+        assert parts.count("/bin") == 1
+        assert parts[0] == "/opt/vyloserve/bin"
+        assert parts[1] == "/bin"
+
+
+def test_get_current_username():
+    from core.utils.system_utils import get_current_username
+    username = get_current_username()
+    assert isinstance(username, str)
+    assert len(username) > 0
+
+
+def test_get_current_user_group():
+    from core.utils.system_utils import get_current_user_group
+    with patch('sys.platform', 'win32'):
+        assert get_current_user_group() == ''
+
+    with patch('sys.platform', 'linux'):
+        grp = get_current_user_group()
+        assert isinstance(grp, str)
+
+
+def test_ensure_user_path_env_linux(tmp_path):
+    from core.utils.system_utils import ensure_user_path_env_linux
+    with patch('sys.platform', 'win32'):
+        assert ensure_user_path_env_linux() is False
+
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    bashrc = fake_home / ".bashrc"
+    bashrc.write_text("# existing bashrc\n")
+
+    with patch('sys.platform', 'linux'):
+        with patch('os.path.expanduser', side_effect=lambda p: str(fake_home / p.replace('~/', '').replace('~', ''))):
+            with patch.dict(os.environ, {"PATH": "/usr/bin:/bin"}, clear=True):
+                res = ensure_user_path_env_linux()
+                assert res is True
+                assert 'export PATH="$HOME/.local/bin:$PATH"' in bashrc.read_text()
+
+
+def test_check_system_service_conflict():
+    from core.utils.system_utils import check_system_service_conflict
+    with patch('sys.platform', 'win32'):
+        assert check_system_service_conflict(80) is None
+
+    with patch('sys.platform', 'linux'):
+        with patch('shutil.which', return_value='/usr/bin/systemctl'):
+            with patch('subprocess.run') as mock_sub:
+                # First service returns 1 (inactive), second returns 0 (active)
+                mock_sub.side_effect = [
+                    MagicMock(returncode=1),
+                    MagicMock(returncode=0),
+                ]
+                svc = check_system_service_conflict(80)
+                assert svc == "httpd"
+
+
+
+
+
 

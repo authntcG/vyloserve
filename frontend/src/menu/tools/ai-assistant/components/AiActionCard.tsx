@@ -3,9 +3,15 @@ import { useTranslation } from 'react-i18next';
 import { useOptionalAiAssistant } from '../../../../context/AiContext';
 
 export interface VyloActionPayload {
-    service: 'apache' | 'php' | 'database';
-    action: 'start' | 'stop' | 'restart' | 'switch_version' | 'start_all' | 'stop_all';
+    service: 'apache' | 'php' | 'database' | 'gitlab';
+    action: 'start' | 'stop' | 'restart' | 'switch_version' | 'start_all' | 'stop_all' | 'comment_issue' | 'comment_mr' | 'create_issue';
     target?: string;
+    params?: {
+        repo?: string;
+        comment?: string;
+        title?: string;
+        description?: string;
+    };
     label?: string;
 }
 
@@ -86,7 +92,7 @@ export default function AiActionCard({ action, actionKey, onExecuted }: AiAction
     };
 
     // Service meta
-    const serviceMeta = {
+    const serviceMetaMap: Record<string, { name: string; icon: string; color: string }> = {
         apache: {
             name: t('ai.action_service_apache', 'Apache HTTP Server'),
             icon: 'dns',
@@ -102,21 +108,31 @@ export default function AiActionCard({ action, actionKey, onExecuted }: AiAction
             icon: 'database',
             color: 'text-amber-500 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/60',
         },
-    }[action.service] || {
+        gitlab: {
+            name: t('tools.gitlab.title', 'GitLab Integration'),
+            icon: 'integration_instructions',
+            color: 'text-orange-500 bg-orange-50 dark:bg-orange-950/40 border-orange-200 dark:border-orange-800/60',
+        },
+    };
+    const serviceMeta = serviceMetaMap[action.service] || {
         name: action.service,
         icon: 'settings',
         color: 'text-slate-500 bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800',
     };
 
     // Action label
-    const actionLabel = {
+    const actionLabelMap: Record<string, string> = {
         start: t('ai.action_type_start', 'Start Service'),
         stop: t('ai.action_type_stop', 'Stop Service'),
         restart: t('ai.action_type_restart', 'Restart Service'),
         switch_version: t('ai.action_type_switch_version', 'Switch Version'),
         start_all: t('ai.action_type_start_all', 'Start All Services'),
         stop_all: t('ai.action_type_stop_all', 'Stop All Services'),
-    }[action.action] || action.action;
+        comment_issue: t('tools.gitlab.send_comment', 'Send to GitLab'),
+        comment_mr: t('tools.gitlab.send_comment', 'Send to GitLab'),
+        create_issue: t('tools.gitlab.create_issue', 'Create Issue'),
+    };
+    const actionLabel = actionLabelMap[action.action] || action.action;
 
     const handleExecute = async () => {
         updateStatus('executing');

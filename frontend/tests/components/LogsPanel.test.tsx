@@ -238,4 +238,34 @@ describe('LogsPanel', () => {
         expect(screen.getByText('msg-10')).toBeInTheDocument();
         expect(screen.getByText('msg-509')).toBeInTheDocument();
     });
+
+    it('sets --system-logs-height on :root and dispatches vylo_system_logs_resize event', async () => {
+        const user = userEvent.setup();
+        const resizeListener = vi.fn();
+        window.addEventListener('vylo_system_logs_resize', resizeListener);
+
+        render(<LogsPanel />);
+
+        const panelEl = screen.getByText('components.logs.title').closest('.bg-white') as HTMLElement;
+        expect(panelEl).toBeInTheDocument();
+
+        vi.spyOn(panelEl, 'getBoundingClientRect').mockReturnValue({
+            height: 196,
+            width: 800,
+            top: 600,
+            bottom: 796,
+            left: 0,
+            right: 800,
+            x: 0,
+            y: 600,
+            toJSON: () => {},
+        });
+
+        // Toggle collapse
+        await user.click(screen.getByText('expand_more'));
+        expect(resizeListener).toHaveBeenCalled();
+        expect(document.documentElement.style.getPropertyValue('--system-logs-height')).toBe('196px');
+
+        window.removeEventListener('vylo_system_logs_resize', resizeListener);
+    });
 });

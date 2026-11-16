@@ -77,7 +77,7 @@ export default function SystemResourcesCard() {
                     ))}
                 </div>
             ) : (
-                <div className="flex flex-col gap-4 mt-2">
+                <div className="flex flex-col gap-4 mt-2 vylo-fade-in">
                     <div className="flex flex-col gap-1">
                         <div className="flex justify-between items-center text-sm font-medium">
                             <span className="text-slate-600 dark:text-slate-300 flex items-center gap-1.5">

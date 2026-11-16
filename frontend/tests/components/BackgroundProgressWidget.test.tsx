@@ -43,4 +43,56 @@ describe('BackgroundProgressWidget', () => {
 
         expect(onRestore).toHaveBeenCalledTimes(1);
     });
+
+    it('triggers onRestore on keyboard Enter or Space key press', () => {
+        const onRestore = vi.fn();
+        render(<BackgroundProgressWidget isOpen={true} progress={25} progressText="Keyboard test" onRestore={onRestore} />);
+
+        const widget = screen.getByRole('button');
+        widget.focus();
+        widget.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        expect(onRestore).toHaveBeenCalledTimes(1);
+
+        widget.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+        expect(onRestore).toHaveBeenCalledTimes(2);
+    });
+
+    it('renders cancel button and triggers onCancel stopping propagation when clicked or shows cancelling spinner', async () => {
+        const user = userEvent.setup();
+        const onRestore = vi.fn();
+        const onCancel = vi.fn();
+
+        const { rerender } = render(
+            <BackgroundProgressWidget
+                isOpen={true}
+                progress={35}
+                progressText="Processing..."
+                onRestore={onRestore}
+                onCancel={onCancel}
+                isCancelling={false}
+            />
+        );
+
+        const cancelBtn = screen.getByRole('button', { name: 'common.cancel_install' });
+        expect(cancelBtn).toBeInTheDocument();
+        expect(cancelBtn).toBeEnabled();
+
+        await user.click(cancelBtn);
+        expect(onCancel).toHaveBeenCalledTimes(1);
+        expect(onRestore).not.toHaveBeenCalled();
+
+        rerender(
+            <BackgroundProgressWidget
+                isOpen={true}
+                progress={35}
+                progressText="Cancelling..."
+                onRestore={onRestore}
+                onCancel={onCancel}
+                isCancelling={true}
+            />
+        );
+
+        expect(screen.getByRole('button', { name: 'common.cancel_install' })).toBeDisabled();
+        expect(screen.getByText('progress_activity')).toBeInTheDocument();
+    });
 });

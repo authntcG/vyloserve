@@ -41,7 +41,7 @@ export default function RecentProjectsSection(props: RecentProjectsSectionProps)
     }
 
     return (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 vylo-fade-in">
             {projects.map(proj => (
                 <div
                     key={proj.id}

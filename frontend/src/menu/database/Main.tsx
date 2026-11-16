@@ -23,6 +23,7 @@ import DatabasePasswordModal from './DatabasePasswordModal';
 import DatabaseSettingsModal from './DatabaseSettingsModal';
 import DatabaseSchemaModal from './DatabaseSchemaModal';
 import DatabaseTable from './DatabaseTable';
+import RedisStatsWidget from './RedisStatsWidget';
 
 export type { DbInstance, DbEngineType, AvailableUpdate } from '../../context/DatabaseContext';
 
@@ -70,6 +71,8 @@ function DatabaseMainView() {
         handleToggleDB,
         handleUpdateDatabase,
         handleConfirmUninstall,
+        handleFlushRedis,
+        redisRefreshTrigger,
     } = useDatabase();
 
     const [viewMode, setViewMode] = usePersistedViewMode('database', 'card');
@@ -157,6 +160,7 @@ function DatabaseMainView() {
                                 dbInstances={filteredInstances}
                                 togglingDbId={togglingDbId}
                                 availableUpdates={availableUpdates}
+                                isInstalling={isInstalling}
                                 filters={filterChipsElement}
                                 emptyState={noMatchingEmptyState}
                                 onToggleStatus={handleToggleDB}
@@ -166,6 +170,7 @@ function DatabaseMainView() {
                                 onOpenConfigFile={(db) => window.pywebview?.api?.open_db_config_file(db.id)}
                                 onOpenDataDir={(db) => window.pywebview?.api?.open_db_dir(db.id)}
                                 onOpenLogs={(db, type) => setLogViewer({ dbId: db.id, type })}
+                                onFlushRedis={handleFlushRedis}
                                 onUpdateDatabase={handleUpdateDatabase}
                                 onUninstallDatabase={handleConfirmUninstall}
                             />
@@ -201,6 +206,17 @@ function DatabaseMainView() {
                                                     >
                                                         <span className="material-symbols-outlined text-[16px] text-slate-400 shrink-0">database</span>
                                                         <span className="truncate">{t('database.manage_schemas')}</span>
+                                                    </button>
+                                                )}
+                                                {db.engine === 'redis' && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleFlushRedis(db)}
+                                                        disabled={!isRunning}
+                                                        className="w-full text-left px-3.5 py-2 text-xs flex items-center gap-2.5 text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                                    >
+                                                        <span className="material-symbols-outlined text-[16px] text-rose-500 shrink-0">cleaning_services</span>
+                                                        <span className="truncate">{t('database.flush_redis')}</span>
                                                     </button>
                                                 )}
                                                 <button
@@ -298,6 +314,18 @@ function DatabaseMainView() {
                                                         <span className="truncate">{t('database.manage_schemas')}</span>
                                                     </button>
                                                 )}
+                                                {isRunning && db.engine === 'redis' && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleFlushRedis(db)}
+                                                        title={t('database.flush_redis')}
+                                                        aria-label={t('database.flush_redis')}
+                                                        className="flex-1 min-w-0 bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 dark:bg-slate-950 dark:border-rose-900/50 dark:text-rose-400 dark:hover:bg-rose-950/30 text-sm font-medium py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 shadow-xs transition-colors"
+                                                    >
+                                                        <span className="material-symbols-outlined text-[18px] shrink-0">cleaning_services</span>
+                                                        <span className="truncate">{t('database.flush_redis')}</span>
+                                                    </button>
+                                                )}
                                                 <button
                                                     type="button"
                                                     onClick={() => openSettingsModal(db)}
@@ -328,6 +356,13 @@ function DatabaseMainView() {
                                             <span className="text-xs font-medium text-slate-500 uppercase">{t('database.data_directory')}</span>
                                             <span className="font-mono text-sm text-slate-700 dark:text-slate-300 truncate" title={db.dataDir}>{db.dataDir}</span>
                                         </div>
+                                        {db.engine === 'redis' && (
+                                            <RedisStatsWidget
+                                                dbId={db.id}
+                                                isRunning={isRunning}
+                                                refreshTrigger={redisRefreshTrigger}
+                                            />
+                                        )}
                                     </Card>
                                 );
                             })}

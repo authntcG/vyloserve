@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import Skeleton from './skeleton/Skeleton';
 
 export type TableDensity = 'compact' | 'normal' | 'relaxed';
 
@@ -215,6 +216,16 @@ export default function DataTable<T>({
                 </div>
             )}
 
+            {/* Top Slim Indeterminate Progress Bar for Stale-While-Revalidate Refreshing */}
+            {isLoading && data.length > 0 && (
+                <output
+                    aria-label={t('common.loading', 'Loading...')}
+                    className="block h-0.5 w-full bg-primary/20 overflow-hidden shrink-0"
+                >
+                    <div className="h-full w-1/3 bg-primary animate-pulse rounded-full" />
+                </output>
+            )}
+
             {/* Horizontal-Only Scrollable Table Wrapper */}
             <div className="w-full overflow-x-auto overflow-y-hidden">
                 <table className="w-full text-left border-collapse">
@@ -235,25 +246,38 @@ export default function DataTable<T>({
                             })}
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                        {isLoading && (
-                            <tr>
-                                <td colSpan={columns.length} className="py-12 text-center text-slate-400">
-                                    <div className="flex items-center justify-center gap-2">
-                                        <span className="material-symbols-outlined animate-spin text-[20px] text-primary">sync</span>
-                                        <span className="text-xs">Loading...</span>
-                                    </div>
-                                </td>
-                            </tr>
+                    <tbody className={`divide-y divide-slate-100 dark:divide-slate-800 ${isLoading && data.length > 0 ? 'opacity-60 pointer-events-none transition-opacity duration-150' : ''}`}>
+                        {isLoading && data.length === 0 && (
+                            Array.from({ length: 5 }).map((_, rowIndex) => (
+                                <tr
+                                    key={`skeleton-row-${rowIndex}`}
+                                    aria-busy="true"
+                                    aria-live="polite"
+                                    className="animate-pulse"
+                                >
+                                    {columns.map((col, colIndex) => {
+                                        const alignClass = ALIGN_CLASSES[col.align || 'left'];
+                                        return (
+                                            <td
+                                                key={col.id}
+                                                className={`${densityStyle.cell} ${alignClass} align-middle ${col.className || ''}`}
+                                            >
+                                                {colIndex === 0 && <span className="sr-only">{t('common.loading', 'Loading...')}</span>}
+                                                <Skeleton className="h-3.5 w-3/4 rounded" />
+                                            </td>
+                                        );
+                                    })}
+                                </tr>
+                            ))
                         )}
                         {!isLoading && data.length === 0 && (
                             <tr>
                                 <td colSpan={columns.length} className="py-12 text-center text-slate-400">
-                                    {emptyState || <span className="text-xs">No records found</span>}
+                                    {emptyState || <span className="text-xs">{t('common.no_records_found', 'No records found')}</span>}
                                 </td>
                             </tr>
                         )}
-                        {!isLoading && data.length > 0 && data.map((item, index) => (
+                        {data.length > 0 && data.map((item, index) => (
                             <tr
                                 key={keyExtractor(item, index)}
                                 className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors"

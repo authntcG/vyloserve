@@ -352,7 +352,8 @@ def test_install_update_success_launches_silent_installer(mock_exists, mock_pope
     updater.state["asset_name"] = "setup.exe"
     mock_exists.return_value = True
 
-    res = updater.install_update()
+    with patch('sys.platform', 'win32'):
+        res = updater.install_update()
 
     assert res["status"] == "success"
     assert res["message"] == "backend.updater.restarting"
@@ -361,6 +362,25 @@ def test_install_update_success_launches_silent_installer(mock_exists, mock_pope
     cmd_list = args[0]
     assert cmd_list[0] == 'wscript.exe'
     assert cmd_list[1] == expected_path
+
+
+@patch('core.services.updater.subprocess.Popen')
+@patch('core.services.updater.os.path.exists')
+def test_install_update_linux_success(mock_exists, mock_popen, updater):
+    updater.state["is_ready"] = True
+    updater.state["asset_name"] = "VyloServe.AppImage"
+    mock_exists.return_value = True
+
+    with patch('sys.platform', 'linux'):
+        res = updater.install_update()
+
+    assert res["status"] == "success"
+    assert res["message"] == "backend.updater.restarting"
+    args, kwargs = mock_popen.call_args
+    cmd_list = args[0]
+    assert cmd_list[0] == '/bin/sh'
+    assert 'sleep 2' in cmd_list[2]
+    assert kwargs.get("start_new_session") is True
 
 @patch('builtins.open')
 @patch('core.services.updater.subprocess.Popen', side_effect=OSError("permission denied"))

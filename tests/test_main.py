@@ -122,9 +122,16 @@ def test_perform_exit_prevents_reentrancy(mock_os_exit, mock_api):
 def test_perform_exit_calls_cleanup_child_processes(mock_os_exit, mock_api):
     """perform_exit harus memanggil _cleanup_child_processes sebelum os._exit(0)."""
     lifecycle = AppLifecycle(mock_api, is_production=True)
-    with patch.object(lifecycle, '_cleanup_child_processes') as mock_cleanup:
+    with patch.object(lifecycle, '_cleanup_child_processes') as mock_cleanup, \
+         patch('threading.Timer') as mock_timer_cls:
+        mock_timer_instance = MagicMock()
+        mock_timer_cls.return_value = mock_timer_instance
+
         lifecycle.perform_exit()
+
         mock_cleanup.assert_called_once()
+        mock_timer_instance.start.assert_called_once()
+        mock_timer_instance.cancel.assert_called_once()
     mock_os_exit.assert_called_once_with(0)
 
 def test_cleanup_child_processes_terminates_and_kills_children(mock_api):
@@ -376,9 +383,11 @@ def test_setup_signal_handlers_hooks_winforms_sigint_if_available(mock_api):
 
 @patch('os._exit')
 @patch('main.check_single_instance', return_value=(True, None))
+@patch('main.setup_systray')
+@patch('main.start_ipc_server')
 @patch('main.webview')
 @patch('core.api.Api')
-def test_main_wires_api_window_and_quit_callback(mock_api_class, mock_webview, mock_check_single, mock_os_exit):
+def test_main_wires_api_window_and_quit_callback(mock_api_class, mock_webview, mock_start_ipc, mock_setup_systray, mock_check_single, mock_os_exit):
     mock_api_instance = MagicMock()
     mock_api_class.return_value = mock_api_instance
     mock_window = MagicMock()
@@ -390,6 +399,8 @@ def test_main_wires_api_window_and_quit_callback(mock_api_class, mock_webview, m
     mock_api_instance.set_window.assert_called_once_with(mock_window)
     mock_api_instance.start_log_watcher.assert_called_once()
     assert mock_api_instance.quit_callback is not None
+    mock_webview.create_window.assert_called_once()
+    assert mock_webview.create_window.call_args[1].get('min_size') == (1024, 768)
     mock_webview.start.assert_called_once()
     start_kwargs = mock_webview.start.call_args[1]
     assert start_kwargs.get('private_mode') is False
@@ -434,9 +445,11 @@ def test_main_sets_up_systray_in_dev_mode_too(mock_api_class, mock_webview, mock
 
 @patch('os._exit')
 @patch('main.check_single_instance', return_value=(True, None))
+@patch('main.setup_systray')
+@patch('main.start_ipc_server')
 @patch('main.webview')
 @patch('core.api.Api')
-def test_main_hooks_minimized_and_restored_events_to_push_window_state(mock_api_class, mock_webview, mock_check_single, mock_os_exit):
+def test_main_hooks_minimized_and_restored_events_to_push_window_state(mock_api_class, mock_webview, mock_start_ipc, mock_setup_systray, mock_check_single, mock_os_exit):
     """window.events.minimized/restored harus di-hook supaya frontend tahu kapan notifikasi native perlu tampil."""
     mock_api_instance = MagicMock()
     mock_api_class.return_value = mock_api_instance
@@ -504,9 +517,11 @@ def test_main_handles_unexpected_startup_exception_without_crashing(mock_api_cla
 
 @patch('os._exit')
 @patch('main.check_single_instance', return_value=(True, None))
+@patch('main.setup_systray')
+@patch('main.start_ipc_server')
 @patch('main.webview')
 @patch('core.api.Api')
-def test_main_catches_keyboard_interrupt_and_exits(mock_api_class, mock_webview, mock_check_single, mock_os_exit):
+def test_main_catches_keyboard_interrupt_and_exits(mock_api_class, mock_webview, mock_start_ipc, mock_setup_systray, mock_check_single, mock_os_exit):
     """Ketika user menekan Ctrl+C (KeyboardInterrupt) saat webview running, main menangkap dan perform_exit dipanggil."""
     mock_webview.start.side_effect = KeyboardInterrupt()
     mock_webview.create_window.return_value = MagicMock()
@@ -553,9 +568,11 @@ def test_get_theme_bg_color_fallback_when_settings_file_missing(tmp_path):
 
 @patch('os._exit')
 @patch('main.check_single_instance', return_value=(True, None))
+@patch('main.setup_systray')
+@patch('main.start_ipc_server')
 @patch('main.webview')
 @patch('core.api.Api')
-def test_main_hooks_shown_event_to_apply_titlebar_theme(mock_api_class, mock_webview, mock_check_single, mock_os_exit):
+def test_main_hooks_shown_event_to_apply_titlebar_theme(mock_api_class, mock_webview, mock_start_ipc, mock_setup_systray, mock_check_single, mock_os_exit):
     """window.events.shown harus di-hook untuk menyelaraskan titlebar theme via DWM."""
     mock_api_instance = MagicMock()
     mock_api_class.return_value = mock_api_instance
@@ -633,11 +650,13 @@ def test_check_single_instance_already_exists():
 
 
 def test_check_single_instance_non_windows():
-    """Pada platform non-Windows, check_single_instance selalu mengizinkan proses jalan."""
+    """Pada platform non-Windows, check_single_instance memanggil acquire_single_instance_lock."""
     with patch('sys.platform', 'linux'):
-        is_first, mutex = check_single_instance(is_production=False)
-        assert is_first is True
-        assert mutex is None
+        with patch('main.acquire_single_instance_lock', return_value=(True, MagicMock())) as mock_lock:
+            is_first, mutex = check_single_instance(is_production=False)
+            assert is_first is True
+            assert mutex is not None
+            mock_lock.assert_called_once()
 
 
 def test_lifecycle_show_and_bring_to_front(mock_api):
@@ -764,10 +783,11 @@ def test_main_duplicate_instance_brings_to_front_and_exits(mock_exit, mock_webvi
 
 @patch('os._exit')
 @patch('main.check_single_instance', return_value=(True, MagicMock()))
+@patch('main.setup_systray')
 @patch('main.start_ipc_server')
 @patch('main.webview')
 @patch('core.api.Api')
-def test_main_starts_ipc_server_on_first_instance(mock_api_class, mock_webview, mock_start_ipc, mock_check_single, mock_os_exit):
+def test_main_starts_ipc_server_on_first_instance(mock_api_class, mock_webview, mock_start_ipc, mock_setup_systray, mock_check_single, mock_os_exit):
     """Instance pertama harus menjalankan start_ipc_server dengan lifecycle yang dibangun."""
     mock_webview.create_window.return_value = MagicMock()
 

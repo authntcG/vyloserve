@@ -122,6 +122,41 @@ def test_start_project_server_auto_scaffolds_missing_bat(project_mgr, tmp_path):
         with open(bat_file, "r") as f:
             content = f.read()
             assert "uvicorn" in content
+        sh_file = os.path.join(project_dir, "start-dev.sh")
+        assert os.path.exists(sh_file)
+        with open(sh_file, "r") as f:
+            sh_content = f.read()
+            assert "#!/bin/sh" in sh_content
+            assert "uvicorn" in sh_content
+
+
+def test_start_project_server_platform_commands(project_mgr, tmp_path):
+    project_dir = str(tmp_path / "proj_cross")
+    os.makedirs(project_dir, exist_ok=True)
+    project_mgr._read_projects = MagicMock(return_value=[
+        {"id": "proj_cross", "name": "App", "project_type": "node", "proxy_port": 3000, "path": project_dir}
+    ])
+    mock_proc = MagicMock(pid=7777)
+    mock_proc.poll.return_value = None
+
+    # Test Windows execution
+    with patch("sys.platform", "win32"), \
+         patch("core.services.project.check_port_in_use", return_value=False), \
+         patch("core.services.project.subprocess.Popen", return_value=mock_proc) as mock_popen:
+        project_mgr.start_project_server("proj_cross")
+        call_cmd = mock_popen.call_args[0][0]
+        assert call_cmd == ["cmd.exe", "/c", "start-dev.bat"]
+
+    project_mgr._running_servers.clear()
+
+    # Test Linux execution
+    with patch("sys.platform", "linux"), \
+         patch("core.services.project.check_port_in_use", return_value=False), \
+         patch("core.services.project.subprocess.Popen", return_value=mock_proc) as mock_popen:
+        project_mgr.start_project_server("proj_cross")
+        call_cmd = mock_popen.call_args[0][0]
+        assert call_cmd[0] == "/bin/sh"
+        assert call_cmd[1].endswith("start-dev.sh")
 
 
 def test_stop_project_server_not_running(project_mgr):
@@ -143,12 +178,12 @@ def test_stop_project_server_success(project_mgr):
         "name": "Stopping App"
     }
 
-    with patch("core.services.project.run_silent_command") as mock_run:
+    with patch("core.services.project.kill_process_tree") as mock_kill:
         result = project_mgr.stop_project_server("proj_stop")
         assert result["status"] == "success"
         assert result["message"] == "backend.project.server_stopped"
         assert "proj_stop" not in project_mgr._running_servers
-        mock_run.assert_called_once()
+        mock_kill.assert_called_once_with(5555)
         mock_file.close.assert_called_once()
         project_mgr.api.emit_project_server_state.assert_called_with({
             "project_id": "proj_stop",

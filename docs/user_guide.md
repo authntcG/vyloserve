@@ -15,13 +15,15 @@ Selamat datang di Panduan Pengguna Resmi dan Pusat Pengetahuan **VyloServe**. Do
    - [3.3 Layanan Database (MariaDB, PostgreSQL, & Redis)](#33-layanan-database-mariadb-postgresql--redis)
    - [3.4 Manajer Runtimes (Node.js, Python, Java, Go)](#34-manajer-runtimes-nodejs-python-java-go)
    - [3.5 Projects Hub (Manajer Proyek Multi-Runtime & Virtual Host Otomatis)](#35-projects-hub-manajer-proyek-multi-runtime--virtual-host-otomatis)
-   - [3.6 Git Manager & Otoritas Sertifikat SSL Lokal (Git & Root CA)](#36-git-manager--otoritas-sertifikat-ssl-lokal-git--root-ca)
+   - [3.6 Git Manager, Otoritas Sertifikat SSL Lokal & GitLab CLI (Git, Root CA, & GitLab)](#36-git-manager--otoritas-sertifikat-ssl-lokal-git--root-ca)
    - [3.7 Tunnel Publik Instan (Cloudflare & Zrok)](#37-tunnel-publik-instan-cloudflare--zrok)
-   - [3.8 Utilitas Pengembang (Developer Tools)](#38-utilitas-pengembang-developer-tools)
-   - [3.9 AI Assistant Copilot & In-App RAG Retriever](#39-ai-assistant-copilot--in-app-rag-retriever)
-   - [3.10 Developer Terminal (Terminal Konsol Pengembang Terpadu)](#310-developer-terminal-terminal-konsol-pengembang-terpadu)
-   - [3.11 Pengaturan Sistem & Kustomisasi (Settings & Preferences)](#311-pengaturan-sistem--kustomisasi-settings--preferences)
-   - [3.12 Pembatalan Operasi & Ketahanan Mode Offline (Resilience & Rollback)](#312-pembatalan-operasi--ketahanan-mode-offline-resilience--rollback)
+   - [3.8 Utilitas Pengembang (Developer Tools: Mail Sandbox, Webhook Inspector, Port Manager)](#38-utilitas-pengembang-developer-tools)
+   - [3.9 Developer Utilities Hub (JSON Studio, JWT Debugger, Crypto Generator, Regex/Epoch, Data Converter)](#39-developer-utilities-hub-pusat-utilitas-pengembang-mandiri)
+   - [3.10 AI Assistant Copilot & In-App RAG Retriever](#310-ai-assistant-copilot--in-app-rag-retriever)
+   - [3.11 Developer Terminal (Terminal Konsol Pengembang Terpadu)](#311-developer-terminal-terminal-konsol-pengembang-terpadu)
+   - [3.12 Pengaturan Sistem & Kustomisasi (Settings & Preferences)](#312-pengaturan-sistem--kustomisasi-settings--preferences)
+   - [3.13 Pembatalan Operasi & Ketahanan Mode Offline (Resilience & Rollback)](#313-pembatalan-operasi--ketahanan-mode-offline-resilience--rollback)
+   - [3.14 Native Splash Bootstrapper & Sistem Pemulihan Mandiri (Native Splash Bootstrapper & 3-Tier Self-Healing)](#314-native-splash-bootstrapper--sistem-pemulihan-mandiri-native-splash-bootstrapper--3-tier-self-healing)
 4. [Kamus Kode Error & Log Sistem Lengkap (Exhaustive Error Dictionary)](#4-kamus-kode-error--log-sistem-lengkap-exhaustive-error-dictionary)
 5. [Panduan Pemecahan Masalah Langkah-demi-Langkah (Step-by-Step Troubleshooting)](#5-panduan-pemecahan-masalah-langkah-demi-langkah-step-by-step-troubleshooting)
 6. [Tanya Jawab Umum Komprehensif (FAQ)](#6-tanya-jawab-umum-komprehensif-faq)
@@ -339,6 +341,15 @@ Untuk instance MariaDB dan PostgreSQL yang sedang berjalan:
      - Muncul dialog konfirmasi destruktif: ketik konfirmasi untuk mencegah ketidaksengajaan.
      - Skema sistem bawaan (`mysql`, `information_schema`, `performance_schema`, `sys`, `postgres`, `template0/1`) otomatis diproteksi dan tidak dapat dihapus.
 
+#### F. Widget Statistik & Metrik Real-Time Redis (`RedisStatsWidget`)
+Untuk instance database **Redis Portable** yang sedang aktif:
+- Pada kartu Redis, klik tombol metrik atau buka detail instance untuk memunculkan panel **Redis Real-Time Statistics**:
+  - **Memory Usage Gauge**: Visualisasi konsumsi RAM saat ini (`used_memory_human`) dan puncak memori (`used_memory_peak_human`).
+  - **Koneksi Aktif**: Jumlah klien yang sedang terhubung (`connected_clients`).
+  - **Uptime & Total Commands**: Durasi server berjalan dan total perintah Redis yang telah diproses.
+  - **Keyspace & Cache Ratio**: Menampilkan jumlah key aktif di database `db0` dan rasio efektivitas cache (*hit/miss ratio*).
+  - **Ping Connection Test**: Tombol uji latensi instan untuk memverifikasi soket respon Redis lokal (< 1ms).
+
 ---
 
 <!-- section: runtimes, module: runtimes, tags: [runtimes, nodejs, python, java, go, npm, pip, yarn, pnpm, corepack, external-detection, path, tutorial-runtimes, venv, adoptium, external-scan, multi-version, path-hub, runtime-path-hub] -->
@@ -468,6 +479,24 @@ Untuk proyek non-PHP (seperti Node.js, Python, Go, Java) yang membutuhkan server
     - *Hapus dari Virtual Host saja*: Menghapus vhost, domain di hosts, dan sertifikat SSL; file proyek fisik di harddisk tetap aman.
     - *Hapus Bersama File Fisik* (centang checkbox): Menghapus seluruh folder proyek fisik dari harddisk Anda secara permanen.
 
+#### F. Real-Time App Logs Viewer Modal (`ProjectAppLogsModal`)
+- Klik tombol **App Logs** (ikon dokumen log) pada kartu atau tabel proyek untuk membuka jendela pemantauan log runtime:
+  - **Pendeteksian Log Cerdas**: Otomatis mendeteksi sumber log berdasarkan framework (misal: `logs/{domain}.error.log` Apache, `storage/logs/laravel.log` Laravel, atau log output server Node.js).
+  - **Live Auto-Scroll & Pause**: Mengikuti baris log terbaru secara instan atau membekukan scroll untuk menginspeksi error stack trace secara mendalam.
+  - **Keyword Filtering & Clear**: Filter baris log secara real-time dan kosongkan isi log dengan tombol *Clear Logs* yang aman.
+
+#### G. Visual .Env Editor & Environment Diffing (`ProjectEnvModal`)
+- Klik tombol **Env Editor** (ikon kunci/parameter) pada proyek:
+  - **Key-Value Grid & Raw Editor**: Edit variabel konfigurasi proyek dalam tampilan tabel terstruktur yang rapi atau beralih ke editor teks bebas (raw text).
+  - **Password / Secret Masking**: Kolom sensitif (seperti `DB_PASSWORD`, `APP_KEY`, `API_SECRET`) disamarkan dengan bulatan bintang dan tombol intip (*eye toggle*) untuk keamanan saat presentasi/streaming.
+  - **Diff Tab (.env vs .env.example)**: Beralih ke tab **Diff** untuk membandingkan file `.env` lokal Anda dengan `.env.example` repositori secara berdampingan. Baris yang belum terisi di `.env` akan di-highlight hijau sehingga Anda tidak akan pernah melewatkan konfigurasi API penting saat onboarding proyek baru!
+  - **Auto-Backup**: Setiap kali Anda menekan tombol simpan, sistem membuat salinan otomatis `.env.backup` sebelum menulis berkas baru.
+
+#### H. SSL & Hosts Overview Modal (`ProjectSslHostsModal`)
+- Klik tombol **SSL & Hosts** untuk membuka panel diagnostik domain virtual host:
+  - **Status Windows Hosts**: Memeriksa apakah IP `127.0.0.1` telah terdaftar untuk domain proyek di `C:\Windows\System32\drivers\etc\hosts`.
+  - **Status Sertifikat TLS**: Menampilkan masa berlaku sertifikat SSL lokal, status validitas root CA, dan opsi pembuatan ulang sertifikat 1-klik jika terjadi perubahan subdomain atau perpanjangan.
+
 ---
 
 <!-- section: git-ssl, module: git, tags: [git, ssl, root-ca, openssl, credentials, terminal, portable-git, tutorial-git, tutorial-ssl, certutil, windows-store, clone-repo, commit, https-local, git-path-alert, global-config] -->
@@ -499,6 +528,25 @@ Secara bawaan, sertifikat SSL lokal yang dibuat sendiri (*self-signed certificat
   - **Kloning Repositori Remote**: Masukkan URL repositori HTTPS atau SSH dan tentukan folder tujuan kloning.
   - **Status Working Tree & Branch**: Memantau branch aktif, file modified, staged, serta untracked files secara visual.
   - **Staging & Commit Cepat**: Lakukan `git add` dan `git commit -m "pesan"` dengan satu tombol.
+
+#### C. Integrasi GitLab CLI Terpadu (GitLab Integration Tab)
+VyloServe menyediakan tab terintegrasi khusus untuk **GitLab CLI (`glab`)** pada menu Git Manager, menghadirkan kemudahan kolaborasi tim enterprise langsung dari aplikasi:
+1. **Pemasangan Biner Otomatis (`glab.exe`)**:
+   - Jika GitLab CLI belum terpasang, sistem menyajikan kartu instalasi otomatis.
+   - Mengunduh rilis biner resmi portabel dari repositori GitLab ke dalam `bin/glab/` tanpa perlu menginstal package manager eksternal.
+2. **Manajemen Akun Multi-Host (GitLab.com & Self-Hosted Instance)**:
+   - Mendukung multi-akun: Anda dapat menghubungkan akun publik `gitlab.com` sekaligus beberapa instance server privat (*Self-Hosted GitLab*, misal: `gitlab.corp.internal`).
+   - Setiap instance dapat dikonfigurasi secara independen menggunakan **Personal Access Token (PAT)** dengan cakupan hak akses (`api`, `read_api`, `read_user`) dan protokol kloning default (**SSH** atau **HTTPS**).
+3. **VPN Reachability Circuit Breaker (`requires_vpn`)**:
+   - Untuk instance GitLab kantor yang hanya bisa diakses via VPN perusahaan, Anda dapat mengaktifkan toggle **Requires VPN Connection**.
+   - Sebelum menjalankan perintah remote atau merender daftar proyek, backend melakukan probe non-blocking ke port 443 instance target (timeout 2 detik).
+   - Jika VPN terputus, UI menampilkan badge peringatan kuning **VPN Disconnected** dan mencegah pemanggilan jaringan yang sia-sia, menjaga aplikasi tetap responsif tanpa freeze.
+4. **Jelajah Proyek, Issues, & Merge Requests**:
+   - Memilih repositori GitLab aktif untuk meninjau Issue terbuka, label, assignee, dan Merge Request terkini.
+   - Dilengkapi filter status (*Opened*, *Closed*, *Merged*) dan pencarian instan.
+5. **Kolaborasi dengan AI Copilot via Action Cards**:
+   - AI Assistant dapat memindai issue GitLab aktif dan mengusulkan draf ringkasan solusi atau komentar ulasan MR.
+   - Tindakan posting komentar dikawal oleh pola **Human-in-the-Loop (HITL)** melalui `AiActionCard`: komentar hanya akan dikirim ke GitLab remote setelah Anda menekan tombol konfirmasi.
 
 ---
 
@@ -569,11 +617,83 @@ VyloServe menyediakan alat-alat bantu produktivitas harian yang berjalan instan 
    - **Binary Download**: Mengunduh ulang hasil decode binary secara langsung ke file lokal via backend dialog atau fallback browser blob.
 4. **URL Encoder / Decoder**:
    - Melakukan encoding/decoding karakter URL khusus (`%20`, `%2F`, dll.) dan membedah komponen URL (protokol, host, pathname, query parameters).
+5. **Mail Sandbox (Server Pengujian Email Lokal / Catch-All SMTP)**:
+   - Server daemon SMTP internal (*in-process async daemon*) yang mendengarkan pada port default `1025` tanpa memerlukan dependensi aplikasi pihak ketiga (seperti MailHog atau Mailpit eksternal).
+   - Menangkap seluruh email keluar dari aplikasi web lokal (Laravel, Symfony, WordPress, Node.js) dengan menyetel konfigurasi SMTP aplikasi ke `host: 127.0.0.1` dan `port: 1025`. Tidak ada satu pun email yang akan terkirim ke internet sungguhan, menjamin keamanan privasi testing.
+   - **Antarmuka Pratinjau Lengkap**:
+     - *HTML Sandbox*: Render tampilan email visual dalam iframe terisolasi dengan proteksi script.
+     - *Raw Text*: Tampilan teks polos email untuk memeriksa fallback klien email non-HTML.
+     - *MIME Headers*: Inspeksi menyeluruh terhadap header email (`From`, `To`, `Cc`, `Bcc`, `Subject`, `Message-ID`, `Content-Type`).
+     - *Attachments*: Daftar lampiran berkas lengkap dengan ukuran dan tombol unduh langsung ke komputer lokal.
+   - **Fitur Ekspor**: Tombol ekspor satu klik ke berkas standar `.eml` untuk dibuka di Microsoft Outlook atau klien email lainnya, serta tombol *Clear Inbox* untuk mengosongkan antrean pesan.
+6. **Webhook Inspector (Pemeriksa Request Webhook & HTTP Logger)**:
+   - Server daemon HTTP internal di port default `9000` untuk menangkap dan menguji kiriman payload webhook dari layanan eksternal (Payment Gateway seperti Midtrans/Xendit/Stripe, Git webhook GitHub/GitLab, atau custom webhooks).
+   - **Pencatatan Request Real-Time**:
+     - Mencatat metode HTTP (`POST`, `GET`, `PUT`, `DELETE`), URL path, response status code (dapat dikonfigurasi: `200 OK`, `400 Bad Request`, `500 Server Error`).
+     - Menampilkan payload body JSON/form-urlencoded, HTTP headers, dan parameter query dengan penyorotan sintaks (*syntax highlighting*).
+   - **cURL Replay Generator**: Menyediakan tombol satu klik untuk menyalin perintah cURL lengkap yang mereproduksi request yang sama persis, memudahkan pengujian ulang langsung dari terminal.
+7. **Port Manager & Pemeriksa Proses OS (Port Inspector & Safe Process Killer)**:
+   - Pemindaian menyeluruh terhadap seluruh port TCP aktif di sistem operasi Windows menggunakan pustaka `psutil`.
+   - **Informasi Lengkap Setiap Socket**: Menampilkan nomor Port Lokal, Alamat IP Bind, Status Koneksi (`LISTENING`, `ESTABLISHED`), Nomor PID (*Process ID*), Nama Proses Eksekusi (`exe`), dan Jalur Direktori Aplikasi.
+   - **Penyaringan Cepat**: Bilah pencarian interaktif untuk menyaring port berdasarkan nomor (misal `:80`, `:3306`, `:6379`) atau nama aplikasi (misal `node`, `python`, `mysqld`).
+   - **Penghentian Proses Aman (*Safe Process Kill*)**: Memungkinkan pengembang mematikan proses yang menyandera port tertentu dengan konfirmasi peringatan, dilengkapi proteksi bawaan yang mencegah pematian proses kritis sistem Windows maupun proses inti VyloServe sendiri.
+
+---
+
+<!-- section: utilities, module: utilities, tags: [utilities, json-studio, jwt-debugger, crypto-generator, regex-tester, epoch-converter, data-converter, hash, hmac, uuid, base64, yaml, xml, csv] -->
+### 3.9 Developer Utilities Hub (Pusat Utilitas Pengembang Mandiri)
+
+VyloServe menghadirkan pusat utilitas pengembang modern (**Developer Utilities Hub**) yang dapat diakses langsung dari menu navigasi sidebar **Utilities**. Seluruh utilitas berjalan 100% di sisi klien lokal (*offline-first*) dengan performa instan tanpa mengirim data Anda ke server internet mana pun:
+
+#### A. JSON Studio (Inspektor & Pemformat JSON Cerdas)
+- **Hierarchical Tree & Code Split View**: Menampilkan data JSON dalam mode editor teks dan tampilan hierarki pohon interaktif (*collapsible tree view*) secara berdampingan.
+- **Validasi Sintaks Real-Time**: Mendeteksi kesalahan tanda koma, kurung tutup yang hilang, atau nilai tak terdefinisi secara instan dengan indikator baris dan kolom yang presisi.
+- **Formatter & Minifier**: Tombol satu klik untuk merapikan format (*Prettify*) dengan opsi indentasi 2 atau 4 spasi, serta tombol pemadatan (*Minify*) untuk menghapus whitespace demi efisiensi transfer data.
+- **Kueri JSONPath Interaktif**: Filter dan telusuri bagian data spesifik dari payload besar menggunakan sintaks JSONPath (contoh: `$.users[*].email`).
+- **Template Contoh Siap Pakai**: Tombol *Load Sample* untuk memuat template JSON standar (API Response, Config File, User Catalog) untuk pengujian cepat.
+
+#### B. JWT Debugger (Pemeriksa & Validasi JSON Web Token)
+- **Visual Segmen Tiga Warna (Three-Part Color Coded)**:
+  - 🔴 **Header**: Algoritma enkripsi (`alg`, misal `HS256`, `RS256`) dan tipe token (`typ: JWT`).
+  - 🟣 **Payload**: Data klaim pengguna (`sub`, `name`, `roles`, data kustom).
+  - 🔵 **Signature**: Nilai hash tanda tangan kriptografi biner.
+- **Pelacak Kedaluwarsa Real-Time (Expiration Status Guard)**:
+  - Menghitung klaim `exp` (*Expiration Time*), `nbf` (*Not Before*), dan `iat` (*Issued At*) secara otomatis.
+  - Menampilkan lencana status cerdas: hijau jika token masih aktif (*Valid*) dengan hitung mundur waktu relatif (misal: *Expired in 2 hours*), atau merah jika token sudah kedaluwarsa (*Expired 15 minutes ago*).
+- **Verifikasi Tanda Tangan Lokal**: Masukkan kunci rahasia (*Secret Key*) untuk memverifikasi apakah tanda tangan token valid atau telah dimanipulasi tanpa perlu mengirim token ke web publik.
+
+#### C. Crypto Generator & Hasher (Kalkulator Hash & Pembangkit Kriptografi)
+- **Kalkulator Hashing Multi-Algoritma**:
+  - Menghasilkan nilai hash dari string input secara instan: **MD5**, **SHA-1**, **SHA-256**, dan **SHA-512**.
+  - Opsi format output huruf kapital (*UPPERCASE*) atau huruf kecil (*lowercase*), serta tombol salin instan.
+- **Kalkulasi Kriptografi Kunci Rahasia (HMAC)**:
+  - Mendukung HMAC-SHA256 dan HMAC-SHA512 dengan input *Secret Key* khusus untuk pengujian tanda tangan API atau webhook authentication.
+- **Pembangkit Kunci & Token Aman (Cryptographically Secure Generator)**:
+  - **UUID Generator**: Menghasilkan pengenal unik universal standar RFC 4122 (UUID v4) satu per satu atau dalam jumlah sekaligus (*bulk generate*).
+  - **Random Token & Password Generator**: Menghasilkan string acak dengan entropi tinggi menggunakan modul kriptografi aman, dilengkapi kontrol fleksibel: panjang karakter, perpaduan huruf besar/kecil, angka, dan simbol khusus.
+
+#### D. Regex & Epoch Studio (Penguji Ekspresi Reguler & Konverter Waktu Unix)
+- **Interactive Regex Tester**:
+  - Editor pola Regex dengan penyorotan pencocokan (*match highlighting*) interaktif secara langsung saat Anda mengetik.
+  - Dukungan bendera regex standar: Global (`g`), Case-Insensitive (`i`), Multiline (`m`), DotAll (`s`), dan Unicode (`u`).
+  - Tabel rincian kecocokan: menampilkan indeks posisi awal/akhir, teks yang cocok, dan daftar grup penangkap (*capture groups*).
+- **Unix Epoch Time Converter**:
+  - Konversi dua arah instan:
+    - Masukkan angka timestamp detik atau milidetik -> Dapatkan representasi waktu lokal dan waktu dunia UTC standar ISO 8601 yang mudah dibaca manusia.
+    - Pilih tanggal dan jam dari pemilih waktu visual -> Dapatkan nilai Unix Epoch numerik instan.
+  - Tombol pintas **Set to Current Time** untuk membaca waktu saat ini secara langsung.
+
+#### E. Data Converter (Konverter Format Data Multi-Arah)
+- Konversi struktur data dua arah tanpa kehilangan informasi (*lossless conversion*) antara format populer:
+  - **JSON ↔ YAML**: Sangat berguna untuk menyelaraskan konfigurasi Kubernetes/Docker Compose dengan payload REST API.
+  - **JSON ↔ XML**: Mempermudah integrasi dengan API enterprise lama berbasis SOAP/XML.
+  - **JSON ↔ CSV**: Mengubah array data JSON menjadi format tabel CSV siap impor ke Microsoft Excel atau database SQL.
+- Dilengkapi penanganan galat sintaks proaktif dan pengaturan opsi format (indentasi dan pemisah kolom).
 
 ---
 
 <!-- section: ai, module: ai, tags: [ai, copilot, gemini, groq, openrouter, ollama, free-tier, pro-tier, streaming, fab, tutorial-ai, setup-gemini, setup-groq, setup-openrouter, setup-ollama, model-selection, rag-knowledge, action-card, hitl, service-control, token-usage, quota, follow-up-suggestions] -->
-### 3.9 AI Assistant Copilot & In-App RAG Retriever
+### 3.10 AI Assistant Copilot & In-App RAG Retriever
 
 VyloServe dilengkapi dengan asisten pengembang cerdas (*In-App Copilot*) yang terhubung langsung dengan basis pengetahuan dokumentasi ini dan inventaris sistem server lokal.
 
@@ -644,7 +764,7 @@ AI Assistant memiliki hak akses untuk membantu Anda mengelola layanan server, na
 ---
 
 <!-- section: terminal, module: terminal, tags: [terminal, powershell, cmd, git-bash, presets, session-scoping, cwd, terminal-settings, terminal-customization] -->
-### 3.10 Developer Terminal (Terminal Konsol Pengembang Terpadu)
+### 3.11 Developer Terminal (Terminal Konsol Pengembang Terpadu)
 
 VyloServe menyediakan terminal pengembang bawaan (*Developer Terminal*) yang dapat diakses langsung dari menu **Tools -> Developer Terminal** pada sidebar utama atau melalui pintasan terminal pada kartu proyek. Terminal ini mengeliminasi kebutuhan membuka jendela PowerShell atau CMD Windows eksternal secara terpisah.
 
@@ -697,7 +817,7 @@ Klik ikon gerigi (**Terminal Settings**) pada toolbar terminal untuk menyesuaika
 ---
 
 <!-- section: settings, module: settings, tags: [settings, theme, dwm, titlebar, language, i18n, native-notifications, toast, auto-updater, tutorial-settings, ganti-tema, notification-bell, 15-themes] -->
-### 3.11 Pengaturan Sistem & Kustomisasi (Settings & Preferences)
+### 3.12 Pengaturan Sistem & Kustomisasi (Settings & Preferences)
 
 Buka menu **Settings** di footer sidebar untuk mengonfigurasi preferensi aplikasi:
 1. **Bahasa Antarmuka (Language)**:
@@ -721,7 +841,7 @@ Buka menu **Settings** di footer sidebar untuk mengonfigurasi preferensi aplikas
 ---
 
 <!-- section: resilience, module: general, tags: [cancellation, rollback, offline, network, barrier, retry, internet-connection, clean-abort] -->
-### 3.12 Pembatalan Operasi & Ketahanan Mode Offline (Resilience & Rollback)
+### 3.13 Pembatalan Operasi & Ketahanan Mode Offline (Resilience & Rollback)
 
 VyloServe menerapkan standar rekayasa pertahanan (*Defensive Engineering*) untuk melindungi integritas sistem dari gangguan jaringan atau pembatalan tak terduga:
 
@@ -741,6 +861,34 @@ VyloServe menerapkan standar rekayasa pertahanan (*Defensive Engineering*) untuk
   - Modul **Projects**: Pembuatan proyek berbasis template online otomatis diblokir dengan penjelasan ramah, namun pembuatan proyek via *Link Existing Project* (menautkan folder lokal) dan *Raw PHP Template* tetap dapat digunakan 100% tanpa internet.
   - Modul **Database**: Manajemen skema, pembuatan user, dan eksekusi query lokal tetap berfungsi penuh tanpa koneksi luar.
   - Modul **AI Assistant**: Secara otomatis merekomendasikan beralih ke provider lokal offline (**Ollama**) jika koneksi ke cloud provider (Gemini / Groq / OpenRouter) terputus.
+
+---
+
+<!-- section: bootstrapper, module: bootstrapper, tags: [bootstrapper, splash, self-healing, orphans, port-conflict, integrity, dbeaver, jetbrains, startup, dwm] -->
+### 3.14 Native Splash Bootstrapper & Sistem Pemulihan Mandiri (Native Splash Bootstrapper & 3-Tier Self-Healing)
+
+VyloServe mengadopsi pola inisialisasi profesional setara IDE terkemuka (seperti DBeaver dan JetBrains) untuk memastikan aplikasi selalu menyala dalam kondisi stabil dan siap pakai:
+
+#### A. Jendela Splash Screen Native Instan
+- **Inisialisasi Instan Tanpa Delay**: Saat ikon VyloServe diklik, jendela native frameless berukuran kompak langsung muncul di tengah layar dalam hitungan milidetik sebelum jendela berat WebView2 dimuat.
+- **Tampilan Modern Frosted Glass**: Menampilkan ikon master frosted matte 3D, nomor versi aplikasi, teks status langkah inisialisasi dwibahasa (Indonesia/Inggris), dan bilah kemajuan (*progress bar*) beranimasi halus.
+- **Sinkronisasi Tema Otomatis**: Warna latar splash screen membaca konfigurasi tema dari `data/settings.json` dan secara instan menyesuaikan dengan salah satu dari 15 preset tema aktif pengguna.
+
+#### B. Pipa Pemeriksaan Kesehatan 3 Tahap (3-Tier Self-Healing Pipeline)
+Selama jendela splash aktif, modul `HealthManager` menjalankan serangkaian diagnosa dan pembersihan otomatis di latar belakang:
+1. **Tier 1: Pembersihan Proses Zombie Yatim (*Orphan Process Cleanup*)**:
+   - Memindai proses latar belakang yang mungkin tertinggal akibat aplikasi ditutup paksa atau komputer mati mendadak di sesi sebelumnya: `httpd.exe`, `php-cgi.exe`, `mysqld.exe`, `postgres.exe`, `redis-server.exe`, `cloudflared.exe`, `zrok.exe`, dan `glab.exe`.
+   - Menghentikan proses liar tersebut secara aman agar port server tidak terkunci.
+2. **Tier 2: Deteksi Dini Benturan Port (*Port Conflict Preflight*)**:
+   - Memeriksa apakah port default layanan inti (port 80/443 Apache, port 9000 PHP FastCGI, port 3306 MariaDB, port 5432 PostgreSQL, port 6379 Redis, port 1025 Mail Sandbox) sedang diduduki oleh aplikasi eksternal (seperti IIS atau Skype).
+   - Menghasilkan laporan diagnostik proaktif sehingga pengguna langsung mengetahui sumber konflik.
+3. **Tier 3: Verifikasi Integritas Konfigurasi (*Configuration & Storage Integrity*)**:
+   - Memeriksa validitas seluruh file konfigurasi JSON (`data/settings.json`, `data/projects.json`, `data/databases.json`, `data/gitlab.json`).
+   - Jika terdeteksi korupsi atau sintaks JSON rusak akibat crash sistem, VyloServe otomatis mencadangkan file lama ke format `.bak` dan memulihkan struktur konfigurasi default yang bersih tanpa kehilangan data server.
+
+#### C. Transisi Halus (Smooth UI Handshake)
+- Setelah WebView2 selesai memuat frontend React dan komponen siap seutuhnya, frontend mengirimkan sinyal `vylo_app_ready` ke backend.
+- Jendela splash ditutup secara elegan dan jendela utama VyloServe langsung tampil di layar pengguna tanpa kedipan (*flicker-free startup*).
 
 ---
 

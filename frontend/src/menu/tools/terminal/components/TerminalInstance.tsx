@@ -346,6 +346,9 @@ export default function TerminalInstance({
         term.open(containerRef.current);
         termRef.current = term;
         fitAddonRef.current = fitAddon;
+        if (isActive) {
+            term.focus();
+        }
 
         // Render restored session history if available
         if (session.historyBuffer) {
@@ -534,6 +537,7 @@ export default function TerminalInstance({
 
     const handleContextMenu = (e: React.MouseEvent) => {
         e.preventDefault();
+        e.stopPropagation();
         const hasSelection = Boolean(termRef.current?.hasSelection());
         setContextMenu({
             visible: true,
@@ -551,10 +555,21 @@ export default function TerminalInstance({
     const cursorAnimClass = (effectiveSettings?.cursorBlinkStyle && cursorAnimMap[effectiveSettings.cursorBlinkStyle]) || "";
 
     return (
-        <div
+        <div // NOSONAR typescript:S6847
+            role="application"
+            aria-label="Interactive terminal console"
+            tabIndex={0} // NOSONAR typescript:S6845
+            onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    termRef.current?.focus();
+                }
+            }}
+            data-custom-context-menu="true"
+            data-terminal-container="true"
             onContextMenu={handleContextMenu}
+            onClick={() => termRef.current?.focus()}
             style={{ backgroundColor: bgHex }}
-            className={`w-full h-full min-h-0 flex-1 relative rounded-b-xl overflow-hidden ${cursorAnimClass} ${
+            className={`w-full h-full min-h-0 flex-1 relative rounded-b-xl overflow-hidden outline-none ${cursorAnimClass} ${
                 isActive ? "block" : "hidden"
             }`}
         >

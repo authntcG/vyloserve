@@ -1,8 +1,10 @@
 import os
 import sys
+import shutil
 import socket
 import subprocess
 import time
+import psutil
 from typing import List, Optional, Dict, Any, Tuple
 
 def get_project_root():
@@ -13,8 +15,12 @@ def get_project_root():
     """
     if getattr(sys, 'frozen', False):
         # Berjalan sebagai executable PyInstaller (.exe)
-        # Menghasilkan path folder tempat .exe tersebut diletakkan
-        return os.path.dirname(sys.executable)
+        # Menghasilkan path folder tempat executable tersebut diletakkan
+        exe = sys.executable
+        if '\\' in exe and '/' not in exe:
+            import ntpath
+            return ntpath.dirname(exe)
+        return os.path.dirname(exe)
     else:
         # Berjalan sebagai script Python normal (.py)
         # Asumsi: file ini ada di core/utils/system_utils.py (mundur 3 level ke root)
@@ -113,6 +119,101 @@ def check_port_in_use(port: int, host: str = '127.0.0.1', timeout: float = 0.05)
         return False
 
 # ==========================================
+# CROSS-PLATFORM SYSTEM ABSTRACTIONS
+# ==========================================
+
+def open_path_in_file_manager(target: str) -> bool:
+    """
+    Membuka file atau folder pada File Manager default OS (Explorer di Windows, Finder di macOS, xdg-open di Linux).
+    Menggantikan pemanggilan os.startfile() secara cross-platform.
+    """
+    if not target:
+        return False
+    if sys.platform != 'win32' and not os.path.exists(target):
+        return False
+    if sys.platform == 'win32':
+        os.startfile(target)
+        return True
+    elif sys.platform == 'darwin':
+        subprocess.Popen(['open', target])
+        return True
+    else:
+        subprocess.Popen(['xdg-open', target])
+        return True
+
+def kill_process_tree(pid: int, timeout: float = 3.0) -> bool:
+    """
+    Menghentikan proses beserta seluruh child process secara aman dan bersih lintas-platform
+    menggunakan psutil (menggantikan pemanggilan command shell taskkill / kill -9).
+    """
+    if not pid:
+        return False
+    try:
+        int_pid = int(pid)
+        if int_pid <= 1 or int_pid == os.getpid():
+            return False
+    except (ValueError, TypeError):
+        return False
+    try:
+        parent = psutil.Process(int_pid)
+        children = parent.children(recursive=True)
+        for child in children:
+            try:
+                child.terminate()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        try:
+            parent.terminate()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+        _, alive = psutil.wait_procs(children + [parent], timeout=timeout)
+        for p in alive:
+            try:
+                p.kill()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        return True
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return False
+    except Exception:
+        return False
+
+def acquire_single_instance_lock(lock_name: str) -> Tuple[bool, Any]:
+    """
+    Mendapatkan single-instance lock pada OS non-Windows menggunakan fcntl.flock.
+    Mengembalikan (is_first_instance, lock_file_handle).
+    """
+    if sys.platform == 'win32':
+        return True, None
+    try:
+        import fcntl
+        lock_dir = os.path.join(os.path.expanduser('~'), '.vyloserve')
+        os.makedirs(lock_dir, exist_ok=True)
+        lock_file_path = os.path.join(lock_dir, f"{lock_name}.lock")
+        lock_file = open(lock_file_path, 'w')
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return True, lock_file
+    except OSError:
+        return False, None
+    except Exception:
+        return True, None
+
+def get_ipc_endpoint(is_production: bool = False) -> Tuple[str, str]:
+    """
+    Mendapatkan (address, family) untuk multiprocessing.connection Listener/Client lintas platform.
+    Windows menggunakan Named Pipe ('AF_PIPE'), Linux/macOS menggunakan Unix Domain Socket ('AF_UNIX').
+    """
+    if sys.platform == 'win32':
+        pipe_name = r'\\.\pipe\VyloServe_IPC_v1' if is_production else r'\\.\pipe\VyloServe_Dev_IPC_v1'
+        return pipe_name, 'AF_PIPE'
+    else:
+        sock_dir = os.path.join(os.path.expanduser('~'), '.vyloserve')
+        os.makedirs(sock_dir, exist_ok=True)
+        sock_name = 'vyloserve_ipc.sock' if is_production else 'vyloserve_dev_ipc.sock'
+        sock_path = os.path.join(sock_dir, sock_name)
+        return sock_path, 'AF_UNIX'
+
+# ==========================================
 # WINDOWS USER REGISTRY & PATH MANAGEMENT
 # ==========================================
 HWND_BROADCAST = 0xFFFF
@@ -164,10 +265,27 @@ def get_user_path_entries() -> List[str]:
 
 def is_in_user_path(target_path: str) -> bool:
     """
-    Mengecek apakah suatu direktori/file sudah terdaftar di HKCU User PATH.
+    Mengecek apakah suatu direktori/file sudah terdaftar di HKCU User PATH (Windows)
+    atau memiliki symlink aktif di ~/.local/bin (Linux).
     """
-    if not target_path or sys.platform != 'win32':
+    if not target_path:
         return False
+    if sys.platform != 'win32':
+        user_bin = os.path.expanduser('~/.local/bin')
+        if not os.path.exists(user_bin):
+            return False
+        real_target = os.path.realpath(target_path)
+        try:
+            for item in os.listdir(user_bin):
+                p = os.path.join(user_bin, item)
+                if os.path.islink(p):
+                    target = os.path.realpath(p)
+                    if target.startswith(real_target):
+                        return True
+        except Exception:
+            pass
+        return False
+
     normalized_target = os.path.normpath(target_path).lower().rstrip('\\/')
     entries = [os.path.normpath(p).lower().rstrip('\\/') for p in get_user_path_entries()]
     return normalized_target in entries
@@ -292,6 +410,9 @@ def _find_via_where_cmd(command: str, clean_vylo: str) -> Optional[str]:
             for p in res.stdout.strip().split('\n'):
                 p_clean = os.path.normpath(p.strip())
                 if p_clean and (not clean_vylo or clean_vylo not in p_clean.lower()):
+                    real_p = os.path.realpath(p_clean)
+                    if clean_vylo and os.path.normpath(real_p).lower().startswith(clean_vylo):
+                        continue
                     return p_clean
     except OSError:
         pass
@@ -337,35 +458,50 @@ def _find_in_extra_paths(extra_paths: Optional[List[str]]) -> Optional[str]:
                 return ep
     return None
 
+def _find_via_windows(
+    command: str,
+    clean_vylo: str,
+    extra_paths: Optional[List[str]] = None
+) -> Optional[str]:
+    found = _find_via_where_cmd(command, clean_vylo)
+    if found:
+        return found
+
+    try:
+        found_reg = _find_via_registry_path(command, clean_vylo)
+        if found_reg:
+            return found_reg
+    except Exception:
+        pass
+
+    return _find_in_extra_paths(extra_paths)
+
+def _find_via_posix_path(command: str, clean_vylo: str) -> Optional[str]:
+    env_path = os.environ.get('PATH', '')
+    raw_paths = [
+        p for p in env_path.split(os.pathsep)
+        if p and (not clean_vylo or clean_vylo not in p.lower())
+    ]
+    for p_dir in raw_paths:
+        if not os.path.isdir(p_dir):
+            continue
+        cand_path = os.path.join(p_dir, command)
+        if os.path.isfile(cand_path) and os.access(cand_path, os.X_OK):
+            real_target = os.path.realpath(cand_path)
+            if clean_vylo and os.path.normpath(real_target).lower().startswith(clean_vylo):
+                continue
+            return cand_path
+    return None
+
 def _lookup_external_executable(
     command: str,
     vyloserve_bin: str = "",
     extra_paths: Optional[List[str]] = None
 ) -> Optional[str]:
-    import shutil
     clean_vylo = os.path.normpath(vyloserve_bin).lower() if vyloserve_bin else ""
-
     if sys.platform == 'win32':
-        found = _find_via_where_cmd(command, clean_vylo)
-        if found:
-            return found
-
-        try:
-            found_reg = _find_via_registry_path(command, clean_vylo)
-            if found_reg:
-                return found_reg
-        except Exception:
-            pass
-
-        return _find_in_extra_paths(extra_paths)
-
-    # Non-Windows (Linux / macOS)
-    env_path = os.environ.get('PATH', '')
-    clean_paths = [
-        p for p in env_path.split(os.pathsep)
-        if not clean_vylo or clean_vylo not in p.lower()
-    ]
-    return shutil.which(command, path=os.pathsep.join(clean_paths))
+        return _find_via_windows(command, clean_vylo, extra_paths)
+    return _find_via_posix_path(command, clean_vylo)
 
 # ==========================================
 # DWM WIN32 TITLEBAR THEME CONSTANTS & PALETTES
@@ -680,3 +816,127 @@ def apply_window_titlebar_theme(window_or_hwnd: Any, theme_name: Optional[str] =
         pass
 
     return success
+
+def _dedup_env_paths(paths: List[str], seen: set, is_win: bool) -> List[str]:
+    result = []
+    for p in paths:
+        if p and isinstance(p, str):
+            clean_p = p.strip()
+            norm_key = clean_p.lower() if is_win else clean_p
+            if clean_p and norm_key not in seen:
+                seen.add(norm_key)
+                result.append(clean_p)
+    return result
+
+def set_path_in_env(env: Dict[str, str], paths_to_prepend: List[str]) -> Dict[str, str]:
+    """
+    Menormalkan variabel PATH secara case-insensitive lintas platform (Windows & Linux).
+    Menghindari duplikasi key 'Path' vs 'PATH' di Windows dan memastikan paths_to_prepend
+    selalu berada di prioritas tertinggi tanpa duplikat.
+    """
+    if not isinstance(env, dict):
+        env = {}
+
+    is_win = (sys.platform == "win32")
+    path_sep = ";" if is_win else os.pathsep
+
+    path_keys = [k for k in env if k.upper() == "PATH"]
+    existing_paths_str = ""
+    for k in path_keys:
+        val = env.pop(k, "")
+        if val and not existing_paths_str:
+            existing_paths_str = str(val)
+
+    existing_parts = [p.strip() for p in existing_paths_str.split(path_sep) if p.strip()]
+
+    seen: set = set()
+    combined = _dedup_env_paths(paths_to_prepend, seen, is_win) + _dedup_env_paths(existing_parts, seen, is_win)
+
+    new_path_str = path_sep.join(combined)
+    env["PATH"] = new_path_str
+    if is_win:
+        env["Path"] = new_path_str
+
+    return env
+
+def get_current_username() -> str:
+    """ Mengembalikan nama user sistem aktif lintas platform. """
+    import getpass
+    try:
+        return getpass.getuser()
+    except Exception:
+        return os.environ.get('USER') or os.environ.get('USERNAME') or 'user'
+
+def get_current_user_group() -> str:
+    """ Mengembalikan nama group primer dari user aktif di Linux/POSIX. """
+    if sys.platform == 'win32':
+        return ''
+    try:
+        import grp
+        return grp.getgrgid(os.getgid()).gr_name
+    except Exception:
+        return get_current_username()
+
+def ensure_user_path_env_linux() -> bool:
+    """
+    Memastikan direktori ~/.local/bin terdaftar di file konfigurasi shell Linux (~/.bashrc / ~/.profile).
+    """
+    if sys.platform == 'win32':
+        return False
+    user_bin = os.path.expanduser('~/.local/bin')
+    os.makedirs(user_bin, exist_ok=True)
+    
+    current_path = os.environ.get('PATH', '')
+    if user_bin in [p.rstrip('/') for p in current_path.split(':') if p]:
+        return True
+        
+    export_line = 'export PATH="$HOME/.local/bin:$PATH"\n'
+    home = os.path.expanduser('~')
+    for rc_name in ['.bashrc', '.profile']:
+        rc_path = os.path.join(home, rc_name)
+        if os.path.exists(rc_path):
+            try:
+                with open(rc_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                if '.local/bin' not in content:
+                    with open(rc_path, 'a', encoding='utf-8') as f:
+                        f.write(f"\n# Added by VyloServe\n{export_line}")
+                    return True
+            except Exception:
+                pass
+    return False
+
+def check_system_service_conflict(port: int, engine: str = "") -> Optional[str]:
+    """
+    Di Linux, memeriksa apakah port yang konflik sedang diduduki oleh service systemd aktif
+    (seperti apache2, nginx, mysql, mariadb, postgresql).
+    Mengembalikan nama service jika aktif, atau None.
+    """
+    if sys.platform == 'win32':
+        return None
+    systemctl = shutil.which("systemctl")
+    if not systemctl:
+        return None
+
+    service_map = {
+        80: ["apache2", "httpd", "nginx"],
+        443: ["apache2", "httpd", "nginx"],
+        3306: ["mysql", "mariadb"],
+        5432: ["postgresql"],
+        6379: ["redis", "redis-server"],
+    }
+    candidates = service_map.get(port, [])
+    if engine and not candidates:
+        candidates = [engine]
+
+    for svc in candidates:
+        try:
+            res = subprocess.run([systemctl, "is-active", "--quiet", svc], capture_output=True)
+            if res.returncode == 0:
+                return svc
+        except Exception:
+            pass
+    return None
+
+
+

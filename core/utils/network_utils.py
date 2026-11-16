@@ -1,5 +1,6 @@
 import socket
 import urllib.error
+import re
 from typing import Any, Dict, Optional, Tuple
 
 MSG_NO_INTERNET = "backend.error.no_internet"
@@ -80,3 +81,36 @@ def build_offline_error_response(
     if args:
         res["args"] = args
     return res
+
+
+def check_host_reachability(host: str, default_port: int = 443, timeout: float = 1.5) -> Dict[str, Any]:
+    """
+    Memeriksa apakah sebuah host (misal host internal Git/GitLab VPN) dapat dijangkau
+    menggunakan TCP socket probe cepat (default timeout 1.5 detik).
+    Mengembalikan dict {"reachable": bool, "host": str, "port": int, "error": Optional[str]}.
+    """
+    if not host:
+        return {"reachable": False, "host": "", "port": default_port, "error": "Empty host"}
+
+    clean = host.strip()
+    clean = re.sub(r"^https?://", "", clean, flags=re.IGNORECASE)
+    clean = clean.split("/")[0].strip()
+
+    port = default_port
+    if ":" in clean:
+        parts = clean.split(":")
+        clean = parts[0]
+        try:
+            port = int(parts[1])
+        except (ValueError, TypeError):
+            port = default_port
+
+    if not clean:
+        return {"reachable": False, "host": "", "port": port, "error": "Invalid host"}
+
+    try:
+        with socket.create_connection((clean, port), timeout=timeout):
+            return {"reachable": True, "host": clean, "port": port, "error": None}
+    except OSError as e:
+        return {"reachable": False, "host": clean, "port": port, "error": str(e)}
+

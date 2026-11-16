@@ -1,4 +1,5 @@
 import os
+import sys
 import pytest
 from unittest.mock import MagicMock, patch, mock_open
 from core.services.php import PhpManager
@@ -39,7 +40,7 @@ def test_php_open_path_not_found(mock_exists, php_mgr):
     assert res['status'] == 'error'
 
 @patch('os.path.exists', return_value=True)
-@patch('shutil.rmtree')
+@patch('core.services.php.safe_rmtree')
 def test_php_uninstall_version(mock_rmtree, mock_exists, php_mgr):
     res = php_mgr.uninstall_version("8.1")
     assert res['status'] == 'success'
@@ -72,8 +73,8 @@ def test_php_start_php(mock_start, mock_update, mock_patch, mock_get_port, mock_
     assert res['status'] == 'error'
     
 @patch('core.services.php.PhpManager.toggle_global_path')
-@patch('core.services.php.run_silent_command')
-def test_php_stop_php(mock_run, mock_toggle, php_mgr):
+@patch('core.services.php.kill_process_tree')
+def test_php_stop_php(mock_kill, mock_toggle, php_mgr):
     mock_proc = MagicMock()
     mock_proc.poll.return_value = None
     mock_proc.pid = 1234
@@ -82,7 +83,7 @@ def test_php_stop_php(mock_run, mock_toggle, php_mgr):
     with patch('sys.platform', 'win32'):
         res = php_mgr.stop_php("8.1")
         assert res['status'] == 'success'
-        mock_run.assert_called_once()
+        mock_kill.assert_called_once_with(1234)
         mock_toggle.assert_called_once_with(os.path.join(php_mgr.base_dir, "8.1"), enable=False)
         assert "8.1" not in php_mgr.processes
         
@@ -102,27 +103,30 @@ def test_php_parse_php_ini_info(mock_exists, php_mgr):
 @patch('os.listdir', return_value=["8.1", "8.2"])
 @patch('os.path.isdir', return_value=True)
 def test_php_get_installed_instances(mock_isdir, mock_listdir, mock_exists, php_mgr):
-    with patch.object(php_mgr, '_parse_php_ini_info', return_value=(9001, "256M")):
-        mock_proc = MagicMock()
-        mock_proc.poll.return_value = None
-        php_mgr.processes["8.2"] = mock_proc
-        
-        mock_proc2 = MagicMock()
-        mock_proc2.poll.return_value = 1 # Dead process
-        php_mgr.processes["8.1"] = mock_proc2
-        
-        instances = php_mgr.get_installed_instances()
-        assert len(instances) == 2
-        
-        # 8.2 should be running
-        inst_82 = next(i for i in instances if i["version"] == "8.2")
-        assert inst_82["status"] == "running"
-        assert inst_82["port"] == 9001
-        
-        # 8.1 should be stopped and removed from processes
-        inst_81 = next(i for i in instances if i["version"] == "8.1")
-        assert inst_81["status"] == "stopped"
-        assert "8.1" not in php_mgr.processes
+    with patch.object(php_mgr, '_check_system_php', return_value={"exists": False}):
+        with patch.object(php_mgr, '_parse_php_ini_info', return_value=(9001, "256M")):
+            mock_proc = MagicMock()
+            mock_proc.poll.return_value = None
+            php_mgr.processes["8.2"] = mock_proc
+            
+            mock_proc2 = MagicMock()
+            mock_proc2.poll.return_value = 1 # Dead process
+            php_mgr.processes["8.1"] = mock_proc2
+            
+            instances = php_mgr.get_installed_instances()
+            assert len(instances) == 2
+            
+            # 8.2 should be running
+            inst_82 = next(i for i in instances if i["version"] == "8.2")
+            assert inst_82["status"] == "running"
+            assert inst_82["port"] == 9001
+            assert inst_82["is_system"] is False
+            
+            # 8.1 should be stopped and removed from processes
+            inst_81 = next(i for i in instances if i["version"] == "8.1")
+            assert inst_81["status"] == "stopped"
+            assert "8.1" not in php_mgr.processes
+            assert inst_81["is_system"] is False
 
 def test_php_toggle_global_path(php_mgr):
     with patch('sys.platform', 'darwin'):
@@ -178,7 +182,7 @@ def test_php_install_version(mock_makedirs, mock_exists, mock_remove, mock_extra
     # Exception test
     mock_exists.side_effect = lambda path: True if path.endswith('.zip') else False
     mock_download.side_effect = Exception("Download failed")
-    with patch('core.services.php.shutil.rmtree') as mock_rmtree:
+    with patch('core.services.php.safe_rmtree') as mock_rmtree:
         res = php_mgr.install_version("8.2", "php-8.2.zip", 9000)
         assert res['status'] == 'error'
         mock_remove.assert_called()
@@ -243,7 +247,7 @@ def test_php_install_version_exception(php_mgr):
         with patch('core.services.php.os.makedirs'):
             with patch.object(php_mgr, '_download_php_archive', side_effect=Exception("dl failed")):
                 with patch('core.services.php.os.remove') as mock_remove:
-                    with patch('core.services.php.shutil.rmtree') as mock_rmtree:
+                    with patch('core.services.php.safe_rmtree') as mock_rmtree:
                         res = php_mgr.install_version("8.2", "php.zip", 9000)
                         assert res['status'] == 'error'
                         mock_remove.assert_called_once()
@@ -255,7 +259,7 @@ def test_php_install_version_cancelled(php_mgr):
          patch('core.services.php.os.makedirs'), \
          patch.object(php_mgr, '_download_php_archive', side_effect=OperationCancelledError("dl cancelled")), \
          patch('core.services.php.os.remove') as mock_remove, \
-         patch('core.services.php.shutil.rmtree') as mock_rmtree:
+         patch('core.services.php.safe_rmtree') as mock_rmtree:
         res = php_mgr.install_version("8.2", "php.zip", 9000)
         assert res['status'] == 'cancelled'
         assert res['message'] == 'backend.php.install_cancelled'
@@ -268,9 +272,18 @@ def test_php_get_available_versions(mock_urlopen, php_mgr):
     mock_response.read.return_value.decode.return_value = 'href="/downloads/releases/8.1.0/php-8.1.0-Win32-vs16-x64.zip"'
     mock_urlopen.return_value = mock_response
 
-    res = php_mgr.get_versions()
-    assert res['status'] == 'success'
-    assert len(res['data']) > 0
+    with patch('sys.platform', 'win32'):
+        res = php_mgr.get_versions()
+        assert res['status'] == 'success'
+        assert len(res['data']) > 0
+
+def test_php_get_available_versions_linux(php_mgr):
+    with patch('sys.platform', 'linux'):
+        res = php_mgr.get_versions()
+        assert res['status'] == 'success'
+        assert len(res['data']) == 1
+        assert res['data'][0]['version'] == 'system'
+        assert res['message'] == 'backend.php.release_load_success'
 
 @patch('os.path.exists')
 @patch('urllib.request.urlopen')
@@ -286,11 +299,12 @@ def test_php_get_available_versions_unexpected_error_returns_real_message(mock_u
     mock_urlopen.return_value = mock_response
     mock_exists.side_effect = OSError("disk unreadable")
 
-    res = php_mgr.get_versions()
+    with patch('sys.platform', 'win32'):
+        res = php_mgr.get_versions()
 
-    assert res['status'] == 'error'
-    assert res['message'] == 'backend.error.unexpected'
-    assert res['args']['e'] == 'disk unreadable'
+        assert res['status'] == 'error'
+        assert res['message'] == 'backend.error.unexpected'
+        assert res['args']['e'] == 'disk unreadable'
 
 @patch('builtins.open', new_callable=MagicMock)
 @patch('core.services.php.os.path.exists', return_value=True)
@@ -326,15 +340,12 @@ def test_php_toggle_global_path_handles_missing_registry_value(php_mgr):
 # get_versions — cabang non-Windows & partial URL failure
 # ==========================================
 
-@patch('urllib.request.urlopen')
-def test_php_get_versions_non_windows_uses_tar_gz_pattern(mock_urlopen, php_mgr):
-    mock_response = MagicMock()
-    mock_response.read.return_value.decode.return_value = 'href="php-8.3.0.tar.gz"'
-    mock_urlopen.return_value = mock_response
-    with patch('sys.platform', 'linux'):
+def test_php_get_versions_non_windows_returns_no_linux_binaries(php_mgr):
+    with patch('sys.platform', 'darwin'):
         res = php_mgr.get_versions()
     assert res['status'] == 'success'
-    assert res['data'][0]['version'] == '8.3.0'
+    assert res['data'] == []
+    assert res['message'] == 'backend.php.no_linux_binaries'
 
 @patch('urllib.request.urlopen')
 def test_php_get_versions_skips_url_that_fails_but_uses_the_other(mock_urlopen, php_mgr):
@@ -536,8 +547,16 @@ def test_check_is_running_cleans_up_dead_processes(php_mgr):
     mock_proc = MagicMock()
     mock_proc.poll.return_value = 0
     php_mgr.processes["8.1"] = mock_proc
-    assert php_mgr.check_is_running() is False
-    assert "8.1" not in php_mgr.processes
+    with patch.object(php_mgr, '_check_system_php', return_value={"exists": False, "status": "stopped"}):
+        assert php_mgr.check_is_running() is False
+        assert "8.1" not in php_mgr.processes
+
+def test_check_is_running_system_php_linux(php_mgr):
+    with patch('core.services.php.sys.platform', 'linux'):
+        with patch.object(php_mgr, '_check_system_php', return_value={"exists": True, "status": "running"}):
+            assert php_mgr.check_is_running() is True
+        with patch.object(php_mgr, '_check_system_php', return_value={"exists": True, "status": "stopped"}):
+            assert php_mgr.check_is_running() is False
 
 # ==========================================
 # get_installed_versions
@@ -619,7 +638,7 @@ def test_stop_all_stops_every_running_process(php_mgr):
 
 @patch('core.services.php.PhpManager.install_version')
 @patch('core.services.php.PhpManager.stop_php')
-@patch('core.services.php.shutil.rmtree')
+@patch('core.services.php.safe_rmtree')
 @patch('core.services.php.os.path.exists')
 @patch('core.services.php.PhpManager._get_port_from_ini')
 def test_php_update_version_success(mock_get_port, mock_exists, mock_rmtree, mock_stop, mock_install, php_mgr):
@@ -660,3 +679,156 @@ def test_php_update_version_install_fails(mock_get_port, mock_stop, mock_install
     assert res['status'] == 'error'
     assert res['message'] == 'download failed'
     mock_stop.assert_called_once_with("8.1.10")
+
+
+# ==========================================
+# _check_system_php and system instance integration
+# ==========================================
+
+def test_check_system_php_windows_returns_empty(php_mgr):
+    with patch('core.services.php.sys.platform', 'win32'):
+        info = php_mgr._check_system_php()
+        assert info["exists"] is False
+        assert info["version"] == ""
+        assert info["path"] == ""
+        assert info["status"] == "stopped"
+
+
+def test_check_system_php_linux_not_found(php_mgr):
+    with patch('core.services.php.sys.platform', 'linux'):
+        with patch('core.services.php.shutil.which', return_value=None):
+            info = php_mgr._check_system_php()
+            assert info["exists"] is False
+            assert info["version"] == ""
+
+
+def test_check_system_php_linux_found_stopped(php_mgr):
+    mock_run_version = MagicMock(stdout="PHP 8.3.6 (cli) (built: Apr 15 2024 19:21:47) (NTS)", stderr="")
+    mock_run_mem = MagicMock(stdout="512M", stderr="")
+    
+    with patch('core.services.php.sys.platform', 'linux'):
+        with patch('core.services.php.shutil.which', return_value="/usr/bin/php"):
+            with patch('core.services.php.subprocess.run', side_effect=[mock_run_version, mock_run_mem]):
+                with patch('psutil.process_iter', return_value=[]):
+                    info = php_mgr._check_system_php()
+                    assert info["exists"] is True
+                    assert info["version"] == "8.3.6"
+                    assert info["path"] == "/usr/bin/php"
+                    assert info["status"] == "stopped"
+                    assert info["memory_limit"] == "512M"
+
+
+def test_check_system_php_linux_found_running(php_mgr):
+    mock_run_version = MagicMock(stdout="PHP 8.2.10 (cli)", stderr="")
+    mock_run_mem = MagicMock(stdout="256M", stderr="")
+    
+    mock_proc = MagicMock()
+    mock_proc.info = {'name': 'php-fpm8.2', 'exe': '/usr/sbin/php-fpm8.2'}
+    
+    with patch('core.services.php.sys.platform', 'linux'):
+        with patch('core.services.php.shutil.which', return_value="/usr/bin/php"):
+            with patch('core.services.php.subprocess.run', side_effect=[mock_run_version, mock_run_mem]):
+                with patch('psutil.process_iter', return_value=[mock_proc]):
+                    info = php_mgr._check_system_php()
+                    assert info["exists"] is True
+                    assert info["version"] == "8.2.10"
+                    assert info["status"] == "running"
+
+
+@patch('os.path.exists', return_value=False)
+def test_php_get_installed_instances_includes_system_php(mock_exists, php_mgr):
+    system_info = {
+        "exists": True,
+        "version": "8.3.6",
+        "path": "/usr/bin/php",
+        "status": "running",
+        "memory_limit": "512M"
+    }
+    with patch.object(php_mgr, '_check_system_php', return_value=system_info):
+        instances = php_mgr.get_installed_instances()
+        assert len(instances) == 1
+        inst = instances[0]
+        assert inst["id"] == "php_system"
+        assert inst["version"] == "8.3.6"
+        assert inst["is_system"] is True
+        assert inst["status"] == "running"
+        assert inst["dir"] == "/usr/bin/php"
+        assert inst["memory_limit"] == "512M"
+
+
+def test_install_php_linux_success(php_mgr):
+    with patch('shutil.which', side_effect=lambda x: f"/usr/bin/{x}" if x in ("pkexec", "apt-get") else None), \
+         patch('core.services.php.run_silent_command', return_value=MagicMock(returncode=0)), \
+         patch('core.services.php.subprocess.run', return_value=MagicMock(returncode=0)):
+        res = php_mgr._install_php_linux()
+        assert res['status'] == 'success'
+        assert res['message'] == 'backend.php.linux_install_success'
+
+
+def test_install_php_linux_auth_cancelled(php_mgr):
+    with patch('shutil.which', side_effect=lambda x: f"/usr/bin/{x}" if x in ("pkexec", "apt-get") else None), \
+         patch('core.services.php.run_silent_command', return_value=MagicMock(returncode=0)), \
+         patch('core.services.php.subprocess.run', return_value=MagicMock(returncode=126)):
+        res = php_mgr._install_php_linux()
+        assert res['status'] == 'error'
+        assert res['message'] == 'backend.php.auth_cancelled'
+
+
+def test_install_php_linux_no_pkexec(php_mgr):
+    with patch('shutil.which', return_value=None):
+        res = php_mgr._install_php_linux()
+        assert res['status'] == 'error'
+        assert res['message'] == 'backend.php.no_pkexec'
+
+
+def test_php_get_versions_linux_system_package(php_mgr):
+    with patch('core.services.php.sys.platform', 'linux'):
+        res = php_mgr.get_versions()
+        assert res['status'] == 'success'
+        assert len(res['data']) == 1
+        assert res['data'][0]['version'] == 'system'
+
+
+def test_php_install_composer_creates_bat_and_sh(php_mgr, tmp_path):
+    target_dir = str(tmp_path / "php_8_2")
+    os.makedirs(target_dir, exist_ok=True)
+    with patch('urllib.request.urlretrieve'):
+        php_mgr._install_composer(target_dir)
+
+    bat_file = os.path.join(target_dir, "composer.bat")
+    assert os.path.exists(bat_file)
+    with open(bat_file, "r") as f:
+        assert "%~dp0composer.phar" in f.read()
+
+    sh_file = os.path.join(target_dir, "composer")
+    assert os.path.exists(sh_file)
+    with open(sh_file, "r") as f:
+        content = f.read()
+        assert "#!/bin/sh" in content
+        assert "composer.phar" in content
+    if sys.platform != 'win32':
+        assert os.stat(sh_file).st_mode & 0o111 != 0
+
+
+def test_ensure_vyloserve_fpm_pool_linux(php_mgr, tmp_path):
+    target_pool = "/etc/php/8.3/fpm/pool.d"
+
+    with patch('sys.platform', 'linux'):
+        with patch('core.utils.system_utils.get_current_username', return_value='testuser'):
+            with patch('core.utils.system_utils.get_current_user_group', return_value='testgroup'):
+                with patch('os.path.isdir', side_effect=lambda d: d == target_pool):
+                    with patch('shutil.which', side_effect=lambda bin_name: f"/usr/bin/{bin_name}"):
+                        with patch('subprocess.run') as mock_sub:
+                            mock_sub.return_value = MagicMock(returncode=0)
+                            sock = php_mgr._ensure_vyloserve_fpm_pool("8.3")
+                            assert sock == "/run/php/php8.3-fpm-vyloserve.sock"
+                            mock_sub.assert_called()
+
+
+def test_ensure_vyloserve_fpm_pool_windows(php_mgr):
+    with patch('sys.platform', 'win32'):
+        assert php_mgr._ensure_vyloserve_fpm_pool("8.3") is None
+
+
+
+

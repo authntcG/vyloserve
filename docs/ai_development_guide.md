@@ -218,6 +218,70 @@ Fitur *public tunnel* — expose project lokal/`localhost:port` apa pun ke inter
 | `ai_get_usage_stats(provider?)` | `ai_get_usage_stats()` | `ai.get_usage_stats()` — metrik pemakaian token & request harian/mingguan beserta batas free-tier |
 | `ai_reset_usage_stats()` | `ai_reset_usage_stats()` | `ai.reset_usage_stats()` |
 
+### GitLab CLI Endpoints (`glab`)
+| Method di Frontend (`api.*`) | Method di `api.py` | Delegasi ke Service |
+|------------------------------|-------------------|---------------------|
+| `get_gitlab_status()` | `get_gitlab_status()` | `gitlab_manager.get_glab_status()` |
+| `install_glab(version?)` | `install_glab()` | `gitlab_manager.install_glab()` |
+| `uninstall_glab()` | `uninstall_glab()` | `gitlab_manager.uninstall_glab()` |
+| `authenticate_gitlab(host, token, auth_type, ...)` | `authenticate_gitlab()` | `gitlab_manager.authenticate()` |
+| `get_gitlab_accounts()` | `get_gitlab_accounts()` | `gitlab_manager.get_gitlab_accounts()` |
+| `set_default_gitlab_account(account_id)` | `set_default_gitlab_account()` | `gitlab_manager.set_default_gitlab_account()` |
+| `remove_gitlab_account(account_id)` | `remove_gitlab_account()` | `gitlab_manager.remove_gitlab_account()` |
+| `get_gitlab_account_projects(account_id)` | `get_gitlab_account_projects()` | `gitlab_manager.get_account_projects()` |
+| `get_gitlab_recent_issues(repo?, limit?)` | `get_gitlab_recent_issues()` | `gitlab_manager.get_recent_issues()` — dilengkapi VPN reachability circuit breaker |
+| `comment_gitlab_issue(repo, issue_id, comment)` | `comment_gitlab_issue()` | `gitlab_manager.comment_issue()` |
+| `comment_gitlab_mr(repo, mr_id, comment)` | `comment_gitlab_mr()` | `gitlab_manager.comment_mr()` |
+| `detect_project_gitlab_remote(project_dir)` | `detect_project_gitlab_remote()` | `gitlab_manager.detect_project_gitlab_remote()` |
+| `toggle_gitlab_user_path(enable)` | `toggle_gitlab_user_path()` | `gitlab_manager.toggle_user_path()` |
+
+### Mail Sandbox Endpoints
+| Method di Frontend (`api.*`) | Method di `api.py` | Delegasi ke Service |
+|------------------------------|-------------------|---------------------|
+| `start_mail_server(port?)` | `start_mail_server()` | `mail_sandbox.start_server()` |
+| `stop_mail_server()` | `stop_mail_server()` | `mail_sandbox.stop_server()` |
+| `get_mail_messages(limit?)` | `get_mail_messages()` | `mail_sandbox.get_messages()` |
+| `get_mail_detail(message_id)` | `get_mail_detail()` | `mail_sandbox.get_message_detail()` |
+| `clear_mail_messages()` | `clear_mail_messages()` | `mail_sandbox.clear_messages()` |
+| `export_mail_eml(message_id)` | `export_mail_eml()` | `mail_sandbox.export_eml()` |
+| `get_mail_status()` | `get_mail_status()` | `mail_sandbox.get_status()` |
+
+### Webhook Inspector Endpoints
+| Method di Frontend (`api.*`) | Method di `api.py` | Delegasi ke Service |
+|------------------------------|-------------------|---------------------|
+| `start_webhook_server(port?, path?)` | `start_webhook_server()` | `webhook_inspector.start_inspector()` |
+| `stop_webhook_server()` | `stop_webhook_server()` | `webhook_inspector.stop_inspector()` |
+| `get_webhook_requests(limit?)` | `get_webhook_requests()` | `webhook_inspector.get_requests()` |
+| `clear_webhook_requests()` | `clear_webhook_requests()` | `webhook_inspector.clear_requests()` |
+| `get_webhook_status()` | `get_webhook_status()` | `webhook_inspector.get_status()` |
+
+### Port Manager Endpoints
+| Method di Frontend (`api.*`) | Method di `api.py` | Delegasi ke Service |
+|------------------------------|-------------------|---------------------|
+| `get_active_ports(filter_text?)` | `get_active_ports()` | `port_manager.get_active_ports()` |
+| `kill_port_process(pid)` | `kill_port_process()` | `port_manager.kill_process()` |
+
+### Crypto Tools Endpoints
+| Method di Frontend (`api.*`) | Method di `api.py` | Delegasi ke Service |
+|------------------------------|-------------------|---------------------|
+| `generate_crypto_hash(text, algo?)` | `generate_crypto_hash()` | `crypto_tools.generate_hash()` |
+| `generate_crypto_hmac(key, msg, algo?)` | `generate_crypto_hmac()` | `crypto_tools.generate_hmac()` |
+| `generate_crypto_token(type?, length?)` | `generate_crypto_token()` | `crypto_tools.generate_token()` |
+
+### Project Advanced Modals Endpoints (App Logs, Env Editor, SSL Hosts)
+| Method di Frontend (`api.*`) | Method di `api.py` | Delegasi ke Service |
+|------------------------------|-------------------|---------------------|
+| `get_project_app_logs(id, lines?)` | `get_project_app_logs()` | `project.get_project_app_logs()` |
+| `clear_project_app_logs(id)` | `clear_project_app_logs()` | `project.clear_project_app_logs()` |
+| `get_project_env(id)` | `get_project_env()` | `project.get_project_env()` — parsing key-value & diff .env.example |
+| `save_project_env(id, content)` | `save_project_env()` | `project.save_project_env()` — auto backup ke .env.backup |
+| `get_project_ssl_hosts(id)` | `get_project_ssl_hosts()` | `project.get_project_ssl_hosts()` |
+
+### Health & Bootstrapper Endpoints
+| Method di Frontend (`api.*`) | Method di `api.py` | Delegasi ke Service |
+|------------------------------|-------------------|---------------------|
+| `run_startup_health_check()` | `run_startup_health_check()` | `health_manager.run_startup_health_check()` |
+
 
 > ✅ **Sudah diperbaiki (sebelumnya dicatat di sini sebagai item belum diselesaikan):** Ke-7 handler delegasi di atas (selain `get_available_zrok_versions`) sempat ditulis dengan pola defensif `getattr(self, "tunnels").xxx() if hasattr(self, "tunnels") else {}` — sudah disederhanakan jadi `self.tunnels.xxx()` langsung, konsisten dengan seluruh delegasi lain di `core/api.py`.
 >
@@ -235,47 +299,59 @@ Fitur *public tunnel* — expose project lokal/`localhost:port` apa pun ke inter
 | File | Ukuran | Tanggung Jawab |
 |------|--------|----------------|
 | `core/api.py` | ~930 baris | Facade/Router — meneruskan semua panggilan JS ke manager; juga memiliki `start_log_watcher()`/`stop_log_watcher()`, `emit_window_state()`, `emit_ai_chunk()`, `emit_cli_output()`, `emit_terminal_output()`, dan `show_native_notification()` |
-| `core/services/project.py` | ~1750 baris | ⚠️ File backend terbesar — Scaffolding multi-runtime (PHP, Node, Python, Go, Java), Dev Server process management, VirtualHost & WebSocket proxy, UAC hosts injection, interactive CLI streaming via PTY |
+| `core/services/project.py` | ~1750 baris | ⚠️ File backend terbesar — Scaffolding multi-runtime, Dev Server process management, VirtualHost & WebSocket proxy, UAC hosts injection, interactive CLI streaming via PTY, App Logs reader, .Env editor & diff, SSL Hosts inspector |
 | `core/services/ai_assistant.py` | ~1580 baris | Copilot AI: `DocRetriever` (in-memory RAG panduan pengguna), SSE streaming, empirical tier probing, context aggregator sistem server, token usage tracker (`data/ai_usage.json`), persistensi chat & action states |
 | `core/services/runtimes_manager.py` | ~1200 baris | Multi-version concurrency (Node, Python, Java, Go), Centralized `RuntimePathHub`, isolasi instalasi eksternal, dan Windows Registry PATH injection |
 | `core/services/terminal.py` | ~1110 baris | Developer Terminal: session manager, subprocess reader threads, real-time CWD tracking, environment scoping (`_build_session_env`), saved presets, workspace & settings persistence |
 | `core/services/tunnels.py` | ~867 baris | Public tunnel — **dua provider**: zrok (install/enable/disable/share) DAN Cloudflare Tunnel (install/share) — lihat §1 "Tunnels Endpoints" |
-| `core/services/database.py` | ~1200 baris | Triple-engine (MySQL/MariaDB, PostgreSQL, Redis) daemon management; Database Schema Manager (`list_schemas`, `create_schema`, `drop_schema`); `tail_new_logs()`/`get_log_content()` untuk System Logs; `update_database()`; `_assert_installer_present()`; CLI execution helpers (`_run_mysql_cli`, `_run_pg_cli`) |
+| `core/services/database.py` | ~1200 baris | Triple-engine (MySQL/MariaDB, PostgreSQL, Redis) daemon management; Database Schema Manager; Redis live metrics & ping; `tail_new_logs()`/`get_log_content()`; `_assert_installer_present()`; CLI execution helpers |
+| `core/services/gitlab_manager.py` | ~850 baris | Integrasi GitLab CLI (`glab`): portable binary lifecycle, multi-host PAT/SSH accounts, VPN reachability circuit breaker (`_is_vpn_unreachable`), Issue/MR comments, Human-in-the-Loop review |
+| `core/services/health_manager.py` | ~560 baris | 3-Tier Self-Healing Startup Health Check: orphan temp files cleanup, local config restore (<150ms), online binary recovery, safe cleansing & database dataDir protection |
+| `core/services/mail_sandbox.py` | ~380 baris | In-process Async SMTP server (port 1025), email MIME parser, in-memory buffer, detail viewer, EML exporter |
+| `core/services/webhook_inspector.py` | ~340 baris | In-process Async HTTP webhook receiver (port 9000), payload & headers logger, cURL replay command generator |
+| `core/services/port_manager.py` | ~170 baris | Active port listening scanner (psutil/netstat), PID resolving, process killer dengan proteksi PID sistem |
+| `core/services/crypto_tools.py` | ~150 baris | Cryptographic utilities: hashing (MD5, SHA), HMAC generator, secure random tokens & API keys |
 | `core/services/apache.py` | ~555 baris | Instalasi, konfigurasi, dan lifecycle httpd.exe; `tail_new_logs()`/`get_log_content()` untuk System Logs; `get_http_port()` untuk resolusi port HTTP aktif |
 | `core/services/php.py` | ~438 baris | Multi-version PHP-CGI, extensions, php.ini management, `update_version()` |
-| `core/services/git_manager.py` | ~363 baris | PortableGit installer, global git config, dan PATH management |
+| `core/services/git_manager.py` | ~363 baris | PortableGit installer, credential helper anti-freeze, global git config, dan PATH management |
 | `core/services/updater.py` | ~242 baris | Auto-Updater: cek/unduh/pasang rilis baru dari GitHub Releases |
 | `core/services/ssl_manager.py` | ~101 baris | Root CA generation via OpenSSL |
 | `core/services/markdown_viewer.py` | ~96 baris | Scanner hierarki folder rekursif, filter direktori berkas markdown, reader isi teks `.md`, dan converter media lokal ke Base64 data URI |
 | `core/services/settings.py` | ~76 baris | CRUD preferensi aplikasi (`language`, `theme`, `ai_*`, `receive_prerelease_updates`, `enable_desktop_notifications`, `default_apache_install_location`, `system_log_levels`/`system_log_sources`) |
 | `core/services/dashboard.py` | ~64 baris | CRUD konfigurasi dashboard (JSON) |
+| `core/utils/splash_window.py` | ~440 baris | Native Tkinter splash screen bootstrapper OS-level frameless, thread worker queue polling, localized progress |
 | `core/utils/file_utils.py` | ~291 baris | JSON I/O, download multi-part, ekstraksi ZIP/TAR, `read_log_tail()`/`read_new_lines()` untuk System Logs |
 | `core/utils/system_utils.py` | ~170 baris | subprocess silent, port checker, path resolver, DWM titlebar palette, Named Pipe IPC single-instance |
 | `core/utils/cancellation.py` | ~90 baris | Token pembatalan asinkron thread-safe (`CancellationToken`), registry tugas aktif, pembatalan I/O unduhan/ekstraksi berdurasi panjang |
 | `core/utils/network_utils.py` | ~65 baris | Multi-endpoint socket probe konektivitas internet fisik, deteksi `is_network_error`, dan generator respons offline standar |
 | `main.py` | ~330 baris | Entrypoint: PyWebView window, isolasi mode dev/prod Mutex & IPC, AppLifecycle, System Tray setup, hook DWM titlebar & window state |
+| `main.spec` | ~55 baris | Spesifikasi PyInstaller executable bundling: datas (locales, assets, docs), webview binaries & datas, certifi datas, dan hiddenimports |
 
 ### Frontend Files (Halaman Utama, Domain Contexts, & Sub-Komponen)
 | File | Ukuran | Konten |
 |------|--------|--------|
-| `menu/projects/Main.tsx` | ~280 baris | Projects Hub orchestrator dengan tampilan ganda (`ProjectsTable.tsx`, `ProjectCards.tsx`, `NewProjectModal.tsx`, `ProjectSettingsModal.tsx`, `ProjectCliInstallModal.tsx`, `ProjectServerLogsModal.tsx`) |
+| `menu/projects/Main.tsx` | ~280 baris | Projects Hub orchestrator dengan tampilan ganda (`ProjectsTable.tsx`, `ProjectCards.tsx`, `NewProjectModal.tsx`, `ProjectSettingsModal.tsx`, `ProjectAppLogsModal.tsx`, `ProjectEnvModal.tsx`, `ProjectSslHostsModal.tsx`) |
 | `menu/tools/terminal/Main.tsx` | ~250 baris | Developer Terminal multi-tab orchestrator (`TerminalInstance.tsx`, `TerminalTabBar.tsx`, `TerminalToolbar.tsx`, `TerminalSettingsModal.tsx`, `TerminalPresetsMenu.tsx`, `TerminalSavePresetModal.tsx`, `TerminalEnvModal.tsx`) |
+| `menu/tools/mail-sandbox/Main.tsx` | ~260 baris | UI Local Mail Sandbox (SMTP viewer, HTML/Text preview, attachment downloader, clear inbox) |
+| `menu/tools/webhook-inspector/Main.tsx` | ~250 baris | UI Local Webhook Inspector (request list, JSON payload formatter, header inspector, copy cURL) |
+| `menu/tools/port-manager/Main.tsx` | ~220 baris | UI System Port Manager (active port list, process killer modal, search/filter) |
+| `menu/utilities/*` | ~150–280 baris | Developer Utilities: `json-studio/Main.tsx`, `jwt-debugger/Main.tsx`, `crypto-generator/Main.tsx`, `regex-epoch/Main.tsx`, `data-converter/Main.tsx` |
+| `menu/tools/git/Main.tsx` | ~180 baris | Git manager UI dengan `GitLabIntegrationTab.tsx`, `GitAccountModal.tsx`, `GitLabAccountModal.tsx`, `InstallGitLabModal.tsx` |
 | `menu/tools/settings/SettingsModals.tsx` | ~460 baris | Modal settings terpusat (General, Logs, Updates, About) dengan pencarian 15 tema |
 | `context/ProjectContext.tsx` | ~320 baris | State provider Projects Hub: proses dev server, live logs, dan scaffolding multi-runtime |
+| `context/GitLabContext.tsx` | ~280 baris | State provider GitLab CLI: accounts, VPN status, recent issues, merge requests |
 | `context/AiContext.tsx` | ~350 baris | State provider AI global: SSE streaming, riwayat chat, usage stats, dual-layer action states persistence |
 | `menu/tools/tunnels/Main.tsx` | ~240 baris | UI tunnel publik (zrok + Cloudflare) dengan Card & Table View mode dan searchable project selector (`TunnelsComponents.tsx`, `InstallTunnel.tsx`) |
 | `menu/apache/Main.tsx` | ~230 baris | Apache server UI (Golden Standard), didekomposisi bersama `ApacheInstallModal.tsx` |
-| `menu/database/Main.tsx` | ~220 baris | Database instance cards & table view (`DatabaseTable.tsx`), didekomposisi bersama `NewInstance.tsx`, `DatabasePasswordModal.tsx`, dan `Settings.tsx` |
+| `menu/database/Main.tsx` | ~220 baris | Database instance cards & table view (`DatabaseTable.tsx`), didekomposisi bersama `NewInstance.tsx`, `DatabasePasswordModal.tsx`, `RedisStatsWidget.tsx`, dan `Settings.tsx` |
 | `menu/runtimes/Main.tsx` | ~140 baris | Runtime orchestrator (Node, Python, Java, Go) dengan `RuntimePathHub.tsx` terpusat, `RuntimeTable.tsx`, dan `RuntimeEnginePanel.tsx` |
 | `menu/tools/ai-assistant/Main.tsx` | ~260 baris | Workspace penuh AI Copilot dengan `AiSettingsModal.tsx`, `AiUsageBadge.tsx`, `AiSuggestionChips.tsx`, dan `AiChatInput.tsx` |
-| `menu/tools/ai-assistant/components/*` | ~100–250 baris | Sub-komponen AI terisolasi: `AiActionCard.tsx`, `AiChatInput.tsx`, `AiChatMessage.tsx`, `AiFloatingWidget.tsx`, `AiSuggestionChips.tsx`, `AiUsageBadge.tsx`, `AiSettingsModal.tsx` |
+| `menu/tools/ai-assistant/components/*` | ~100–250 baris | Sub-komponen AI terisolasi: `AiActionCard.tsx`, `GitLabActionCard.tsx`, `AiChatInput.tsx`, `AiChatMessage.tsx`, `AiFloatingWidget.tsx`, `AiSuggestionChips.tsx`, `AiUsageBadge.tsx` |
 | `menu/dashboard/Main.tsx` | ~120 baris | Dashboard orchestrator, didekomposisi bersama `components/DashboardControlPanel.tsx`, `RecentProjectsSection.tsx`, `SystemResourcesCard.tsx`, dan `OptimizationSuggestions.tsx` |
 | `menu/php/Main.tsx` | ~160 baris | PHP instance cards & table view (`PhpTable.tsx`), didekomposisi bersama `NewInstance.tsx` dan `Settings.tsx` |
-| `menu/tools/git/Main.tsx` | ~140 baris | Git manager UI dengan in-card alert & adaptive status badge (`GitComponents.tsx`, `InstallGitModal.tsx`, `GitUninstallModal.tsx`) |
-| `menu/tools/markdown-viewer/Main.tsx` | ~200 baris | UI Markdown Documentation Viewer (`FolderTreeView.tsx`, `MarkdownRenderer.tsx`) |
-| `menu/tools/qr-generator/Main.tsx` | ~320 baris | UI alat QR Generator (Client-side) |
-| `menu/tools/base64-encode-decode/Main.tsx` | ~310 baris | UI alat Base64 Encode/Decode (Client-side) |
-| `menu/tools/url-encode-decode/Main.tsx` | ~175 baris | UI alat URL Encode/Decode (Client-side) |
+| `menu/tools/markdown-viewer/Main.tsx` | ~200 baris | UI Markdown Documentation Viewer (`FolderTreeView.tsx`, `MarkdownRenderer.tsx`, `DocAiDrawer.tsx`) |
+| `components/Input.tsx` | ~90 baris | Komponen input teks standar theme-aware dengan label terhubung a11y (`id`/`htmlFor`) |
+| `components/TableActionMenu.tsx` | ~120 baris | Dropdown popover action menu untuk tabel data |
 | `components/DataTable.tsx` | ~180 baris | Komponen tabel data modern berdensitas tinggi (compact/normal/relaxed) |
 | `components/skeleton/*` | ~30–140 baris | Sistem primitif Skeleton (`Skeleton.tsx`, `SkeletonCard.tsx`, `SkeletonForm.tsx`, `SkeletonDocument.tsx`, `SkeletonChatMessage.tsx`, `AppSkeletonLayout.tsx`) |
 
@@ -290,6 +366,7 @@ Semua state aplikasi disimpan di folder `data/` (di-ignore git). Format **selalu
 | `data/apache.json` | `{"active_version": "2.4.68"}` — **hanya** versi aktif, TIDAK menyimpan `port` (port Apache dikonfigurasi langsung di `httpd.conf`, bukan JSON ini) | `ApacheManager` |
 | `data/databases.json` *(plural — bukan `database.json`)* | List instance database `[{id, name, engine, version, port, dataDir, installDir}]` | `DatabaseManager` |
 | `data/projects.json` | List project multi-runtime `[{id, name, domain, path, runtime_engine, framework, proxy_port, php_version?, php_port?, host_synced, tunnel_url?}]` | `ProjectManager` (ditulis juga oleh `TunnelsManager` lewat `Api.project`) |
+| `data/gitlab.json` | `{"default_host": "gitlab.com", "default_account_id": "...", "accounts": [{id, host, username, token, auth_type, requires_vpn, is_default}]}` | `GitLabManager` |
 | `data/terminal_config.json` | Konfigurasi Developer Terminal: font family, font size, cursor style, blink, scrollback, copy on select, default shell profile | `TerminalManager` |
 | `data/terminal_presets.json` | List konfigurasi environment scoping preset tersimpan `[{id, name, shell, runtimes: {php?, node?, python?, java?, go?, git?}}]` | `TerminalManager` |
 | `data/terminal_sessions.json` | Snapshot tab sesi terminal untuk pemulihan workspace | `TerminalManager` |

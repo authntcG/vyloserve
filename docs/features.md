@@ -17,6 +17,7 @@ VyloServe dirancang sebagai alternatif yang jauh lebih cepat, estetik, dan ringa
 
 ## 3. Database (MariaDB, PostgreSQL, & Redis)
 - **Instalasi Triple-Engine:** Mendukung MariaDB (pengganti MySQL ringan), PostgreSQL, dan **Redis** (In-Memory Key-Value Data Store & Cache portable port 6379, konfigurasi `redis.conf`, kontrol memori `maxmemory` dan `maxmemory-policy`).
+- **Redis Live Stats & Monitoring Widget (`RedisStatsWidget`):** Dashboard statistik interaktif untuk instance Redis aktif, menyajikan pemantauan penggunaan memori RAM (`used_memory_human` / `maxmemory`), jumlah koneksi klien aktif (`connected_clients`), rasio hits/miss keyspace, uptime, dan tombol *Ping Test* real-time dengan indikator latensi milidetik.
 - **Database Schema Manager Terpadu:** Pengguna dapat mengelola skema database secara langsung dari UI via modal `DatabaseSchemaModal` (melihat daftar skema, membuat database/skema baru, dan menghapus skema dengan konfirmasi aman) untuk MySQL/MariaDB dan PostgreSQL tanpa memerlukan GUI client pihak ketiga seperti DBeaver atau HeidiSQL.
 - **Silent Start:** Menjalankan instance database melalui *daemon* tanpa menggunakan Windows Services. Membaca port secara kustom agar tidak bertabrakan dengan database sistem pengguna.
 - **Auto-Password & Config:** Melakukan parsing otomatis terhadap `my.ini`, `postgresql.conf`, dan `redis.conf` untuk menyesuaikan penggunaan memori (seperti `shared_buffers` atau `maxmemory`).
@@ -49,12 +50,21 @@ Modul independen di navigasi utama untuk mengelola siklus hidup proyek web dan a
 - **Auto Windows Hosts:** Melakukan injeksi domain lokal ke file `C:\Windows\System32\drivers\etc\hosts` secara aman dengan elevasi Administrator (UAC).
 - **Dev Server Process Manager:** Menjalankan, memantau, dan menghentikan proses server pengembangan latar belakang (*dev server*) per proyek secara independen, lengkap dengan dialog live log streaming (`get_project_server_logs`).
 - **Modal Terminal CLI Interaktif (`ProjectCliInstallModal`):** Menyediakan terminal berbasis `xterm.js` dengan streaming PTY dua arah saat instalasi framework meminta interaksi tanya-jawab CLI (seperti setup Next.js atau Vite) sehingga proses tidak pernah hang di latar belakang.
+- **Application Logs Viewer (`ProjectAppLogsModal`):** Penampil log komprehensif untuk runtime aplikasi dan dev server proyek, mendukung live auto-tailing, penyaringan level log (Info, Warning, Error), pencarian teks bebas, dan tombol ekspor log.
+- **Environment (.env) Editor Cerdas (`ProjectEnvModal`):** Editor variabel lingkungan terintegrasi dengan proteksi masking kata sandi/kunci sensitif, fitur perbandingan visual (*visual diffing*) sebelum menyimpan perubahan, dan auto-backup berkas `.env.bak`.
+- **Custom SSL Hosts Manager (`ProjectSslHostsModal`):** Manajemen nama domain sekunder dan subdomain kustom pada Virtual Host proyek, otomatis memperbarui sertifikat SSL Subject Alternative Names (SAN) dan sinkronisasi berkas `hosts` Windows dengan elevasi UAC.
 - **Smart Offline Partial Barrier:** Saat komputer tidak terhubung ke internet, wizard pembuatan project (`NewProject.tsx`) secara adaptif tetap mengizinkan opsi "Link Existing Directory" dan penyusunan "Raw Template" lokal tanpa terblokir oleh download framework remote, lengkap dengan tombol 1-klik untuk beralih ke template offline.
 - **Tampilan Ganda (Card View & Table View):** Fleksibilitas visual dengan opsi kerapatan tabel (*compact*, *normal*, *relaxed*) dan filter chip runtime.
 
-## 6. Git Version Control & Local SSL CA
+## 6. Git Version Control, Local SSL CA & GitLab CLI
 - **Portable Git:** Menginstal Git secara *portable*, dilengkapi pengaturan identitas global (`git config --global user.name` dan `user.email`) langsung dari antarmuka.
 - **Penyelarasan Status & Alert Native OS:** Kartu Git Core System menampilkan status badge adaptif (`Native OS`, `PATH Active`, `Isolated`) dan kotak alert kontekstual in-card (`data-testid="git-external-alert"`) bila Git native Windows terdeteksi, mengunci toggle registrasi PATH untuk menjaga integritas environment pengguna.
+- **GitLab CLI Integration (`GitLabManager`):** Tab terdedikasi untuk kolaborasi GitLab menggunakan biner portable `glab.exe`:
+  - *Multi-Host & Dual Auth:* Mendukung instance publik `gitlab.com` dan server *Self-Hosted GitLab* privat, dengan autentikasi Personal Access Token (PAT) dan opsi kloning SSH/HTTPS.
+  - *VPN Probing Circuit Breaker:* Deteksi dini jangkauan jaringan VPN kantor (`requires_vpn`) via TCP socket probe non-blocking (timeout 2s) untuk mencegah freeze antarmuka saat VPN terputus.
+  - *Issues & Merge Requests Viewer:* Menjelajah daftar issue dan MR aktif, label, dan assignee langsung dari antarmuka desktop.
+  - *AI Action Cards Integration:* Penyusunan draf komentar issue/MR oleh AI Copilot dengan konfirmasi persetujuan pengguna (Human-in-the-Loop) sebelum diposting ke remote.
+- **Local SSL CA:** Membuat Root Certificate Authority (CA) khusus untuk VyloServe (`VyloServeRootCA`) menggunakan OpenSSL (bawaan Apache), dan mendaftarkannya ke *Windows Trust Store* sehingga domain `.local` mendapatkan sertifikat HTTPS valid ("gembok hijau") di peramban web.
 - **Local SSL CA:** Membuat Root Certificate Authority (CA) khusus untuk VyloServe (`VyloServeRootCA`) menggunakan OpenSSL (bawaan Apache), dan mendaftarkannya ke *Windows Trust Store* sehingga domain `.local` mendapatkan sertifikat HTTPS valid ("gembok hijau") di peramban web.
 
 ## 7. Multi-Language, 15 Tema & Single-Instance IPC
@@ -111,6 +121,9 @@ Kumpulan utilitas pengembang modern dengan tata letak visual terpadu (12-column 
   - *Error Correction Level (ECC):* Pemilih tingkat koreksi error (`L` 7%, `M` 15%, `Q` 25%, `H` 30% - ideal untuk penyisipan logo).
   - *Visual Styling & Logo:* Kustomisasi pola dot (square, rounded, dots, classy), sudut, warna kustom, margin, resolusi piksel, dan penyisipan logo kustom dengan skala responsif.
   - *A11y Compliant:* Pemenuhan standar aksesibilitas 100% pada semua kontrol input melalui relasi `<FieldLabel htmlFor="...">` dan `<input id="...">`.
+- **Mail Sandbox (Server Pengujian Email Lokal / Catch-All SMTP):** Server daemon SMTP internal (*in-process async daemon*) yang mendengarkan pada port default `1025` untuk menangkap seluruh email keluar dari aplikasi web lokal (Laravel, WordPress, Node.js) tanpa pernah mengirim email ke internet nyata. Menyediakan viewer terisolasi (HTML sandbox iframe, teks polos, header MIME lengkap, dan lampiran file yang dapat diunduh), ekspor satu-klik ke format `.eml`, dan tombol pembersihan antrean pesan.
+- **Webhook Inspector (Pemeriksa Request Webhook & HTTP Logger):** Daemon HTTP internal di port default `9000` untuk menangkap dan menguji kiriman payload webhook dari payment gateway (Midtrans, Stripe) atau Git provider. Mencatat metode HTTP, header, payload JSON/form data, status code respons yang dapat dikonfigurasi (`200`, `400`, `500`), serta generator perintah cURL satu-klik untuk mempermudah replikasi request di terminal pengembang.
+- **Port Manager & Pemeriksa Proses OS (Port Inspector & Safe Process Killer):** Pemindai port TCP aktif tingkat sistem operasi Windows (`psutil`) yang menampilkan nomor port, status koneksi (`LISTENING`, `ESTABLISHED`), nomor PID, nama file executable (`.exe`), dan nama layanan. Menyediakan pencarian instan dan aksi pematian proses aman (*Safe Process Kill*) yang dipagari proteksi terhadap proses kritis Windows dan proses internal VyloServe.
 
 ## 12. Histori Notifikasi & Notifikasi Native Windows
 - **Ikon Lonceng Riwayat Toast:** Setiap notifikasi toast (sukses/error/peringatan/info) yang pernah muncul selama sesi aplikasi berjalan tercatat di panel riwayat, dibuka lewat ikon lonceng di footer Sidebar — bersampingan dengan tombol Settings saat sidebar diperluas, di atas indikator beban sistem (CPU) saat sidebar diciutkan. Badge menampilkan jumlah notifikasi belum dibaca (di-cap "9+"), otomatis ter-reset begitu panel dibuka.
@@ -149,4 +162,21 @@ Terminal terintegrasi di dalam aplikasi desktop yang dirancang khusus untuk keny
 - **Unified `<OfflineBanner>` Komponen:** Menampilkan spanduk peringatan non-intrusif di seluruh modal instalasi jika koneksi tidak tersedia, lengkap dengan tombol *Retry Connection* yang memverifikasi koneksi ulang secara instan.
 - **Pencegahan Hang & Fallback Palsu:** Menghilangkan placeholder yang menyesatkan saat offline dan membatalkan fallback versi statis lama yang rentan gagal di tengah jalan.
 - **Asynchronous Cancellation Token (`core/utils/cancellation.py`):** Seluruh proses pengunduhan dan ekstraksi multi-tahap (Apache, PHP, Database, Runtimes, Git, Tunnels) terhubung ke registry token pembatalan. Menekan tombol "Cancel" pada widget progress secara aman memutus koneksi streaming, membatalkan thread ekstraksi, dan melakukan auto-rollback (penghapusan arsip parsial dan direktori target yang belum rampung) sehingga disk pengguna tetap bersih dan tidak korup.
+
+## 16. Developer Utilities Hub (Pusat Utilitas Pengembang Mandiri)
+Hub utilitas pengembang mandiri di menu navigasi `Utilities` yang berjalan 100% lokal (*offline-first*) di komputer pengguna:
+- **JSON Studio:** Editor dan penampil data JSON dengan mode split teks & hierarki pohon interaktif (*collapsible tree view*), validasi sintaks seketika dengan penandaan baris error, pemformat indentasi (2/4 spasi), pemadatan (*minify*), evaluasi kueri JSONPath (misal `$.users[*].email`), dan pemuatan template contoh siap pakai.
+- **JWT Debugger:** Pemeriksa dan pembongkar JSON Web Token dengan segmentasi visual 3 warna (Header, Payload, Signature), kalkulator status kedaluwarsa waktu nyata (`exp`, `nbf`, `iat`) dengan hitung mundur waktu relatif, dan verifikasi tanda tangan HMAC-SHA256 offline menggunakan secret key lokal.
+- **Crypto Generator & Hasher:** Kalkulator hash string instan (MD5, SHA-1, SHA-256, SHA-512) dengan opsi format huruf besar/kecil, komputasi HMAC dengan kunci rahasia, pembangkit pengenal unik universal UUID v4 (tunggal maupun massal), dan pembuat kata sandi / token acak berentropi tinggi dengan kontrol panjang karakter serta perpaduan alfabet, angka, dan simbol.
+- **Regex & Epoch Studio:** Penguji ekspresi reguler interaktif dengan penyorotan kecocokan visual secara langsung saat mengetik, dukungan bendera regex standar (`g`, `i`, `m`, `s`, `u`), dan tabel grup tangkapan (*capture groups*); terintegrasi dengan konverter waktu Unix Epoch dua arah (konversi milidetik/detik ke tanggal lokal/UTC yang mudah dibaca manusia dan sebaliknya) lengkap dengan tombol pintas waktu saat ini (*Now*).
+- **Data Converter:** Utilitas transformasi struktur data dua arah tanpa kehilangan informasi (*lossless conversion*) antara format JSON, YAML, XML, dan CSV, dilengkapi pengaturan indentasi dan pemisah kolom.
+
+## 17. Native Splash Bootstrapper & Sistem Pemulihan Mandiri (3-Tier Self-Healing)
+Inisialisasi aplikasi tingkat profesional setara IDE modern untuk menjamin keandalan sistem sejak startup awal:
+- **Instant Native Frameless Splash Window:** Jendela native Windows instan yang langsung muncul dalam milidetik sebelum modul berat WebView2 dimuat, menampilkan logo frosted matte 3D, versi aplikasi, indikator langkah inisialisasi dwibahasa, animasi progress bar halus, dan sinkronisasi otomatis dengan 15 preset tema aktif pengguna dari `data/settings.json`.
+- **3-Tier Self-Healing Pipeline:**
+  - *Tier 1: Orphan Process Cleanup:* Memindai dan mematikan proses zombie latar belakang yang tertinggal akibat aplikasi crash atau mati mendadak (`httpd.exe`, `php-cgi.exe`, `mysqld.exe`, `postgres.exe`, `redis-server.exe`, `cloudflared.exe`, `zrok.exe`, `glab.exe`).
+  - *Tier 2: Port Conflict Preflight:* Mendeteksi dini apakah port-port default sistem sedang disandera oleh aplikasi eksternal (seperti IIS atau Skype) dan menyajikan laporan diagnostik proaktif.
+  - *Tier 3: Configuration & Storage Integrity Check:* Memvalidasi integritas file konfigurasi JSON (`settings.json`, `projects.json`, `databases.json`, `gitlab.json`), membuat cadangan `.bak` otomatis bila korup, dan memulihkan template default yang bersih.
+- **Smooth Handshake & Flicker-Free Startup:** Jendela splash ditutup secara mulus hanya setelah frontend React di WebView2 menembakkan event kesiapan `vylo_app_ready`.
 

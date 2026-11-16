@@ -14,7 +14,8 @@ def api_instance():
          patch('core.api.DatabaseManager'), \
          patch('core.api.RuntimesManager'), \
          patch('core.api.GitManager'), \
-         patch('core.api.SettingsManager'):
+         patch('core.api.SettingsManager'), \
+         patch('core.api.HealthManager'):
         api = Api()
         yield api
 
@@ -23,6 +24,8 @@ def test_api_manager_aliases(api_instance):
     assert api_instance.settings_manager is api_instance.settings
     assert api_instance.runtimes is api_instance.runtimes_manager
     assert api_instance.git is api_instance.git_manager
+    assert api_instance.mail is api_instance.mail_sandbox
+    assert api_instance.webhook is api_instance.webhook_inspector
 
 def test_set_notification_icon_stores_the_path(api_instance):
     api_instance.set_notification_icon("C:\\fake\\icons-nobg.png")
@@ -307,9 +310,9 @@ def test_project_endpoints(api_instance):
     assert api_instance.browse_save_file("backup.sql") == "d:/test"
     
     with patch('webbrowser.open'):
-        assert api_instance.open_browser("url")["status"] == "success"
+        assert api_instance.open_browser("http://example.com")["status"] == "success"
     with patch('webbrowser.open', side_effect=Exception("error")):
-        assert api_instance.open_browser("url")["status"] == "error"
+        assert api_instance.open_browser("http://example.com")["status"] == "error"
         
     api_instance.detect_framework("dir")
     api_instance.project.detect_framework.assert_called_once_with("dir")
@@ -834,6 +837,98 @@ def test_cancel_installation_endpoints(api_instance):
         res = api_instance.cancel_installation("database")
         assert res == {"status": "error", "message": "backend.common.no_active_installation"}
         mock_cancel.assert_called_once_with("database")
+
+
+def test_mail_sandbox_api_facades(api_instance):
+    api_instance.mail_sandbox = MagicMock()
+    api_instance.get_mail_sandbox_status()
+    api_instance.mail_sandbox.get_status.assert_called_once()
+
+    api_instance.start_mail_sandbox(1025)
+    api_instance.mail_sandbox.start_server.assert_called_once_with(1025)
+
+    api_instance.stop_mail_sandbox()
+    api_instance.mail_sandbox.stop_server.assert_called_once()
+
+    api_instance.get_mail_sandbox_messages()
+    api_instance.mail_sandbox.get_messages.assert_called_once()
+
+    api_instance.get_mail_sandbox_message_detail("m1")
+    api_instance.mail_sandbox.get_message_detail.assert_called_once_with("m1")
+
+    api_instance.delete_mail_sandbox_message("m1")
+    api_instance.mail_sandbox.delete_message.assert_called_once_with("m1")
+
+    api_instance.clear_mail_sandbox_messages()
+    api_instance.mail_sandbox.clear_messages.assert_called_once()
+
+    api_instance.send_test_mail()
+    api_instance.mail_sandbox.send_test_email.assert_called_once()
+
+
+def test_webhook_inspector_api_facades(api_instance):
+    api_instance.webhook_inspector = MagicMock()
+    api_instance.get_webhook_inspector_status()
+    api_instance.webhook_inspector.get_status.assert_called_once()
+
+    api_instance.start_webhook_listener(8787)
+    api_instance.webhook_inspector.start_listener.assert_called_once_with(8787)
+
+    api_instance.stop_webhook_listener()
+    api_instance.webhook_inspector.stop_listener.assert_called_once()
+
+    api_instance.start_webhook_public_tunnel()
+    api_instance.webhook_inspector.start_public_tunnel.assert_called_once()
+
+    api_instance.stop_webhook_public_tunnel()
+    api_instance.webhook_inspector.stop_public_tunnel.assert_called_once()
+
+    api_instance.get_webhook_history()
+    api_instance.webhook_inspector.get_history.assert_called_once()
+
+    api_instance.get_webhook_detail("w1")
+    api_instance.webhook_inspector.get_webhook_detail.assert_called_once_with("w1")
+
+    api_instance.clear_webhook_history()
+    api_instance.webhook_inspector.clear_history.assert_called_once()
+
+    api_instance.set_webhook_response_config(200, "application/json", "{}")
+    api_instance.webhook_inspector.set_response_config.assert_called_once_with(200, "application/json", "{}")
+
+    api_instance.get_webhook_response_config()
+    api_instance.webhook_inspector.get_response_config.assert_called_once()
+
+    api_instance.send_sample_webhook()
+    api_instance.webhook_inspector.send_sample_webhook.assert_called_once()
+
+    api_instance.send_http_request("POST", "http://test", {"H": "1"}, "{}", 10)
+    api_instance.webhook_inspector.send_http_request.assert_called_once_with("POST", "http://test", {"H": "1"}, "{}", 10)
+
+
+def test_bootstrap_listener_and_health_report(api_instance):
+    listener = MagicMock()
+    api_instance.set_bootstrap_listener(listener)
+    assert api_instance._bootstrap_listener == listener
+
+    # emit_bootstrap_status calls listener
+    api_instance.emit_bootstrap_status(35, "backend.health.checking_php", {"ver": "8.3"}, is_recovering=True)
+    listener.assert_called_once_with(35, "backend.health.checking_php", {"ver": "8.3"}, True)
+
+    # run_startup_health_check caches report
+    mock_report = {"status": "success", "recovered": [], "purged": []}
+    api_instance.health.run_startup_health_check.return_value = mock_report
+
+    res1 = api_instance.run_startup_health_check()
+    assert res1 == mock_report
+    assert api_instance._startup_health_report == mock_report
+    api_instance.health.run_startup_health_check.assert_called_once()
+
+    # get_startup_health_report returns cached report without re-running
+    res2 = api_instance.get_startup_health_report()
+    assert res2 == mock_report
+    api_instance.health.run_startup_health_check.assert_called_once()  # still called once
+
+
 
 
 

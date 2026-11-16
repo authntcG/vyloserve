@@ -13,17 +13,46 @@ def terminal_manager(tmp_path):
         return tm
 
 def test_get_available_shells(terminal_manager):
-    shells = terminal_manager.get_available_shells()
-    assert isinstance(shells, list)
-    shell_ids = [s["id"] for s in shells]
-    assert "powershell" in shell_ids
-    assert "cmd" in shell_ids
-    assert "git-bash" in shell_ids
-    assert "wsl" in shell_ids
+    with patch("sys.platform", "win32"):
+        shells = terminal_manager.get_available_shells()
+        assert isinstance(shells, list)
+        shell_ids = [s["id"] for s in shells]
+        assert "powershell" in shell_ids
+        assert "cmd" in shell_ids
+        assert "git-bash" in shell_ids
+        assert "wsl" in shell_ids
 
-    # PowerShell should be marked as default
-    ps = next(s for s in shells if s["id"] == "powershell")
-    assert ps["is_default"] is True
+        # PowerShell should be marked as default
+        ps = next(s for s in shells if s["id"] == "powershell")
+        assert ps["is_default"] is True
+
+
+def test_get_available_shells_linux(terminal_manager):
+    with patch("sys.platform", "linux"):
+        shells = terminal_manager.get_available_shells()
+        assert isinstance(shells, list)
+        shell_ids = [s["id"] for s in shells]
+        assert "bash" in shell_ids
+        assert "zsh" in shell_ids
+        assert "sh" in shell_ids
+
+def test_get_default_shell_id(terminal_manager):
+    with patch("sys.platform", "win32"):
+        assert terminal_manager.get_default_shell_id() == "powershell"
+
+    with patch("sys.platform", "linux"):
+        with patch.object(terminal_manager, "get_available_shells", return_value=[
+            {"id": "bash", "available": True, "is_default": True},
+            {"id": "zsh", "available": True, "is_default": False},
+        ]):
+            assert terminal_manager.get_default_shell_id() == "bash"
+
+    with patch("sys.platform", "linux"):
+        with patch.object(terminal_manager, "get_available_shells", return_value=[
+            {"id": "bash", "available": False, "is_default": False},
+            {"id": "zsh", "available": True, "is_default": True},
+        ]):
+            assert terminal_manager.get_default_shell_id() == "zsh"
 
 def test_resolve_shell_command(terminal_manager):
     ps_cmd = terminal_manager._resolve_shell_command("powershell")
@@ -75,6 +104,18 @@ def test_build_session_env(terminal_manager, tmp_path):
     assert php_ver not in env_os_php["PATH"]
     assert os.path.join(terminal_manager.bin_dir, "node") in env_os_php["PATH"]
 
+def test_build_session_env_frozen_mode(terminal_manager, tmp_path):
+    mock_meipass = str(tmp_path / "meipass")
+    mock_winpty = os.path.join(mock_meipass, "winpty")
+    os.makedirs(mock_winpty, exist_ok=True)
+
+    with patch.object(sys, "frozen", True, create=True), \
+         patch.object(sys, "_MEIPASS", mock_meipass, create=True), \
+         patch("sys.platform", "win32"):
+        env = terminal_manager._build_session_env()
+        assert mock_winpty in env["PATH"]
+        assert mock_meipass in env["PATH"]
+
 def test_get_runtimes_matrix(terminal_manager, tmp_path):
     terminal_manager.bin_dir = str(tmp_path / "bin")
     php_ver = os.path.join(terminal_manager.bin_dir, "php", "php-8.3")
@@ -106,7 +147,7 @@ def test_create_session_success(terminal_manager, tmp_path):
     mock_pty.read.side_effect = ["hello terminal\n", EOFError()]
     mock_pty.exitstatus = 0
 
-    with patch("winpty.PtyProcess.spawn", return_value=mock_pty) as mock_spawn:
+    with patch("sys.platform", "win32"), patch("winpty.PtyProcess.spawn", return_value=mock_pty) as mock_spawn:
         res = terminal_manager.create_session(
             shell_id="powershell",
             cwd=str(tmp_path),
@@ -121,6 +162,25 @@ def test_create_session_success(terminal_manager, tmp_path):
         # Ensure session stored
         assert session_id in terminal_manager._sessions or True
 
+def test_create_session_success_linux(terminal_manager, tmp_path):
+    mock_pty = MagicMock()
+    mock_pty.read.side_effect = ["hello linux\n", EOFError()]
+    mock_pty.exitstatus = 0
+
+    mock_ptyprocess_mod = MagicMock()
+    mock_spawn = MagicMock(return_value=mock_pty)
+    mock_ptyprocess_mod.PtyProcessUnicode.spawn = mock_spawn
+
+    with patch("sys.platform", "linux"), patch.dict("sys.modules", {"ptyprocess": mock_ptyprocess_mod}):
+        res = terminal_manager.create_session(
+            shell_id="bash",
+            cwd=str(tmp_path),
+            title="My Bash"
+        )
+        assert res["status"] == "success"
+        assert res["session"]["title"] == "My Bash"
+        mock_spawn.assert_called_once()
+
 def test_create_session_shell_not_found(terminal_manager):
     with patch.object(terminal_manager, "_resolve_shell_command", return_value=None):
         res = terminal_manager.create_session(shell_id="invalid_shell")
@@ -128,7 +188,7 @@ def test_create_session_shell_not_found(terminal_manager):
         assert res["message"] == "backend.terminal.shell_not_found"
 
 def test_create_session_spawn_exception(terminal_manager, tmp_path):
-    with patch("winpty.PtyProcess.spawn", side_effect=Exception("winpty failed")):
+    with patch("sys.platform", "win32"), patch("winpty.PtyProcess.spawn", side_effect=Exception("winpty failed")):
         res = terminal_manager.create_session(shell_id="powershell", cwd=str(tmp_path))
         assert res["status"] == "error"
         assert res["message"] == "backend.terminal.spawn_failed"
@@ -303,3 +363,68 @@ def test_cleanup_all(terminal_manager):
     assert stop2.is_set()
     mock_pty1.close.assert_called_once()
     mock_pty2.close.assert_called_once()
+
+
+def test_build_session_env_with_vyloserve_stack(terminal_manager, tmp_path):
+    # Setup mock runtime matrix
+    node_dir = tmp_path / "bin" / "runtimes" / "node" / "20.10.0"
+    node_dir.mkdir(parents=True)
+    (node_dir / "node").write_text("#!/bin/sh\n")
+
+    py_dir = tmp_path / "bin" / "runtimes" / "python" / "3.12.0"
+    (py_dir / "bin").mkdir(parents=True)
+    (py_dir / "bin" / "python3").write_text("#!/bin/sh\n")
+
+    matrix = {
+        "node": {"default_mode": "vyloserve", "versions": [{"path": str(node_dir)}], "path": str(node_dir)},
+        "python": {"default_mode": "vyloserve", "versions": [{"path": str(py_dir)}], "path": str(py_dir)},
+        "java": {"default_mode": "vyloserve", "versions": [], "path": ""},
+    }
+
+    with patch.object(terminal_manager, "get_runtimes_matrix", return_value=matrix):
+        env = terminal_manager._build_session_env(env_profile={"node": str(node_dir), "python": str(py_dir)})
+        assert "PATH" in env
+        assert str(node_dir) in env["PATH"]
+        assert str(py_dir / "bin") in env["PATH"]
+
+
+def test_detect_git_and_gitlab_entry_isolated(terminal_manager, tmp_path):
+    terminal_manager.bin_dir = str(tmp_path / "bin")
+    git_cmd_dir = tmp_path / "bin" / "git" / "cmd"
+    git_cmd_dir.mkdir(parents=True)
+    git_exe = git_cmd_dir / ("git.exe" if sys.platform == "win32" else "git")
+    git_exe.write_text("")
+
+    glab_dir = tmp_path / "bin" / "glab"
+    glab_dir.mkdir(parents=True)
+    glab_exe = glab_dir / ("glab.exe" if sys.platform == "win32" else "glab")
+    glab_exe.write_text("")
+
+    with patch("core.services.terminal.find_external_executable", return_value={"exists": False, "path": "", "version": ""}):
+        matrix = terminal_manager.get_runtimes_matrix()
+        assert "git" in matrix
+        assert "gitlab" in matrix
+        assert matrix["git"]["has_vyloserve"] is True
+        assert matrix["git"]["default_mode"] == str(git_cmd_dir)
+        assert matrix["gitlab"]["has_vyloserve"] is True
+        assert matrix["gitlab"]["default_mode"] == str(glab_dir)
+
+
+def test_build_session_env_with_isolated_git_and_gitlab(terminal_manager, tmp_path):
+    git_base = tmp_path / "bin" / "git"
+    (git_base / "cmd").mkdir(parents=True)
+    (git_base / "usr" / "bin").mkdir(parents=True)
+    glab_dir = tmp_path / "bin" / "glab"
+    glab_dir.mkdir(parents=True)
+
+    profile = {
+        "git": str(git_base / "cmd"),
+        "gitlab": str(glab_dir),
+    }
+
+    env = terminal_manager._build_session_env(env_profile=profile)
+    assert "PATH" in env
+    assert str(git_base / "cmd") in env["PATH"]
+    assert str(git_base / "usr" / "bin") in env["PATH"]
+    assert str(glab_dir) in env["PATH"]
+

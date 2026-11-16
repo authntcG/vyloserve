@@ -327,7 +327,10 @@ describe('NewProject', () => {
 
         await user.click(screen.getByRole('button', { name: 'apache.php_engine' }));
         const pyOption = screen.getByRole('option', { name: /apache\.runtime_python/ });
-        expect(pyOption).toHaveAttribute('aria-disabled', 'true');
+        expect(pyOption).toHaveAttribute('aria-disabled', 'false');
+
+        const goOption = screen.getByRole('option', { name: /apache\.runtime_go/ });
+        expect(goOption).toHaveAttribute('aria-disabled', 'true');
 
         const nodeOption = screen.getByRole('option', { name: /apache\.runtime_node/ });
         expect(nodeOption).toHaveAttribute('aria-disabled', 'false');

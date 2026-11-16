@@ -114,7 +114,7 @@ def test_verify_and_patch_httpd(mock_exists, mock_makedirs, mock_update_php, moc
 def test_move_apache_extract(apache_manager):
     with patch('shutil.move') as mock_move:
         with patch('os.path.exists', return_value=True):
-            with patch('shutil.rmtree') as mock_rm:
+            with patch('core.services.apache.safe_rmtree') as mock_rm:
                 apache_manager._move_apache_extract("temp_dir", "target_dir")
                 mock_move.assert_called_once()
                 mock_rm.assert_called_once()
@@ -176,7 +176,7 @@ def test_apache_uninstall(apache_manager):
     with patch('os.path.exists', side_effect=[True, True]): # base_dir, json_file
         with patch('os.listdir', return_value=["dir1", "file1.txt"]):
             with patch('os.path.isdir', side_effect=lambda x: "dir1" in x):
-                with patch('shutil.rmtree') as mock_rmtree:
+                with patch('core.services.apache.safe_rmtree') as mock_rmtree:
                     with patch('os.remove') as mock_remove:
                         res = apache_manager.uninstall()
                         assert res['status'] == 'success'
@@ -237,13 +237,14 @@ def test_apache_install_version_prog_cb_accepts_three_positional_args(mock_confi
 
     mock_api.emit_progress.assert_any_call(42, "backend.common.extracting_files", {"index": 1, "total": 5})
 
+@patch('core.services.apache.time.sleep')
 @patch.object(ApacheManager, '_get_active_version', return_value="2.4.68")
 @patch.object(ApacheManager, 'get_status', return_value={"installed": True, "path": "test_path", "version": "2.4.68"})
 @patch('core.services.apache.start_silent_process')
 @patch('core.services.apache.run_silent_command')
 @patch.object(ApacheManager, 'check_is_running')
 @patch.object(ApacheManager, '_verify_and_patch_httpd')
-def test_apache_server_lifecycle(mock_verify, mock_check, mock_run, mock_start, mock_get_status, mock_get_active, apache_manager):
+def test_apache_server_lifecycle(mock_verify, mock_check, mock_run, mock_start, mock_get_status, mock_get_active, mock_sleep, apache_manager):
     # Test start
     mock_proc = MagicMock()
     mock_proc.poll.return_value = None
@@ -258,7 +259,7 @@ def test_apache_server_lifecycle(mock_verify, mock_check, mock_run, mock_start, 
     mock_check.side_effect = [True, False]
     res = apache_manager.stop_server()
     assert res['status'] == 'success'
-    mock_run.assert_called_once()
+    assert mock_run.call_count >= 1
 
     # Test restart
     with patch.object(ApacheManager, 'stop_server', return_value={"status": "success"}) as mock_stop, \
@@ -301,11 +302,12 @@ def test_apache_get_available_versions(mock_urlopen, apache_manager):
     mock_response.read.return_value.decode.return_value = 'href="httpd-2.4.50-win64-VS16.zip"'
     mock_urlopen.return_value = mock_response
     
-    with patch.object(apache_manager, '_parse_apache_versions_html', return_value=[{"version": "2.4.50"}]):
-        res = apache_manager.get_available_versions()
-        assert res['status'] == 'success'
-        assert len(res['data']) > 0
-        assert res['data'][0]['version'] == '2.4.50'
+    with patch('sys.platform', 'win32'):
+        with patch.object(apache_manager, '_parse_apache_versions_html', return_value=[{"version": "2.4.50"}]):
+            res = apache_manager.get_available_versions()
+            assert res['status'] == 'success'
+            assert len(res['data']) > 0
+            assert res['data'][0]['version'] == '2.4.50'
 
 @patch('core.services.apache.os.path.exists', return_value=True)
 @patch('core.services.apache.os.listdir', return_value=["2.4.50", "2.4.51"])
@@ -407,10 +409,38 @@ def test_get_installed_folders_empty_when_base_dir_missing(apache_manager):
 # ==========================================
 
 def test_get_status_not_installed(apache_manager):
-    with patch.object(apache_manager, 'check_is_running', return_value=False):
-        with patch.object(apache_manager, '_get_installed_folders', return_value={}):
-            res = apache_manager.get_status()
-    assert res == {"status": "success", "installed": False, "version": None, "path": None, "running": False}
+    with patch.object(apache_manager, 'check_is_running', return_value=False), \
+         patch.object(apache_manager, '_check_system_apache', return_value={"exists": False, "version": "", "path": "", "running": False}), \
+         patch.object(apache_manager, '_get_installed_folders', return_value={}):
+        res = apache_manager.get_status()
+    assert res == {
+        "status": "success",
+        "installed": False,
+        "version": None,
+        "path": None,
+        "running": False,
+        "system_apache": {"exists": False, "version": "", "path": "", "running": False}
+    }
+
+def test_check_system_apache_windows(apache_manager):
+    with patch('sys.platform', 'win32'):
+        res = apache_manager._check_system_apache()
+        assert res["exists"] is False
+
+def test_check_system_apache_found(apache_manager):
+    with patch('sys.platform', 'linux'), \
+         patch('shutil.which', return_value="/usr/sbin/apache2"), \
+         patch('subprocess.run', return_value=MagicMock(stdout="Server version: Apache/2.4.58 (Ubuntu)\n", stderr="")):
+        res = apache_manager._check_system_apache()
+        assert res["exists"] is True
+        assert res["version"] == "2.4.58"
+        assert res["path"] == "/usr/sbin/apache2"
+
+def test_check_system_apache_not_found(apache_manager):
+    with patch('sys.platform', 'linux'), \
+         patch('shutil.which', return_value=None):
+        res = apache_manager._check_system_apache()
+        assert res["exists"] is False
 
 def test_get_status_self_heals_when_saved_active_version_missing(apache_manager):
     """Jika versi aktif tersimpan sudah tidak ada di disk, harus otomatis pindah ke versi terbaru terinstal."""
@@ -589,7 +619,7 @@ def test_get_available_versions_returns_unknown_error_on_non_network_exception(a
 
 @patch('core.services.apache.download_advanced', side_effect=OSError("network down"))
 @patch('core.services.apache.os.remove')
-@patch('core.services.apache.shutil.rmtree')
+@patch('core.services.apache.safe_rmtree')
 def test_install_version_rolls_back_on_download_failure(mock_rmtree, mock_remove, mock_download, apache_manager):
     with patch.object(apache_manager, 'get_status', return_value={"installed": False}), \
          patch('core.services.apache.os.path.exists', side_effect=lambda path: "apache-2.4.60.zip" in path):
@@ -608,7 +638,7 @@ def test_install_version_cancelled_cleans_up_and_returns_cancelled(apache_manage
          patch('core.services.apache.os.path.exists', side_effect=lambda path: "apache-2.4.60.zip" in path), \
          patch('core.services.apache.download_advanced', side_effect=OperationCancelledError("Cancelled")), \
          patch('core.services.apache.os.remove') as mock_remove, \
-         patch('core.services.apache.shutil.rmtree') as mock_rmtree:
+         patch('core.services.apache.safe_rmtree') as mock_rmtree:
         res = apache_manager.install_version("2.4.60", "http://example.com/apache.zip", 8080)
 
     assert res['status'] == 'cancelled'
@@ -622,7 +652,7 @@ def test_install_version_cancelled_cleans_up_and_returns_cancelled(apache_manage
 
 def test_open_directory_linux_branch(apache_manager):
     with patch.object(apache_manager, 'get_status', return_value={"installed": True, "path": "/opt/apache"}):
-        with patch('os.makedirs'):
+        with patch('os.makedirs'), patch('os.path.exists', return_value=True):
             with patch('sys.platform', 'linux'):
                 with patch('subprocess.Popen') as mock_popen:
                     res = apache_manager.open_directory()
@@ -825,7 +855,8 @@ def test_stop_server_uses_pkill_on_non_windows(apache_manager):
         with patch('core.services.apache.run_silent_command') as mock_run:
             res = apache_manager.stop_server()
     assert res['status'] == 'success'
-    mock_run.assert_called_once_with(['pkill', '-', 'httpd'])
+    mock_run.assert_any_call(['pkill', '-f', 'httpd'])
+    mock_run.assert_any_call(['pkill', '-f', 'apache2'])
 
 # ==========================================
 # Pintasan Direktori & Status Port
@@ -883,3 +914,83 @@ def test_apache_get_ports_status(apache_manager):
         assert res['status'] == 'success'
         assert res['data']['http']['status'] == 'conflict'
         assert res['data']['https']['status'] == 'ready'
+
+
+def test_install_apache_linux_success(apache_manager):
+    with patch('shutil.which', side_effect=lambda x: f"/usr/bin/{x}" if x in ("pkexec", "apt-get") else None), \
+         patch('core.services.apache.run_silent_command', return_value=MagicMock(returncode=0)), \
+         patch('core.services.apache.subprocess.run', return_value=MagicMock(returncode=0)):
+        res = apache_manager._install_apache_linux()
+        assert res['status'] == 'success'
+        assert res['message'] == 'backend.apache.linux_install_success'
+
+
+def test_install_apache_linux_auth_cancelled(apache_manager):
+    with patch('shutil.which', side_effect=lambda x: f"/usr/bin/{x}" if x in ("pkexec", "apt-get") else None), \
+         patch('core.services.apache.run_silent_command', return_value=MagicMock(returncode=0)), \
+         patch('core.services.apache.subprocess.run', return_value=MagicMock(returncode=126)):
+        res = apache_manager._install_apache_linux()
+        assert res['status'] == 'error'
+        assert res['message'] == 'backend.apache.auth_cancelled'
+
+
+def test_install_apache_linux_no_pkexec(apache_manager):
+    with patch('shutil.which', return_value=None):
+        res = apache_manager._install_apache_linux()
+        assert res['status'] == 'error'
+        assert res['message'] == 'backend.apache.no_pkexec'
+
+
+def test_ensure_home_traversal_permission(apache_manager):
+    mock_stat = MagicMock(st_mode=0o750)
+    with patch('sys.platform', 'linux'), \
+         patch('os.stat', return_value=mock_stat), \
+         patch('os.chmod') as mock_chmod:
+        apache_manager._ensure_home_traversal_permission()
+        mock_chmod.assert_called_once()
+        assert mock_chmod.call_args[0][1] & 0o001 == 1
+
+
+def test_ensure_linux_apache_integration_debian(apache_manager, tmp_path):
+    orig_isdir = os.path.isdir
+    with patch('sys.platform', 'linux'), \
+         patch('core.services.apache.get_project_root', return_value=str(tmp_path)), \
+         patch.object(apache_manager, 'get_status', return_value={"installed": True, "path": "/usr/sbin/apache2", "system": True}), \
+         patch('os.path.isdir', side_effect=lambda d: True if d == "/etc/apache2" else orig_isdir(d)), \
+         patch('os.path.exists', return_value=False), \
+         patch('shutil.which', return_value="/usr/bin/pkexec"), \
+         patch('core.services.apache.subprocess.run', return_value=MagicMock(returncode=0)) as mock_run:
+        res = apache_manager._ensure_linux_apache_integration()
+        assert res is True
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert cmd[0] == "/usr/bin/pkexec"
+        assert "a2enmod" in cmd[3]
+        assert "a2enconf vyloserve" in cmd[3]
+
+
+def test_reload_server_linux_systemctl(apache_manager):
+    with patch('sys.platform', 'linux'), \
+         patch.object(apache_manager, 'get_status', return_value={"installed": True, "path": "/usr/sbin/apache2", "system": True}), \
+         patch('shutil.which', side_effect=lambda x: f"/usr/bin/{x}" if x in ("systemctl", "pkexec", "apache2") else None), \
+         patch('core.services.apache.subprocess.run', return_value=MagicMock(returncode=0)) as mock_run:
+        res = apache_manager.reload_server()
+        assert res['status'] == 'success'
+        assert res['message'] == 'backend.apache.reloaded'
+        mock_run.assert_called_once()
+        assert mock_run.call_args[0][0] == ["/usr/bin/systemctl", "reload", "apache2"]
+
+
+def test_reload_server_windows(apache_manager, tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    httpd_exe = bin_dir / "httpd.exe"
+    httpd_exe.write_text("dummy")
+
+    with patch('sys.platform', 'win32'), \
+         patch.object(apache_manager, 'get_status', return_value={"installed": True, "path": str(tmp_path)}), \
+         patch('core.services.apache.run_silent_command') as mock_cmd:
+        res = apache_manager.reload_server()
+        assert res['status'] == 'success'
+        mock_cmd.assert_called_once_with([str(httpd_exe), "-k", "restart"])
+
